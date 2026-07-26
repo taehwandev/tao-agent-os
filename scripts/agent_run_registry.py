@@ -29,6 +29,8 @@ def register_run(
     evidence_path: Path,
     route: dict[str, Any],
     request_intake: dict[str, Any] | None,
+    *,
+    reuse_active: bool = False,
 ) -> dict[str, Any]:
     """Register a new run without persisting request text or local paths."""
 
@@ -37,6 +39,7 @@ def register_run(
         "run_id": uuid.uuid4().hex,
         "project_id": _opaque_project_id(project),
         "evidence_name": evidence_path.name,
+        "evidence_key": _evidence_key(project, evidence_path),
         "command": str(route.get("command") or "task"),
         "route_fingerprint": route_fingerprint(route),
         "request_fingerprint": request_fingerprint(request_intake),
@@ -47,6 +50,24 @@ def register_run(
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
+        if reuse_active:
+            existing = next(
+                (
+                    item
+                    for item in reversed(payload["runs"])
+                    if item.get("state") in {"running", "paused"}
+                    and _matches_evidence(item, project, evidence_path)
+                    and item.get("command") == run["command"]
+                    and item.get("request_fingerprint") == run["request_fingerprint"]
+                ),
+                None,
+            )
+            if existing is not None:
+                existing["route_fingerprint"] = run["route_fingerprint"]
+                existing["state"] = "running"
+                existing["updated_at"] = now
+                _write_registry(path, payload)
+                return existing
         payload["runs"].append(run)
         payload["runs"] = payload["runs"][-MAX_RUNS:]
         _write_registry(path, payload)
@@ -68,7 +89,9 @@ def transition_run(
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
-        candidates = [run for run in payload["runs"] if run.get("evidence_name") == evidence_path.name]
+        candidates = [
+            run for run in payload["runs"] if _matches_evidence(run, project, evidence_path)
+        ]
         if run_id:
             candidates = [run for run in candidates if run.get("run_id") == run_id]
         if not candidates:
@@ -92,8 +115,34 @@ def latest_run_id(project: Path, evidence_path: Path) -> str | None:
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
-        matches = [run for run in payload["runs"] if run.get("evidence_name") == evidence_path.name]
+        matches = [
+            run for run in payload["runs"] if _matches_evidence(run, project, evidence_path)
+        ]
         return str(matches[-1]["run_id"]) if matches and matches[-1].get("run_id") else None
+
+
+def active_run_conflict(
+    project: Path,
+    evidence_path: Path,
+    *,
+    command: str,
+    request_intake: dict[str, Any] | None,
+) -> bool:
+    """Reject overwriting active evidence that belongs to another request."""
+
+    expected_request = request_fingerprint(request_intake)
+    path = registry_path(project)
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        return any(
+            run.get("state") in {"running", "paused"}
+            and _matches_evidence(run, project, evidence_path)
+            and (
+                run.get("command") != command
+                or run.get("request_fingerprint") != expected_request
+            )
+            for run in payload["runs"]
+        )
 
 
 def recover_stale_runs(project: Path, *, stale_after_seconds: int = 3600) -> list[dict[str, Any]]:
@@ -153,6 +202,25 @@ def _write_registry(path: Path, payload: dict[str, Any]) -> None:
 
 def _opaque_project_id(project: Path) -> str:
     return hashlib.sha256(str(project.resolve()).encode("utf-8")).hexdigest()
+
+
+def _evidence_key(project: Path, evidence_path: Path) -> str:
+    try:
+        value = evidence_path.resolve().relative_to(project.resolve()).as_posix()
+    except ValueError:
+        value = str(evidence_path.resolve())
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _matches_evidence(run: dict[str, Any], project: Path, evidence_path: Path) -> bool:
+    key = str(run.get("evidence_key") or "")
+    if key:
+        return key == _evidence_key(project, evidence_path)
+    legacy_default = project.resolve() / ".tao" / "preflight.json"
+    return (
+        evidence_path.resolve() == legacy_default
+        and run.get("evidence_name") == evidence_path.name
+    )
 
 
 def _safe_event(project: Path, event_type: str, *, run_id: str, state: str) -> None:

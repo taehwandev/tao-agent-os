@@ -26,6 +26,7 @@ from agent_finish_gate_policy import MULTI_AGENT_GATE, validate_gate_evidence
 from agent_finish_check_steps import validate_recorded_grill_me_evidence
 from agent_finish_documentation import required_doc_target_failures
 from agent_hook_runtime import finish_with_result, print_status
+from agent_skill_catalog import canonical_skill_ids
 
 
 def preflight_evidence_path(args: argparse.Namespace) -> Path:
@@ -266,6 +267,10 @@ def _validate_records_before_write(
             gate_evidence,
             list(gate_evidence),
             route=route,
+            allowed_skill_ids=canonical_skill_ids(
+                args.project,
+                getattr(args, "rules", Path(__file__).resolve().parents[1]),
+            ),
         )
     )
     failures.extend(validate_recorded_grill_me_evidence(route, gate_evidence))

@@ -21,10 +21,7 @@ from support.permission_entries import (
 )
 from support.setup_config_files import merge_codex_prefix_rules, merge_permissions_allow
 from support.graphify_setup import (
-    CANONICAL_SKILL_PATH,
     GLOBAL_PLATFORM_SKILL_DIRS,
-    PLATFORM_SKILL_DIRS,
-    TRACKING_POLICY_PATHS,
     _normalize_runtime_integrations,
     configure_target_graphify,
     graphify_platforms_for_runtimes,
@@ -32,7 +29,11 @@ from support.graphify_setup import (
     inspect_target_graphify,
 )
 from support.graphify_git_tracking import inspect_graphify_git_tracking
-from support.graphify_contract import PLATFORM_INTEGRATION_PATHS
+from support.graphify_contract import (
+    GLOBAL_CANONICAL_SKILL_PATH,
+    PROJECT_GRAPH_PATH,
+    PROJECT_MANIFEST_PATH,
+)
 from support.graphify_inspection import (
     inspect_project_graph_inputs,
     inspect_project_graph_state,
@@ -49,7 +50,26 @@ from support.stable_launcher import ensure_stable_launcher, stable_launcher_path
 
 
 class SetupAgentHooksTests(unittest.TestCase):
-    def test_codex_only_setup_skips_unrelated_global_graphify(self) -> None:
+    def test_default_setup_configures_all_detected_agent_runtimes(self) -> None:
+        with (
+            patch.object(sys, "argv", ["setup-agent-hooks.py", "--check"]),
+            patch.object(setup_agent_hooks_impl, "_has_codex", return_value=True),
+            patch.object(setup_agent_hooks_impl, "_has_claude", return_value=True),
+            patch.object(setup_agent_hooks_impl, "_has_agy", return_value=True),
+            patch.object(setup_agent_hooks_impl, "ensure_stable_launcher", return_value=[]),
+            patch.object(setup_agent_hooks_impl, "configure_codex", return_value=[]) as configure_codex,
+            patch.object(setup_agent_hooks_impl, "configure_claude", return_value=[]) as configure_claude,
+            patch.object(setup_agent_hooks_impl, "configure_agy", return_value=[]) as configure_agy,
+            patch.object(setup_agent_hooks_impl, "configure_global_graphify", return_value=[]),
+            patch.object(setup_agent_hooks_impl, "configure_target_projects", return_value=[]),
+        ):
+            setup_agent_hooks_impl.main()
+
+        configure_codex.assert_called_once()
+        configure_claude.assert_called_once()
+        configure_agy.assert_called_once()
+
+    def test_codex_only_setup_refreshes_shared_global_graphify(self) -> None:
         with (
             patch.object(
                 sys,
@@ -76,7 +96,7 @@ class SetupAgentHooksTests(unittest.TestCase):
         ):
             setup_agent_hooks_impl.main()
 
-        configure_global.assert_not_called()
+        configure_global.assert_called_once()
         ensure_launcher.assert_called_once_with(ROOT, True)
 
     def test_agy_only_setup_installs_stable_launcher(self) -> None:
@@ -100,167 +120,77 @@ class SetupAgentHooksTests(unittest.TestCase):
 
         ensure_launcher.assert_called_once_with(ROOT, False)
 
-    def test_global_graphify_stays_enabled_outside_codex_only_setup(self) -> None:
-        self.assertFalse(_should_configure_global_graphify({"codex"}))
+    def test_global_graphify_stays_enabled_for_every_runtime_setup(self) -> None:
+        self.assertTrue(_should_configure_global_graphify({"codex"}))
         self.assertTrue(_should_configure_global_graphify(set()))
         self.assertTrue(_should_configure_global_graphify({"claude"}))
         self.assertTrue(_should_configure_global_graphify({"codex", "claude"}))
 
-    def test_graphify_readiness_rejects_unregistered_json_integration_path(self) -> None:
+    def test_graphify_readiness_reports_leaked_runtime_assets_as_missing_integrations(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            project = Path(temp_dir)
-            hooks = project / ".codex" / "hooks.json"
-            hooks.parent.mkdir(parents=True)
-            hooks.write_text('{"graphify": true}', encoding="utf-8")
-            integration_paths = {
-                **PLATFORM_INTEGRATION_PATHS,
-                "codex": (Path(".codex/hooks.json"),),
-            }
+            root = Path(temp_dir)
+            project = root / "project"
+            leaked = project / ".codex" / "skills" / "graphify"
+            leaked.mkdir(parents=True)
+            (leaked / "SKILL.md").write_text("# leaked copy\n", encoding="utf-8")
 
             with patch(
-                "support.graphify_inspection.PLATFORM_INTEGRATION_PATHS",
-                integration_paths,
+                "support.graphify_inspection.shutil.which",
+                return_value="/tmp/graphify",
             ):
-                readiness = inspect_target_graphify(project, ["codex"])
+                readiness = inspect_target_graphify(
+                    project, ["codex"], home_path=root / "home"
+                )
 
-        self.assertIn(str(hooks), readiness["missing_integrations"])
-        self.assertNotIn(str(hooks), readiness["invalid_runtime_integration_links"])
+        self.assertIn(str(leaked), readiness["missing_integrations"])
+        self.assertEqual(
+            readiness["unexpected_project_runtime_assets"],
+            readiness["missing_integrations"],
+        )
+        self.assertFalse(readiness["project_integration_ready"])
+        self.assertFalse(readiness["ready"])
 
-    def test_git_tracking_rejects_legacy_runtime_files_until_link_is_staged(self) -> None:
+    def test_git_tracking_shim_reports_no_commit_obligations_for_legacy_runtime_files(self) -> None:
+        # Git no longer owns any Graphify asset in target repos: legacy skill
+        # copies are runtime-asset leaks (project boundary), not staging work.
         with tempfile.TemporaryDirectory() as temp_dir:
-            project = Path(temp_dir)
+            root = Path(temp_dir)
+            project = root / "project"
+            legacy_copy = project / ".codex" / "skills" / "graphify" / "SKILL.md"
+            legacy_copy.parent.mkdir(parents=True)
+            legacy_copy.write_text("# legacy copy\n", encoding="utf-8")
             subprocess.run(["git", "init", "-q"], cwd=project, check=True)
-            canonical = project / CANONICAL_SKILL_PATH
-            canonical.parent.mkdir(parents=True)
-            canonical.write_text("# canonical graphify\n", encoding="utf-8")
-            runtime_skill = project / PLATFORM_SKILL_DIRS["codex"]
-            runtime_skill.mkdir(parents=True)
-            (runtime_skill / "SKILL.md").write_text(
-                "# legacy copy\n", encoding="utf-8"
-            )
-            (project / ".codex" / "hooks.json").write_text(
-                '{"graphify": true}', encoding="utf-8"
-            )
-            graph = project / "graphify-out" / "graph.json"
-            graph.parent.mkdir(parents=True)
-            graph.write_text(
-                json.dumps(
-                    {
-                        "nodes": [
-                            {
-                                "id": "src_main",
-                                "file_type": "code",
-                                "source_file": "src/main.py",
-                            }
-                        ],
-                        "links": [],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            for relative in TRACKING_POLICY_PATHS:
-                policy = project / relative
-                policy.parent.mkdir(parents=True, exist_ok=True)
-                policy.write_text("# policy\n", encoding="utf-8")
-            subprocess.run(
-                ["git", "add", ".tao", ".codex", *map(str, TRACKING_POLICY_PATHS)],
-                cwd=project,
-                check=True,
-            )
-            for child in runtime_skill.iterdir():
-                child.unlink()
-            runtime_skill.rmdir()
-            runtime_skill.symlink_to(
-                "../../.tao/skills/graphify", target_is_directory=True
-            )
+            subprocess.run(["git", "add", "-A"], cwd=project, check=True)
 
-            before = inspect_graphify_git_tracking(project, ["codex"])
-            self.assertFalse(before["commit_ready"])
-            self.assertEqual(
-                [".codex/skills/graphify/SKILL.md"],
-                before["tracked_runtime_skill_copies"],
-            )
-            self.assertEqual(
-                [".codex/skills/graphify"], before["runtime_link_index_issues"]
-            )
+            tracking = inspect_graphify_git_tracking(project, ["codex"])
             with patch(
                 "support.graphify_inspection.shutil.which",
                 return_value="/tmp/graphify",
             ):
-                target_before = inspect_target_graphify(project, ["codex"])
-                before_results = configure_target_graphify(
-                    project, ["codex"], dry_run=True
+                results = configure_target_graphify(
+                    project, ["codex"], dry_run=True, home_path=root / "home"
                 )
-            self.assertTrue(target_before["runtime_ready"])
-            self.assertFalse(target_before["ready"])
-            self.assertTrue(
-                any(
-                    result["hook"] == "tracking.commit_boundary"
-                    and result["status"] == "missing"
-                    for result in before_results
-                )
-            )
 
-            subprocess.run(
-                ["git", "add", "-A", ".tao", ".codex"],
-                cwd=project,
-                check=True,
-            )
-            after = inspect_graphify_git_tracking(project, ["codex"])
-            with patch(
-                "support.graphify_inspection.shutil.which",
-                return_value="/tmp/graphify",
-            ):
-                target_after = inspect_target_graphify(project, ["codex"])
-                after_results = configure_target_graphify(
-                    project, ["codex"], dry_run=True
-                )
-            index_text = subprocess.run(
-                ["git", "ls-files", "--stage", "--", ".codex/skills/graphify"],
-                cwd=project,
-                check=True,
-                stdout=subprocess.PIPE,
-                text=True,
-            ).stdout
-
-            canonical.write_text("# staged content changed\n", encoding="utf-8")
-            dirty = inspect_graphify_git_tracking(project, ["codex"])
-            self.assertFalse(dirty["commit_ready"])
-            self.assertEqual(
-                [".tao/skills/graphify/SKILL.md"],
-                dirty["unstaged_commit_assets"],
-            )
-            subprocess.run(
-                ["git", "add", ".tao/skills/graphify/SKILL.md"],
-                cwd=project,
-                check=True,
-            )
-            restaged = inspect_graphify_git_tracking(project, ["codex"])
-
-        self.assertTrue(after["commit_ready"])
-        self.assertFalse(target_after["ready"])
-        self.assertFalse(target_after["graph_fresh"])
+        self.assertIsNone(tracking["commit_ready"])
+        self.assertEqual([], tracking["tracked_runtime_skill_copies"])
+        self.assertEqual([], tracking["runtime_link_index_issues"])
+        self.assertEqual([], tracking["unstaged_commit_assets"])
+        self.assertFalse(
+            any(result["hook"].startswith("tracking.") for result in results)
+        )
         self.assertTrue(
             any(
-                result["hook"] == "tracking.commit_boundary"
-                and result["status"] == "ok"
-                for result in after_results
+                result["hook"] == "project.runtime_asset"
+                and result["status"] == "missing"
+                and result["path"] == str(legacy_copy.parent)
+                for result in results
             )
         )
-        self.assertEqual([], after["tracked_runtime_skill_copies"])
-        self.assertEqual([], after["runtime_link_index_issues"])
-        self.assertEqual([], after["policy_untracked_files"])
-        self.assertEqual([], after["unstaged_commit_assets"])
-        self.assertEqual([], after["ignored_commit_assets"])
-        self.assertTrue(index_text.startswith("120000 "))
-        self.assertTrue(index_text.endswith("\t.codex/skills/graphify\n"))
-        self.assertNotIn(".codex/skills/graphify/SKILL.md", index_text)
-        self.assertTrue(restaged["commit_ready"])
 
     def test_global_graphify_readiness_requires_one_canonical_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             home = Path(temp_dir)
-            canonical = home / CANONICAL_SKILL_PATH
+            canonical = home / GLOBAL_CANONICAL_SKILL_PATH
             canonical.parent.mkdir(parents=True)
             canonical.write_text("# canonical graphify\n")
             for platform in ("agents", "antigravity", "claude", "codex"):
@@ -297,12 +227,32 @@ class SetupAgentHooksTests(unittest.TestCase):
 
     def test_target_graphify_readiness_accepts_ast_graph_without_document_code_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            project = Path(temp_dir)
-            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+            root = Path(temp_dir)
+            project = root / "project"
+            home = root / "home"
+            project.mkdir()
+            canonical = home / GLOBAL_CANONICAL_SKILL_PATH
+            canonical.parent.mkdir(parents=True)
+            canonical.write_text("# graphify\n", encoding="utf-8")
+            for platform in ("agents", "codex"):
+                link = home / GLOBAL_PLATFORM_SKILL_DIRS[platform]
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(
+                    os.path.relpath(canonical.parent, start=link.parent),
+                    target_is_directory=True,
+                )
+
             source = project / "src" / "main.py"
             source.parent.mkdir()
             source.write_text("VALUE = 1\n", encoding="utf-8")
-            subprocess.run(["git", "add", "src/main.py"], cwd=project, check=True)
+            guide = project / ".agents" / "wiki" / "guide.md"
+            guide.parent.mkdir(parents=True)
+            guide.write_text("# Guide\n", encoding="utf-8")
+            (project / ".graphifyignore").write_text(
+                ".agents/local/\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+            subprocess.run(["git", "add", "-A"], cwd=project, check=True)
             subprocess.run(
                 [
                     "git", "-c", "user.name=Tao Agent OS", "-c",
@@ -318,21 +268,8 @@ class SetupAgentHooksTests(unittest.TestCase):
                 text=True,
                 stdout=subprocess.PIPE,
             ).stdout.strip()
-            canonical = project / CANONICAL_SKILL_PATH
-            canonical.parent.mkdir(parents=True)
-            canonical.write_text("# graphify\n", encoding="utf-8")
-            skill_link = project / PLATFORM_SKILL_DIRS["codex"]
-            skill_link.parent.mkdir(parents=True)
-            skill_link.symlink_to("../../.tao/skills/graphify", target_is_directory=True)
-            hooks = project / ".codex" / "hooks.json"
-            hooks.write_text('{"graphify": true}', encoding="utf-8")
-            agents = project / "AGENTS.md"
-            agents.write_text("## graphify\n", encoding="utf-8")
-            guide = project / ".agents" / "wiki" / "guide.md"
-            guide.parent.mkdir(parents=True)
-            guide.write_text("# Guide\n", encoding="utf-8")
-            graph = project / "graphify-out" / "graph.json"
-            graph.parent.mkdir()
+            graph = project / PROJECT_GRAPH_PATH
+            graph.parent.mkdir(parents=True)
             graph.write_text(
                 json.dumps(
                     {
@@ -354,40 +291,10 @@ class SetupAgentHooksTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (project / "graphify-out" / "manifest.json").write_text(
-                json.dumps(
-                    {"src/main.py": {"mtime": source.stat().st_mtime}}
-                ),
-                encoding="utf-8",
-            )
-            for relative in TRACKING_POLICY_PATHS:
-                policy = project / relative
-                policy.parent.mkdir(parents=True, exist_ok=True)
-                policy.write_text("# policy\n", encoding="utf-8")
-            subprocess.run(["git", "add", "-A"], cwd=project, check=True)
-            subprocess.run(
-                [
-                    "git", "-c", "user.name=Tao Agent OS", "-c",
-                    "user.email=tao@example.invalid", "commit", "-qm", "integration",
-                ],
-                cwd=project,
-                check=True,
-            )
-            head = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=project,
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-            ).stdout.strip()
-            graph_payload = json.loads(graph.read_text(encoding="utf-8"))
-            graph_payload["built_at_commit"] = head
-            graph.write_text(json.dumps(graph_payload), encoding="utf-8")
-            (project / "graphify-out" / "manifest.json").write_text(
+            (project / PROJECT_MANIFEST_PATH).write_text(
                 json.dumps(
                     {
                         "src/main.py": {"mtime": source.stat().st_mtime},
-                        "AGENTS.md": {"mtime": agents.stat().st_mtime},
                         ".agents/wiki/guide.md": {"mtime": guide.stat().st_mtime},
                     }
                 ),
@@ -395,44 +302,48 @@ class SetupAgentHooksTests(unittest.TestCase):
             )
 
             with patch("support.graphify_inspection.shutil.which", return_value="/tmp/graphify"):
-                result = inspect_target_graphify(project, ["codex"])
+                result = inspect_target_graphify(project, ["codex"], home_path=home)
 
         self.assertTrue(result["ready"], result)
         self.assertEqual(str(graph), result["graph_path"])
         self.assertEqual(str(canonical), result["canonical_skill_doc"])
+        self.assertEqual([], result["unexpected_project_runtime_assets"])
         self.assertTrue(result["graph_integrity_ready"])
         self.assertFalse(result["graph_relationship_ready"])
 
     def test_graphify_skill_matches_ast_only_readiness_policy(self) -> None:
-        skill = (
-            ROOT / "docs" / "skills" / "graphify-project-integration" / "SKILL.md"
+        skill_dir = ROOT / "docs" / "skills" / "graphify-project-integration"
+        skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        guidance = (
+            skill_dir / "references" / "current-guidance.md"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("AST-only graph", skill)
-        self.assertIn("does not fail a current", skill)
-        self.assertNotIn(
-            "When project docs and code both exist, the graph must contain",
-            skill,
-        )
+        self.assertIn("an AST-only graph", guidance)
+        self.assertIn("not mandatory", guidance)
+        for text in (skill, guidance):
+            self.assertNotIn(
+                "When project docs and code both exist, the graph must contain",
+                text,
+            )
 
     def test_graphify_input_policy_preserves_project_agent_knowledge(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             guides = [
                 project / ".agents" / "llm-wiki" / "guide.md",
-                project / ".claude" / "skills" / "review" / "SKILL.md",
-                project / ".codex" / "skills" / "testing" / "SKILL.md",
+                project / ".agents" / "skills" / "review" / "SKILL.md",
+                project / ".agents" / "wiki" / "testing.md",
             ]
             for guide in guides:
                 guide.parent.mkdir(parents=True)
                 guide.write_text("# Project guide\n", encoding="utf-8")
             managed = (
                 "# tao-graphify-inputs:start\n"
-                ".tao/\n.agents/\n.claude/\n.codex/\ngraphify-out/\n"
+                ".tao/\n.agents/\n.agents/local/\ngraphify-out/\n"
                 "# tao-graphify-inputs:end\n"
             )
             (project / ".graphifyignore").write_text(managed, encoding="utf-8")
-            manifest = project / "graphify-out" / "manifest.json"
+            manifest = project / PROJECT_MANIFEST_PATH
             manifest.parent.mkdir(parents=True)
             manifest.write_text(
                 json.dumps(
@@ -466,16 +377,17 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertTrue(after["graph_input_policy_ready"])
         self.assertTrue(after["knowledge_manifest_ready"])
         self.assertNotIn("\n.agents/\n", policy)
-        self.assertIn(".agents/skills/graphify", policy)
-        self.assertIn(".agents/rules/graphify.md", policy)
-        self.assertIn(".agents/workflows/graphify.md", policy)
-        self.assertIn(".claude/settings.local.json", policy)
+        self.assertIn(".tao/", policy)
+        self.assertIn(".agents/local/", policy)
+        self.assertIn("graphify-out/", policy)
 
-    def test_graphify_input_policy_rejects_blanket_runtime_exclusion_before_knowledge_exists(self) -> None:
+    def test_graphify_input_policy_rejects_blanket_knowledge_exclusion_before_knowledge_exists(self) -> None:
+        # .claude/.codex are user-level runtime homes now, not project
+        # knowledge inputs; only a blanket .agents exclusion is a policy break.
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             (project / ".graphifyignore").write_text(
-                ".claude/\n",
+                ".claude/\n.agents/\n",
                 encoding="utf-8",
             )
 
@@ -483,7 +395,7 @@ class SetupAgentHooksTests(unittest.TestCase):
 
         self.assertFalse(state["graph_input_policy_ready"])
         self.assertEqual(
-            [".graphifyignore:.claude/"],
+            [".graphifyignore:.agents/"],
             state["blanket_knowledge_input_exclusions"],
         )
 
@@ -493,7 +405,10 @@ class SetupAgentHooksTests(unittest.TestCase):
             guide = project / ".agents" / "wiki" / "guide.md"
             guide.parent.mkdir(parents=True)
             guide.write_text("# Guide\n", encoding="utf-8")
-            manifest = project / "graphify-out" / "manifest.json"
+            (project / ".graphifyignore").write_text(
+                ".agents/local/\n", encoding="utf-8"
+            )
+            manifest = project / PROJECT_MANIFEST_PATH
             manifest.parent.mkdir(parents=True)
             manifest.write_text(
                 json.dumps(
@@ -546,6 +461,7 @@ class SetupAgentHooksTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            original_root_content = root_ignore.read_text(encoding="utf-8")
             install_tracking_policies(project)
             content = policy.read_text(encoding="utf-8")
             root_content = root_ignore.read_text(encoding="utf-8")
@@ -553,16 +469,17 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertEqual(1, content.count("# tao-graphify-inputs:start"))
         self.assertEqual(1, content.count("# tao-graphify-inputs:end"))
         self.assertIn("# keep", content)
+        # Only the managed block is rewritten: superseded block bodies are
+        # replaced with the current inputs while user-owned lines survive.
         self.assertNotIn("\n.agents/\n", content)
         self.assertNotIn("\n.codex/\n", content)
-        self.assertNotIn("\n.claude/\n", content)
-        self.assertNotIn("\n.codex/**\n", content)
-        self.assertNotIn(".agents/", root_content)
-        self.assertNotIn(".claude/\n", root_content)
-        self.assertNotIn(".codex/**", root_content)
-        self.assertIn(".claude/settings.json", root_content)
-        self.assertIn(".claude/settings.local.json", root_content)
-        self.assertIn(".codex/hooks.json", root_content)
+        self.assertIn("\n.claude/\n", content)
+        self.assertIn(".codex/**", content)
+        self.assertIn(".tao/", content)
+        self.assertIn(".agents/local/", content)
+        self.assertIn("graphify-out/", content)
+        # Graphify no longer owns the project .gitignore.
+        self.assertEqual(original_root_content, root_content)
 
     def test_graph_freshness_ignores_managed_runtime_adapter_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -593,8 +510,8 @@ class SetupAgentHooksTests(unittest.TestCase):
                 text=True,
                 stdout=subprocess.PIPE,
             ).stdout.strip()
-            graph = project / "graphify-out" / "graph.json"
-            graph.parent.mkdir()
+            graph = project / PROJECT_GRAPH_PATH
+            graph.parent.mkdir(parents=True)
             graph.write_text(
                 json.dumps(
                     {
@@ -611,13 +528,13 @@ class SetupAgentHooksTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (project / "graphify-out" / "manifest.json").write_text(
+            (project / PROJECT_MANIFEST_PATH).write_text(
                 json.dumps({"src/main.py": {"mtime": source.stat().st_mtime}}),
                 encoding="utf-8",
             )
-            adapter = project / ".codex" / "hooks.json"
-            adapter.parent.mkdir()
-            adapter.write_text('{"graphify": true}', encoding="utf-8")
+            adapter = project / ".agents" / "rules" / "graphify.md"
+            adapter.parent.mkdir(parents=True)
+            adapter.write_text("# legacy adapter\n", encoding="utf-8")
             nested_evidence = project / "scripts" / ".tao" / "preflight.json"
             nested_evidence.parent.mkdir(parents=True)
             nested_evidence.write_text('{"runtime": true}', encoding="utf-8")
@@ -667,8 +584,8 @@ class SetupAgentHooksTests(unittest.TestCase):
                 text=True,
                 stdout=subprocess.PIPE,
             ).stdout.strip()
-            graph = project / "graphify-out" / "graph.json"
-            graph.parent.mkdir()
+            graph = project / PROJECT_GRAPH_PATH
+            graph.parent.mkdir(parents=True)
             graph.write_text(
                 json.dumps(
                     {
@@ -684,7 +601,7 @@ class SetupAgentHooksTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (project / "graphify-out" / "manifest.json").write_text(
+            (project / PROJECT_MANIFEST_PATH).write_text(
                 json.dumps(
                     {
                         "src/main.py": {"mtime": source.stat().st_mtime},
@@ -713,7 +630,7 @@ class SetupAgentHooksTests(unittest.TestCase):
                 check=True,
             )
             stale = inspect_project_graph_state(project, graph)
-            (project / "graphify-out" / "manifest.json").write_text(
+            (project / PROJECT_MANIFEST_PATH).write_text(
                 json.dumps(
                     {
                         "src/main.py": {"mtime": source.stat().st_mtime},
@@ -738,7 +655,7 @@ class SetupAgentHooksTests(unittest.TestCase):
     def test_project_graph_integrity_rejects_malformed_and_duplicate_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
-            graph = project / "graphify-out" / "graph.json"
+            graph = project / PROJECT_GRAPH_PATH
             graph.parent.mkdir(parents=True)
             graph.write_text(
                 json.dumps(
@@ -769,8 +686,8 @@ class SetupAgentHooksTests(unittest.TestCase):
             source = project / "src" / "main.py"
             source.parent.mkdir()
             source.write_text("VALUE = 1\n", encoding="utf-8")
-            graph = project / "graphify-out" / "graph.json"
-            graph.parent.mkdir()
+            graph = project / PROJECT_GRAPH_PATH
+            graph.parent.mkdir(parents=True)
             graph.write_text(
                 json.dumps(
                     {
@@ -809,7 +726,7 @@ class SetupAgentHooksTests(unittest.TestCase):
     def test_target_graphify_readiness_fails_closed_without_git_revision(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
-            graph = project / "graphify-out" / "graph.json"
+            graph = project / PROJECT_GRAPH_PATH
             graph.parent.mkdir(parents=True)
             graph.write_text(
                 json.dumps(
@@ -829,150 +746,112 @@ class SetupAgentHooksTests(unittest.TestCase):
 
     def test_target_graphify_readiness_rejects_duplicated_runtime_skill_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            project = Path(temp_dir)
-            canonical = project / CANONICAL_SKILL_PATH
+            root = Path(temp_dir)
+            project = root / "project"
+            home = root / "home"
+            canonical = home / GLOBAL_CANONICAL_SKILL_PATH
             canonical.parent.mkdir(parents=True)
             canonical.write_text("# canonical graphify\n", encoding="utf-8")
-            copied = project / PLATFORM_SKILL_DIRS["codex"] / "SKILL.md"
+            for platform in ("agents", "codex"):
+                link = home / GLOBAL_PLATFORM_SKILL_DIRS[platform]
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(
+                    os.path.relpath(canonical.parent, start=link.parent),
+                    target_is_directory=True,
+                )
+            copied = project / ".codex" / "skills" / "graphify" / "SKILL.md"
             copied.parent.mkdir(parents=True)
             copied.write_text("# copied graphify\n", encoding="utf-8")
-            (project / ".codex" / "hooks.json").write_text('{"graphify": true}')
-            (project / "AGENTS.md").write_text("## graphify\n")
-            graph = project / "graphify-out" / "graph.json"
-            graph.parent.mkdir()
-            graph.write_text("{}")
-            for relative in TRACKING_POLICY_PATHS:
-                policy = project / relative
-                policy.parent.mkdir(parents=True, exist_ok=True)
-                policy.write_text("# policy\n")
+            graph = project / PROJECT_GRAPH_PATH
+            graph.parent.mkdir(parents=True)
+            graph.write_text("{}", encoding="utf-8")
 
             with patch("support.graphify_inspection.shutil.which", return_value="/tmp/graphify"):
-                result = inspect_target_graphify(project, ["codex"])
+                result = inspect_target_graphify(project, ["codex"], home_path=home)
 
         self.assertFalse(result["ready"])
-        self.assertEqual([str(project / PLATFORM_SKILL_DIRS["codex"])], result["invalid_runtime_links"])
+        self.assertFalse(result["project_integration_ready"])
+        self.assertEqual(
+            [str(copied.parent)], result["unexpected_project_runtime_assets"]
+        )
+        self.assertEqual([], result["invalid_runtime_links"])
 
-    def test_runtime_integration_removes_prose_copies_and_links_agy_adapters(self) -> None:
+    def test_runtime_integration_normalizer_never_mutates_target_projects(self) -> None:
+        # The project-mutation integration design is retired: the shim keeps
+        # the entrypoint importable but must not rewrite project instructions,
+        # touch runtime settings, or create adapter links in the checkout.
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
-            canonical = project / CANONICAL_SKILL_PATH
-            canonical.parent.mkdir(parents=True)
-            canonical.write_text("# canonical graphify\n")
             (project / "AGENTS.md").write_text(
-                "# Project\n\n## graphify\n\nCopied rules.\n\n"
-                "## Project Scope and Ownership\n\nGraphify-out copied policy.\n\n"
-                "## Local\n\nKeep me.\n"
-            )
-            (project / "CLAUDE.md").write_text(
-                "# Claude\n\n"
-                "This file only adds the project-scoped Graphify routing note for Claude.\n\n"
-                "## graphify\n\nCopied rules.\n"
-            )
-            nested = project / ".claude" / "CLAUDE.md"
-            nested.parent.mkdir(parents=True)
-            nested.write_text(
-                "---\nkeyflow_id: generated\nstatus: review\ntype: ai-generated\n---\n\n"
-                "# graphify\nCopied registration.\n"
+                "# Project\n\n## Local\n\nKeep me.\n", encoding="utf-8"
             )
             settings = project / ".claude" / "settings.json"
+            settings.parent.mkdir(parents=True)
             settings.write_text(
-                json.dumps(
-                    {
-                        "permissions": {"allow": ["keep-this-permission"]},
-                        "hooks": {
-                            "PreToolUse": [
-                                {
-                                    "matcher": "Read|Glob",
-                                    "hooks": [
-                                        {
-                                            "type": "command",
-                                            "command": "SPILL_AI_TOOL=claude graphify hook-guard read",
-                                        }
-                                    ],
-                                }
-                            ],
-                            "PostToolUse": [
-                                {
-                                    "matcher": "Bash",
-                                    "hooks": [
-                                        {
-                                            "type": "command",
-                                            "command": 'bash -lc "graphify hook-guard read"',
-                                        }
-                                    ],
-                                }
-                            ],
-                            "UserPromptSubmit": [
-                                {
-                                    "hooks": [
-                                        {"type": "command", "command": "keep-this-hook"}
-                                    ]
-                                }
-                            ],
-                        },
-                    }
-                ),
+                json.dumps({"permissions": {"allow": ["keep-this-permission"]}}),
                 encoding="utf-8",
             )
+            before = {
+                path: path.read_bytes()
+                for path in sorted(project.rglob("*"))
+                if path.is_file()
+            }
 
-            _normalize_runtime_integrations(project, ["antigravity", "claude", "codex"])
-
-            self.assertNotIn("graphify", (project / "AGENTS.md").read_text().lower())
-            self.assertIn("## Local", (project / "AGENTS.md").read_text())
-            self.assertNotIn("graphify", (project / "CLAUDE.md").read_text().lower())
-            self.assertFalse(nested.exists())
-            self.assertNotIn("hook-guard", settings.read_text(encoding="utf-8"))
-            normalized_settings = json.loads(settings.read_text(encoding="utf-8"))
-            self.assertEqual(["keep-this-permission"], normalized_settings["permissions"]["allow"])
-            self.assertEqual(
-                "keep-this-hook",
-                normalized_settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
+            results = _normalize_runtime_integrations(
+                project, ["antigravity", "claude", "codex"]
             )
+
+            after = {
+                path: path.read_bytes()
+                for path in sorted(project.rglob("*"))
+                if path.is_file()
+            }
             for relative in (
                 Path(".agents/rules/graphify.md"),
                 Path(".agents/workflows/graphify.md"),
+                Path(".tao/skills/graphify"),
             ):
-                link = project / relative
-                self.assertTrue(link.is_symlink())
-                self.assertTrue(link.resolve().is_file())
-                self.assertIn(
-                    str((project / ".tao/skills/graphify/runtime/antigravity").resolve()),
-                    str(link.resolve()),
-                )
+                leaked = project / relative
+                self.assertFalse(leaked.exists() or leaked.is_symlink())
+
+        self.assertEqual([], results)
+        self.assertEqual(before, after)
 
     def test_target_graphify_dry_run_reports_missing_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            project = Path(temp_dir)
+            root = Path(temp_dir)
+            project = root / "project"
+            project.mkdir()
 
             with patch("support.graphify_configuration.shutil.which", return_value="/tmp/graphify"):
-                results = configure_target_graphify(project, ["codex"], dry_run=True)
+                results = configure_target_graphify(
+                    project, ["codex"], dry_run=True, home_path=root / "home"
+                )
 
             self.assertTrue(any(result["status"] == "missing" for result in results))
-            self.assertFalse((project / "graphify-out").exists())
+            self.assertEqual([], list(project.iterdir()))
 
     def test_target_graphify_install_never_runs_initial_extraction(self) -> None:
+        # Target configuration is inspection-only: it never invokes the
+        # Graphify CLI (install or extract) and never writes into the repo.
         with tempfile.TemporaryDirectory() as temp_dir:
-            project = Path(temp_dir)
+            root = Path(temp_dir)
+            project = root / "project"
+            project.mkdir()
 
-            with patch("support.graphify_configuration.shutil.which", return_value="/tmp/graphify"), patch(
-                "support.graphify_configuration.subprocess.run",
-                return_value=subprocess.CompletedProcess([], 0),
-            ) as run, patch(
-                "support.graphify_configuration.install_canonical_skill",
-                return_value=True,
-            ), patch("support.graphify_configuration.replace_runtime_skill_with_link"):
-                configure_target_graphify(project, ["codex"], dry_run=False)
+            with patch(
+                "support.graphify_inspection.shutil.which",
+                return_value="/tmp/graphify",
+            ), patch("support.graphify_graph_freshness.subprocess.run") as run:
+                configure_target_graphify(
+                    project, ["codex"], dry_run=False, home_path=root / "home"
+                )
 
-        commands = [call.args[0] for call in run.call_args_list]
-        install_command = [
-            "/tmp/graphify",
-            "install",
-            "--project",
-            "--platform",
-            "codex",
-        ]
-        self.assertIn(install_command, commands)
-        self.assertNotIn("extract", install_command)
+            self.assertEqual([], list(project.iterdir()))
+
+        executed = [call.args[0][0] for call in run.call_args_list]
+        self.assertNotIn("/tmp/graphify", executed)
+        self.assertTrue(all(command == "git" for command in executed))
 
     def test_graphify_runtime_mapping_uses_project_platforms(self) -> None:
         self.assertEqual(
@@ -1004,7 +883,7 @@ class SetupAgentHooksTests(unittest.TestCase):
                 self.assertTrue(os.access(launcher, os.X_OK))
                 self.assertEqual(f"{ROOT.resolve()}\n", pointer.read_text())
                 self.assertIn("scripts/workflow.py", launcher.read_text())
-                self.assertIn('Path.home() / "git" / "tao-agent-os"', launcher.read_text())
+                self.assertIn('ROOT_POINTER_NAME = "tao-root"', launcher.read_text())
                 self.assertIn('"execution-capsule": "agent_execution_capsule.py"', launcher.read_text())
                 self.assertIn('"agent-os-status": "agent-os-status.py"', launcher.read_text())
                 self.assertIn('"agent-os-watchdog": "agent-os-watchdog.py"', launcher.read_text())
@@ -1218,116 +1097,87 @@ class SetupAgentHooksTests(unittest.TestCase):
             self.assertNotIn(str(Path.home()), first_text)
             self.assertNotIn(str(stable_launcher_path()), first_text)
 
-    def test_codex_merge_removes_only_exact_generated_rules_and_is_idempotent(self) -> None:
+    def test_codex_merge_preserves_unmanaged_rules_added_after_managed_block(self) -> None:
+        # The merge canonicalizes the file as unmanaged rules followed by one
+        # managed block: a user rule appended after the block is preserved by
+        # relocating it ahead of the rebuilt block, then the file is stable.
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "default.rules"
-            scripts_dir = ROOT / "scripts"
-            generated_legacy = next(
-                entry
-                for entry in codex_legacy_prefix_rule_entries(scripts_dir)
-                if "workflow_gate_policy.py" in entry and '"python3"' in entry
+            user_rule = 'prefix_rule(pattern=["user-approved-tool"], decision="allow")'
+            entries = codex_prefix_rule_entries(ROOT / "scripts")
+            merge_codex_prefix_rules(target, entries, dry_run=False)
+            target.write_text(target.read_text() + user_rule + "\n")
+
+            dry_run_status = merge_codex_prefix_rules(target, entries, dry_run=True)
+            install_status = merge_codex_prefix_rules(target, entries, dry_run=False)
+            settled = target.read_text()
+            settled_status = merge_codex_prefix_rules(target, entries, dry_run=True)
+
+            self.assertEqual("missing", dry_run_status)
+            self.assertEqual("installed", install_status)
+            self.assertEqual("ok", settled_status)
+            self.assertEqual(settled, target.read_text())
+            self.assertEqual(1, settled.count(user_rule))
+            self.assertEqual(1, settled.count("# tao-hooks:begin"))
+            self.assertTrue(settled.startswith(user_rule))
+            self.assertTrue(settled.rstrip("\n").endswith("# tao-hooks:end"))
+
+    def test_runtime_setup_removes_superseded_brand_content_and_permissions(self) -> None:
+        # Setup rebuilds the managed block from current entries only, so
+        # obsolete-brand content inside the managed region never survives, and
+        # explicit cleanup entries purge obsolete-brand permissions while
+        # user-owned entries are preserved.
+        obsolete_brand = "agent" + "play" + "book"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            rules = root / "default.rules"
+            settings = root / "settings.json"
+            stale_rule = (
+                f'prefix_rule(pattern=["/{obsolete_brand}/hook"], decision="allow")'
             )
-            custom_same_script = (
-                'prefix_rule(pattern=["python3", "scripts/agent-hook.py", '
-                '"custom-action"], decision="allow")'
-            )
-            custom_shell_rule = (
-                'prefix_rule(pattern=["/bin/zsh", "-lc", '
-                '"python3 scripts/agent-hook.py custom-action"], decision="allow")'
-            )
-            target.write_text(
+            rules.write_text(
                 "\n".join(
                     [
-                        generated_legacy,
-                        custom_same_script,
-                        custom_shell_rule,
+                        "# tao-hooks:begin",
+                        f"# Managed by {obsolete_brand}",
+                        stale_rule,
+                        "# tao-hooks:end",
+                        stale_rule,
                         'prefix_rule(pattern=["custom-tool"], decision="allow")',
                         "",
                     ]
                 )
             )
-
-            entries = codex_prefix_rule_entries(scripts_dir)
-            cleanup_entries = codex_legacy_prefix_rule_entries(scripts_dir)
-            status = merge_codex_prefix_rules(
-                target,
-                entries,
-                dry_run=False,
-                cleanup_entries=cleanup_entries,
-            )
-
-            text = target.read_text()
-            second_status = merge_codex_prefix_rules(
-                target,
-                entries,
-                dry_run=False,
-                cleanup_entries=cleanup_entries,
-            )
-            self.assertEqual("installed", status)
-            self.assertEqual("ok", second_status)
-            self.assertIn("# tao-hooks:begin", text)
-            self.assertIn(str(ROOT / "scripts" / "agent-preflight.py"), text)
-            self.assertNotIn(generated_legacy, text)
-            self.assertIn(custom_same_script, text)
-            self.assertIn(custom_shell_rule, text)
-            self.assertIn('prefix_rule(pattern=["custom-tool"], decision="allow")', text)
-            self.assertEqual(text, target.read_text())
-
-    def test_permission_merge_removes_only_exact_generated_entries_and_is_idempotent(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            target = Path(temp_dir) / "settings.json"
-            generated_legacy = "command(python3 ~/tao-agent-os/scripts/agent-hook.py)"
-            custom_same_script = (
-                "command(python3 ~/tao-agent-os/scripts/agent-hook.py custom-action)"
-            )
-            spill_custom = (
-                "command(node ~/Library/Application\\ Support/Spill/adapters/setup/"
-                "spill-token-metering-setup.mjs --label antigravity --stage custom)"
-            )
-            target.write_text(json.dumps({
+            stale_permission = f"Bash(/Users/example/.{obsolete_brand}/bin/hook *)"
+            settings.write_text(json.dumps({
                 "permissions": {
                     "allow": [
-                        "$defaults",
-                        generated_legacy,
-                        custom_same_script,
-                        spill_custom,
-                        "command(custom-tool)",
+                        stale_permission,
+                        "Bash(custom-tool *)",
                     ]
                 }
             }) + "\n")
-            entries = [
-                f"command(python3 {ROOT / 'scripts' / 'agent-hook.py'})",
-                f"command(python3 {ROOT / 'scripts' / 'agent-hook.py'} *)",
-            ]
-            cleanup_entries = [
-                "$defaults",
-                generated_legacy,
-            ]
 
-            status = merge_permissions_allow(
-                target,
-                entries,
+            merge_codex_prefix_rules(
+                rules,
+                ['prefix_rule(pattern=["tao-hook"], decision="allow")'],
                 dry_run=False,
-                cleanup_entries=cleanup_entries,
+                cleanup_entries=[stale_rule],
+            )
+            merge_permissions_allow(
+                settings,
+                ["Bash(tao-hook *)"],
+                dry_run=False,
+                cleanup_entries=[stale_permission],
             )
 
-            text = target.read_text()
-            allow = json.loads(text)["permissions"]["allow"]
-            second_status = merge_permissions_allow(
-                target,
-                entries,
-                dry_run=False,
-                cleanup_entries=cleanup_entries,
-            )
-            self.assertEqual("installed", status)
-            self.assertEqual("ok", second_status)
-            self.assertIn(str(ROOT / "scripts" / "agent-hook.py"), text)
-            self.assertNotIn(generated_legacy, text)
-            self.assertNotIn("$defaults", text)
-            self.assertIn(custom_same_script, allow)
-            self.assertIn(spill_custom, allow)
-            self.assertIn("command(custom-tool)", allow)
-            self.assertEqual(text, target.read_text())
+            self.assertNotIn(obsolete_brand, rules.read_text().lower())
+            self.assertIn("custom-tool", rules.read_text())
+            self.assertIn('prefix_rule(pattern=["tao-hook"]', rules.read_text())
+            permissions = json.loads(settings.read_text())["permissions"]["allow"]
+            self.assertFalse(any(obsolete_brand in entry.lower() for entry in permissions))
+            self.assertIn("Bash(custom-tool *)", permissions)
+            self.assertIn("Bash(tao-hook *)", permissions)
 
     def _git(self, project: Path, *args: str) -> None:
         subprocess.run(

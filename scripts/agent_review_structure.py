@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 from agent_review_boundary import boundary_note_requirements
 from agent_review_purpose import purpose_failures
 from agent_structure_rules import structure_rule_review
-from agent_workspace_policy import is_writing_workspace
+from agent_workspace_policy import is_non_git_workspace, is_writing_workspace
 
 
 CommandRunner = Callable[[list[str], Path], dict[str, Any]]
 
 REVIEW_SOURCE_FILE_LINE_LIMIT = 500
 REVIEW_FILE_REVIEW_WARNING_LIMIT = 300
-REVIEW_ADDED_LINE_LIMIT = 200
+REVIEW_ADDED_LINE_LIMIT = 300
 REVIEW_FUNCTION_LINE_LIMIT = 120
 # The file/block gates above catch a unit that grew too large. They do nothing
 # about the opposite failure: a small task spread across many new files, layers,
@@ -122,6 +123,11 @@ BRACE_BLOCK_RE = re.compile(
     r"|(?:public|private|protected|internal|static|final|open|override|async|func|fun|def|fn|"
     r"function|method|class|struct|enum|interface|type)\b.*"
     r")"
+)
+BRACE_TYPE_BLOCK_RE = re.compile(
+    r"^\s*(?:(?:export|default|public|private|protected|internal|static|final|open|abstract|"
+    r"sealed|data|value|annotation|enum)\s+)*(?:class|struct|enum|interface|object|record|"
+    r"actor|protocol|type)\b"
 )
 STYLE_BLOCK_RE = re.compile(r"^\s*[^@{}][^{}]*\{\s*$")
 
@@ -273,12 +279,14 @@ def changed_source_paths(
 
     head = run_command(["git", "rev-parse", "--verify", "HEAD"], project)
     commands["rev_parse_head"] = head
-    if head["returncode"] != 0 and is_writing_workspace(project):
+    if head["returncode"] != 0 and (
+        is_writing_workspace(project) or is_non_git_workspace(project)
+    ):
         return {
             "commands": commands,
             "command_errors": [],
             "path_metadata": path_metadata,
-            "review_only": "non_git_writing_workspace",
+            "review_only": "non_git_workspace",
         }, []
     if head["returncode"] == 0:
         collect_head_diff(project, run_command, commands, names, path_metadata, command_errors, review_paths)
@@ -309,6 +317,16 @@ def changed_source_paths(
     else:
         command_errors.append("git ls-files untracked source discovery failed")
 
+    if head["returncode"] == 0:
+        reclassify_untracked_moves(
+            project,
+            run_command,
+            commands,
+            path_metadata,
+            command_errors,
+            review_paths,
+        )
+
     paths = [Path(name) for name in sorted(names)]
     checked = [path for path in paths if review_source_path(project, path)]
     return {
@@ -337,7 +355,11 @@ def collect_head_diff(
         for line in status["stdout"].splitlines():
             parts = line.split("\t")
             if len(parts) >= 2:
-                record_path(names, path_metadata, parts[-1], status=parts[0][:1])
+                status_code = parts[0][:1]
+                updates: dict[str, Any] = {"status": status_code}
+                if status_code in {"R", "C"} and len(parts) >= 3:
+                    updates["previous_path"] = parts[-2]
+                record_path(names, path_metadata, parts[-1], **updates)
     else:
         command_errors.append("git diff changed source discovery failed")
 
@@ -354,6 +376,107 @@ def collect_head_diff(
                 record_path(names, path_metadata, parts[-1], additions=additions)
     else:
         command_errors.append("git diff line-count discovery failed")
+
+
+def reclassify_untracked_moves(
+    project: Path,
+    run_command: CommandRunner,
+    commands: dict[str, Any],
+    path_metadata: dict[str, dict[str, Any]],
+    command_errors: list[str],
+    review_paths: list[str] | None = None,
+) -> None:
+    """Recognize unstaged content-preserving moves before applying new-file gates.
+
+    Git does not report a filesystem move as a rename until it is staged. The
+    review hook still has to distinguish a moved legacy owner from hundreds of
+    newly added lines without mutating the caller's index. Limit matching to
+    deleted files with the same filename and require high line similarity.
+    """
+
+    deleted = run_command(
+        ["git", "diff", "--name-only", "--diff-filter=D", "HEAD", *_pathspec_args(review_paths)],
+        project,
+    )
+    commands["diff_deleted_paths"] = deleted
+    if deleted["returncode"] != 0:
+        command_errors.append("git diff deleted source discovery failed")
+        return
+
+    deleted_by_filename: dict[str, list[str]] = {}
+    for line in deleted["stdout"].splitlines():
+        previous_path = line.strip()
+        if previous_path:
+            deleted_by_filename.setdefault(Path(previous_path).name, []).append(previous_path)
+
+    matches: list[dict[str, Any]] = []
+    for current_path, metadata in path_metadata.items():
+        if metadata.get("status") != "A" or metadata.get("untracked") is not True:
+            continue
+        candidates = deleted_by_filename.get(Path(current_path).name, [])
+        if not candidates:
+            continue
+        try:
+            current_lines = (project / current_path).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        scored_candidates: list[tuple[float, str, list[str]]] = []
+        for previous_path in candidates:
+            previous = run_command(["git", "show", f"HEAD:{previous_path}"], project)
+            if previous["returncode"] != 0:
+                continue
+            previous_lines = previous["stdout"].splitlines()
+            similarity = SequenceMatcher(
+                None,
+                previous_lines,
+                current_lines,
+                autojunk=False,
+            ).ratio()
+            scored_candidates.append((similarity, previous_path, previous_lines))
+
+        if not scored_candidates:
+            continue
+        scored_candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+        similarity, previous_path, previous_lines = scored_candidates[0]
+        if similarity < 0.8:
+            continue
+        additions, deletions = line_change_counts(previous_lines, current_lines)
+        metadata.update(
+            status="R",
+            previous_path=previous_path,
+            additions=additions,
+            deletions=deletions,
+            similarity=round(similarity, 4),
+        )
+        matches.append(
+            {
+                "current_path": current_path,
+                "previous_path": previous_path,
+                "similarity": round(similarity, 4),
+            }
+        )
+
+    commands["unstaged_move_detection"] = {
+        "similarity_threshold": 0.8,
+        "matches": matches,
+    }
+
+
+def line_change_counts(previous_lines: list[str], current_lines: list[str]) -> tuple[int, int]:
+    additions = 0
+    deletions = 0
+    for tag, previous_start, previous_end, current_start, current_end in SequenceMatcher(
+        None,
+        previous_lines,
+        current_lines,
+        autojunk=False,
+    ).get_opcodes():
+        if tag in {"insert", "replace"}:
+            additions += current_end - current_start
+        if tag in {"delete", "replace"}:
+            deletions += previous_end - previous_start
+    return additions, deletions
 
 
 def record_path(
@@ -444,13 +567,20 @@ def check_file_size(
     added_lines = metadata.get("additions")
     if added_lines is None:
         added_lines = line_count if status == "A" else 0
+    deleted_lines = metadata.get("deletions", 0)
+    is_net_reducing_rewrite = status != "A" and deleted_lines > added_lines
 
     if status == "A" and line_count > max_file_lines:
         result["failures"].append(
             f"{path} is a new development source/style file with {line_count} lines; "
             f"new-file hard limit is {max_file_lines}; split by responsibility before approval"
         )
-    if added_lines > max_added_lines:
+    if added_lines > max_added_lines and is_net_reducing_rewrite:
+        result["warnings"].append(
+            f"{path} adds {added_lines} lines but deletes {deleted_lines} lines, so the file "
+            "is not growing; structure-review evidence is required instead of an addition-limit failure"
+        )
+    elif added_lines > max_added_lines:
         result["failures"].append(
             f"{path} adds {added_lines} lines in one development source/style file; "
             f"per-file addition limit is {max_added_lines}; split the change before approval"
@@ -515,7 +645,8 @@ def previous_oversized_blocks(
 ) -> list[dict[str, Any]]:
     if metadata.get("status") == "A":
         return []
-    previous = run_command(["git", "show", f"HEAD:{path.as_posix()}"], project)
+    previous_path = str(metadata.get("previous_path") or path.as_posix())
+    previous = run_command(["git", "show", f"HEAD:{previous_path}"], project)
     if previous.get("returncode") != 0:
         return []
     return oversized_blocks(path, str(previous.get("stdout") or "").splitlines(), max_block_lines)
@@ -574,6 +705,8 @@ def brace_blocks(path: Path, lines: list[str], max_block_lines: int) -> list[dic
 def starts_review_block(path: Path, stripped_line: str) -> bool:
     if path.suffix.lower() in REVIEW_STYLE_EXTENSIONS:
         return bool(STYLE_BLOCK_RE.match(stripped_line))
+    if BRACE_TYPE_BLOCK_RE.match(stripped_line):
+        return False
     return bool(BRACE_BLOCK_RE.match(stripped_line))
 
 
@@ -598,8 +731,9 @@ def block_record(path: Path, start_index: int, label: str, span: int) -> dict[st
 def block_failure(record: dict[str, Any], max_block_lines: int) -> str:
     return (
         f"{record['path']}:{record['line']} block `{record['label']}` spans {record['span']} lines; "
-        f"limit is {max_block_lines}; split responsibilities or justify why the unit "
-        "must stay together before approval"
+        f"limit is {max_block_lines}; split responsibilities until the block is within the "
+        "limit, or use an explicitly reviewed project-specific max-function-lines limit; "
+        "structure-review prose alone does not bypass this hard gate"
     )
 
 

@@ -292,6 +292,16 @@ CODE_AUTHORING_REQUEST_PATTERNS = (
     r"\b(?:add|create|write|implement|fix|modify|edit|refactor)\b",
     r"(?:추가|작성|구현|수정|고쳐|만들)",
 )
+EXPLICIT_CONCERN_EXCLUSION_PATTERNS = {
+    "graphify": (
+        r"\b(?:do not|don't|must not|should not|without)\b.{0,40}\bgraphify\b",
+        r"\bgraphify\b.{0,40}\b(?:excluded?|disabled?|must not|should not|do not run|don't run)\b",
+        r"(?:graphify|그래피|프로젝트 그래프|지식 그래프).{0,40}"
+        r"(?:실행|사용)(?:은|는|을|를)?\s*(?:제외|금지|하지\s*마|하지\s*않)",
+        r"(?:graphify|그래피|프로젝트 그래프|지식 그래프).{0,40}"
+        r"(?:돌리면\s*안|돌리지\s*마|안\s*돌)",
+    ),
+}
 
 
 def infer_concerns_from_request(text: str) -> list[str]:
@@ -300,7 +310,12 @@ def infer_concerns_from_request(text: str) -> list[str]:
         return []
     inferred: list[str] = []
     for concern, patterns in REQUEST_CONCERN_HINTS:
-        if _matches(patterns, normalized, re.IGNORECASE):
+        excluded = _matches(
+            EXPLICIT_CONCERN_EXCLUSION_PATTERNS.get(concern, ()),
+            normalized,
+            re.IGNORECASE,
+        )
+        if _matches(patterns, normalized, re.IGNORECASE) and not excluded:
             inferred.append(concern)
     return unique(inferred)
 
@@ -421,24 +436,21 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
 
 
 def _classification_decision(flags: dict[str, object]) -> tuple[str, bool, str, str]:
+    decision = _intake_gate_decision(flags)
+    if decision is None:
+        decision = _explicit_action_decision(flags)
+    if decision is None:
+        decision = _scope_fallback_decision(flags)
+    return decision
+
+
+def _intake_gate_decision(
+    flags: dict[str, object],
+) -> tuple[str, bool, str, str] | None:
     has_broad = bool(flags["has_broad"])
     has_exact = bool(flags["has_exact"])
     has_scoped = bool(flags["has_scoped"])
     has_risky = bool(flags["has_risky"])
-    has_vague = bool(flags["has_vague"])
-    has_inspection = bool(flags["has_inspection"])
-    has_refactor_action = bool(flags["has_refactor_action"])
-    has_review_action = bool(flags["has_review_action"])
-    has_test_action = bool(flags["has_test_action"])
-    has_workflow_setup_action = bool(flags["has_workflow_setup_action"])
-    has_ui_feature_action = bool(flags["has_ui_feature_action"])
-    has_commit_action = bool(flags["has_commit_action"])
-    has_release_action = bool(flags["has_release_action"])
-    has_release_scope = bool(flags["has_release_scope"])
-    commit_release_substep = bool(flags["commit_release_substep"])
-    lowered = str(flags.get("lowered") or "")
-    inspection_lacks_target = bool(flags["inspection_lacks_target"])
-    asks_drill = bool(flags["asks_drill"])
 
     if flags["has_direct_question"] and not flags["asks_agent_action"]:
         flags["clarity"] = ANSWER_ONLY_CLARITY
@@ -450,11 +462,42 @@ def _classification_decision(flags: dict[str, object]) -> tuple[str, bool, str, 
         flags["clarity"] = "risky-unclear"
         flags["effort"] = "deep"
         return "ambiguity", True, "clarify_first", "Risk-sensitive terms appear without an exact implementation target."
-    if asks_drill:
+    if flags["asks_drill"]:
         flags["clarity"] = "vague-action"
         flags["effort"] = "deep" if has_broad or has_risky else "standard"
         return "triage", True, "clarify_first", "The request explicitly asks for the Grill-Me protocol before work."
-    if has_commit_action and commit_release_substep and not _commit_risk_blocks(lowered):
+    return None
+
+
+def _explicit_action_decision(
+    flags: dict[str, object],
+) -> tuple[str, bool, str, str] | None:
+    has_risky = bool(flags["has_risky"])
+    lowered = str(flags.get("lowered") or "")
+    review_only_request = flags["has_review_action"] and not any(
+        (
+            flags["has_commit_action"],
+            flags["has_release_action"],
+            flags["has_refactor_action"],
+            flags["has_test_action"],
+            flags["has_workflow_setup_action"],
+            flags["has_ui_feature_action"],
+        )
+    )
+    if review_only_request:
+        flags["clarity"] = "clear-scoped"
+        flags["effort"] = "standard"
+        return (
+            "review",
+            False,
+            "work",
+            "The request asks only to review inspectable changes; domain risk nouns do not turn a read-only review into product work.",
+        )
+    if (
+        flags["has_commit_action"]
+        and flags["commit_release_substep"]
+        and not _commit_risk_blocks(lowered)
+    ):
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "quick"
         return (
@@ -463,7 +506,11 @@ def _classification_decision(flags: dict[str, object]) -> tuple[str, bool, str, 
             "work",
             "The request asks for local commit preparation or commit creation; use the lightweight commit route.",
         )
-    if has_release_action and has_release_scope and not _release_risk_blocks(lowered):
+    if (
+        flags["has_release_action"]
+        and flags["has_release_scope"]
+        and not _release_risk_blocks(lowered)
+    ):
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "deep"
         return (
@@ -472,7 +519,7 @@ def _classification_decision(flags: dict[str, object]) -> tuple[str, bool, str, 
             "work",
             "The request names enough release context to run the release readiness route without Grill-Me.",
         )
-    if has_workflow_setup_action and not has_risky:
+    if flags["has_workflow_setup_action"] and not has_risky:
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "standard"
         return (
@@ -481,11 +528,18 @@ def _classification_decision(flags: dict[str, object]) -> tuple[str, bool, str, 
             "work",
             "The request changes document routing, natural-language discovery, or hook enforcement behavior.",
         )
-    if has_ui_feature_action and not has_risky:
+    if flags["has_ui_feature_action"] and not has_risky:
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "standard"
         return "feature", False, "work", "The request describes a scoped UI or screen feature to implement."
-    if has_broad and not has_exact:
+    return None
+
+
+def _scope_fallback_decision(flags: dict[str, object]) -> tuple[str, bool, str, str]:
+    has_risky = bool(flags["has_risky"])
+    lowered = str(flags.get("lowered") or "")
+
+    if flags["has_broad"] and not flags["has_exact"]:
         flags["clarity"] = "broad-product"
         flags["effort"] = "deep"
         return (
@@ -494,27 +548,23 @@ def _classification_decision(flags: dict[str, object]) -> tuple[str, bool, str, 
             "clarify_first",
             "Broad product or architecture work needs Grill-Me blocker-question discovery before PRD, ARD, or implementation unless existing acceptance criteria are already known.",
         )
-    if has_review_action and not has_risky:
-        flags["clarity"] = "clear-scoped"
-        flags["effort"] = "standard"
-        return "review", False, "work", "The request asks to review inspectable changes or the current work surface."
-    if has_refactor_action and not has_risky:
+    if flags["has_refactor_action"] and not has_risky:
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "standard"
         return "code-simplify", False, "work", "The request asks for behavior-preserving code cleanup or simplification."
-    if has_test_action and not has_risky:
+    if flags["has_test_action"] and not has_risky:
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "quick"
         return "test", False, "work", "The request asks for verification or test execution."
-    if has_exact:
+    if flags["has_exact"]:
         flags["clarity"] = "clear-exact"
         flags["effort"] = "quick"
         return "task", False, "work", "The request names an exact file, symbol, command, or error signal."
-    if has_scoped:
+    if flags["has_scoped"]:
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "standard"
         return "feature", False, "work", "The request names a scoped UI, code, or feature owner."
-    if has_inspection and not has_risky and not inspection_lacks_target:
+    if flags["has_inspection"] and not has_risky and not flags["inspection_lacks_target"]:
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "standard"
         return "task", False, "work", "The request asks for inspection, review, status, or documentation summary work with an inspectable target."
@@ -527,7 +577,12 @@ def _classification_decision(flags: dict[str, object]) -> tuple[str, bool, str, 
             "work",
             "The request is an explicit approval to continue the already-confirmed scope from the preceding discussion.",
         )
-    if asks_drill or has_vague or flags["short_without_target"] or flags["underspecified_action"]:
+    if (
+        flags["asks_drill"]
+        or flags["has_vague"]
+        or flags["short_without_target"]
+        or flags["underspecified_action"]
+    ):
         flags["clarity"] = "vague-action"
         flags["effort"] = "standard"
         return "triage", True, "clarify_first", "The request asks for action but lacks a precise target, inspection target, or acceptance criteria."

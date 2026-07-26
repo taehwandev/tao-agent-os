@@ -42,9 +42,11 @@ Run the shared start hook once for every multi-step task when it exists. It
 performs request intake, routing, and preflight as one lifecycle entry:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
 ```
 
+`--rules` must point to the Tao Agent OS root directory, not to an
+individual instruction file such as `AGENTS.md`.
 The start hook requires the current request with `--request`.
 `--request-classified` is a proof-carrying delegation exemption, not a
 same-session root override: add it with `--classification-evidence` only when a
@@ -72,6 +74,13 @@ actionable`, or `blockers resolved`; weak evidence such as `classified` or
 `no blockers` are also insufficient unless they name the resolved scope,
 decision, blocker-question outcome, or remaining separate action.
 
+An explicit review-only request for a diff, patch, working tree, or changed
+files stays on the read-only `review` route even when the inspected subject
+contains risk-domain nouns such as permission, security, billing, migration, or
+credentials. Those nouns describe what to inspect; they do not authorize
+product changes. A request that also asks to implement, refactor, commit,
+release, or deploy follows the corresponding work route instead.
+
 A short follow-up approval may continue an already settled discussion. The
 classifier recognizes an explicit referential approval such as “그럼 그건
 수정해줘” or “Then apply the agreed change” as `clear-scoped` when it has a
@@ -83,6 +92,18 @@ also carry the prior resolved scope in `--classification-evidence` (for
 example, `clear-scoped continuation; previous scope resolved; user approval
 confirmed; no scope expansion; blockers resolved`); unresolved or
 open-question markers continue to block work routes.
+
+Worker evidence reservations use validate-then-claim semantics. Intake first
+validates that the opaque token matches the requested worker evidence path, and
+consumes it atomically only after request classification and route acceptance
+succeed. A rejected request leaves the reservation available for one corrected
+retry; accepted intake claims it before writing preflight evidence.
+
+When the installed rules root is intentionally not a Git repository, execution
+capsules bind it with a bounded, content-free directory fingerprint instead of
+requiring callers to initialize another repository. The fingerprint excludes
+runtime-generated state and caches, remains stable across those local outputs,
+and invalidates the capsule when runtime source or guidance changes.
 
 The start hook classifies the request and records the recommended route,
 whether the Grill-Me protocol is needed, response mode, and a short reason. Use
@@ -127,10 +148,10 @@ list.
 Examples:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command product --request "<USER_REQUEST>" --platform android --concern security --concern ui
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command bugfix --request "<USER_REQUEST>" --platform server --concern api
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command docs-review --request "<USER_REQUEST>" --concern wiki
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command product --request "Show me how we build an app feature here" --platform android --concern ui
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command product --request "<USER_REQUEST>" --platform android --concern security --concern ui
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command bugfix --request "<USER_REQUEST>" --platform server --concern api
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command docs-review --request "<USER_REQUEST>" --concern wiki
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command product --request "Show me how we build an app feature here" --platform android --concern ui
 <TAO_LAUNCHER> workflow validate
 ```
 
@@ -249,9 +270,12 @@ forgets them:
   before finish, inspect the skills actually used and record
   `no_reusable_gap`, `reusable_gap`, or `no_skill_used` with the observation
   disposition.
-- `skill-feedback` (optional hook): when the check finds a reusable gap, queue
-  only one reusable content-free observation. Storage failure records
-  `observation: deferred` and cannot fail finish. A repeated candidate becomes
+- `skill-feedback` (optional hook): when the check finds a reusable gap, first
+  record the retrospective with `observation: deferred`. The hook queues only
+  one reusable content-free observation when its canonical skill id matches the
+  current retrospective. Replace the gate with `observation: recorded` only
+  after the hook creates or deduplicates that observation; otherwise keep
+  `deferred`, which cannot fail finish. A repeated candidate becomes
   separate bounded
   skill-maintenance work rather than an immediate document edit. A failed
   required hook or gate never uses this path; it follows the repair cycle.
@@ -482,7 +506,7 @@ workflow's executable checklist:
 Before editing, reviewing, committing, or reporting completion:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
 ```
 
 The route may promote additional `required_docs` from the root
@@ -568,10 +592,38 @@ When more than one routed required doc changes, record one `documentation`
 `SUCCESS` entry per exact path. Do not combine required-doc paths in one
 `target` string; the gate hook rejects that shape before finish.
 
+Before invoking the review hook, compare the current ledger with the gates that
+precede `review hook` in the active route. When any prerequisite gate is
+missing, `FAIL`, or structurally incomplete, the hook rejects the invocation
+before review begins. This rejection must not record a failed review checkpoint,
+start a repair cycle, or request a repair receipt; record the current facts
+through `gate` or `gate-batch`, then rerun the same review hook. Only a review
+that starts after all prerequisites are complete can enter failure repair. Gates
+that follow `review hook`, such as `retrospective check` and `report`, remain
+closeout work and are not review prerequisites.
+
+Before invoking the finish hook, compare the current ledger with the complete
+route gate list. If the route ends in `handoff`, record that gate as a
+`SUCCESS` readiness checkpoint after verification, review, and retrospective
+work are complete. This route gate means the final handoff target, artifacts,
+and blocker state are ready; it is distinct from `agent-hook.py handoff`, which
+only prepares a parent-to-worker execution capsule. Because finish validates
+every route gate, waiting until after finish to record this readiness creates a
+finish/handoff deadlock and is not a valid ordering.
+
+Immediately before every `finish` invocation, read the current route gate list
+and the current ledger together. Do not infer closeout readiness from a
+successful review alone. When `handoff` is the final route gate, record its
+user-facing readiness evidence in the ledger first, then invoke `finish`.
+
+Treat a successful review as an intermediate checkpoint, not finish readiness:
+record `retrospective check`, then every remaining closeout gate including the
+user-facing `handoff`, and only then invoke the finish hook.
+
 Before final report, commit, release, or handoff:
 
 ```text
-python3 <TAO_ROOT>/scripts/agent-hook.py finish --project <TARGET_REPO> --rules <TAO_ROOT>
+python3 <TAO_ROOT>/scripts/agent-hook.py finish --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE>
 ```
 
 Do not wait until finish to write all gate evidence by hand. The only gate-state
@@ -591,7 +643,7 @@ ledger. For gates that only the active agent can prove, batch
 structured records instead of spawning one shell process per gate:
 
 ```text
-python3 <TAO_ROOT>/scripts/agent-hook.py gate-batch --project <TARGET_REPO> --rules <TAO_ROOT> --gate-record '[{"gate":"cycle contract","fields":{"cycle_type":"workflow_setup","input_scope":"<safe-source-scope>","allowed_changes":"<safe-scope>","forbidden_changes":"<safe-boundary>","acceptance_criteria":"<safe-criteria>","verification":"<check>","stop_condition":"<condition>","checkpoint":"<handoff-or-next-cycle>"}},{"gate":"agentic run state","fields":{"state":"scoped","transition":"scoped -> acting","evidence":"<gate-or-command>","checkpoint":"<resume-or-handoff>","blockers":"<none-or-current-blocker>"}},{"gate":"boundary plan","fields":{"scope":"<owned-scope>","verification":"<nearest-check>"}}]'
+python3 <TAO_ROOT>/scripts/agent-hook.py gate-batch --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --gate-record '[{"gate":"cycle contract","fields":{"cycle_type":"workflow_setup","input_scope":"<safe-source-scope>","allowed_changes":"<safe-scope>","forbidden_changes":"<safe-boundary>","acceptance_criteria":"<safe-criteria>","verification":"<check>","stop_condition":"<condition>","checkpoint":"<handoff-or-next-cycle>"}},{"gate":"agentic run state","fields":{"state":"scoped","transition":"scoped -> acting","evidence":"<gate-or-command>","checkpoint":"<resume-or-handoff>","blockers":"<none-or-current-blocker>"}},{"gate":"boundary plan","fields":{"scope":"<owned-scope>","verification":"<nearest-check>"}}]'
 ```
 
 Use this ledger to capture what happened, not to craft magic validator prose.
@@ -670,11 +722,14 @@ capsule must back it, or the classifier evaluates `--request` as usual.
 For work routes, that evidence must include a resolved-scope signal rather than
 a generic `classified`, `done`, `handled`, `clarified`, or `no blockers`
 marker.
-`agent-finish-check.py` requires evidence for every route gate, runs
-`workflow.py validate`, runs `git diff --check`, uses the task-local VibeGuard
-audit cache when both the target project git state and Tao Agent OS rules git
-state are unchanged. Failed VibeGuard invocations must not be cached; rerun the
-tool after transient failures. Finish-check writes
+`agent-finish-check.py` requires evidence for every route gate. It reuses a
+current successful review's workflow validation and scoped `git diff --check`
+result; otherwise it runs those checks itself. Read-only work against a path
+outside Git skips the structurally unavailable diff check, while a writing task
+outside Git still fails closed. It uses the task-local VibeGuard audit cache
+when both the target project git state and Tao Agent OS rules git state are
+unchanged. Failed VibeGuard invocations must not be cached; rerun the tool after
+transient failures. Finish-check writes
 `<TARGET_REPO>/.tao/finish.json`.
 It also writes `gate_signals`, `missed_gates`, and
 `retrospective_required`. When `retrospective_required` is true, it writes a

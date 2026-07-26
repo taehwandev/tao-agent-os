@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the three essential Tao Agent OS hooks.
+"""Run the essential Tao Agent OS hooks.
 
 Hooks intentionally expose only two outcomes: SUCCESS or FAIL. Details explain
 why, but callers should treat any non-zero exit as blocking.
@@ -23,6 +23,7 @@ from agent_hook_gate_records import (
 )
 from agent_hook_runtime import (
     REVIEW_CHANGED_PATH_LIMIT,
+    existing_directory,
     existing_path,
     finish_with_result,
     git_status,
@@ -48,13 +49,43 @@ from agent_review_structure import (
     REVIEW_FUNCTION_LINE_LIMIT,
     REVIEW_SOURCE_FILE_LINE_LIMIT,
 )
-from agent_run_registry import register_run, transition_run
-from agent_context_store import context_snapshot_path, refresh_and_validate_context_snapshot, validate_context_snapshot
+from agent_run_registry import active_run_conflict, register_run, transition_run
+from agent_context_store import (
+    context_snapshot_failures_are_replaceable,
+    context_snapshot_path,
+    refresh_and_validate_context_snapshot,
+    validate_context_snapshot,
+)
 from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def start_hook(args: argparse.Namespace) -> int:
+    evidence_path = preflight_evidence_path(args)
+    request_intake = {
+        "request": args.request,
+        "request_classified": bool(args.request_classified),
+        "classification_evidence": args.classification_evidence,
+    }
+    if active_run_conflict(
+        args.project,
+        evidence_path,
+        command=args.command,
+        request_intake=request_intake,
+    ):
+        return finish_with_result(
+            "start",
+            False,
+            [
+                "preflight evidence is already bound to another active request; "
+                "use one isolated --evidence .tao/runs/<opaque>/preflight.json path "
+                "for the full start/gate/review/finish lifecycle"
+            ],
+            args.output,
+            {},
+            args.repair_cycle,
+            invocation_error=True,
+        )
     command = [
         "--project",
         str(args.project),
@@ -74,6 +105,8 @@ def start_hook(args: argparse.Namespace) -> int:
         command.extend(["--platform", platform])
     for concern in args.concern:
         command.extend(["--concern", concern])
+    if args.read_only:
+        command.append("--read-only")
     if args.evidence:
         command.extend(["--evidence", str(args.evidence)])
     if args.worker_reservation_token:
@@ -100,7 +133,9 @@ def start_hook(args: argparse.Namespace) -> int:
         args.output,
         {"preflight": result},
         args.repair_cycle,
-        invocation_error=_is_invocation_error(result),
+        invocation_error=_is_invocation_error(result) or (
+            not success and result.get("returncode") == 0
+        ),
     )
 
 
@@ -194,6 +229,7 @@ def _register_started_run(args: argparse.Namespace, details: list[str]) -> None:
             evidence_path,
             payload.get("route") or {},
             payload.get("request_intake") or {},
+            reuse_active=True,
         )
         payload["agent_run_id"] = run["run_id"]
         write_json(evidence_path, payload)
@@ -240,11 +276,9 @@ def _refresh_started_context(args: argparse.Namespace, details: list[str]) -> bo
                 payload.get("route") or {},
                 payload.get("request_intake") or {},
             )
-            replaceable = {
-                "context snapshot request fingerprint does not match",
-                "context snapshot route fingerprint does not match",
-            }
-            if prior_failures and set(prior_failures).difference(replaceable):
+            if prior_failures and not context_snapshot_failures_are_replaceable(
+                prior_failures
+            ):
                 raise ValueError("context snapshot validation failed: " + "; ".join(prior_failures))
             if prior_failures:
                 details.append("context snapshot: stale request replaced")
@@ -324,12 +358,15 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
             "repair-verify",
         ),
     )
-    parser.add_argument("--project", type=existing_path, default=Path.cwd())
-    parser.add_argument("--rules", type=existing_path, default=ROOT)
+    parser.add_argument("--project", type=existing_directory, default=Path.cwd())
+    parser.add_argument("--rules", type=existing_directory, default=ROOT)
     parser.add_argument(
         "--output",
         type=existing_path,
-        help="hook evidence output for start, handoff, review, or finish",
+        help=(
+            "hook result output for start, handoff, review, or finish; this is not "
+            "the preflight evidence consumed by later lifecycle hooks"
+        ),
     )
     parser.add_argument(
         "--evidence",
@@ -371,6 +408,11 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     start.add_argument("--classification-evidence", default="")
+    start.add_argument(
+        "--read-only",
+        action="store_true",
+        help="declare a non-mutating analysis run and skip VibeGuard audits",
+    )
     start.add_argument("--platform", action="append", default=[])
     start.add_argument(
         "--concern",
@@ -530,9 +572,52 @@ def _parse_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
+    if not args.evidence:
+        return ""
+    if args.hook == "start":
+        try:
+            args.evidence.resolve().relative_to((args.project / ".tao").resolve())
+        except (OSError, RuntimeError, ValueError):
+            return (
+                "start --evidence must be under the current project's .tao "
+                "evidence root so later lifecycle hooks can validate the same capsule"
+            )
+        return ""
+    try:
+        payload = json.loads(args.evidence.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if (
+        isinstance(payload, dict)
+        and payload.get("hook") == "start"
+        and "preflight" in payload
+        and "route" not in payload
+    ):
+        return (
+            "--evidence must name the preflight evidence written by start --evidence, "
+            "not the start hook result written by --output"
+        )
+    return ""
+
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
+    if (
+        args.hook == "start"
+        and args.output
+        and not args.evidence
+        and args.output.name == "preflight.json"
+    ):
+        parser.error(
+            "start --output stores the hook result, not preflight evidence; "
+            "pass the preflight path with --evidence and use a distinct "
+            "--output path such as start.json"
+        )
+    lifecycle_evidence_error = _lifecycle_evidence_error(args)
+    if lifecycle_evidence_error:
+        parser.error(lifecycle_evidence_error)
     worker_error = _apply_worker_evidence_boundary(args)
     if worker_error:
         print_status(args.hook, False, [worker_error])

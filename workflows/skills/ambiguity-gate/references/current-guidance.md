@@ -108,6 +108,11 @@ Safe assumptions:
 - <only non-blocking assumptions, if any>
 ```
 
+When request classification requires Grill-Me, the matching route gate evidence
+must name the Grill-Me protocol or `/grilling` session and its output. Record
+that evidence through `gate` or `gate-batch`; invalid manual-question-only
+evidence is rejected there instead of being deferred to finish.
+
 ## Assumptions
 
 If no blockers remain, record assumptions explicitly:

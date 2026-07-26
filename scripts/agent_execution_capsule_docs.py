@@ -63,8 +63,6 @@ def bind_required_doc_update_receipt(
     if not preflight or preflight.get("invalid_json"):
         raise ValueError("required-doc update receipt requires valid preflight evidence")
     route = preflight.get("route") or {}
-    if "documentation" not in set(route.get("gates") or []):
-        return fields
     target = fields.get("target", "").strip()
     if target not in set(required_docs_for_route(route)):
         return fields

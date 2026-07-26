@@ -25,8 +25,11 @@ from agent_preflight_runtime import (
     check_agent_hooks,
 )
 from agent_preflight_spill import write_spill_label
-from agent_vibeguard_cache import cached_vibeguard
-from agent_worker_evidence import claim_worker_reservation
+from agent_vibeguard_cache import cached_vibeguard, skipped_vibeguard
+from agent_worker_evidence import (
+    claim_worker_reservation,
+    worker_reservation_matches,
+)
 from agent_workspace_policy import is_git_status_review_only, non_git_writing_workspace_note
 from support.global_state import project_scoped_state_error
 from workflow_catalog import COMMANDS, CONCERNS, PLATFORM_CONCERNS, PLATFORMS
@@ -271,6 +274,11 @@ def build_parser(tao_root: Path) -> argparse.ArgumentParser:
     parser.add_argument("--rules", type=Path, default=tao_root)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="declare a non-mutating analysis run and skip VibeGuard audits",
+    )
+    parser.add_argument(
         "--parent-evidence",
         type=Path,
         help=(
@@ -326,14 +334,35 @@ def resolve_evidence_path(args: argparse.Namespace, project: Path) -> Path:
         raise ValueError(
             "worker evidence requires a single-use worker reservation token"
         )
-    if not claim_worker_reservation(
+    if not worker_reservation_matches(
         requested.parent,
+        args.worker_reservation_token,
+    ):
+        raise ValueError(
+            "worker reservation token does not match this evidence path"
+        )
+    return requested
+
+
+def claim_worker_evidence_reservation(
+    args: argparse.Namespace,
+    evidence_path: Path,
+    project: Path,
+) -> None:
+    if not args.worker_reservation_token:
+        return
+    worker_root = project / ".tao" / "workers"
+    try:
+        evidence_path.relative_to(worker_root)
+    except ValueError:
+        return
+    if not claim_worker_reservation(
+        evidence_path.parent,
         args.worker_reservation_token,
     ):
         raise ValueError(
             "worker reservation token was already claimed or does not match this evidence path"
         )
-    return requested
 
 
 def _enforce_worker_environment(args: argparse.Namespace) -> None:
@@ -435,10 +464,15 @@ def collect_failures(
     return failures
 
 
+def effective_read_only(command: str, requested: bool) -> bool:
+    return requested or command == "analysis"
+
+
 def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
     project = args.project.resolve()
     rules = args.rules.resolve()
     evidence_path = resolve_evidence_path(args, project)
+    read_only = effective_read_only(args.command, args.read_only)
 
     early_bridge_failure = ""
     if active_runtime_label() == "antigravity":
@@ -459,13 +493,19 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
         git_status["review_note"] = non_git_writing_workspace_note(project)
     route_result_payload = route_result(args, tao_root, project, git_status)
     route_payload, route_parse_error = parse_route_payload(route_result_payload)
-    vibeguard = cached_vibeguard(
-        project=project,
-        rules=rules,
-        run_command=run_command,
-        vibeguard_command=vibeguard_command,
-        parse_overall=parse_overall,
-        git_status_result=git_status,
+    if route_result_payload["returncode"] == 0:
+        claim_worker_evidence_reservation(args, evidence_path, project)
+    vibeguard = (
+        skipped_vibeguard(project)
+        if read_only
+        else cached_vibeguard(
+            project=project,
+            rules=rules,
+            run_command=run_command,
+            vibeguard_command=vibeguard_command,
+            parse_overall=parse_overall,
+            git_status_result=git_status,
+        )
     )
     global_lessons = lesson_summary()
 
@@ -475,6 +515,7 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
         "project": str(project),
         "rules": str(rules),
         "request_intake": request_intake(args),
+        "execution_mode": {"read_only": read_only},
         "route": route_payload,
         "route_parse_error": route_parse_error,
         "route_command": route_result_payload,

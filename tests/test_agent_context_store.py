@@ -9,7 +9,12 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from agent_context_store import refresh_and_validate_context_snapshot, refresh_context_snapshot, validate_context_snapshot
+from agent_context_store import (
+    context_snapshot_failures_are_replaceable,
+    refresh_and_validate_context_snapshot,
+    refresh_context_snapshot,
+    validate_context_snapshot,
+)
 
 
 def _refresh_context_worker(args: tuple[str, str, int]) -> list[str]:
@@ -44,6 +49,29 @@ class AgentContextStoreTests(unittest.TestCase):
             refresh_context_snapshot(project, ROOT, route, {"request_classified": True, "request": "one"})
             failures = validate_context_snapshot(project, ROOT, route, {"request_classified": True, "request": "two"})
             self.assertIn("request fingerprint", failures[0])
+
+    def test_required_doc_change_is_replaceable_at_a_fresh_start(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "project"
+            rules = root / "rules"
+            project.mkdir()
+            rules.mkdir()
+            agents = rules / "AGENTS.md"
+            agents.write_text("first\n", encoding="utf-8")
+            route = {"required_docs": ["AGENTS.md"], "gates": []}
+
+            refresh_context_snapshot(project, rules, route)
+            agents.write_text("second version\n", encoding="utf-8")
+            failures = validate_context_snapshot(project, rules, route)
+
+            self.assertTrue(failures)
+            self.assertTrue(context_snapshot_failures_are_replaceable(failures))
+
+    def test_unavailable_required_doc_is_not_replaceable(self) -> None:
+        failures = ["execution capsule required doc is unavailable: AGENTS.md"]
+
+        self.assertFalse(context_snapshot_failures_are_replaceable(failures))
 
     def test_parallel_refresh_and_validation_is_atomic(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

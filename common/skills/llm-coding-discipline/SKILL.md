@@ -28,3 +28,5 @@ Use when routed to `common/skills/llm-coding-discipline/SKILL.md` or when work n
 
 - If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
 - If detailed guidance changes, validate links and frontmatter for `references/current-guidance.md`.
+- Apply owner-count limits as a ratchet for legacy files: fail when the owner count or role mix grows, not when an existing owner is renamed one-for-one without structural growth.
+- Review unstaged one-for-one file moves against their previous path instead of counting the full destination as new line growth. Destination package/path rules still apply to the moved file.

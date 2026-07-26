@@ -187,18 +187,18 @@ When an agent starts in one repo and discovers that another repo must be written
 Shared Tao Agent OS guidance:
 ${TAO_HOME}/AGENTS.md
 ${TAO_HOME}/index.md
-${TAO_HOME}/scripts/agent-hook.py
-${TAO_HOME}/scripts/workflow.py
-${TAO_HOME}/scripts/setup-agent-hooks.py
-${TAO_HOME}/scripts/agent-preflight.py
-${TAO_HOME}/scripts/agent-finish-check.py
+<TAO_LAUNCHER>
+<TAO_LAUNCHER> workflow
+<TAO_LAUNCHER> setup-agent-hooks
+<TAO_LAUNCHER> agent-preflight
+<TAO_LAUNCHER> agent-finish-check
 
 Use repo-local instructions first.
 For multi-step tasks, run `<TAO_LAUNCHER> start` once. It performs routing and
 preflight; then read every route required_docs entry directly before work.
 Use the review hook after meaningful edits and the finish hook before final
-report, commit, release, or handoff. Direct workflow.py route,
-agent-preflight.py, and agent-finish-check.py calls are lower-level diagnostic
+report, commit, release, or handoff. Direct <TAO_LAUNCHER> workflow route,
+<TAO_LAUNCHER> agent-preflight, and <TAO_LAUNCHER> agent-finish-check calls are lower-level diagnostic
 or compatibility fallbacks only; never run them as a second lifecycle.
 Use the shared index only to select the smallest relevant document set.
 Do not load every shared document by default.
@@ -311,7 +311,7 @@ When an agent applies Tao Agent OS to a target repo, it should execute this flow
 11. Do not create new runtime-specific instruction files when the active runtime already reads `AGENTS.md`.
 12. Offer optional Step 2 for user-level runtime bridges. Only update personal or global runtime instruction files when the user chooses that option. The bridge must explicitly tell the runtime to read the current target project's local instructions first: Codex-style agents read `AGENTS.md`, Claude reads `CLAUDE.md`, and Antigravity reads `AGENTS.md`.
 13. For multi-step follow-up work, run `<TAO_LAUNCHER> start ... --request "<USER_REQUEST>"` once and follow its route and gate ledger. It performs classification, routing, and preflight; do not repeat those commands after a successful start. Answer direct questions before start.
-14. Read every route `required_docs` entry directly after start, run the review hook after meaningful edits, and run the finish hook before final report, commit, release, or handoff. Direct `workflow.py route`, `agent-preflight.py`, and `agent-finish-check.py` calls are lower-level diagnostic or compatibility fallbacks only.
+14. Read every route `required_docs` entry directly after start, run the review hook after meaningful edits, and run the finish hook before final report, commit, release, or handoff. Direct `<TAO_LAUNCHER> workflow route`, `<TAO_LAUNCHER> agent-preflight`, and `<TAO_LAUNCHER> agent-finish-check` calls are lower-level diagnostic or compatibility fallbacks only.
 15. Before reporting success, verify the routing block, VibeGuard gate result, and any route gates that were required.
 
 ## Prompt A Local Agent
@@ -334,10 +334,10 @@ Tao Agent OS.
 Then use Tao Agent OS:
 <TAO_ROOT>/AGENTS.md
 <TAO_ROOT>/index.md
-<TAO_ROOT>/scripts/agent-hook.py
-<TAO_ROOT>/scripts/workflow.py
-<TAO_ROOT>/scripts/agent-preflight.py
-<TAO_ROOT>/scripts/agent-finish-check.py
+<TAO_LAUNCHER>
+<TAO_LAUNCHER> workflow
+<TAO_LAUNCHER> agent-preflight
+<TAO_LAUNCHER> agent-finish-check
 
 Apply the required VibeGuard safety gate with <TAO_ROOT> as the rule
 source before editing. Use the published VibeGuard package command; the
@@ -348,8 +348,8 @@ For multi-step work, run `<TAO_LAUNCHER> start` once with `--request
 `required_docs` entry directly before work and follow the gate ledger. If the
 user asks a direct question, answer it before starting project work. Run the
 review hook after meaningful edits and the finish hook before final report,
-commit, release, or handoff. Direct `workflow.py route`, `agent-preflight.py`,
-and `agent-finish-check.py` calls are lower-level diagnostic or compatibility
+commit, release, or handoff. Direct `<TAO_LAUNCHER> workflow route`, `<TAO_LAUNCHER> agent-preflight`,
+and `<TAO_LAUNCHER> agent-finish-check` calls are lower-level diagnostic or compatibility
 fallbacks only. Missing wrapper evidence or missing route gate evidence is
 non-compliant.
 After each completed or failed gate or task step, show:
@@ -376,9 +376,9 @@ Tao Agent OS is not tied to one runtime. Codex and Antigravity may discover `AGE
 - For one-shot use, paste templates/use-tao-prompt.mdinto the agent with the target repo, task, Tao Agent OS root, and VibeGuard docs link filled in.
 - For stronger future behavior, use the optional Step 2 prompt in templates/apply-tao-request.mdto update user-level runtime bridges such as `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.antigravity`, `~/.antigravitycli`, or `~/.antigravity-ide`. The managed bridge must route the current request before document selection, use the local document graph and `workflow-doc-surfaces.json`, and read the route's `required_docs` even when the user did not name document keywords.
 - When a runtime starts from `~` or another non-project directory, resolve the target first with `<TAO_LAUNCHER> agent-entry --request "<USER_REQUEST>" --cwd "<CURRENT_DIRECTORY>" --runtime <RUNTIME>`. Continue only when it returns `selected`; ask the user when it returns `ambiguous` or `not_found`. Optional local aliases can live in `~/.tao/projects.json`.
-- To avoid repeated prompts for Tao Agent OS's required Python wrappers, run `<TAO_LAUNCHER> setup-agent-hooks --check`, then run `<TAO_LAUNCHER> setup-agent-hooks` after approval if user-level bridges, hooks, or permissions are missing. This writes short managed bridge blocks for Codex, Claude, and AGY plus global runtime config only for Tao Agent OS-managed entrypoints; it does not broadly allow `python3`. Codex and AGY direct wrapper permissions use the resolved absolute Tao Agent OS path, not `$HOME`, `~`, relative paths, or shell `-lc` strings. Claude managed hooks use `<TAO_LAUNCHER>` plus a refreshed `~/.tao/tao-root` pointer so moving or migrating the checkout does not leave `~/.claude/settings.json` pointing at a stale `scripts/workflow.py` path. Rerun setup after moving Tao Agent OS to refresh that pointer and repair stale managed bridges and hooks.
-- Spill token metering is optional and separate. Tao Agent OS does not install token-usage event hooks. If the local Spill setup helper is present, `setup-agent-hooks.py` may wire a safe workflow label bridge; if the helper is absent, it removes only Tao Agent OS-managed Spill label hooks/env and leaves Tao Agent OS routing and evidence wrappers working normally.
-- For Codex, Claude, and Antigravity/AGY, `setup-agent-hooks.py --check` also verifies the managed user bridge in the runtime's user-level instruction file. A missing or stale bridge is treated as missing setup so the runtime cannot proceed as if project discovery, graph-backed document routing, fail-closed, and silence rules were installed.
+- To avoid repeated prompts for Tao Agent OS commands, run `<TAO_LAUNCHER> setup-agent-hooks --check`, then run `<TAO_LAUNCHER> setup-agent-hooks` after approval if user-level bridges, hooks, or permissions are missing. This writes short managed bridge blocks for Codex, Claude, and AGY plus global runtime config only for Tao Agent OS-managed entrypoints; it does not broadly allow `python3`. Codex and AGY permissions use the resolved absolute stable launcher path, not `$HOME`, `~`, relative paths, or shell `-lc` strings. Claude managed hooks use the same launcher plus a refreshed `~/.tao/tao-root` pointer, so moving or migrating the checkout does not leave `~/.claude/settings.json` pointing at a stale checkout-local command. Rerun setup after moving Tao Agent OS to refresh that pointer and repair stale managed bridges and hooks.
+- Spill token metering is optional and separate. Tao Agent OS does not install token-usage event hooks. If the local Spill setup helper is present, `<TAO_LAUNCHER> setup-agent-hooks` may wire a safe workflow label bridge; if the helper is absent, it removes only Tao Agent OS-managed Spill label hooks/env and leaves Tao Agent OS routing and evidence wrappers working normally.
+- For Codex, Claude, and Antigravity/AGY, `<TAO_LAUNCHER> setup-agent-hooks --check` also verifies the managed user bridge in the runtime's user-level instruction file. A missing or stale bridge is treated as missing setup so the runtime cannot proceed as if project discovery, graph-backed document routing, fail-closed, and silence rules were installed.
 - For runtime-specific setup rules, read docs/skills/agent-runtime-integration/SKILL.md.
 
 ## Distribution Modes
@@ -452,7 +452,7 @@ Read every route `required_docs` entry directly after start and before work. Run
 
 `finish` never writes or overrides the gate ledger. Record corrections through `gate` or `gate-batch`; the latest structured status for each gate is authoritative.
 
-Direct `workflow.py route`, `agent-preflight.py`, and `agent-finish-check.py`calls remain available only as lower-level diagnostic or compatibility fallbacks when the corresponding hook cannot run; never run them as a second lifecycle after a successful start or finish hook.
+Direct `<TAO_LAUNCHER> workflow route`, `<TAO_LAUNCHER> agent-preflight`, and `<TAO_LAUNCHER> agent-finish-check`calls remain available only as lower-level diagnostic or compatibility fallbacks when the corresponding hook cannot run; never run them as a second lifecycle after a successful start or finish hook.
 
 The scripts write to `.tao/preflight.json` and `.tao/finish.json`. That directory is local runtime evidence and should usually be gitignored. Missing wrapper evidence or missing route gate evidence is non-compliant even if the resulting code or docs look correct. Human-visible gate reports use only two cat signal badges so failures are hard to miss: `🐱🟢 SUCCESS` and `🐱🔴 FAIL`. The JSON evidence keeps the plain signal values for automation. When `--request-classified` is used, pass `--classification-evidence`; otherwise request intake is treated as skipped. Evidence alone does not honor the flag: it applies only to a delegated worker whose parent left a ready and valid execution capsule, and the form with neither a request nor a capsule is rejected. Every other caller passes `--request "<USER_REQUEST>"` and lets the classifier run. A caller that only wants the document listing and label context without asserting intake uses `--advisory`, which satisfies no downstream gate. If route classification or stored request text asks for Grill-Me, the finish check must receive Grill-Me protocol evidence such as `grill-me if needed=</grilling session/output evidence>`. Work routes require resolved-scope classification evidence such as `clear-exact`, `clear-scoped`, `answered ... separate actionable`, or `blockers resolved`; weak evidence such as `classified`, `done`, `clarified`, or `no blockers` does not open work routes by itself.
 
@@ -524,7 +524,7 @@ This is the core design: small cards, loaded only when relevant.
 - Use `index.md` to choose only the needed documents.
 - Answer direct user questions before starting workflow routing, editing, or project-specific commands.
 - Run `<TAO_LAUNCHER> start ... --request "<USER_REQUEST>"` once for multi-step workflows, then read every route `required_docs` entry directly.
-- Use the review hook after meaningful edits and the finish hook before final report, commit, release, or handoff. Direct `workflow.py route`, `agent-preflight.py`, and `agent-finish-check.py` calls are lower-level diagnostic or compatibility fallbacks only; missing executable evidence is non-compliant.
+- Use the review hook after meaningful edits and the finish hook before final report, commit, release, or handoff. Direct `<TAO_LAUNCHER> workflow route`, `<TAO_LAUNCHER> agent-preflight`, and `<TAO_LAUNCHER> agent-finish-check` calls are lower-level diagnostic or compatibility fallbacks only; missing executable evidence is non-compliant.
 - Classify unclear requests before loading broad context or using deep model effort.
 - Discover the repo stack before choosing package managers, framework APIs, or project commands.
 - Diagnose command failures from stdout/stderr before changing code or deciding whether a changed condition justifies another execution.
@@ -594,13 +594,13 @@ type: ai-generated
 - Add LLM-readable wiki, runbook, and durable knowledge-base rules to `common/skills/llm-wiki-documentation/SKILL.md`.
 - Add reusable product mechanics to `product-patterns/`.
 - Add repeatable task paths to `workflows/`.
-- Add or update `scripts/workflow.py` when a repeated workflow should be resolved as a command route.
+- Add or update the workflow route definitions when a repeated workflow should be resolved as a command route.
 - Keep repo-specific paths, commands, services, product names, and policies in the target repo, not in this shared library.
 - When adding a public-facing page, keep agent source guidance in English and localize only the distribution copy.
 
 ## Local Hook Testing
 
-To verify that Tao Agent OS hooks (`agent-hook.py`, `agent-finish-check.py`) and search tools function correctly in an E2E sandbox environment:
+To verify that Tao Agent OS lifecycle commands and search tools function correctly in an E2E sandbox environment:
 
 ```bash
 python3 scripts/run_smoke_checks.py

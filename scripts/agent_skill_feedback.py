@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from agent_global_lessons import state_home
+from agent_gate_evidence import latest_successful_gate_fields
+from agent_skill_catalog import canonical_skill_ids, normalize_skill_id, parse_skill_ids
 from agent_skill_learning import (
     curate_observations,
     record_observation,
@@ -18,6 +20,8 @@ from agent_skill_retention import prune_skill_learning_state
 
 def record_skill_feedback(
     *,
+    project: Path,
+    rules: Path,
     evidence_path: Path,
     outcome: str,
     skill_id: str,
@@ -35,10 +39,27 @@ def record_skill_feedback(
             "skill observation skipped: invalid outcome; task completion is unchanged"
         ]
 
+    normalized_skill = normalize_skill_id(skill_id)
+    if not normalized_skill or normalized_skill not in canonical_skill_ids(project, rules):
+        return {"created": False, "reason": "unknown_canonical_skill"}, [
+            "skill observation skipped: unknown canonical skill; task completion is unchanged"
+        ]
+    retrospective = _retrospective_fields(evidence_path)
+    checked_skills = set(parse_skill_ids(retrospective.get("skills_checked", "")))
+    if (
+        retrospective.get("outcome", "").strip().lower() != "reusable_gap"
+        or retrospective.get("observation", "").strip().lower() not in {"recorded", "deferred"}
+        or normalized_skill not in checked_skills
+    ):
+        return {"created": False, "reason": "skill_not_checked_in_retrospective"}, [
+            "skill observation skipped: skill was not bound to the current retrospective; "
+            "task completion is unchanged"
+        ]
+
     result = record_observation(
         state_home(),
         occurrence_id=_occurrence_id(evidence_path),
-        skill_id=skill_id,
+        skill_id=normalized_skill,
         signal=signal,
     )
     if result.get("idempotent"):
@@ -135,3 +156,18 @@ def _occurrence_id(evidence_path: Path) -> str:
     except (OSError, json.JSONDecodeError):
         return ""
     return str(payload.get("agent_run_id") or "")
+
+
+def _retrospective_fields(evidence_path: Path) -> dict[str, str]:
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    route = payload.get("route") or {}
+    if not isinstance(route, dict):
+        return {}
+    return latest_successful_gate_fields(
+        route=route,
+        evidence_path=evidence_path,
+        gate="retrospective check",
+    )

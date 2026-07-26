@@ -35,6 +35,25 @@ Use for Android app, Compose/ViewModel, permission, and UI flow review.
   imports, forbidden imports, callers, and focused verification. A package split
   that only creates one folder per type, mirrors a reference app, or moves files
   without changing dependency direction is structure churn, not architecture.
+- Even without a new package split or move, when a changed package is detected
+  as carrying multiple roles together, write the structure review evidence with
+  all of the labeled fields `owner`, `allowed imports`, `forbidden imports`,
+  `callers/tests`, and `verification`. Recording only "no new boundary" is not
+  evidence that the existing mixed-responsibility boundary was reviewed.
+- Before merging files to satisfy a package ratchet, count the non-private
+  top-level owners in the target file first. If the merged result would exceed
+  the structure review limit (default 4), do not push code into a catch-all
+  file; keep it in the existing owner file that directly supports its single
+  caller, or choose a purpose-named split at a real responsibility boundary.
+  Do not treat a package file-count audit pass and a file owner-count pass as
+  interchangeable conditions.
+- Do not extract a cohesive Compose renderer for the same card or screen into a
+  separate file only to satisfy the owner count. If a newly added
+  label/resource mapper or test seam pushed the file over the limit, keep that
+  seam with its existing single-caller owner and verify it in that owner's
+  named test instead of splitting the renderer. Create a purpose-named split
+  only when a genuinely independent state, contract, or platform responsibility
+  appears.
 - For `api` / `impl` / `assertions`, verify that `api` exposes caller-facing
   contracts only, `impl` owns execution details, and `assertions` depends on
   `api` rather than production `impl` by default.

@@ -421,17 +421,17 @@ class SupersededManagedBlockTests(unittest.TestCase):
         from support.graphify_tracking import write_managed_block
 
         block = (
-            "# tao-project-assets:start\n"
+            "# tao-graphify-inputs:start\n"
             ".tao/\n"
-            "# tao-project-assets:end"
+            "# tao-graphify-inputs:end"
         )
         with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / ".gitignore"
+            path = Path(temp_dir) / ".graphifyignore"
             path.write_text(
                 "node_modules/\n\n"
-                "# oldname-project-assets:start\n"
+                "# oldname-graphify-inputs:start\n"
                 ".oldname/\n"
-                "# oldname-project-assets:end\n\n"
+                "# oldname-graphify-inputs:end\n\n"
                 "dist/\n",
                 encoding="utf-8",
             )
@@ -441,24 +441,24 @@ class SupersededManagedBlockTests(unittest.TestCase):
             updated = path.read_text(encoding="utf-8")
             self.assertIn("node_modules/", updated)
             self.assertIn("dist/", updated)
-            self.assertNotIn("oldname-project-assets", updated)
+            self.assertNotIn("oldname-graphify-inputs", updated)
             self.assertNotIn(".oldname/", updated)
-            self.assertEqual(1, updated.count("# tao-project-assets:start"))
+            self.assertEqual(1, updated.count("# tao-graphify-inputs:start"))
 
     def test_write_managed_block_is_idempotent_for_the_current_marker(self) -> None:
         from support.graphify_tracking import write_managed_block
 
         block = (
-            "# tao-project-assets:start\n"
+            "# tao-graphify-inputs:start\n"
             ".tao/\n"
-            "# tao-project-assets:end"
+            "# tao-graphify-inputs:end"
         )
         with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / ".gitignore"
+            path = Path(temp_dir) / ".graphifyignore"
             self.assertEqual("installed", write_managed_block(path, block))
             self.assertEqual("ok", write_managed_block(path, block))
             self.assertEqual(
-                1, path.read_text(encoding="utf-8").count("# tao-project-assets:start")
+                1, path.read_text(encoding="utf-8").count("# tao-graphify-inputs:start")
             )
 
 

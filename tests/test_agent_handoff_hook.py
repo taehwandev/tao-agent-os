@@ -224,6 +224,7 @@ class HandoffHookTests(unittest.TestCase):
         self.assertIn("SUCCESS handoff", handoff.stdout)
         self.assertIn("execution capsule is ready and valid", handoff.stdout)
         self.assertIn("parent remains the sole gate-ledger owner", handoff.stdout)
+        self.assertIn("does not record the route handoff gate", handoff.stdout)
 
     def test_document_confirmation_hook_is_not_an_available_interface(self) -> None:
         result = subprocess.run(

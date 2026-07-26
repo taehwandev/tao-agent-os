@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from support.graphify_input_inspection import normalize_relative_path, project_knowledge_files
@@ -41,6 +43,75 @@ def inspect_graph_integrity(project_path: Path, graph_path: Path) -> dict[str, o
         and duplicate_nodes == 0
         and invalid_edges == 0,
         **relationship,
+    }
+
+
+def repair_graph_integrity(graph_path: Path, *, dry_run: bool = False) -> dict[str, object]:
+    """Remove only edges that cannot represent a valid graph relationship."""
+    try:
+        payload = json.loads(graph_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "graph_path": str(graph_path),
+            "ready": False,
+            "removed_edge_count": 0,
+            "reason": "graph is missing or invalid JSON",
+        }
+
+    nodes = payload.get("nodes")
+    edge_key = "links" if isinstance(payload.get("links"), list) else "edges"
+    edges = payload.get(edge_key)
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return {
+            "graph_path": str(graph_path),
+            "ready": False,
+            "removed_edge_count": 0,
+            "reason": "graph nodes or edges are not lists",
+        }
+
+    node_ids = {
+        str(node["id"])
+        for node in nodes
+        if isinstance(node, dict) and node.get("id") is not None
+    }
+    valid_edges: list[dict[str, object]] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        source = str(edge.get("source") or "")
+        target = str(edge.get("target") or "")
+        if source not in node_ids or target not in node_ids or source == target:
+            continue
+        valid_edges.append(edge)
+
+    removed = len(edges) - len(valid_edges)
+    if removed and not dry_run:
+        payload[edge_key] = valid_edges
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=graph_path.parent,
+                prefix=f".{graph_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                json.dump(payload, handle, ensure_ascii=False)
+                handle.write("\n")
+                temp_path = Path(handle.name)
+            os.replace(temp_path, graph_path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    return {
+        "graph_path": str(graph_path),
+        "ready": True,
+        "removed_edge_count": removed,
+        "edge_count": len(valid_edges),
+        "dry_run": dry_run,
     }
 
 

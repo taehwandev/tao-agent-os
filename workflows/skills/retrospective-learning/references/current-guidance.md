@@ -44,16 +44,19 @@ channel and never changes a successful finish result.
    `reusable_gap` with `recorded` or `deferred`. Put task-specific correction
    details in the gate evidence text rather than inventing another observation
    value.
-4. When the outcome is `reusable_gap`, emit one reusable, content-free
-   observation tied to a skill actually used, or record that observation as
-   deferred when the optional side channel is unavailable.
-5. Run finish. Missing or invalid retrospective-check evidence fails finish;
+4. When the outcome is `reusable_gap`, first record the required gate with
+   `observation: deferred`. The optional feedback hook accepts the observation
+   only when its normalized skill id exists in a canonical bundle and matches
+   that current successful retrospective record.
+5. If the hook created or idempotently matched the observation, replace the
+   gate with `observation: recorded`; otherwise keep `deferred`.
+6. Run finish. Missing or invalid retrospective-check evidence fails finish;
    missing observation storage does not.
-6. Let a deterministic curator deduplicate observations by opaque occurrence
+7. Let a deterministic curator deduplicate observations by opaque occurrence
    key and queue review only after two distinct observations share the exact
    `skill_id + signal` identity.
-7. Let a separate bounded reviewer choose `no_change` or `staged_patch`.
-8. Apply a staged patch to canonical skill files only in a later bounded
+8. Let a separate bounded reviewer choose `no_change` or `staged_patch`.
+9. Apply a staged patch to canonical skill files only in a later bounded
    maintenance task that satisfies verification and approval policy.
 
 ## Automation Boundary
@@ -81,6 +84,10 @@ channel and never changes a successful finish result.
 - `applied` is an observed state, not reviewer prose: it requires an actually
   changed canonical target linked to the staged promotion target and a zero
   exit status from an allowlisted verification kind.
+- Project-local canonical writes are allowlisted only under
+  `.agents/shared/llm-skills/<skill>/**` and
+  `.agents/local/skills/<skill>/**`. Adapter paths such as `.codex/skills` and
+  `.claude/skills`, and vendored runtime copies, are not maintenance targets.
 - No successful-task stage may automatically mutate a canonical skill.
 - Prefer a focused test, validator, or clearer decision rule over an
   ever-growing list of natural-language exceptions.

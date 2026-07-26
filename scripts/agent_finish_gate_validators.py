@@ -116,7 +116,7 @@ def validate_source_docs_evidence(
         for pattern in (
             r"\b(?:route\s+)?required_docs\b.{0,48}\b(?:empty|none|no entries|zero|0)\b",
             r"\b(?:route\s+)?required[- ]docs?\s+manifest\b.{0,48}\b(?:empty|none|no entries|zero|0)\b",
-            r"(?:route의\s*)?(?:required_docs|필수\s*문서).{0,40}(?:비어|없음|0개)",
+            r"(?:route의\s*)?(?:required_docs|필수\s*문서).{0,40}(?:비어|없음|(?<!\d)0개)",
         )
     )
     reads_route_required_docs = any(

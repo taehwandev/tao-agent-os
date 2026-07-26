@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -8,7 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from agent_finish_documentation import required_doc_target_failures
+from agent_execution_capsule import create_preflight_snapshot
+from agent_finish_documentation import (
+    documented_required_doc_updates,
+    required_doc_target_failures,
+)
+from agent_gate_evidence import record_gate_evidence
 
 
 class RequiredDocTargetTests(unittest.TestCase):
@@ -51,6 +58,55 @@ class RequiredDocTargetTests(unittest.TestCase):
                 route=self.route,
             ),
         )
+
+    def test_each_documentation_record_authorizes_one_required_doc_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rules = Path(temp_dir).resolve()
+            evidence_path = rules / "preflight.json"
+            route = {
+                "command": "docs",
+                "gates": ["documentation"],
+                "required_docs": [
+                    "AGENTS.md",
+                    "platforms/android/skills/source-coverage/SKILL.md",
+                ],
+            }
+            for relative in route["required_docs"]:
+                doc_path = rules / relative
+                doc_path.parent.mkdir(parents=True, exist_ok=True)
+                doc_path.write_text(f"# {relative}\n", encoding="utf-8")
+            preflight = {
+                "route": route,
+                "rules": str(rules),
+                "execution_snapshot": create_preflight_snapshot(
+                    rules,
+                    route,
+                    {"request": "update the routed required docs"},
+                ),
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+
+            for target in route["required_docs"]:
+                record_gate_evidence(
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                    gate="documentation",
+                    fields={
+                        "decision": "updated",
+                        "target": target,
+                        "reason": "explicit required-doc migration",
+                    },
+                )
+
+            self.assertEqual(
+                set(route["required_docs"]),
+                set(
+                    documented_required_doc_updates(
+                        evidence_path=evidence_path,
+                        route=route,
+                    )
+                ),
+            )
 
 
 if __name__ == "__main__":

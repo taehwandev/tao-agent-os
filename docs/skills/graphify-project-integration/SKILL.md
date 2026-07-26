@@ -11,131 +11,102 @@ requires_docs:
 
 # Graphify Project Integration
 
-Use when Tao Agent OS is installed in a target repository, when Graphify is
-missing or incomplete there, or when a workflow must prove that the target
-project's graph, canonical skill, and runtime links are ready.
+Use when Tao Agent OS must install or verify the shared Graphify skill, or
+when a target repository needs its own current local graph.
 
 ## Use When
 
-- Applying Tao Agent OS to a repository that should use Graphify.
-- Installing or repairing project-local Graphify skills, rules, workflows, or hooks.
-- A route mentions Graphify, a project graph, or a missing `graphify-out/graph.json`.
-- An agent appears to skip Graphify because the CLI, skill document, integration, or graph is absent.
+- Installing or repairing the user-level Graphify skill and runtime discovery links.
+- A route mentions Graphify or a missing target-project graph.
+- A project Graphify setup leaked `.tao/skills/graphify` or
+  runtime-specific Graphify links into a checkout.
+- An agent skipped Graphify because the CLI, shared skill, or project graph was absent.
 
 ## Read
 
-- `references/current-guidance.md` for the install/readiness procedure.
-- The target project's canonical
-  `.tao/skills/graphify/SKILL.md` before building, updating, or
-  querying that project's graph. Runtime skill paths are links to this one
-  source, not separate documents to maintain or read independently.
+- `references/current-guidance.md` for the install and readiness procedure.
+- `~/.tao/skills/graphify/SKILL.md` before building, updating, or querying
+  a target graph. This user-level copy comes from the active runtime's bundled
+  `.tao/skills/graphify`.
 
 ## Decision Rule
 
-Treat Graphify readiness as seven separate conditions: CLI available, one
-canonical project-local `SKILL.md` installed and read, every enabled runtime
-path resolving to that canonical directory, portable Git ownership verified,
-project integration installed, a fresh and input-complete
-`graphify-out/graph.json` present, and a scoped query smoke check successful.
-Document-to-source relationships are a query-quality signal: when semantic
-inputs or explicit path citations produce them, include a representative
-doc-to-source path in the smoke check. Their absence does not fail a current,
-input-complete AST-only graph. Missing any of the seven conditions is a failed
-readiness gate, not permission to skip Graphify silently. A copied runtime
-bundle fails the canonical-source condition even when its content currently
-matches.
+Keep ownership split into two boundaries:
 
-Files visible while an editor follows a runtime directory link are views of
-the canonical target, not additional physical copies. Git ownership is ready
-only when canonical files and mandatory policies are tracked, every previously
-tracked runtime skill path is one repo-relative mode `120000` entry, and no
-tracked `SKILL.md` or `references/` descendants remain below runtime paths.
-Preserving legacy project knowledge as graph input is only a migration safety
-measure; equivalent shared content across runtime directories must still be
-collapsed into one `.tao` owner.
+1. The active Tao Agent OS owns the bundled Graphify skill and installs one
+   user-level copy with user-level Codex, Claude, AGY, and generic-agent links.
+2. Each target checkout owns only its ignored generated graph at
+   `.agents/local/graphify-out`.
+
+Target repositories do not own Graphify skill copies, `.tao` canonical bundles,
+runtime discovery links, rule adapters, or Git-tracked Graphify installation
+assets. Their presence is a failed project-integration condition.
+
+Readiness has seven conditions: CLI available; shared user-level `SKILL.md`
+installed and read; user-level runtime links resolving to it; shared runtime
+ownership verified; project integration free of copied runtime assets; a fresh,
+input-complete local graph; and a scoped query smoke check.
 
 ## Process
 
-1. Identify the target repository. Explicit target setup wires Codex, Claude,
-   and Antigravity/AGY by default so the repository does not depend on which
-   runtime happens to be installed on the setup machine.
-2. Run the target setup flow; Graphify integration is included by default for
-   an explicit `--target`.
-3. Open and read the one canonical
-   `.tao/skills/graphify/SKILL.md`. Verify that `.codex`, `.claude`,
-   and `.agents` runtime skill paths are repo-relative links to it. Remove
-   duplicate Graphify explanation sections from `AGENTS.md` and `CLAUDE.md`;
-   rules or hook files do not substitute for the canonical skill document.
-4. Build the initial graph from the target root using the installed skill flow.
-5. If project docs explicitly cite source paths but the graph omitted those
-   edges, run the Tao Agent OS deterministic document-link repair; it must not
-   invent semantic relationships or replace extraction.
-6. Run a small `graphify query` smoke check against the target graph.
-7. Record all seven readiness fields in the workflow gate evidence.
+1. Identify the active runtime root and target repository.
+2. Install or check the runtime-bundled skill at user level.
+3. Read the installed shared `SKILL.md`.
+4. Confirm runtime discovery links resolve under `~/.tao`, outside the target repo.
+5. Remove project-local Graphify skill copies and links created by an obsolete setup.
+6. Build or update the target graph with
+   `GRAPHIFY_OUT=.agents/local/graphify-out`.
+7. Run a scoped query/path/explain smoke check and record all seven readiness fields.
 
 ## Common Rationalizations
 
 | Rationalization | Required response |
 | --- | --- |
-| "The shared Tao Agent OS graph is enough." | Build and verify the target repository's own graph. |
-| "The rule file mentions Graphify." | Read the canonical `.tao` `SKILL.md`; a rule or hook is only integration wiring. |
-| "Each runtime needs its own copy." | Keep runtime mechanics in wiring and resolve all shared skill content to the one canonical bundle. |
-| "There is no graph, so I will use grep." | Install/repair Graphify or report the readiness gate failure; do not silently bypass it. |
-| "Setup can generate the graph automatically." | Keep installation deterministic; graph generation runs through the skill because it may require model/provider and cost decisions. |
+| "Every worktree needs its own skill copy." | Use the user-level runtime link; worktrees own only generated local graph state. |
+| "The project bundle makes setup portable." | Common runtime behavior belongs to the active runtime, not a product repo. |
+| "Git must own the Graphify skill." | Verify runtime ownership and local graph isolation; do not stage runtime assets in the target repo. |
+| "There is no graph, so I will use grep." | Build or repair the target-local graph, or report the readiness failure. |
+| "Setup can generate the graph automatically." | Keep model/provider and cost decisions in the shared skill flow. |
 
 ## Red Flags
 
-- `graphify-out/graph.json` comes from another repository.
-- A setup command reports success while the runtime skill or graph is missing.
-- Codex, Claude, or AGY contains a copied Graphify bundle instead of a
-  repo-relative link to `.tao/skills/graphify`.
-- `AGENTS.md` or `CLAUDE.md` restates Graphify operational guidance already
-  owned by the canonical skill.
-- A codebase answer proceeds without Graphify even though the project opted in.
-- A hook, rule, or command registration is claimed as proof that `SKILL.md` was read.
-- Initial extraction runs silently during permission or hook installation.
+- `.tao/skills/graphify` appears in a target checkout.
+- `.agents/skills/graphify`, `.claude/skills/graphify`, or
+  `.codex/skills/graphify` resolves inside the target checkout.
+- A generated graph is written to tracked project paths.
+- A setup command claims readiness from skill presence without a target graph or query.
+- The global copy differs from the active runtime bundle after setup completes.
 
 ## Do Not
 
-- Do not copy a graph between projects.
-- Do not install a Graphify package from the network without approval.
-- Do not run paid/model-backed extraction silently from the setup helper.
-- Do not mark readiness from file presence alone; include a query smoke check.
-- Do not commit generated graph outputs without the target repo's tracking policy review.
-- Do not edit runtime links as if they were independent skills; update the
-  canonical bundle through Tao Agent OS setup.
+- Do not copy the Graphify skill into a project or worktree.
+- Do not create project-local Graphify runtime links or adapter files.
+- Do not require `git add`, a commit, or repository ignore allowlists for the shared skill.
+- Do not copy graphs between repositories.
+- Do not run package installation or model-backed extraction without required approval.
+- Do not mark readiness from file presence alone.
 
 ## Stop If
 
 - The target project or active runtime is ambiguous.
-- The Graphify CLI is missing and installing it would require new network or package authority.
-- The installed skill requires a provider, model, or paid action that the user has not approved.
+- The Graphify CLI is missing and installation requires new package/network authority.
+- The shared skill requires an unapproved provider, model, or paid action.
 - The graph input scope crosses repositories without an explicit merge scope.
 
 ## Verification
 
 - CLI: `graphify` resolves locally.
-- Skill doc: `.tao/skills/graphify/SKILL.md` exists and was read.
-- Runtime links: every enabled runtime skill directory is a repo-relative link
-  that resolves to the canonical Graphify directory.
-- Git ownership: `git ls-files -s` shows no runtime skill descendants and mode
-  `120000` for every runtime skill path the repository intentionally tracks.
-- Integration: the runtime's rule/workflow/hook or instruction registration exists.
-- Graph: `graphify-out/graph.json` is valid, non-empty, anchored to the current
-  source revision with a manifest matching current graph inputs, includes the
-  repo-local knowledge inventory, and has
-  no missing/dangling/self-loop endpoints.
-- Query smoke: `graphify query "<scoped target-project question>"` succeeds.
-  When semantic inputs expose a project-doc-to-source relation, also exercise a
-  representative `graphify path` or equivalent query across it; AST-only graphs
-  remain ready when that relation is absent.
+- Skill doc: `~/.tao/skills/graphify/SKILL.md` matches the active runtime bundle and was read.
+- Runtime links: user-level runtime skill links resolve to `~/.tao/skills/graphify`.
+- Runtime ownership: no target-project Graphify skill or adapter asset exists.
+- Project integration: graph output is `.agents/local/graphify-out`.
+- Graph: `graph.json` is valid, current, input-complete, and has valid endpoints.
+- Query smoke: a scoped `graphify query`, `path`, or `explain` call succeeds.
 
 ## Report
 
-Report all seven fields explicitly: CLI state; canonical skill path and read
-evidence; runtime link paths and resolved targets; portable Git ownership;
-project integration; graph path plus freshness, integrity, local-knowledge
-input coverage, and document-to-code path coverage; and the scoped
-query/path smoke result. Name every missing readiness condition. State
-separately whether integration was installed and whether the initial graph was
-actually built.
+Report the seven readiness fields explicitly. Name the active runtime bundle,
+installed user-level skill, resolved user-level links, absence of target-project
+runtime assets, local graph path and integrity/freshness state, and query smoke
+result. State separately whether the shared skill was installed and whether the
+target graph was actually built.

@@ -17,6 +17,7 @@ from support.graphify_setup import (
     configure_target_graphify,
     graphify_platforms_for_runtimes,
 )
+from support.graphify_contract import RUNTIME_BUNDLED_SKILL_DIR
 from support.permission_entries import (
     claude_legacy_permission_entries,
     claude_project_permission_entries,
@@ -69,12 +70,12 @@ def main() -> None:
     graphify_group.add_argument(
         "--graphify",
         action="store_true",
-        help="Also install Graphify for --github-projects; --target enables it by default.",
+        help="Also check Graphify local-graph readiness for --github-projects; --target enables it by default.",
     )
     graphify_group.add_argument(
         "--skip-graphify",
         action="store_true",
-        help="Skip the default target-project Graphify integration (explicit opt-out).",
+        help="Skip the default target-project Graphify readiness check (explicit opt-out).",
     )
     parser.add_argument(
         "--runtime",
@@ -124,11 +125,17 @@ def main() -> None:
     global_graphify_platforms = graphify_platforms_for_runtimes(
         selected_runtimes or {"agy", "claude", "codex"}
     )
+    bundled_graphify = ROOT / RUNTIME_BUNDLED_SKILL_DIR
     if _should_configure_global_graphify(selected_runtimes) and (
-        shutil.which("graphify") or (Path.home() / CANONICAL_SKILL_PATH).is_file()
+        shutil.which("graphify")
+        or (Path.home() / CANONICAL_SKILL_PATH).is_file()
+        or (bundled_graphify / "SKILL.md").is_file()
     ):
         results += configure_global_graphify(
-            Path.home(), global_graphify_platforms, dry_run
+            Path.home(),
+            global_graphify_platforms,
+            dry_run,
+            bundled_skill_dir=bundled_graphify,
         )
 
     results += configure_target_projects(
@@ -161,9 +168,8 @@ def configure_target_projects(
     if target_paths and not launcher_configured:
         results += ensure_stable_launcher(ROOT, dry_run)
 
-    # Project Graphify is agent-agnostic by default. Runtime availability on
-    # the current machine must not decide which repo-local entrypoints exist,
-    # because the same checkout may be opened later by Codex, Claude, or AGY.
+    # Project checks are agent-agnostic, but runtime skills remain user-level.
+    # Never create Graphify skill copies or discovery links in target repos.
     graphify_platforms = graphify_platforms_for_runtimes(
         selected_runtimes or {"agy", "claude", "codex"}
     )
@@ -183,9 +189,9 @@ def fail_if_setup_incomplete(args: argparse.Namespace, results: list[dict]) -> N
     missing = [result for result in results if result["status"] == "missing"]
     if any(result["tool"] == "graphify" for result in missing):
         print(
-            "\nTarget setup is incomplete. Install/repair the canonical Graphify skill and "
-            "runtime links, then read .tao/skills/graphify/SKILL.md, build the graph "
-            "from the target root, and rerun --check.",
+            "\nGraphify setup is incomplete. Repair the shared ~/.tao skill and "
+            "user-level runtime links, then read that skill, build the target graph "
+            "under .agents/local/graphify-out, and rerun --check.",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -206,8 +212,8 @@ def _runtime_selected(runtime: str, selected_runtimes: set[str]) -> bool:
 
 
 def _should_configure_global_graphify(selected_runtimes: set[str]) -> bool:
-    """Keep a Codex-only bridge repair independent from global Graphify setup."""
-    return not selected_runtimes or bool(selected_runtimes - {"codex"})
+    """Every selected runtime consumes the same user-level Graphify bundle."""
+    return not selected_runtimes or bool(selected_runtimes)
 
 
 def _has_codex() -> bool:

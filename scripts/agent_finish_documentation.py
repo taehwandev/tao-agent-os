@@ -19,7 +19,7 @@ def documented_required_doc_updates(
     """Return exact required-doc updates backed by trusted final-byte receipts."""
 
     required_docs = set(required_docs_for_route(route))
-    if not required_docs or "documentation" not in set(route.get("gates") or []):
+    if not required_docs:
         return {}
     ledger = read_gate_evidence_ledger(gate_evidence_path_for_preflight(evidence_path))
     if not _ledger_matches_route(ledger, evidence_path, route):

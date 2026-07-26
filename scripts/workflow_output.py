@@ -176,7 +176,7 @@ def _print_graphify_readiness(readiness: dict[str, object]) -> None:
     if readiness.get("canonical_skill_doc"):
         installed = str(bool(readiness.get("canonical_skill_exists"))).lower()
         print(
-            f"- Canonical skill installed: `{installed}` at "
+            f"- Shared runtime skill installed: `{installed}` at "
             f"`{readiness['canonical_skill_doc']}`; read evidence is still required"
         )
     for runtime, link in (readiness.get("runtime_skill_links") or {}).items():
@@ -186,12 +186,12 @@ def _print_graphify_readiness(readiness: dict[str, object]) -> None:
         f"`{str(not bool(readiness.get('invalid_runtime_links'))).lower()}`"
     )
     print(
-        "- Portable Git ownership: "
-        f"`{str(readiness.get('commit_ready') is True).lower()}`"
+        "- Shared runtime ownership: "
+        f"`{str(bool(readiness.get('runtime_ownership_ready'))).lower()}`"
     )
     print(
         "- Project integration ready: "
-        f"`{str(not bool(readiness.get('missing_integrations'))).lower()}`"
+        f"`{str(bool(readiness.get('project_integration_ready'))).lower()}`"
     )
     if readiness.get("graph_path"):
         print(f"- Graph: `{readiness['graph_path']}`")

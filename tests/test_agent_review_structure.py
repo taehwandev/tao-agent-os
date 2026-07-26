@@ -12,10 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_review_structure import (
+    REVIEW_ADDED_LINE_LIMIT,
     REVIEW_TEST_ADDED_LINE_LIMIT,
     REVIEW_TEST_FILE_LINE_LIMIT,
     changed_source_paths,
     check_file_size,
+    large_block_failures,
+    large_block_findings,
     review_source_path,
     structure_review,
 )
@@ -54,6 +57,7 @@ class AgentReviewStructureTests(unittest.TestCase):
         self.assertIn("allowed imports", failures[0])
         self.assertIn("forbidden imports", failures[0])
         self.assertIn("verification", failures[0])
+        self.assertIn("Example: owner=", failures[0])
 
         complete = structure_evidence_failures(
             structure,
@@ -135,6 +139,193 @@ class AgentReviewStructureTests(unittest.TestCase):
 
         self.assertEqual([Path("src/a.py")], paths)
 
+    def test_non_git_structure_review_does_not_require_git_file_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = project / "src" / "feature.py"
+            source.parent.mkdir()
+            source.write_text("value = 1\n", encoding="utf-8")
+            commands: list[list[str]] = []
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                commands.append(command)
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": 128,
+                    "stdout": "",
+                    "stderr": "not a git repository",
+                }
+
+            review = structure_review(
+                project,
+                500,
+                120,
+                run_command,
+                ["src/feature.py"],
+            )
+
+        self.assertEqual([], review["failures"])
+        self.assertEqual([], review["checked_paths"])
+        self.assertEqual("non_git_workspace", review["discovery"]["review_only"])
+        self.assertEqual([["git", "rev-parse", "--verify", "HEAD"]], commands)
+
+    def test_renamed_legacy_file_compares_owner_count_with_original_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = project / "src"
+            source.mkdir()
+            original = source / "ProposalEntry.kt"
+            original.write_text(
+                "data class ProposalEntry(val id: Long)\n"
+                "data class Notice(val message: String)\n"
+                "data class Metadata(val source: String)\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "add", "."], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Tao Agent OS Tests",
+                    "-c",
+                    "user.email=tao@example.invalid",
+                    "commit",
+                    "-m",
+                    "initial",
+                ],
+                cwd=project,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            renamed = source / "ChattyEntry.kt"
+            original.rename(renamed)
+            renamed.write_text(
+                "data class ChattyEntry(val id: Long)\n"
+                "data class Notice(val message: String)\n"
+                "data class Metadata(val source: String)\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "-A"], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+
+            review = structure_review(project, 500, 120, run_command, ["src"])
+
+        self.assertEqual([], review["failures"])
+        self.assertEqual(
+            "src/ProposalEntry.kt",
+            review["discovery"]["path_metadata"]["src/ChattyEntry.kt"]["previous_path"],
+        )
+
+    def test_unstaged_content_preserving_move_is_not_treated_as_new_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = project / "src"
+            source.mkdir()
+            original = source / "LegacyViewModel.kt"
+            original.write_text(
+                "package example\n\n" + "\n".join(f"// retained line {index}" for index in range(510)) + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "add", "."], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Tao Agent OS Tests",
+                    "-c",
+                    "user.email=tao@example.invalid",
+                    "commit",
+                    "-m",
+                    "initial",
+                ],
+                cwd=project,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            moved = source / "session" / original.name
+            moved.parent.mkdir()
+            original.rename(moved)
+            moved.write_text(
+                "package example.session\n\n"
+                + "\n".join(f"// retained line {index}" for index in range(510))
+                + "\n",
+                encoding="utf-8",
+            )
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+
+            discovery, paths = changed_source_paths(project, run_command, ["src"])
+
+        metadata = discovery["path_metadata"]["src/session/LegacyViewModel.kt"]
+        self.assertEqual([Path("src/session/LegacyViewModel.kt")], paths)
+        self.assertEqual("R", metadata["status"])
+        self.assertEqual("src/LegacyViewModel.kt", metadata["previous_path"])
+        self.assertEqual(1, metadata["additions"])
+        self.assertEqual(1, metadata["deletions"])
+
+    def test_renamed_preexisting_oversized_block_uses_previous_path(self) -> None:
+        lines = ["private fun handle() {"]
+        lines.extend(f"    val value{index} = {index}" for index in range(120))
+        lines.append("}")
+        commands: list[list[str]] = []
+
+        def run_command(command: list[str], _cwd: Path) -> dict[str, object]:
+            commands.append(command)
+            return {
+                "returncode": 0,
+                "stdout": "\n".join(lines),
+                "stderr": "",
+            }
+
+        failures, warnings = large_block_findings(
+            Path("."),
+            Path("src/session/LegacyHandler.kt"),
+            lines,
+            120,
+            {"status": "R", "previous_path": "src/LegacyHandler.kt"},
+            run_command,
+        )
+
+        self.assertEqual([], failures)
+        self.assertTrue(any("pre-existing oversized unit" in warning for warning in warnings))
+        self.assertIn(["git", "show", "HEAD:src/LegacyHandler.kt"], commands)
+
     def test_existing_oversized_file_growth_requires_evidence_without_hard_failure(self) -> None:
         result = {"failures": [], "warnings": []}
 
@@ -162,6 +353,112 @@ class AgentReviewStructureTests(unittest.TestCase):
 
         self.assertEqual([], result["failures"])
         self.assertTrue(any("review-pressure limit is 300" in warning for warning in result["warnings"]))
+
+    def test_net_reducing_rewrite_warns_instead_of_failing_addition_limit(self) -> None:
+        result = {"failures": [], "warnings": []}
+
+        check_file_size(
+            Path("src/LegacyScreen.kt"),
+            ["class LegacyScreen"] * 399,
+            500,
+            {"status": "M", "additions": 350, "deletions": 898},
+            result,
+        )
+
+        self.assertEqual([], result["failures"])
+        self.assertTrue(any("is not growing" in warning for warning in result["warnings"]))
+
+    def test_per_file_addition_budget_allows_300_lines(self) -> None:
+        result = {"failures": [], "warnings": []}
+
+        check_file_size(
+            Path("src/UploadWorker.kt"),
+            ["private val value = 1"] * REVIEW_ADDED_LINE_LIMIT,
+            500,
+            {"status": "M", "additions": REVIEW_ADDED_LINE_LIMIT, "deletions": 0},
+            result,
+        )
+
+        self.assertEqual([], result["failures"])
+
+    def test_per_file_addition_budget_rejects_growth_over_300_lines(self) -> None:
+        result = {"failures": [], "warnings": []}
+        additions = REVIEW_ADDED_LINE_LIMIT + 1
+
+        check_file_size(
+            Path("src/UploadWorker.kt"),
+            ["private val value = 1"] * additions,
+            500,
+            {"status": "M", "additions": additions, "deletions": 0},
+            result,
+        )
+
+        self.assertTrue(
+            any(
+                f"per-file addition limit is {REVIEW_ADDED_LINE_LIMIT}" in failure
+                for failure in result["failures"]
+            )
+        )
+
+    def test_large_type_container_does_not_use_function_block_limit(self) -> None:
+        lines = ["class MainActivity : AppCompatActivity() {"]
+        lines.extend(f"    private val value{index} = {index}" for index in range(150))
+        lines.append("}")
+
+        self.assertEqual([], large_block_failures(Path("MainActivity.kt"), lines, 120))
+
+    def test_large_function_still_uses_function_block_limit(self) -> None:
+        lines = ["private fun handle() {"]
+        lines.extend(f"    val value{index} = {index}" for index in range(150))
+        lines.append("}")
+
+        failures = large_block_failures(Path("DeepLinkHandler.kt"), lines, 120)
+
+        self.assertTrue(any("private fun handle" in failure for failure in failures))
+        self.assertTrue(any("prose alone does not bypass this hard gate" in failure for failure in failures))
+
+    def test_preexisting_oversized_function_growth_still_fails(self) -> None:
+        previous_lines = ["private fun handle() {"]
+        previous_lines.extend(f"    val value{index} = {index}" for index in range(120))
+        previous_lines.append("}")
+        current_lines = previous_lines[:-1] + ["    val addedValue = true", "}"]
+
+        failures, warnings = large_block_findings(
+            Path("."),
+            Path("LegacyHandler.kt"),
+            current_lines,
+            120,
+            {"status": "M"},
+            lambda _command, _cwd: {
+                "returncode": 0,
+                "stdout": "\n".join(previous_lines),
+                "stderr": "",
+            },
+        )
+
+        self.assertTrue(any("private fun handle" in failure for failure in failures))
+        self.assertEqual([], warnings)
+
+    def test_unchanged_preexisting_oversized_function_only_warns(self) -> None:
+        lines = ["private fun handle() {"]
+        lines.extend(f"    val value{index} = {index}" for index in range(120))
+        lines.append("}")
+
+        failures, warnings = large_block_findings(
+            Path("."),
+            Path("LegacyHandler.kt"),
+            lines,
+            120,
+            {"status": "M"},
+            lambda _command, _cwd: {
+                "returncode": 0,
+                "stdout": "\n".join(lines),
+                "stderr": "",
+            },
+        )
+
+        self.assertEqual([], failures)
+        self.assertTrue(any("pre-existing oversized unit" in warning for warning in warnings))
 
     def test_new_oversized_file_still_fails(self) -> None:
         result = {"failures": [], "warnings": []}
@@ -192,6 +489,38 @@ class AgentReviewStructureTests(unittest.TestCase):
                 project,
                 [Path("src/utils/userClient.ts")],
                 {"src/utils/userClient.ts": {"status": "A"}},
+                lambda root, path: (root / path).suffix == ".ts" and (root / path).exists(),
+                lambda path: False,
+            )
+
+        self.assertTrue(
+            any(
+                "forbidden" in failure and "src/utils/userClient.ts" in failure
+                for failure in result["failures"]
+            )
+        )
+
+    def test_structure_rules_apply_forbidden_new_path_to_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / ".agents").mkdir()
+            (project / ".agents" / "structure-rules.json").write_text(
+                json.dumps({"forbidden_new_paths": ["**/utils/**"]}),
+                encoding="utf-8",
+            )
+            source = project / "src" / "utils" / "userClient.ts"
+            source.parent.mkdir(parents=True)
+            source.write_text("export const userClient = {};\n", encoding="utf-8")
+
+            result = structure_rule_review(
+                project,
+                [Path("src/utils/userClient.ts")],
+                {
+                    "src/utils/userClient.ts": {
+                        "status": "R",
+                        "previous_path": "src/userClient.ts",
+                    }
+                },
                 lambda root, path: (root / path).suffix == ".ts" and (root / path).exists(),
                 lambda path: False,
             )

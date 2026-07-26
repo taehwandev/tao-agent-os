@@ -11,7 +11,14 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from agent_run_registry import active_runs, recover_stale_runs, register_run, resume_run, transition_run
+from agent_run_registry import (
+    active_run_conflict,
+    active_runs,
+    recover_stale_runs,
+    register_run,
+    resume_run,
+    transition_run,
+)
 
 
 class AgentRunRegistryTests(unittest.TestCase):
@@ -64,6 +71,38 @@ class AgentRunRegistryTests(unittest.TestCase):
             self.assertEqual([run["run_id"]], [item["run_id"] for item in recovered])
             self.assertEqual("failed", recovered[0]["state"])
             self.assertEqual("running", resume_run(project, run["run_id"])["state"])
+
+    def test_active_request_cannot_overwrite_the_same_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            register_run(
+                project,
+                evidence,
+                {"command": "task"},
+                {"request": "first", "request_classified": False},
+            )
+
+            self.assertTrue(
+                active_run_conflict(
+                    project,
+                    evidence,
+                    command="task",
+                    request_intake={"request": "second", "request_classified": False},
+                )
+            )
+            self.assertFalse(
+                active_run_conflict(
+                    project,
+                    project / ".tao" / "runs" / "second" / "preflight.json",
+                    command="task",
+                    request_intake={"request": "second", "request_classified": False},
+                )
+            )
+
+            persisted = (project / ".tao" / "run-registry.json").read_text()
+            self.assertNotIn("first", persisted)
+            self.assertNotIn("second", persisted)
 
 
 if __name__ == "__main__":

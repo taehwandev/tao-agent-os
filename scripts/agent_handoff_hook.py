@@ -113,7 +113,7 @@ def handoff_hook(args: argparse.Namespace) -> int:
                 "execution capsule is ready and valid",
                 f"capsule: {capsule_path}",
                 "worker may reuse route, preflight, and the required-doc manifest",
-                "parent remains the sole gate-ledger owner",
+                "parent remains the sole gate-ledger owner; this hook does not record the route handoff gate",
             ]
         )
     return finish_with_result(

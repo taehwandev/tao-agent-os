@@ -34,11 +34,13 @@ REVIEW_AND_COMMIT_REFERENCE = (
 class EntrypointResolutionTests(unittest.TestCase):
     def test_pointer_entrypoint_resolves_to_its_reference(self) -> None:
         """A generated pointer is replaced by the document holding the rules."""
-        entrypoint = "workflows/skills/review-and-commit/SKILL.md"
+        # review-and-commit used to be the fixture here, but its entrypoint now
+        # carries the review-hook evidence labels itself and is substantive.
+        entrypoint = "common/skills/commit-workflow/SKILL.md"
         self.assertTrue(is_pointer_entrypoint(ROOT, entrypoint))
 
         self.assertEqual(
-            [REVIEW_AND_COMMIT_REFERENCE],
+            ["common/skills/commit-workflow/references/current-guidance.md"],
             resolve_guidance_docs(ROOT, [entrypoint]),
         )
 

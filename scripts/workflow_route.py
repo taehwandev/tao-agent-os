@@ -560,6 +560,7 @@ def route_gates(command: str, *, graphify_required: bool = False) -> list[str]:
 def route_hooks(command: str) -> list[dict[str, object]]:
     launcher = str(stable_launcher_path())
     review_required = command in REVIEW_HOOK_REQUIRED_COMMANDS
+    read_only = " --read-only" if command == "analysis" else ""
     hooks: list[dict[str, object]] = [
         {
             "hook": "start",
@@ -568,7 +569,8 @@ def route_hooks(command: str) -> list[dict[str, object]]:
             "command": (
                 f"{launcher} start "
                 "--project <TARGET_REPO> --rules <TAO_ROOT> "
-                f"--command {command} --request \"<USER_REQUEST>\""
+                "--evidence <RUN_EVIDENCE> "
+                f"--command {command} --request \"<USER_REQUEST>\"{read_only}"
             ),
         },
     ]
@@ -592,6 +594,7 @@ def route_hooks(command: str) -> list[dict[str, object]]:
                 "command": (
                     f"{launcher} {SKILL_FEEDBACK_HOOK} "
                     "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                    "--evidence <RUN_EVIDENCE> "
                     "--skill-feedback-outcome observed --skill-id <safe_skill_slug> "
                     "--feedback-signal <safe_signal_slug>"
                 ),
@@ -605,7 +608,8 @@ def route_hooks(command: str) -> list[dict[str, object]]:
                     "when": "later or periodically, when bounded deterministic curation capacity is available",
                     "command": (
                         f"{launcher} {SKILL_CURATE_HOOK} "
-                        "--project <TARGET_REPO> --rules <TAO_ROOT>"
+                        "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                        "--evidence <RUN_EVIDENCE>"
                     ),
                 },
                 {
@@ -615,6 +619,7 @@ def route_hooks(command: str) -> list[dict[str, object]]:
                     "command": (
                         f"{launcher} {SKILL_REVIEW_HOOK} "
                         "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                        "--evidence <RUN_EVIDENCE> "
                         "--feedback-candidate-id <opaque_candidate_id> "
                         "--skill-review-outcome <no_change|stage_patch> "
                         "[--feedback-gap <safe_gap_slug> --change-type <safe_change_slug> "
@@ -628,6 +633,7 @@ def route_hooks(command: str) -> list[dict[str, object]]:
                     "command": (
                         f"{launcher} {SKILL_MAINTENANCE_HOOK} "
                         "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                        "--evidence <RUN_EVIDENCE> "
                         "--feedback-candidate-id <opaque_candidate_id> "
                         "--skill-maintenance-outcome <applied|rejected> "
                         "[--maintenance-target <changed_skill_path> "
@@ -644,7 +650,8 @@ def route_hooks(command: str) -> list[dict[str, object]]:
             "when": "after retrospective check and before final report, commit, release, or handoff",
             "command": (
                 f"{launcher} finish "
-                "--project <TARGET_REPO> --rules <TAO_ROOT>"
+                "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                "--evidence <RUN_EVIDENCE>"
             ),
         }
     )
@@ -662,10 +669,12 @@ def _review_hook_command(command: str) -> str:
     base = (
         f"{launcher} review "
         "--project <TARGET_REPO> --rules <TAO_ROOT> "
+        "--evidence <RUN_EVIDENCE> "
         "--review-scope working-tree "
         "--review-outcome <pass|findings> "
         "--code-review-evidence \"<evidence>\" "
         "--docs-freshness-evidence \"<evidence>\" "
+        "[--allow-vibeguard-review \"<reason for acceptable Needs review>\"] "
     )
     if command in {"commit", "git_commit"}:
         return base + "[--review-path <commit-owned-path>]"

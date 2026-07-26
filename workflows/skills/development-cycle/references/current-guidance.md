@@ -113,6 +113,15 @@ Use parallelism to reduce waiting, not to blur ownership.
   explicit. Use the whole working tree only when all current changes belong to
   the task; otherwise pass task-owned paths to the Review Hook so structure,
   changed-path, and whitespace checks cover the intended slice.
+- Before the first Review Hook call, count the task-owned changed paths. When a
+  cohesive cross-surface task legitimately exceeds the default changed-path
+  budget, pass a bounded `--max-changed-paths` value derived from that observed
+  scope instead of discovering the limit through a failed review. Do not use an
+  arbitrary large override to combine unrelated changes.
+- When the changed scope contains a package with multiple established roles,
+  make the structure evidence explicit before review: name the package owner,
+  allowed imports, forbidden imports, callers/tests, and verification. A generic
+  "no new boundary" statement does not replace those ownership fields.
 
 ## Minimum Verification
 

@@ -18,6 +18,17 @@ Use when routed to `workflows/skills/agent-task-lifecycle/SKILL.md` or when work
 1. Read this entrypoint first to confirm this guidance area applies.
 2. Open `references/current-guidance.md` only when the task actually touches this area.
 3. Follow the reference's decision rules, stop conditions, and verification requirements before editing, reviewing, or reporting completion.
+4. Before invoking `review`, compare the active route order with the gate
+   ledger. Every gate before `review hook` must have a structurally complete
+   `SUCCESS` record; this includes `act`, `documentation`, `tests`,
+   `side-effect audit`, and `verify` when the route lists them. Record those
+   facts before the call because `review` validates prerequisites and does not
+   backfill them.
+5. Immediately before `review` and `finish`, compare the active preflight's
+   required-document hashes with the current Tao Agent OS files. Refresh
+   with the same `start` request and evidence path before the hook when drift is
+   found; after a hook has already failed on drift, bind that refresh to the
+   verified repair receipt instead of erasing the failed checkpoint.
 
 ## Do Not
 

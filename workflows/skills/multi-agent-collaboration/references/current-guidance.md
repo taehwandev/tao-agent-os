@@ -271,6 +271,18 @@ For code-edit workers, include:
 
 ## Closeout
 
+Before the review hook, count the complete code-only changed-path union from
+the delegation plan, including untracked files. Do not narrow the review paths
+and claim that the exact integrated diff was reviewed merely to fit the default
+changed-path budget.
+
+If a valid multi-agent integration exceeds that budget, either split the
+delivery or pass a bounded `--max-changed-paths` value that covers the exact
+planned union. Record why the override is safe in the integration-review
+evidence. This budget override does not waive one-public-owner, file-size,
+oversized-block, side-effect, or verification gates; fix those structural
+findings before resuming review.
+
 Closeout should state:
 
 - what changed

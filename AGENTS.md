@@ -23,8 +23,8 @@ non-project directory, or a directory that may not be the requested target, use
 the local project entry helpers before project work when they exist:
 
 ```text
-<TAO_ROOT>/scripts/agent-entry.py
-<TAO_ROOT>/scripts/project-discover.py
+<TAO_LAUNCHER> agent-entry
+<TAO_LAUNCHER> project-discover
 ```
 
 Continue only when discovery returns `selected`. If it returns `ambiguous` or
@@ -188,12 +188,12 @@ succeeds:
 `--command` accepts a workflow route, not a stage label. For implementation work,
 use the closest route such as `bugfix`, `feature`, `build`, or `task`; `implement`
 is an execution-stage label and is not a valid route command. When uncertain,
-confirm the current route choices with `tao-hook workflow list` before
+confirm the current route choices with `<TAO_LAUNCHER> workflow list` before
 running the hook.
 
 Use the start output as the route, document, and gate manifest, then execute the
 task with the target repo's local commands. Read every route `required_docs`
-entry directly before work. Direct `workflow.py route` and `agent-preflight.py`
+entry directly before work. Direct `<TAO_LAUNCHER> workflow route` and `<TAO_LAUNCHER> agent-preflight`
 invocations are lower-level diagnostic or compatibility fallbacks only when the
 start hook is unavailable; never run them as a second startup sequence. The
 start hook must always receive the current user request. A top-level or
@@ -244,9 +244,9 @@ platform, request text, and reusable document sets; for example screen, list,
 favorites, or explicit framework choices on Android, Application, Flutter, iOS,
 KMP, Swift, and Web surface the matching UI, state, structure, review, visual
 verification, and performance guidance, of which the best-matched cards are
-promoted and the rest stay reachable in `reference_docs`. `workflow.py route`
+promoted and the rest stay reachable in `reference_docs`. `<TAO_LAUNCHER> workflow route`
 automatically extracts path-like references from `--request`, and
-`agent-preflight.py` also adds paths from
+`<TAO_LAUNCHER> agent-preflight` also adds paths from
 `git status --short --untracked-files=all`. Use
 `--surface-path <path>` only when a launcher already knows an in-scope path that
 does not appear in the request or current git status. Surface promotion may
@@ -315,7 +315,7 @@ When the right document is not obvious from `index.md`, search by keyword:
 ```
 
 The query command uses the pinned Wikimap source to return exact sections and
-lines, while preserving the existing `workflow.py query` interface. It requires
+lines, while preserving the existing `<TAO_LAUNCHER> workflow query` interface. It requires
 no separate install, model call, or network access at query time; its disposable
 SQLite cache stays under ignored `.wikimap/`. Explicit Tao Agent OS facets
 remain a policy overlay for phrases such as code cleanup, change review,
@@ -352,6 +352,11 @@ uncertain, or verification fails. See
 rules and `workflows/skills/scripted-agent-workflow/SKILL.md` for route
 consumption.
 
+When writing gate evidence, copy each gate name exactly from the active route
+manifest, including spaces. Do not invent hyphenated aliases such as
+`side-effect-audit` or `retrospective-check`; an extra ledger entry does not
+satisfy the route's required gate.
+
 Consume the route's `parallel_execution.delegation_policy` as an execution
 contract, not a suggestion. When the runtime exposes subagents or parallel
 workers and at least two meaningful slices have disjoint owned/forbidden scopes,
@@ -367,12 +372,17 @@ Use the lightweight `analysis` route for read-only investigation. It has no
 code-work, test, documentation, or review gate; keep it in the current session
 and do not launch a Codex child unless the caller explicitly requires isolation.
 It retains only the active runtime instruction as a required document.
+The detailed review-only classifier precedence, intrinsic analysis read-only
+mode, worker reservation claim-on-accept, and non-Git rules-root capsule
+contracts are owned by
+`workflows/skills/scripted-agent-workflow/references/current-guidance.md`;
+callers must not duplicate or override those lifecycle decisions.
 For implementation work, keep small tasks serial. Split only when at least two
 independent scopes meet the delegation contract, then use two or three workers
 at most and keep the parent responsible for one integration review and the
 final verification.
 
-Before a parent hands work to any runtime worker, run `agent-hook.py handoff`.
+Before a parent hands work to any runtime worker, run `<TAO_LAUNCHER> handoff`.
 It lazily creates the provider-neutral, content-free execution capsule against
 the current route, preflight, required docs, gate ledger, request fingerprint,
 and project/rules state immediately before the worker boundary.
@@ -388,6 +398,17 @@ record model, reasoning, or sandbox mismatches as a decision input, not as an
 automatic reason to nest a Codex process. The detailed cross-runtime contract is owned by
 `docs/skills/agent-runtime-integration/SKILL.md`.
 
+The fallback worker evidence root is
+`<TARGET_REPO>/.tao/workers/<opaque>/preflight.json`. Handoff reservation,
+worker start, execution-capsule identity checks, and finish validation must use
+that same root.
+
+After `start`, every lifecycle hook must reuse the exact resolved project root,
+rules root, and preflight evidence path recorded by that start. If task setup
+creates or switches to a different Git worktree, run a fresh `start` from that
+worktree before project work; never combine a main-checkout preflight with
+worktree review or finish hooks.
+
 For local commit creation or commit preparation, use the lightweight `commit`
 route, or `git_commit` when the runtime labels the task that way. Do not route
 a clear commit request through `review`, `task`, or `triage` unless the request
@@ -395,6 +416,56 @@ is genuinely unclear. The commit route is intentionally small: read the commit
 workflow entrypoints, run the lightweight review hook first, stop before
 committing when review finds issues, and record only commit readiness before
 creating the local commit.
+
+Before editing, include the review hook's default structural budget in the
+boundary plan for every new or substantially expanded development source file.
+Keep each file at no more than 300 added lines, no more than four top-level
+owners, and no more than one public/exported top-level owner unless a repo-owned
+structure rule or an explicit review option sets a stricter limit. Treat a
+language-level module-only declaration such as Kotlin/Swift `internal` or Rust
+`pub(crate)` as non-private but not public/exported; an internal factory may
+remain with its internal owner while the four-owner file budget still applies. Treat a
+screen, page, or component with several independently nameable sections as a
+split candidate during planning; do not wait for the final review hook to
+discover that the file needs purpose-named extraction. Tests retain their
+separate wider file-size budget. File-private helpers and preview-only support
+that share the primary owner's caller and change reason do not count as
+top-level owners. A cohesive Kotlin extension-function family on the same exact
+receiver also counts as one owner cluster when the functions share one caller
+contract and reason to change; different receivers and unrelated free functions
+remain separate owners. Independently importable preview or production support
+still counts separately.
+
+Before invoking the review hook, count the task-owned changed paths in the
+declared review scope. The default budget is 25 paths. A cohesive mechanical
+migration that must update more direct callers may raise `--max-changed-paths`
+to that observed count, but the review pathspec must still include only the
+owned code/resource scope and the evidence must explain why the change cannot
+be reviewed as independent behavioral slices. When the review reports a new
+runtime package/folder boundary, write `--structure-review-evidence` as an
+explicit five-part contract: `owner: ...; allowed imports: ...; forbidden
+imports: ...; callers/tests: ...; verification: ...`. Do not substitute a
+general structure summary for any of those named fields.
+
+Treat the changed-path count as a pre-invocation hard check. Do not call the
+review hook with its default limit after observing more than 25 owned paths.
+For one cohesive caller migration, declare the narrow owned pathspec and pass
+the exact observed count through `--max-changed-paths` on the first review
+attempt; otherwise split the behavioral slices before review.
+
+When the target is outside Git, the review hook must treat Git status, diff,
+and structure source discovery as review-only after `git rev-parse` proves that
+no repository owns the path. It must not continue with `git ls-files` commands
+that cannot succeed. Require an explicit review pathspec, concrete code-review
+evidence, focused verification, and an accepted non-Git VibeGuard reason instead.
+A writing finish remains fail-closed unless a current successful review record
+binds that explicit scope and its structurally unavailable diff check.
+
+When reviewing subject-specific unit tests, apply the `Test Subject Ownership`
+rule from `common/skills/code-structure-ownership/SKILL.md`: mirror the
+production owner's logical package or folder and use the subject name, such as
+`<Subject>Test`. A broad feature/category test location is reserved for a real
+cross-owner contract or integration flow, not as a bucket for owner tests.
 
 ## Required Executable Evidence Gate
 
@@ -421,10 +492,10 @@ shape with only an absolute wrapper command plus a trailing argument wildcard.
 Specifically, for any command, AGY requires registering three concurrent entries
 to handle all parameter variations without prompts: `command(executable)`,
 `command(executable:*)`, and `command(executable *)`. When implementing new
-Python entrypoints under `scripts/`, ensure `setup-agent-hooks.py` (via
+internal entrypoints under `scripts/`, ensure `<TAO_LAUNCHER> setup-agent-hooks` (via
 `permission_entries.py`) automatically generates and updates these wildcard
 combinations in settings.json and config.json. Claude managed user-level
-hooks must use the stable launcher installed by `setup-agent-hooks.py` at
+hooks must use the stable launcher installed by `<TAO_LAUNCHER> setup-agent-hooks` at
 `<TAO_LAUNCHER>`; setup refreshes
 `~/.tao/tao-root` after moves or migrations so the Claude
 hook command does not point at a stale checkout path.
@@ -432,6 +503,22 @@ hook command does not point at a stale checkout path.
 ```text
 <TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
 ```
+
+Keep `--output`, `--evidence`, and every custom evidence path inside
+`<TARGET_REPO>/.tao/`. For temporary worktrees, use a project-local path
+such as `<TARGET_REPO>/.tao/runs/<opaque-id>/preflight.json`; a sibling
+temporary directory is outside the execution-capsule trust boundary and will
+make the finish check fail even when every route gate passed. The start hook
+rejects an explicit `--evidence` path outside the target project's
+`.tao/` root so a run cannot begin with a capsule that review, finish, and
+handoff must later reject.
+
+`start --evidence <...>/preflight.json` writes the lifecycle evidence that
+`gate`, `review`, and `finish` must all read. `start --output <...>/start.json`
+writes only the start hook result wrapper. Never name an `--output` file
+`preflight.json` or pass it to later lifecycle hooks. When a custom run
+directory is used, pass both options with distinct filenames and reuse the
+exact `--evidence` path through the complete lifecycle.
 
 After start, read the route's `required_docs` in order before editing or
 reviewing. This remains a direct agent responsibility: there is no separate
@@ -443,9 +530,32 @@ the handoff boundary and reuses the snapshot. The route manifest remains the
 single source for required-document selection, and `reference_docs` remain
 on-demand context. An empty `required_docs` manifest is a valid document-free
 route state: record the no-source decision and continue without polling or
-forcing the execution capsule back to preflight. Call `agent-preflight.py` directly only as a lower-level
+forcing the execution capsule back to preflight. Call `<TAO_LAUNCHER> agent-preflight` directly only as a lower-level
 diagnostic or compatibility fallback when the start hook is unavailable, and do
 not run both for the same startup.
+
+A fresh start may replace a prior context snapshot whose request, route, or
+required-document hashes are stale. This is normal stale-state refresh, not a
+repair cycle. The agent must then read the current `required_docs`, and the new
+snapshot becomes the finish boundary. Missing, malformed, or unavailable
+required documents remain a hard failure and must not be replaced silently.
+
+When the shared rules root may have changed during a long-running task, such as
+after concurrent runtime maintenance or a repository sync, compare the current
+required-document hashes with `execution_snapshot.required_docs` before calling
+`review` or `finish`. On drift, do not run those hooks against the stale
+snapshot. Run `start` again with the exact same request and evidence paths,
+read every changed required document, and re-record any gate or review evidence
+affected by the new guidance. This proactive refresh is not a repair cycle. If
+a required hook has already reported the drift as `FAIL`, use the normal single
+retrospective repair cycle; a fresh start alone must not erase that failure. If
+the repair intentionally edits required documents, reread their current bytes
+and record one new `documentation` `SUCCESS` entry per drifted document with
+`decision=updated` and that exact route-relative required-doc path as `target`
+before `repair-verify`; recording only the repair target does not rebind other
+drifted required docs. The bound final-byte documentation receipt is the only
+source-doc snapshot exception; the structural repair receipt does not replace
+it.
 
 For work-producing tasks, do not wait until final reporting to think about
 documentation. Treat `documentation impact` as a pre-code/pre-edit checkpoint:
@@ -500,6 +610,21 @@ budget justify them. The detailed decision and privacy rules are owned by
 Before final report, commit, release, or handoff, record every remaining route
 gate with explicit structured status, then run the read-only finish hook:
 
+Treat a successful review as an intermediate checkpoint, not finish readiness:
+record `retrospective check`, then every remaining closeout gate including the
+user-facing `handoff`, and only then invoke the finish hook.
+
+Treat the exact `Route: ... gates=[...]` list returned by the current `start`
+run as the completion checklist. Never reuse a gate list from another run,
+route, or example; immediately before `finish`, compare the current ledger with
+that exact list and record every missing gate through `gate` or `gate-batch`.
+
+`<TAO_LAUNCHER> handoff` refreshes the optional parent-to-worker execution
+capsule only. It does not record the route's user-facing `handoff` gate. Record
+that gate explicitly with `gate` or `gate-batch` and concrete final handoff
+evidence before `finish`; do not invoke the worker handoff hook merely to satisfy
+the route gate.
+
 For structured `ambiguity check` evidence, record `blocker_status`,
 `assumptions`, and `decision`; only `none` or `resolved` plus `proceed` may
 pass. For structured `alignment brief` evidence, record
@@ -524,7 +649,7 @@ JSON-shaped text inside `evidence` does not populate them. For example:
 for a gate invalidates an earlier `SUCCESS` until a later verified `SUCCESS` is
 recorded through `gate` or `gate-batch`.
 
-Call `agent-finish-check.py` directly only as a lower-level diagnostic or
+Call `<TAO_LAUNCHER> agent-finish-check` directly only as a lower-level diagnostic or
 compatibility fallback when the finish hook is unavailable.
 
 The wrappers write local JSON evidence under `<TARGET_REPO>/.tao/`.
@@ -533,6 +658,10 @@ default `preflight.json`; custom preflight evidence files use
 `<preflight-stem>-gate-evidence.json` so concurrent or delegated runs do not
 overwrite one another.
 That directory is local runtime evidence and should usually be gitignored.
+Generated runtime caches and copied local skill caches also belong under the
+ignored `<TARGET_REPO>/.tao/` boundary. Workflow document validation must
+exclude that boundary, and review-time checks must not create legacy sibling
+state directories that appear as source changes.
 The wrappers may also read or write safe cross-agent lessons under
 `~/.tao/`. That user-global store is for content-free lesson metadata
 only: missed gate slugs, failure types, root-cause categories, next actions, and
@@ -542,7 +671,7 @@ secrets, or project-specific display names.
 
 Missing preflight evidence, missing finish-check evidence, or missing gate
 evidence is non-compliant even when the final code or documentation appears
-correct. `agent-preflight.py --request-classified` must include
+correct. `<TAO_LAUNCHER> agent-preflight --request-classified` must include
 `--classification-evidence`; otherwise request intake is treated as skipped.
 Evidence alone is not sufficient: the flag is honored only when a ready and
 valid parent execution capsule backs it, and the requestless form is rejected.
@@ -554,7 +683,7 @@ unresolved, must-fix, should-fix, blocking, or deferred issue must fail the gate
 instead of passing with a note; use missed-gate recovery and retrospective
 learning to fix the process.
 If route classification or stored request text says `grill_me: true`, legacy
-`question_drill: true`, or explicitly asks for Grill-Me, `agent-finish-check.py`
+`question_drill: true`, or explicitly asks for Grill-Me, `<TAO_LAUNCHER> agent-finish-check`
 must receive Grill-Me protocol evidence such as
 `grill-me if needed=</grilling session/output evidence>`. Legacy
 `question drill if needed=<evidence>` or `ask blockers=<evidence>` is accepted
@@ -569,7 +698,7 @@ work, VibeGuard again before finishing, and report each required gate with
 concrete evidence. Do not claim wrapper evidence exists unless the wrapper was
 actually run.
 
-When `agent-finish-check.py` marks `retrospective_required`, run the
+When `<TAO_LAUNCHER> agent-finish-check` marks `retrospective_required`, run the
 canonical retrospective repair cycle before reporting completion. Improve and
 verify the owning Tao Agent OS guidance, hook, validator, or test, apply safe
 scoped fixes, then resume at `first_failed_checkpoint`. Stop instead of
@@ -582,8 +711,10 @@ hook or gate failure remains blocking and must use the repair-and-resume
 contract; skill feedback remains a non-blocking future-maintenance signal.
 
 VibeGuard `Needs review` is not completion unless the agent explicitly reports
-the review state and passes `--allow-vibeguard-review "<reason>"`. `🐱🔴 FAIL`,
-command failure, or missing VibeGuard output remains a blocker.
+the review state and passes `--allow-vibeguard-review "<reason>"` to every
+required lifecycle hook that evaluates that state, including both `review` and
+`finish`. Route-generated review commands must advertise this optional argument.
+`🐱🔴 FAIL`, command failure, or missing VibeGuard output remains a blocker.
 Human-visible finish-check output must include only `🐱🟢 SUCCESS` and
 `🐱🔴 FAIL`; the machine-readable JSON keeps the same stable `SUCCESS` and
 `FAIL` values.
@@ -595,7 +726,7 @@ repo-local instructions. Start with these direct routes, then load only the
 specific cards selected by `index.md`.
 
 Release, versioning, platform, product-pattern, and other task-specific cards
-are intentionally selected through `index.md` or `scripts/workflow.py` instead
+are intentionally selected through `index.md` or `<TAO_LAUNCHER> workflow` instead
 of being listed as baseline direct routes here.
 
 ```text

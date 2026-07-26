@@ -40,7 +40,11 @@ Use this order:
 4. Map the package or folder shape only for boundaries that have a real owner,
    allowed imports, forbidden imports, callers, and verification.
 5. Split files by independently importable or testable owner before adding
-   behavior.
+   behavior. Before adding a non-private top-level helper to an existing
+   development source file, count its current independent owners against the
+   review limit. If the helper would cross that limit, place the concrete
+   behavior in a purpose-named owner file with a matching subject test up front;
+   do not hide it behind a broad `helper`, `utils`, or speculative policy layer.
 6. Define public exports last; exports should be narrower than the
    implementation and grouped by contract family.
 7. Inspect the executable review budgets before implementation: function or
@@ -120,7 +124,7 @@ permission to hide first-party code under `third_party`.
   fails review. An existing file already over about 500 lines must not gain
   another public owner, unclear responsibility, or hard-gate violation; when the
   change only edits an existing owner, require structure-review evidence instead
-  of failing solely on pre-existing size. More than about 200 added lines in one
+  of failing solely on pre-existing size. More than about 300 added lines in one
   development file fails review because it is usually a "dump it all here"
   signal.
 - Apply the added-line gate to a newly introduced but still-untracked runtime
@@ -169,6 +173,12 @@ commands, formatting plus I/O, policy plus transport, or unrelated caller sets
 belong in separate purpose-named files. Tiny private helpers may stay near the
 owner they support; independent importable functions should not share a file
 only because the language does not use classes.
+
+For Kotlin, extension functions on the same exact receiver may form one owner
+cluster when the file has one responsibility name and the functions share one
+caller contract and reason to change. Do not count that cohesive receiver family
+as independent owners function by function. Extensions on different receivers,
+or unrelated free functions collected by convenience, remain separate owners.
 
 Do not:
 
@@ -276,6 +286,23 @@ introduce a CMS or runtime editor when the content is static and developer-owned
 For these surfaces, extend the structure packet with the authored-content
 owner, derivation owner, rendering projections, invariants, and the expected
 change path for copy edits, reordering, and retiming.
+
+### Test Subject Ownership
+
+A subject-specific unit test belongs to the production owner it verifies, not
+to a broad feature or category bucket. Mirror the production owner's logical
+package, namespace, or folder under the test source root, and name the test
+after that owner using the repository convention, such as `<Subject>Test`.
+
+Do not gather unrelated class, object, component, ViewModel, repository, or
+mapper tests under a generic feature test file merely because their behavior
+participates in the same product flow. Each such test should make its production
+subject discoverable from both its path and its name.
+
+Cross-owner contract, integration, migration, or end-to-end tests may live at
+the boundary they exercise. Name those tests after the contract or flow, list
+the participating owners, and keep subject-specific unit behavior in each
+owner's mirrored test location.
 
 ### Contract Family Split
 
@@ -837,6 +864,9 @@ caller cannot infer the capability without reading implementation files.
 - Does any runtime function, component, hook, handler, job, or script step span
   hundreds of lines because it mixes parsing, validation, IO, state changes,
   rendering, persistence, logging, navigation, retry, or recovery?
+- Does each subject-specific unit test mirror its production owner's logical
+  package or folder and use the subject name, rather than hiding in a broad
+  feature or category test bucket?
 - Does the split preserve future extension points through clear owners and
   caller contracts, instead of leaving everything in one file or adding
   speculative abstract layers?

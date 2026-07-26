@@ -5,10 +5,15 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from support.graphify_contract import GRAPHIFY_RUNTIME_ADAPTER_INPUTS
+from support.graphify_contract import (
+    GRAPHIFY_RUNTIME_ADAPTER_INPUTS,
+    PROJECT_MANIFEST_PATH,
+)
 
 
-KNOWLEDGE_ROOTS = (".agents", ".claude", ".codex")
+# Tao project knowledge is owned under .agents. User-level runtime discovery and
+# settings under .claude/.codex are not target-project knowledge inputs.
+KNOWLEDGE_ROOTS = (".agents",)
 KNOWLEDGE_SUFFIXES = {
     ".json", ".js", ".md", ".mdx", ".mjs", ".py", ".rst", ".sh",
     ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml",
@@ -44,18 +49,50 @@ def inspect_project_graph_inputs(project_path: Path) -> dict[str, object]:
 
 def project_knowledge_files(project_path: Path) -> list[Path]:
     roots = [project_path / name for name in KNOWLEDGE_ROOTS]
-    return sorted(
-        (
-            path
-            for root in roots
-            if root.is_dir()
-            for path in root.rglob("*")
-            if path.is_file()
-            and not is_graphify_runtime_adapter_input(path.relative_to(project_path))
-            and path.suffix.lower() in KNOWLEDGE_SUFFIXES
-        ),
-        key=str,
-    )
+    narrow_exclusions = literal_knowledge_exclusions(project_path)
+    files: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in KNOWLEDGE_SUFFIXES:
+                continue
+            relative = path.relative_to(project_path)
+            if is_graphify_runtime_adapter_input(relative):
+                continue
+            if any(
+                relative == excluded or excluded in relative.parents
+                for excluded in narrow_exclusions
+            ):
+                continue
+            files.append(path)
+    return sorted(files, key=str)
+
+
+def literal_knowledge_exclusions(project_path: Path) -> set[Path]:
+    exclusions: set[Path] = set()
+    for relative in (".gitignore", ".graphifyignore"):
+        path = project_path / relative
+        if not path.is_file():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            value = line.strip()
+            if not value or value.startswith(("#", "!")):
+                continue
+            normalized = value.lstrip("/").rstrip("/")
+            if not normalized or any(char in normalized for char in "*?[]"):
+                continue
+            candidate = Path(normalized)
+            if (
+                len(candidate.parts) > 1
+                and candidate.parts[0] in KNOWLEDGE_ROOTS
+            ):
+                exclusions.add(candidate)
+    return exclusions
 
 
 def is_graphify_runtime_adapter_input(relative: str | Path) -> bool:
@@ -94,7 +131,7 @@ def blanket_knowledge_exclusions(project_path: Path) -> list[str]:
 
 
 def read_manifest_state(project_path: Path) -> tuple[dict[str, object], set[str]]:
-    path = project_path / "graphify-out" / "manifest.json"
+    path = project_path / PROJECT_MANIFEST_PATH
     if not path.is_file():
         return {}, set()
     try:

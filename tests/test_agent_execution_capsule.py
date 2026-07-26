@@ -26,6 +26,8 @@ from agent_execution_capsule_state import (
     git_states_for_paths,
     preflight_snapshot_binding_fingerprint,
 )
+from agent_execution_capsule_bindings import preflight_identity_failures
+from agent_directory_fingerprint import DIRECTORY_STATE_HEAD
 from agent_execution_capsule_validation import (
     validate_preflight_snapshot,
     validate_source_docs_binding,
@@ -47,6 +49,7 @@ from agent_gate_evidence import (
 from agent_route_state import preflight_evidence_sha256, route_fingerprint
 from agent_finish_documentation import documented_required_doc_updates
 from agent_worktree_fingerprint import worktree_fingerprint
+from agent_worker_evidence import reserve_isolated_worker_evidence
 
 
 class ExecutionCapsuleTests(unittest.TestCase):
@@ -137,6 +140,60 @@ class ExecutionCapsuleTests(unittest.TestCase):
         self.assertEqual(state, project_state)
         self.assertEqual(state, rules_state)
         self.assertEqual(1, capture.call_count)
+
+    def test_non_git_rules_root_uses_bounded_directory_fingerprint(self) -> None:
+        plain_rules = self.root / "plain-rules"
+        plain_rules.mkdir()
+        (plain_rules / "guide.md").write_text("# Guide\n", encoding="utf-8")
+        (plain_rules / "runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
+        self.rules = plain_rules
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        preflight["rules"] = str(self.rules.resolve())
+        self.evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+        self._write_ledger()
+
+        capsule = refresh_execution_capsule(
+            self.project,
+            self.rules,
+            self.evidence_path,
+            self.route,
+        )
+
+        self.assertEqual(DIRECTORY_STATE_HEAD, capsule["rules_git"]["head"])
+        self.assertEqual(
+            [],
+            validate_execution_capsule(
+                capsule,
+                self.project,
+                self.rules,
+                self.evidence_path,
+                self.route,
+            ),
+        )
+
+        generated = self.rules / "graphify-out"
+        generated.mkdir()
+        (generated / "cache.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(
+            [],
+            validate_execution_capsule(
+                capsule,
+                self.project,
+                self.rules,
+                self.evidence_path,
+                self.route,
+            ),
+        )
+
+        (self.rules / "runtime.py").write_text("VALUE = 2\n", encoding="utf-8")
+        failures = validate_execution_capsule(
+            capsule,
+            self.project,
+            self.rules,
+            self.evidence_path,
+            self.route,
+        )
+        self.assertIn("execution capsule rules worktree status changed", failures)
 
     def test_validation_uses_one_shared_git_state_capture(self) -> None:
         capsule = refresh_execution_capsule(self.project, self.rules, self.evidence_path, self.route)
@@ -578,7 +635,52 @@ class ExecutionCapsuleTests(unittest.TestCase):
             failures,
         )
 
-    def test_non_route_documentation_gate_cannot_mint_a_required_doc_receipt(self) -> None:
+    def test_failed_route_can_bind_required_doc_repair_without_documentation_gate(self) -> None:
+        self.route = {
+            **self.route,
+            "gates": ["source docs", "verify"],
+        }
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        preflight["route"] = self.route
+        self.evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+        self._write_ledger()
+        capsule = refresh_execution_capsule(
+            self.project, self.rules, self.evidence_path, self.route
+        )
+        (self.rules / "guide.md").write_text("# Repaired Guide\n", encoding="utf-8")
+        record_gate_evidence(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            gate="documentation",
+            fields={
+                "decision": "updated",
+                "target": "guide.md",
+                "reason": "the failed checkpoint required an instruction repair",
+            },
+        )
+
+        documented_updates = documented_required_doc_updates(
+            evidence_path=self.evidence_path,
+            route=self.route,
+        )
+
+        self.assertEqual({"guide.md"}, set(documented_updates))
+        self.assertEqual(
+            [],
+            validate_source_docs_binding(
+                capsule,
+                self.project,
+                self.rules,
+                self.evidence_path,
+                self.route,
+                documented_updates=documented_updates,
+            ),
+        )
+
+    def test_documentation_gate_cannot_mint_a_receipt_for_a_non_required_doc_target(self) -> None:
+        # The documentation gate now mints receipts even off-route (required-doc
+        # repair), so the remaining fail-closed boundary is the target itself:
+        # only an exact route required doc can receive a byte receipt.
         capsule = refresh_execution_capsule(
             self.project, self.rules, self.evidence_path, self.route
         )
@@ -591,8 +693,8 @@ class ExecutionCapsuleTests(unittest.TestCase):
             gate="documentation",
             fields={
                 "decision": "updated",
-                "target": "guide.md",
-                "reason": "an extra non-route gate must not grant this capability",
+                "target": "notes.md",
+                "reason": "a non-required artifact must not grant this capability",
             },
         )
         documented_updates = documented_required_doc_updates(
@@ -1056,6 +1158,29 @@ class ExecutionCapsuleTests(unittest.TestCase):
                     gate="verify",
                     evidence="worker tried to write parent evidence",
                 )
+
+    def test_reserved_worker_preflight_stays_in_the_valid_evidence_root(self) -> None:
+        worker_evidence, _, _ = reserve_isolated_worker_evidence(
+            self.project,
+            self.evidence_path,
+        )
+        worker_evidence.write_text(
+            self.evidence_path.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            (self.project / ".tao" / "workers").resolve(),
+            worker_evidence.parent.parent.resolve(),
+        )
+        self.assertEqual(
+            [],
+            preflight_identity_failures(
+                worker_evidence,
+                self.project.resolve(),
+                self.rules.resolve(),
+            ),
+        )
 
     def test_validation_detects_stale_project_and_rules_heads(self) -> None:
         capsule = refresh_execution_capsule(self.project, self.rules, self.evidence_path, self.route)

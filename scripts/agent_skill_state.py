@@ -98,7 +98,7 @@ def skill_name_segment(target_relative: str) -> str:
 
     parts = Path(target_relative).parts
     for index, part in enumerate(parts):
-        if part.lower() == "skills" and index + 1 < len(parts):
+        if part.lower() in {"skills", "llm-skills"} and index + 1 < len(parts):
             return parts[index + 1].lower().replace("-", "_")
     return ""
 
@@ -128,7 +128,7 @@ def valid_maintenance_receipt(
         and receipt.get("candidate_id") == candidate
         and receipt.get("status") == "SUCCESS"
         and receipt.get("returncode") == 0
-        and receipt.get("target_scope") == "rules"
+        and receipt.get("target_scope") in {"rules", "project"}
         and receipt.get("verification_kind") == verification_kind
         and safe_slug(str(receipt.get("promotion_target") or ""))
         and bool(str(receipt.get("target_relative") or ""))

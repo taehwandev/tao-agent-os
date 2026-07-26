@@ -53,6 +53,7 @@ from agent_preflight_runtime import (
     _claude_spill_warnings,
 )
 from agent_review_hook import (
+    record_review_prerequisite_readiness,
     review_hook,
     review_vibeguard_command,
     vibeguard_review_failure,
@@ -161,6 +162,138 @@ class ReviewHookTests(unittest.TestCase):
         else:
             os.environ["TAO_STATE_HOME"] = self._old_state_home
 
+    def test_review_hook_rejects_missing_pre_review_gate_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            preflight = {
+                "route": {
+                    "command": "task",
+                    "gates": [
+                        "request intake",
+                        "orient",
+                        "source docs",
+                        "review hook",
+                        "retrospective check",
+                    ],
+                },
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence_path, preflight)
+            record_gate_evidence(
+                evidence_path=evidence_path,
+                preflight=preflight,
+                gate="request intake",
+                evidence="request provided to preflight",
+            )
+            args = SimpleNamespace(project=project, evidence=evidence_path)
+            checks: dict[str, object] = {}
+            failures: list[str] = []
+
+            record_review_prerequisite_readiness(args, checks, failures)
+
+            self.assertEqual(["orient", "source docs"], checks["review_prerequisite_missing"])
+            self.assertTrue(
+                any(
+                    "review prerequisites are incomplete before review hook: orient, source docs"
+                    in failure
+                    for failure in failures
+                )
+            )
+            self.assertFalse(any("retrospective check" in failure for failure in failures))
+
+    def test_review_hook_treats_missing_prerequisites_as_invocation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            preflight = {
+                "route": {
+                    "command": "review",
+                    "gates": ["source docs", "review hook", "retrospective check"],
+                },
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence_path, preflight)
+            args = SimpleNamespace(
+                project=project,
+                evidence=evidence_path,
+                output=None,
+                repair_cycle=0,
+            )
+            result_payload: dict[str, object] = {}
+
+            def unexpected_command(*_args: object, **_kwargs: object) -> object:
+                self.fail("review checks must not run before prerequisites are complete")
+
+            def finish_with_result(
+                name: str,
+                success: bool,
+                details: list[str],
+                output: Path | None,
+                payload: dict[str, object],
+                repair_cycle: int,
+                invocation_error: bool = False,
+            ) -> int:
+                result_payload.update(
+                    name=name,
+                    success=success,
+                    details=details,
+                    invocation_error=invocation_error,
+                )
+                return 0 if success else 1
+
+            with patch("agent_review_hook.record_review_failure") as record_failure:
+                result = review_hook(
+                    args,
+                    unexpected_command,
+                    unexpected_command,
+                    unexpected_command,
+                    unexpected_command,
+                    finish_with_result,
+                )
+
+            self.assertEqual(1, result)
+            self.assertFalse(result_payload["success"])
+            self.assertTrue(result_payload["invocation_error"])
+            self.assertTrue(
+                any(
+                    "review did not start" in detail
+                    for detail in result_payload["details"]
+                )
+            )
+            record_failure.assert_not_called()
+
+    def test_review_hook_accepts_complete_pre_review_gate_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            preflight = {
+                "route": {
+                    "command": "task",
+                    "gates": ["request intake", "orient", "act", "review hook", "report"],
+                },
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence_path, preflight)
+            for gate in ("request intake", "orient", "act"):
+                record_gate_evidence(
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                    gate=gate,
+                    evidence=f"{gate} completed",
+                )
+            args = SimpleNamespace(project=project, evidence=evidence_path)
+            checks: dict[str, object] = {}
+            failures: list[str] = []
+
+            record_review_prerequisite_readiness(args, checks, failures)
+
+            self.assertEqual([], checks["review_prerequisite_missing"])
+            self.assertEqual([], failures)
+
     def test_review_hook_detects_mutation_outside_pathspec(self) -> None:
         full_statuses = [
             " M outside.py\n",
@@ -224,7 +357,10 @@ class ReviewHookTests(unittest.TestCase):
             repair_cycle=0,
         )
 
-        with patch("agent_review_hook.record_review_failure"):
+        with (
+            patch("agent_review_hook.record_review_failure"),
+            patch("agent_review_hook.record_review_prerequisite_readiness"),
+        ):
             result = review_hook(
                 args,
                 run_command,
@@ -296,7 +432,10 @@ class ReviewHookTests(unittest.TestCase):
 
         # Omitting the optional evidence flags must surface a normal gate result,
         # not crash the hook before it can report anything.
-        with patch("agent_review_hook.record_review_failure"):
+        with (
+            patch("agent_review_hook.record_review_failure"),
+            patch("agent_review_hook.record_review_prerequisite_readiness"),
+        ):
             review_hook(
                 args,
                 run_command,
@@ -478,6 +617,7 @@ class ReviewHookTests(unittest.TestCase):
         self.assertIn("--review-scope working-tree", review_hook["command"])
         self.assertIn("--review-outcome <pass|findings>", review_hook["command"])
         self.assertIn("[--review-path <task-owned-path>]", review_hook["command"])
+        self.assertIn("--allow-vibeguard-review", review_hook["command"])
         self.assertIn("--boundary-plan-evidence", review_hook["command"])
         self.assertIn("--side-effect-audit-evidence", review_hook["command"])
 
@@ -491,6 +631,7 @@ class ReviewHookTests(unittest.TestCase):
         self.assertIn("--code-review-evidence", review_hook["command"])
         self.assertIn("--review-outcome <pass|findings>", review_hook["command"])
         self.assertIn("--docs-freshness-evidence", review_hook["command"])
+        self.assertIn("--allow-vibeguard-review", review_hook["command"])
         self.assertNotIn("--boundary-plan-evidence", review_hook["command"])
         self.assertNotIn("--side-effect-audit-evidence", review_hook["command"])
 

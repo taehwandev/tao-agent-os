@@ -17,6 +17,7 @@ from agent_verification_command import (
     run_verification_command,
     verification_command,
     verification_target_is_changed,
+    verification_workdir,
 )
 
 
@@ -49,7 +50,12 @@ def validate_repair_receipt(
     if resolved_target is None or not resolved_target[0].is_file():
         return ["--repair-target must name an existing file under project or rules root"]
     target_path, target_scope, target_relative, target_root = resolved_target
-    if not verification_target_is_changed(target_root, target_path):
+    if not verification_target_is_changed(
+        target_root,
+        target_path,
+        preflight=preflight,
+        target_relative=target_relative,
+    ):
         failures.append("repair target is no longer changed in the bound worktree")
     expected = {
         "schema_version": SCHEMA_VERSION,
@@ -92,7 +98,12 @@ def validate_repair_receipt(
     if not command:
         return ["repair receipt cannot reconstruct its allowlisted verification command"]
     result = run_verification_command(
-        command, rules if verification_kind != "unittest" else project
+        command,
+        verification_workdir(
+            verification_kind=verification_kind,
+            target_root=target_root,
+            rules=rules,
+        ),
     )
     return [] if result.get("returncode") == 0 else [
         "repair receipt verification no longer succeeds when re-executed"

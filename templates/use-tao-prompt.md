@@ -24,10 +24,15 @@ Task:
 Tao Agent OS root:
 <TAO_ROOT>
 
+Tao Agent OS stable launcher:
+<TAO_LAUNCHER>
+
 VibeGuard human docs:
 https://vibeguard.thdev.app/
 
 Rules:
+0. Resolve `<TAO_LAUNCHER>` to the installed stable launcher's absolute
+   path. Never invoke an internal runtime Python entrypoint directly.
 1. Identify the target repo and read repo-local instructions first, including
    AGENTS.md, CLAUDE.md, CODEX.md, .agents/README.md, CONTRIBUTING.md, task
    docs, PRD/ARD docs, equivalent project docs, or explicitly documented local
@@ -149,7 +154,7 @@ Rules:
     `$HOME`, `${HOME}`, `~`, or a relative path in the executable command. When
     available, run:
     <TAO_LAUNCHER> finish --project <TARGET_REPO> --rules <TAO_ROOT>
-    Record manual gate facts first with `agent-hook.py gate` or `gate-batch`.
+    Record manual gate facts first with `<TAO_LAUNCHER> gate` or `gate-batch`.
     Finish is read-only: it accepts no inline gate evidence and never mutates
     the ledger while validating completion.
     Missing wrapper evidence or missing route gate evidence is non-compliant.

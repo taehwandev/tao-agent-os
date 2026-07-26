@@ -15,6 +15,20 @@ OverallParser = Callable[[str], Any]
 CACHE_SCHEMA_VERSION = 1
 
 
+def skipped_vibeguard(project: Path) -> dict[str, Any]:
+    """Return explicit evidence when a declared read-only run skips VibeGuard."""
+
+    return {
+        "command": [],
+        "cwd": str(project.resolve()),
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "skipped": True,
+        "overall": {"status": "Skipped", "line": ""},
+    }
+
+
 def cached_vibeguard(
     *,
     project: Path,

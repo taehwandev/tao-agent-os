@@ -138,6 +138,7 @@ For detailed checks, use `common/skills/solid-design-principles/SKILL.md`.
 - Touch only lines tied to the request.
 - Match existing style.
 - Do not refactor adjacent code unless required.
+- When an existing file already exceeds an owner-count budget, keep the review gate ratcheted to structural growth. A one-for-one owner rename with no count or role expansion does not require splitting unrelated legacy owners.
 - Remove only unused code created by your change.
 - Mention unrelated dead code; do not delete it.
 

@@ -24,6 +24,8 @@ def _has_concrete_serial_reason(text: str) -> bool:
             "dirty working tree",
             "migration",
             "dependency",
+            "순서 의존",
+            "동일 외부 상태",
             "release",
             "not applicable",
             "not safe",

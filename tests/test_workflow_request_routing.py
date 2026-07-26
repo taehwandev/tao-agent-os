@@ -187,6 +187,22 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
 
         self.assertIn("metering", concerns)
 
+    def test_explicit_graphify_exclusion_does_not_infer_graphify_concern(self) -> None:
+        excluded_requests = (
+            "P2 구현에서 Graphify 실행은 제외한다.",
+            "그래피는 지금 돌리면 안됨",
+            "Do not run Graphify for this task.",
+        )
+
+        for request in excluded_requests:
+            with self.subTest(request=request):
+                self.assertNotIn("graphify", infer_concerns_from_request(request))
+
+        self.assertIn(
+            "graphify",
+            infer_concerns_from_request("Run Graphify readiness checks for this project."),
+        )
+
     def test_natural_code_cleanup_request_routes_to_code_simplify(self) -> None:
         classification = classify_request("코드 정리해줘")
 
@@ -202,6 +218,18 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
                 self.assertEqual("clear-scoped", classification["clarity"])
                 self.assertEqual("review", classification["recommended_route"])
                 self.assertFalse(classification["grill_me"])
+
+    def test_risk_domain_word_does_not_turn_diff_review_into_product_work(self) -> None:
+        classification = classify_request(
+            "Review only the current APP-1234 Kotlin and Gradle code diff for "
+            "notification permission flow correctness. Do not review documents, "
+            "edit files, run Gradle, or perform git mutations."
+        )
+
+        self.assertEqual("clear-scoped", classification["clarity"])
+        self.assertEqual("review", classification["recommended_route"])
+        self.assertFalse(classification["grill_me"])
+        self.assertEqual("work", classification["response_mode"])
 
     def test_natural_language_doc_routing_request_routes_to_workflow_setup(self) -> None:
         classification = classify_request("훅은 보완이고 자연어 검색 가능한 문서 라우팅을 강화해줘")
@@ -294,9 +322,11 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
         self.assertNotIn(MULTI_AGENT_GATE, route["gates"])
         self.assertIn(required_doc("workflows/skills/review-and-commit/SKILL.md"), route["required_docs"])
         self.assertIn(required_doc("common/skills/commit-workflow/SKILL.md"), route["required_docs"])
-        # The commit route enforces the review hook, so its code-review contract
-        # is now required reading rather than optional context.
-        self.assertIn(required_doc("common/skills/code-review/SKILL.md"), route["required_docs"])
+        # The review hook's evidence contract lives in the guaranteed
+        # review-and-commit entrypoint (asserted above), which now carries the
+        # labelled-evidence steps itself. The generic code-review card no longer
+        # fits the bounded required selection and stays reachable as reference.
+        self.assertIn(route_doc("common/skills/code-review/SKILL.md"), route["reference_docs"])
         self.assertIn(route_doc("common/skills/worktree-hygiene/SKILL.md"), route["reference_docs"])
 
     def test_commit_explicit_concern_still_escalates_required_docs(self) -> None:

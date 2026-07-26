@@ -19,6 +19,16 @@ Use when routed to `workflows/skills/bugfix-debugging/SKILL.md` or when work nee
 2. Open `references/current-guidance.md` only when the task actually touches this area.
 3. Follow the reference's decision rules, stop conditions, and verification requirements before editing, reviewing, or reporting completion.
 
+## Review Preparation
+
+- Before the first review, count the task-owned changed paths. If one cohesive
+  bugfix legitimately exceeds the default path budget, pass a bounded maximum
+  derived from the observed scope; do not discover the limit through a failed
+  review or use a broad override for unrelated changes.
+- For every changed package that already contains multiple roles, prepare
+  structure evidence with the owner, allowed imports, forbidden imports,
+  callers/tests, and verification. "No new boundary" alone is insufficient.
+
 ## Do Not
 
 - Do not look for legacy flat compatibility paths; load this skill bundle as the canonical context-loading target.

@@ -77,7 +77,7 @@ class AgentWorkspacePolicyTests(unittest.TestCase):
 
             self.assertEqual([], paths)
             self.assertEqual([], discovery["command_errors"])
-            self.assertEqual("non_git_writing_workspace", discovery["review_only"])
+            self.assertEqual("non_git_workspace", discovery["review_only"])
 
 
     def test_workspace_root_holding_repos_is_not_itself_a_git_workspace(self) -> None:

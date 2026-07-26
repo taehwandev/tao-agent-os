@@ -82,6 +82,17 @@ Then extract pure helpers before moving side-effectful code. Move behavior and
 change behavior in separate steps unless the repo-local plan explains why they
 cannot be split.
 
+## Structural Hard-Gate Recovery
+
+When review reports that a changed function or component grew beyond its hard
+limit, do not treat a written justification as a bypass. Extract the smallest
+cohesive responsibility until the changed unit is within the limit. If the
+project genuinely needs a different limit, use only an explicit,
+project-reviewed limit with repository evidence; never raise it ad hoc for one
+diff. For integration merges, inherited changes are still part of the combined
+result when they enlarge the unit, so resolve the boundary before committing
+the merge.
+
 ## Contract Rule
 
 A refactor that changes any of these is not pure refactoring:

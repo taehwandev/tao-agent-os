@@ -28,3 +28,4 @@ Use when routed to `common/skills/agent-operating-skill/SKILL.md` or when work n
 
 - If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
 - If detailed guidance changes, validate links and frontmatter for `references/current-guidance.md`.
+- If a route requires the `handoff` gate, verify the worker handoff hook states that the route gate must be recorded separately.

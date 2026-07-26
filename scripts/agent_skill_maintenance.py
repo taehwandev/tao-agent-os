@@ -58,7 +58,13 @@ def complete_verified_skill_maintenance(
     if resolved is None:
         return {"updated": False, "reason": "maintenance_target_not_found"}
     target_path, target_scope, target_relative, target_root = resolved
-    if target_scope != "rules" or not _target_matches_promotion(target_relative, promotion_target):
+    if not _target_scope_is_allowed(
+        project=project,
+        target_path=target_path,
+        target_scope=target_scope,
+        target_relative=target_relative,
+        promotion_target=promotion_target,
+    ):
         return {"updated": False, "reason": "maintenance_target_mismatch"}
     if not verification_target_is_changed(target_root, target_path):
         return {"updated": False, "reason": "maintenance_target_not_changed"}
@@ -76,7 +82,7 @@ def complete_verified_skill_maintenance(
         return {"updated": False, "reason": "maintenance_target_not_found"}
     result = run_verification_command(
         command,
-        rules if verification_kind != "unittest" else project,
+        target_root,
     )
     returncode = int(result.get("returncode", 1))
     if returncode != 0:
@@ -164,6 +170,40 @@ def _reject_staged_maintenance(root: Path, candidate_id: str) -> dict[str, Any]:
 
 def _target_matches_promotion(target_relative: str, promotion_target: str) -> bool:
     return bool(promotion_target) and _skill_name_segment(target_relative) == promotion_target
+
+
+def _target_scope_is_allowed(
+    *,
+    project: Path,
+    target_path: Path,
+    target_scope: str,
+    target_relative: str,
+    promotion_target: str,
+) -> bool:
+    if not _target_matches_promotion(target_relative, promotion_target):
+        return False
+    if target_scope == "rules":
+        return True
+    if target_scope != "project":
+        return False
+
+    parts = Path(target_relative).parts
+    allowed_prefixes = (
+        (".agents", "shared", "llm-skills"),
+        (".agents", "local", "skills"),
+    )
+    prefix = next(
+        (candidate for candidate in allowed_prefixes if parts[: len(candidate)] == candidate),
+        None,
+    )
+    if prefix is None or len(parts) <= len(prefix):
+        return False
+    bundle = project.resolve().joinpath(*prefix, parts[len(prefix)])
+    try:
+        target_path.resolve().relative_to(bundle.resolve())
+    except ValueError:
+        return False
+    return (bundle / "SKILL.md").is_file()
 
 
 def _target_sha256(target_path: Path) -> str:
