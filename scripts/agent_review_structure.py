@@ -364,18 +364,69 @@ def collect_head_diff(
         command_errors.append("git diff changed source discovery failed")
 
     numstat = run_command(
-        ["git", "diff", "--numstat", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
+        ["git", "diff", "--numstat", "-z", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
         project,
     )
     commands["diff_numstat"] = numstat
     if numstat["returncode"] == 0:
-        for line in numstat["stdout"].splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 3:
-                additions = int(parts[0]) if parts[0].isdigit() else 0
-                record_path(names, path_metadata, parts[-1], additions=additions)
+        for destination, additions, deletions in _parse_numstat(numstat["stdout"]):
+            record_path(
+                names,
+                path_metadata,
+                destination,
+                additions=additions,
+                deletions=deletions,
+            )
     else:
         command_errors.append("git diff line-count discovery failed")
+
+
+def _parse_numstat(stdout: str) -> list[tuple[str, int, int]]:
+    """Return destination-path line counts from ``git diff --numstat -z``.
+
+    A rename or copy has an empty path in its header followed by separate source
+    and destination NUL fields. Human-readable numstat instead renders
+    ``{old => new}``, which is not a filesystem path and cannot join the counts
+    to the destination discovered by ``--name-status``.
+    """
+
+    if "\0" not in stdout:
+        # Preserve compatibility with injected command runners that still
+        # provide the traditional line-oriented form for ordinary paths.
+        records: list[tuple[str, int, int]] = []
+        for line in stdout.splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) == 3 and parts[2]:
+                records.append(
+                    (parts[2], _numstat_count(parts[0]), _numstat_count(parts[1]))
+                )
+        return records
+
+    fields = stdout.split("\0")
+    records = []
+    index = 0
+    while index < len(fields):
+        header = fields[index]
+        index += 1
+        if not header:
+            continue
+        parts = header.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        additions, deletions, destination = parts
+        if not destination:
+            if index + 1 >= len(fields):
+                break
+            index += 1  # source path
+            destination = fields[index]
+            index += 1
+        if destination:
+            records.append((destination, _numstat_count(additions), _numstat_count(deletions)))
+    return records
+
+
+def _numstat_count(value: str) -> int:
+    return int(value) if value.isdigit() else 0
 
 
 def reclassify_untracked_moves(

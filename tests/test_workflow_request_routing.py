@@ -190,8 +190,11 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
     def test_explicit_graphify_exclusion_does_not_infer_graphify_concern(self) -> None:
         excluded_requests = (
             "P2 구현에서 Graphify 실행은 제외한다.",
+            "그래프 설치는 제외해줘.",
             "그래피는 지금 돌리면 안됨",
             "Do not run Graphify for this task.",
+            "Graphify must not be run for this task.",
+            "Proceed without using Graphify.",
         )
 
         for request in excluded_requests:
@@ -202,6 +205,19 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
             "graphify",
             infer_concerns_from_request("Run Graphify readiness checks for this project."),
         )
+
+    def test_graphify_preservation_language_keeps_graphify_concern(self) -> None:
+        preserved_requests = (
+            "Update hook setup without breaking Graphify integration.",
+            "Refactor this without changing Graphify behavior.",
+            "Do not break Graphify integration.",
+            "Graphify behavior must not change.",
+            "Graphify 연동을 깨뜨리지 않고 훅을 수정해줘.",
+        )
+
+        for request in preserved_requests:
+            with self.subTest(request=request):
+                self.assertIn("graphify", infer_concerns_from_request(request))
 
     def test_natural_code_cleanup_request_routes_to_code_simplify(self) -> None:
         classification = classify_request("코드 정리해줘")

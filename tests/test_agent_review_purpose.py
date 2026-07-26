@@ -222,5 +222,97 @@ class AgentReviewPurposeTests(unittest.TestCase):
         self.assertTrue(any("grab-bag package" in failure for failure in failures))
 
 
+class KotlinDefaultPublicOwnerTests(unittest.TestCase):
+    """Kotlin top-level functions are public with no modifier to match on.
+
+    Scenario: a reviewer runs the structure gate over a Kotlin file that owns
+    several unrelated top-level functions. Before the fix the token-driven owner
+    test found no `public` keyword, counted zero owners, and let the file pass
+    both the four-owner and one-public-owner budgets.
+    """
+
+    KOTLIN_FILE = """
+package sample
+
+fun buildAlpha() = 1
+
+fun buildBravo() = 2
+
+fun buildCharlie() = 3
+
+fun buildDelta() = 4
+
+fun buildEcho() = 5
+"""
+
+    def test_bare_top_level_functions_count_as_public_owners(self) -> None:
+        path = Path("app/src/main/kotlin/sample/Builders.kt")
+        found = top_level_type_declarations(path, self.KOTLIN_FILE.strip().splitlines())
+
+        self.assertEqual(
+            ["buildAlpha", "buildBravo", "buildCharlie", "buildDelta", "buildEcho"],
+            [declaration["name"] for declaration in found],
+        )
+
+        failures = top_level_declaration_failures(path, found)
+        self.assertTrue(any("public/exported top-level owners" in item for item in failures))
+        self.assertTrue(any("non-private top-level owners" in item for item in failures))
+
+    def test_negative_control_same_source_as_go_stays_unowned(self) -> None:
+        """Go encodes export in the identifier, so lowercase funcs must not count.
+
+        This is the control for the fix: if `default_public` leaked to every
+        language whose members are exported by default, this Go file would start
+        failing and the assertion below would break.
+        """
+
+        path = Path("internal/sample/builders.go")
+        source = "package sample\n\n" + "\n\n".join(
+            f"func build{name}() int {{ return 1 }}"
+            for name in ("Alpha", "Bravo", "Charlie", "Delta", "Echo")
+        )
+        found = top_level_type_declarations(path, source.splitlines())
+
+        self.assertEqual([], found)
+        self.assertEqual([], top_level_declaration_failures(path, found))
+
+    def test_private_kotlin_top_level_functions_stay_unowned(self) -> None:
+        path = Path("app/src/main/kotlin/sample/Helpers.kt")
+        source = "package sample\n\n" + "\n\n".join(
+            f"private fun helper{index}() = {index}" for index in range(6)
+        )
+        found = top_level_type_declarations(path, source.splitlines())
+
+        self.assertEqual([], found)
+        self.assertEqual([], top_level_declaration_failures(path, found))
+
+    def test_internal_kotlin_functions_are_owners_but_not_public(self) -> None:
+        path = Path("app/src/main/kotlin/sample/Internals.kt")
+        source = "package sample\n\ninternal fun buildAlpha() = 1\n"
+        found = top_level_type_declarations(path, source.splitlines())
+
+        self.assertEqual(["buildAlpha"], [item["name"] for item in found])
+        self.assertTrue(found[0]["internal"])
+        self.assertEqual([], top_level_declaration_failures(path, found))
+
+    def test_expect_and_actual_kotlin_functions_count_as_public_owners(self) -> None:
+        for modifier in ("expect", "actual"):
+            with self.subTest(modifier=modifier):
+                path = Path(f"app/src/{modifier}Main/kotlin/sample/Builders.kt")
+                source = "\n".join(
+                    f"{modifier} fun build{name}(): Unit"
+                    for name in ("Alpha", "Bravo", "Charlie", "Delta", "Echo")
+                )
+                found = top_level_type_declarations(path, source.splitlines())
+
+                self.assertEqual(
+                    ["buildAlpha", "buildBravo", "buildCharlie", "buildDelta", "buildEcho"],
+                    [item["name"] for item in found],
+                )
+                failures = top_level_declaration_failures(path, found)
+                self.assertTrue(any("public/exported top-level owners" in item for item in failures))
+                self.assertTrue(any("non-private top-level owners" in item for item in failures))
+
+
 if __name__ == "__main__":
     unittest.main()

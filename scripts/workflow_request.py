@@ -294,12 +294,17 @@ CODE_AUTHORING_REQUEST_PATTERNS = (
 )
 EXPLICIT_CONCERN_EXCLUSION_PATTERNS = {
     "graphify": (
-        r"\b(?:do not|don't|must not|should not|without)\b.{0,40}\bgraphify\b",
-        r"\bgraphify\b.{0,40}\b(?:excluded?|disabled?|must not|should not|do not run|don't run)\b",
-        r"(?:graphify|그래피|프로젝트 그래프|지식 그래프).{0,40}"
-        r"(?:실행|사용)(?:은|는|을|를)?\s*(?:제외|금지|하지\s*마|하지\s*않)",
-        r"(?:graphify|그래피|프로젝트 그래프|지식 그래프).{0,40}"
+        r"\b(?:do not|don't|must not|should not)\s+"
+        r"(?:(?:run|use|invoke|call|install|enable)\s+|rely\s+on\s+)graphify\b",
+        r"\bwithout\s+(?:(?:running|using|invoking|calling|installing|relying\s+on)\s+)?graphify\b",
+        r"\bgraphify\b.{0,40}\b(?:excluded?|disabled?|out\s+of\s+scope)\b",
+        r"\bgraphify\b.{0,40}\b(?:must not|should not|do not|don't)\s+"
+        r"(?:be\s+)?(?:run|used|invoked|called|installed|enabled)\b",
+        r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프).{0,40}"
+        r"(?:실행|사용|설치)(?:은|는|을|를)?\s*(?:제외|금지|하지\s*마|하지\s*않)",
+        r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프).{0,40}"
         r"(?:돌리면\s*안|돌리지\s*마|안\s*돌)",
+        r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프)(?:가|이|를|을)?\s*없이",
     ),
 }
 

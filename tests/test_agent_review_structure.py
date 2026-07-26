@@ -787,5 +787,108 @@ class AgentReviewStructureTests(unittest.TestCase):
         self.assertFalse(any("block `test_example` spans" in failure for failure in result["failures"]))
 
 
+class NumstatDeletionAccountingTests(unittest.TestCase):
+    """`check_file_size` downgrades a net-reducing rewrite to a warning.
+
+    That branch reads `metadata["deletions"]`, which only the numstat discovery
+    pass can supply. While the parser recorded additions alone the key was
+    always absent, so the branch was unreachable through the real review path
+    and a shrinking file was failed for its addition count.
+    """
+
+    def _collect(
+        self,
+        numstat_stdout: str,
+        name_status_stdout: str = "M\tbig.py\n",
+    ) -> dict[str, dict[str, object]]:
+        from agent_review_structure import collect_head_diff
+
+        def run_command(command, project):
+            if "--name-status" in command:
+                return {"returncode": 0, "stdout": name_status_stdout, "stderr": ""}
+            if "--numstat" in command:
+                self.assertIn("-z", command)
+                return {"returncode": 0, "stdout": numstat_stdout, "stderr": ""}
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        metadata: dict[str, dict[str, object]] = {}
+        collect_head_diff(Path("."), run_command, {}, set(), metadata, [])
+        return metadata
+
+    def test_numstat_discovery_records_deleted_lines(self) -> None:
+        metadata = self._collect("900\t1500\tbig.py\0")
+
+        self.assertEqual(900, metadata["big.py"]["additions"])
+        self.assertEqual(1500, metadata["big.py"]["deletions"])
+
+    def test_net_reducing_rewrite_warns_instead_of_failing(self) -> None:
+        metadata = self._collect("900\t1500\tbig.py\0")
+        result: dict[str, list[str]] = {"failures": [], "warnings": []}
+
+        check_file_size(Path("big.py"), ["line"] * 200, 500, metadata["big.py"], result)
+
+        self.assertEqual([], result["failures"])
+        self.assertTrue(any("is not growing" in warning for warning in result["warnings"]))
+
+    def test_negative_control_growing_file_still_fails(self) -> None:
+        """The control: a file that really grows must keep failing.
+
+        If recording deletions had turned the addition limit into a no-op, this
+        assertion would break instead of the fix silently disabling the gate.
+        """
+
+        metadata = self._collect("900\t10\tbig.py\0")
+        result: dict[str, list[str]] = {"failures": [], "warnings": []}
+
+        check_file_size(Path("big.py"), ["line"] * 200, 500, metadata["big.py"], result)
+
+        self.assertEqual([], result["warnings"])
+        self.assertTrue(
+            any(
+                f"per-file addition limit is {REVIEW_ADDED_LINE_LIMIT}" in failure
+                for failure in result["failures"]
+            )
+        )
+
+    def test_binary_numstat_markers_do_not_crash_discovery(self) -> None:
+        metadata = self._collect("-\t-\tbig.py\0")
+
+        self.assertEqual(0, metadata["big.py"]["additions"])
+        self.assertEqual(0, metadata["big.py"]["deletions"])
+
+    def test_rename_numstat_counts_bind_to_destination_path(self) -> None:
+        metadata = self._collect(
+            "900\t1500\t\0old/big.py\0new/big.py\0",
+            "R087\told/big.py\tnew/big.py\n",
+        )
+
+        self.assertEqual(
+            {
+                "status": "R",
+                "previous_path": "old/big.py",
+                "additions": 900,
+                "deletions": 1500,
+            },
+            metadata["new/big.py"],
+        )
+        self.assertNotIn("{old => new}/big.py", metadata)
+
+    def test_copy_numstat_counts_bind_to_destination_path(self) -> None:
+        metadata = self._collect(
+            "12\t3\t\0old/source.py\0new/copy.py\0",
+            "C075\told/source.py\tnew/copy.py\n",
+        )
+
+        self.assertEqual(
+            {
+                "status": "C",
+                "previous_path": "old/source.py",
+                "additions": 12,
+                "deletions": 3,
+            },
+            metadata["new/copy.py"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -32,7 +32,7 @@ BRACE_TOP_LEVEL_FUNCTION_RE = re.compile(
 )
 KOTLIN_TOP_LEVEL_FUNCTION_RE = re.compile(
     r"^\s*(?:(?:public\s+|private\s+|protected\s+|internal\s+|open\s+|final\s+|"
-    r"inline\s+|tailrec\s+|operator\s+|infix\s+|external\s+|suspend\s+)*)"
+    r"expect\s+|actual\s+|inline\s+|tailrec\s+|operator\s+|infix\s+|external\s+|suspend\s+)*)"
     r"(?P<kind>fun)\s+(?:<[^>]+>\s*)?"
     r"(?:(?P<receiver>(?:[A-Za-z_][A-Za-z0-9_?.<>]*\.)+))?"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
@@ -143,6 +143,7 @@ def top_level_type_declarations(path: Path, lines: list[str]) -> list[dict[str, 
                 line,
                 index,
                 receiver=match_receiver(match),
+                default_public=default_public_top_level(path),
             )
             if declaration["owner"]:
                 declarations.append(declaration)
@@ -169,6 +170,7 @@ def type_declaration(
     line: str,
     index: int,
     receiver: str | None = None,
+    default_public: bool = False,
 ) -> dict[str, Any]:
     return {
         "kind": kind,
@@ -179,11 +181,32 @@ def type_declaration(
         "internal": bool(re.search(r"\binternal\b", line)),
         "exported": bool(re.search(r"\b(export|public|pub)\b", line)),
         "role": role_for_name(name),
-        "owner": top_level_owner(kind, name, line),
+        "owner": top_level_owner(kind, name, line, default_public=default_public),
     }
 
 
-def top_level_owner(kind: str, name: str, line: str) -> bool:
+def default_public_top_level(path: Path) -> bool:
+    """True where an unqualified top-level declaration is already public.
+
+    Kotlin needs this because a bare ``fun name()`` at file scope is public with
+    no modifier to match on, so a purely token-driven owner test counts zero
+    owners for a file that in fact exports every function in it. Languages whose
+    visibility is encoded in the name instead -- Go, where only a capitalized
+    identifier is exported -- must stay off this path; ``component_or_hook_name``
+    already covers them.
+    """
+
+    return path.suffix.lower() in {".kt", ".kts"}
+
+
+def top_level_owner(
+    kind: str,
+    name: str,
+    line: str,
+    default_public: bool = False,
+) -> bool:
+    if default_public and not re.search(r"\bprivate\b", line):
+        return True
     return (
         kind in TYPE_OWNER_KINDS
         or bool(re.search(r"\b(export|public|pub|internal)\b", line))
