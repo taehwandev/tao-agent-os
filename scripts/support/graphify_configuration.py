@@ -12,6 +12,7 @@ from support.graphify_contract import (
     GLOBAL_PLATFORM_SKILL_DIRS,
     PROJECT_RUNTIME_ASSET_PATHS,
     RUNTIME_BUNDLED_SKILL_DIR,
+    leaked_runtime_asset,
 )
 from support.graphify_inspection import inspect_global_graphify, inspect_target_graphify
 from support.graphify_paths import (
@@ -58,12 +59,27 @@ def configure_global_graphify(
                     target_is_directory=True,
                 )
 
-    readiness = inspect_global_graphify(home_path, selected)
+    readiness = inspect_global_graphify(
+        home_path,
+        selected,
+        bundled_skill_dir=source,
+    )
     results.append(
         _result(
             "global.skill.canonical",
             "ok" if readiness["canonical_skill_exists"] else "missing",
             readiness["canonical_skill_doc"],
+        )
+    )
+    results.append(
+        _result(
+            "global.skill.freshness",
+            "ok" if readiness["canonical_skill_fresh"] else "missing",
+            (
+                f"missing={len(readiness['canonical_skill_missing_files'])}; "
+                f"extra={len(readiness['canonical_skill_extra_files'])}; "
+                f"changed={len(readiness['canonical_skill_changed_files'])}"
+            ),
         )
     )
     invalid_links = set(readiness["invalid_runtime_links"])
@@ -100,6 +116,15 @@ def configure_target_graphify(
             "ok" if readiness["canonical_skill_exists"] else "missing",
             readiness["canonical_skill_doc"],
         ),
+        _result(
+            "skill.global.freshness",
+            "ok" if readiness["canonical_skill_fresh"] else "missing",
+            (
+                f"missing={len(readiness['canonical_skill_missing_files'])}; "
+                f"extra={len(readiness['canonical_skill_extra_files'])}; "
+                f"changed={len(readiness['canonical_skill_changed_files'])}"
+            ),
+        ),
     ]
     invalid_links = set(readiness["invalid_runtime_links"])
     for platform, path in readiness["runtime_skill_links"].items():
@@ -111,9 +136,8 @@ def configure_target_graphify(
             )
         )
     for relative in PROJECT_RUNTIME_ASSET_PATHS:
-        path = project_path / relative
-        if path.exists() or path.is_symlink():
-            results.append(_result("project.runtime_asset", "missing", path))
+        if leaked_runtime_asset(project_path, relative):
+            results.append(_result("project.runtime_asset", "missing", project_path / relative))
     results.extend(
         (
             _result(

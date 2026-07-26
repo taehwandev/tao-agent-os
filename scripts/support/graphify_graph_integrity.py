@@ -7,6 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from support.graphify_contract import PROJECT_GRAPH_PATH
 from support.graphify_input_inspection import normalize_relative_path, project_knowledge_files
 
 
@@ -47,7 +48,7 @@ def inspect_graph_integrity(project_path: Path, graph_path: Path) -> dict[str, o
 
 
 def repair_graph_integrity(graph_path: Path, *, dry_run: bool = False) -> dict[str, object]:
-    """Remove only edges that cannot represent a valid graph relationship."""
+    """Remove invalid edges, then fail closed on ambiguous node corruption."""
     try:
         payload = json.loads(graph_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -69,11 +70,9 @@ def repair_graph_integrity(graph_path: Path, *, dry_run: bool = False) -> dict[s
             "reason": "graph nodes or edges are not lists",
         }
 
-    node_ids = {
-        str(node["id"])
-        for node in nodes
-        if isinstance(node, dict) and node.get("id") is not None
-    }
+    node_types, _, malformed_nodes, duplicate_nodes = _index_nodes(nodes)
+    node_ids = set(node_types)
+
     valid_edges: list[dict[str, object]] = []
     for edge in edges:
         if not isinstance(edge, dict):
@@ -84,35 +83,57 @@ def repair_graph_integrity(graph_path: Path, *, dry_run: bool = False) -> dict[s
             continue
         valid_edges.append(edge)
 
-    removed = len(edges) - len(valid_edges)
-    if removed and not dry_run:
+    removed_edges = len(edges) - len(valid_edges)
+    if removed_edges and not dry_run:
         payload[edge_key] = valid_edges
-        graph_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=graph_path.parent,
-                prefix=f".{graph_path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as handle:
-                json.dump(payload, handle, ensure_ascii=False)
-                handle.write("\n")
-                temp_path = Path(handle.name)
-            os.replace(temp_path, graph_path)
-        finally:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
+        _write_graph_payload(graph_path, payload)
+
+    if dry_run:
+        _, invalid_edges, _ = _index_edges(valid_edges, node_types)
+        ready = bool(node_types) and not (
+            malformed_nodes or duplicate_nodes or invalid_edges
+        )
+    else:
+        verified = inspect_graph_integrity(_project_root_for_graph(graph_path), graph_path)
+        ready = bool(verified.get("graph_integrity_ready"))
 
     return {
         "graph_path": str(graph_path),
-        "ready": True,
-        "removed_edge_count": removed,
+        "ready": ready,
+        "removed_node_count": 0,
+        "removed_edge_count": removed_edges,
+        "node_count": len(node_types),
         "edge_count": len(valid_edges),
         "dry_run": dry_run,
     }
+
+
+def _write_graph_payload(graph_path: Path, payload: dict[str, object]) -> None:
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=graph_path.parent,
+            prefix=f".{graph_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+            handle.write("\n")
+            temp_path = Path(handle.name)
+        os.replace(temp_path, graph_path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _project_root_for_graph(graph_path: Path) -> Path:
+    parts = PROJECT_GRAPH_PATH.parts
+    if len(graph_path.parts) >= len(parts) and graph_path.parts[-len(parts):] == parts:
+        return graph_path.parents[len(parts) - 1]
+    return graph_path.parent
 
 
 class _GraphPayload(tuple):

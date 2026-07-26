@@ -37,9 +37,11 @@ The target checkout owns only:
 <TARGET_REPO>/.agents/local/graphify-out/
 ```
 
-This directory is local generated state. It is ignored and is not a portable
-repository artifact. Worktrees may have separate graph caches; they still use
-the same user-level skill.
+This directory is local generated state and is not a portable repository
+artifact. Setup never writes the target repository's `.gitignore`, so keeping
+this path out of version control is the target repository's own responsibility;
+add it to that repository's ignore rules before building a graph. Worktrees may
+have separate graph caches; they still use the same user-level skill.
 
 The following target-project paths belong to the removed project-bundle design:
 
@@ -54,6 +56,13 @@ The following target-project paths belong to the removed project-bundle design:
 
 Setup and readiness must report these paths when present. Do not stage or commit
 them as a repair.
+
+The Tao Agent OS checkout itself is the one exception, because it is the runtime
+source rather than a target: `.tao/skills/graphify` is the canonical bundle
+defined above, and that repository self-hosts its own discovery links into that
+same bundle. Readiness excuses those paths only there, and only when the path is
+the bundle or a link resolving inside it. A copied bundle, or a link pointing
+outside it, stays a reported leak even in the runtime source root.
 
 ## Global Setup
 
@@ -101,9 +110,10 @@ GRAPHIFY_OUT=.agents/local/graphify-out graphify path "<source>" "<target>"
 GRAPHIFY_OUT=.agents/local/graphify-out graphify explain "<concept>"
 ```
 
-The installed shared skill remains the operational source. When it describes
-the default `graphify-out` path, Tao Agent OS project workflows supply `GRAPHIFY_OUT` to
-place generated state under `.agents/local`.
+The installed shared skill remains the operational source. Its build, query,
+path, explain, update, and export instructions all use the explicit
+`.agents/local/graphify-out` path and set `GRAPHIFY_OUT` on CLI invocations.
+Do not fall back to the legacy root-level cache.
 
 The managed `.graphifyignore` input block is narrow:
 
@@ -121,13 +131,18 @@ Do not rewrite `.gitignore`, unignore `.tao`, or narrow a repository's
 
 ## Migration From Project Bundles
 
-Use removal mode for setup-created project Graphify assets:
+Setup has no removal mode. Deleting files from a target checkout is a
+destructive action on someone else's repository, so `--check` reports the
+leaked project-bundle paths listed above and stops there. Removal is a manual,
+user-approved step:
 
-1. Inventory target-project skill copies, links, adapters, Git policies, and graphs.
+1. Run `--check` to inventory target-project skill copies, links, adapters, Git
+   policies, and graphs.
 2. Confirm the active runtime bundle and user-level links are ready.
 3. Preserve a usable generated graph by moving it to
    `.agents/local/graphify-out` when safe.
-4. Remove only setup-created project skill copies and adapter links.
+4. Ask the user before deleting, then remove only the reported setup-created
+   project skill copies and adapter links.
 5. Restore unrelated project instructions and ignore policy.
 6. Verify `git status` contains no Graphify installation assets.
 7. Re-run target readiness and a scoped query.

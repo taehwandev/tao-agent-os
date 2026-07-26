@@ -203,7 +203,9 @@ class SetupAgentHooksTests(unittest.TestCase):
 
             with patch("support.graphify_inspection.shutil.which", return_value="/tmp/graphify"):
                 readiness = inspect_global_graphify(
-                    home, ["antigravity", "claude", "codex"]
+                    home,
+                    ["antigravity", "claude", "codex"],
+                    bundled_skill_dir=canonical.parent,
                 )
 
         self.assertTrue(readiness["ready"])

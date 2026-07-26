@@ -37,6 +37,12 @@ graphify-out/cost.json
 graphify-out/**/cost.json
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 
+# The generated graph moved to .agents/local/graphify-out, and the rules above
+# are anchored to the repository root, so they never covered the new location.
+# `.agents/local` is local generated state by contract -- only `.agents/shared`
+# is durable project knowledge -- so ignore the whole boundary.
+.agents/local/
+
 # tao-project-assets:start
 # Runtime evidence is local, but canonical project skills are repository assets.
 !.tao/
