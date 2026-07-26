@@ -19,6 +19,8 @@ from agent_route_state import (
     required_docs_for_route,
     route_fingerprint,
 )
+from agent_repair_ledger import checkpoint_has_recorded_failure
+from agent_repair_receipt_validation import validate_repair_receipt
 
 
 REQUIRED_DOC_RECEIPT_VERSION = "1"
@@ -66,6 +68,14 @@ def bind_required_doc_update_receipt(
     target = fields.get("target", "").strip()
     if target not in set(required_docs_for_route(route)):
         return fields
+    if "documentation" not in {str(item) for item in (route.get("gates") or [])}:
+        _validate_off_route_required_doc_repair(
+            evidence_path=evidence_path,
+            preflight=preflight,
+            route=route,
+            target=target,
+            fields=fields,
+        )
 
     baseline = _required_doc_baseline(evidence_path, preflight, target)
     if baseline is None:
@@ -93,6 +103,58 @@ def bind_required_doc_update_receipt(
         }
     )
     return bound
+
+
+def _validate_off_route_required_doc_repair(
+    *,
+    evidence_path: Path,
+    preflight: dict[str, Any],
+    route: dict[str, Any],
+    target: str,
+    fields: dict[str, str],
+) -> None:
+    """Require structural repair proof before an off-route receipt is minted."""
+
+    checkpoint = fields.get("resume_checkpoint", "").strip()
+    repair_evidence = fields.get("repair_evidence", "").strip()
+    if not checkpoint or not repair_evidence:
+        raise ValueError(
+            "off-route required-doc update receipt requires resume_checkpoint "
+            "and repair_evidence from repair-verify"
+        )
+    if not checkpoint_has_recorded_failure(
+        route=route,
+        evidence_path=evidence_path,
+        checkpoint=checkpoint,
+    ):
+        raise ValueError(
+            "off-route required-doc update receipt requires an actual failed checkpoint"
+        )
+    project_value = preflight.get("project")
+    rules_value = preflight.get("rules")
+    if not isinstance(project_value, str) or not isinstance(rules_value, str):
+        raise ValueError(
+            "off-route required-doc update receipt requires project and rules roots"
+        )
+    project = Path(project_value).expanduser().resolve()
+    rules = Path(rules_value).expanduser().resolve()
+    receipt_path = Path(repair_evidence).expanduser()
+    if not receipt_path.is_absolute():
+        receipt_path = project / receipt_path
+    failures = validate_repair_receipt(
+        project=project,
+        rules=rules,
+        evidence_path=evidence_path,
+        preflight=preflight,
+        target=target,
+        checkpoint=checkpoint,
+        receipt_path=receipt_path,
+    )
+    if failures:
+        raise ValueError(
+            "off-route required-doc update receipt repair evidence is invalid: "
+            + "; ".join(failures)
+        )
 
 
 def validated_required_doc_update_receipt(

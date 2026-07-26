@@ -10,10 +10,40 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from agent_finish_final_checks import run_final_checks
+from agent_finish_final_checks import reusable_review_workflow_validation, run_final_checks
 
 
 class AgentFinishFinalChecksTests(unittest.TestCase):
+    def test_reusable_review_path_escape_is_rejected_without_raising(self) -> None:
+        digest = "0" * 64
+        state = {
+            "head": "head",
+            "worktree_fingerprint": digest,
+            "worktree_signature": digest,
+        }
+        record = {
+            "schema_version": 3,
+            "preflight_evidence": {
+                "path": "../outside.json",
+                "sha256": digest,
+            },
+            "project_git": state,
+            "rules_git": state,
+            "workflow_validate": {"returncode": 0},
+            "diff_check": {
+                "returncode": 0,
+                "review_scope": "working-tree",
+            },
+        }
+
+        with patch(
+            "agent_finish_final_checks.read_json_object",
+            return_value=record,
+        ):
+            result = reusable_review_workflow_validation(ROOT, ROOT)
+
+        self.assertIsNone(result)
+
     def test_read_only_non_git_workspace_skips_unavailable_diff_check(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             failures: list[str] = []

@@ -12,6 +12,8 @@ from agent_delegation_plan import validate_delegation_plan_evidence
 from agent_execution_capsule import capsule_path_for_evidence, read_execution_capsule
 from agent_execution_capsule_state import (
     execution_capsule_binding_fingerprint,
+    git_states_for_paths,
+    is_sha256,
     preflight_snapshot_binding_fingerprint,
 )
 from agent_execution_capsule_validation import (
@@ -363,6 +365,55 @@ def grill_me_is_required(
         )
         or grill_me_requested(_request_text(request_intake, request_classification))
     )
+
+
+def check_read_only_execution(
+    preflight: dict[str, Any],
+    project: Path,
+    failures: list[str],
+    *,
+    read_only: bool,
+    state_reader: Any = git_states_for_paths,
+) -> None:
+    """Hold a read-only run to the claim that bought it the VibeGuard skip.
+
+    Declaring ``--read-only`` disables the safety audit for the whole
+    lifecycle, and the declaration is made at start -- before any edit has
+    happened. Without this check the flag is an unverified promise: an agent can
+    declare a non-mutating run on any route, edit freely, and finish with no
+    audit. Compare the worktree against the state start recorded and fail closed
+    when it moved.
+    """
+
+    if not read_only:
+        return
+    recorded = preflight.get("read_only_execution_state")
+    if not (
+        isinstance(recorded, dict)
+        and set(recorded) == {"head", "worktree_fingerprint", "worktree_signature"}
+        and isinstance(recorded.get("head"), str)
+        and bool(recorded["head"])
+        and is_sha256(recorded.get("worktree_fingerprint"))
+        and is_sha256(recorded.get("worktree_signature"))
+    ):
+        failures.append(
+            "read-only execution is missing its strong start-time workspace fingerprint; "
+            "rerun start before finishing"
+        )
+        return
+    try:
+        current, _ = state_reader(project, project)
+    except (OSError, RuntimeError, ValueError):
+        failures.append(
+            "read-only execution workspace state could not be verified; "
+            "Git and directory inspection errors fail closed"
+        )
+        return
+    if current != recorded:
+        failures.append(
+            "read-only execution was declared but the worktree changed after start; "
+            "read-only skips VibeGuard, so rerun the lifecycle without --read-only"
+        )
 
 
 def check_preflight_vibeguard(

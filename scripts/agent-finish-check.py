@@ -16,6 +16,7 @@ from agent_runtime_session import runtime_session
 from agent_skill_catalog import canonical_skill_ids
 from agent_finish_check_steps import (
     check_preflight_vibeguard,
+    check_read_only_execution,
     check_request_intake,
     check_required_gates,
     read_preflight,
@@ -144,9 +145,10 @@ def process_failure_learning(
         ):
             failures.append(
                 "required-doc drift recovery: when the repair intentionally changes that "
-                "document, record documentation SUCCESS with decision=updated and the exact "
-                "route-relative required doc target before repair-verify; this binds the final "
-                "document bytes without bypassing the snapshot check"
+                "document, run repair-verify for the actual failed checkpoint first, then "
+                "record documentation SUCCESS with decision=updated, the exact route-relative "
+                "required doc target, repair_evidence, and resume_checkpoint; this binds the "
+                "verified final document bytes without bypassing the snapshot check"
             )
         failures.append(
             "retrospective repair is required before final report, commit, release, or handoff; "
@@ -294,6 +296,12 @@ def main() -> int:
     )
     read_only = effective_read_only(preflight, route)
     check_preflight_vibeguard(preflight, failures, read_only=read_only)
+    check_read_only_execution(
+        preflight,
+        project,
+        failures,
+        read_only=read_only,
+    )
     validate, diff_check, vibeguard, overall = run_final_checks(
         tao_root,
         project,

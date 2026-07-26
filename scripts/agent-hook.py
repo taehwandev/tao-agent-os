@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_gate_evidence import resync_gate_evidence_ledger
+from agent_execution_capsule_state import git_states_for_paths
 from agent_handoff_hook import handoff_hook
 from agent_hook_gate_records import (
     gate_batch_hook,
@@ -49,7 +50,12 @@ from agent_review_structure import (
     REVIEW_FUNCTION_LINE_LIMIT,
     REVIEW_SOURCE_FILE_LINE_LIMIT,
 )
-from agent_run_registry import active_run_conflict, register_run, transition_run
+from agent_run_registry import (
+    active_run_conflict,
+    recover_stale_runs,
+    register_run,
+    transition_run,
+)
 from agent_context_store import (
     context_snapshot_failures_are_replaceable,
     context_snapshot_path,
@@ -67,6 +73,13 @@ def start_hook(args: argparse.Namespace) -> int:
         "request_classified": bool(args.request_classified),
         "classification_evidence": args.classification_evidence,
     }
+    # A run that was interrupted stays `running` forever unless the separate
+    # maintenance entrypoint is invoked, and nothing in the lifecycle invokes
+    # it. Without this sweep one abandoned run permanently claims the shared
+    # evidence path: start refuses it and directs the agent to an isolated
+    # --evidence path, while the Claude pre-tool gate only ever reads the
+    # default one, so every edit is denied with no in-band way out.
+    recover_stale_runs(args.project)
     if active_run_conflict(
         args.project,
         evidence_path,
@@ -124,6 +137,8 @@ def start_hook(args: argparse.Namespace) -> int:
         # Validate and refresh context before registering the run. If context
         # validation fails, start must not leave an orphaned running record.
         success = _refresh_started_context(args, details) and success
+        if success:
+            success = _bind_read_only_execution_state(args, details)
         if success:
             _register_started_run(args, details)
     return finish_with_result(
@@ -248,6 +263,28 @@ def _register_started_run(args: argparse.Namespace, details: list[str]) -> None:
         details.append("agent run registry: running")
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         details.append("agent run registry: unavailable; lifecycle continues")
+
+
+def _bind_read_only_execution_state(
+    args: argparse.Namespace,
+    details: list[str],
+) -> bool:
+    """Bind a VibeGuard-skipping run to strong start-time workspace bytes."""
+
+    evidence_path = preflight_evidence_path(args)
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        if not (payload.get("execution_mode") or {}).get("read_only"):
+            return True
+        state, _ = git_states_for_paths(args.project, args.project)
+        payload["read_only_execution_state"] = state
+        write_json(evidence_path, payload)
+        resync_gate_evidence_ledger(evidence_path, payload)
+    except (OSError, RuntimeError, ValueError, TypeError, json.JSONDecodeError) as error:
+        details.append(f"read-only execution state: capture failed ({error})")
+        return False
+    details.append("read-only execution state: bound")
+    return True
 
 
 def _transition_finished_run(args: argparse.Namespace, success: bool) -> None:

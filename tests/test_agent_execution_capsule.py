@@ -26,6 +26,7 @@ from agent_execution_capsule_state import (
     git_states_for_paths,
     preflight_snapshot_binding_fingerprint,
 )
+import agent_execution_capsule_state as capsule_state
 from agent_execution_capsule_bindings import preflight_identity_failures
 from agent_directory_fingerprint import DIRECTORY_STATE_HEAD
 from agent_execution_capsule_validation import (
@@ -48,6 +49,8 @@ from agent_gate_evidence import (
 )
 from agent_route_state import preflight_evidence_sha256, route_fingerprint
 from agent_finish_documentation import documented_required_doc_updates
+from agent_repair_ledger import record_failure_checkpoints
+from agent_repair_verification import create_repair_receipt
 from agent_worktree_fingerprint import worktree_fingerprint
 from agent_worker_evidence import reserve_isolated_worker_evidence
 
@@ -635,7 +638,7 @@ class ExecutionCapsuleTests(unittest.TestCase):
             failures,
         )
 
-    def test_failed_route_can_bind_required_doc_repair_without_documentation_gate(self) -> None:
+    def test_off_route_documentation_cannot_bind_without_verified_repair(self) -> None:
         self.route = {
             **self.route,
             "gates": ["source docs", "verify"],
@@ -648,6 +651,113 @@ class ExecutionCapsuleTests(unittest.TestCase):
             self.project, self.rules, self.evidence_path, self.route
         )
         (self.rules / "guide.md").write_text("# Repaired Guide\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError,
+            "requires resume_checkpoint and repair_evidence",
+        ):
+            record_gate_evidence(
+                evidence_path=self.evidence_path,
+                preflight=preflight,
+                gate="documentation",
+                fields={
+                    "decision": "updated",
+                    "target": "guide.md",
+                    "reason": "an unverified off-route entry must grant nothing",
+                },
+            )
+        with self.assertRaisesRegex(ValueError, "requires an actual failed checkpoint"):
+            record_gate_evidence(
+                evidence_path=self.evidence_path,
+                preflight=preflight,
+                gate="documentation",
+                fields={
+                    "decision": "updated",
+                    "target": "guide.md",
+                    "reason": "fields alone cannot invent a failed checkpoint",
+                    "resume_checkpoint": "source docs",
+                    "repair_evidence": ".tao/repair-verification/missing.json",
+                },
+            )
+        record_failure_checkpoints(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            checkpoints=["source docs"],
+            signature="required-doc-drift",
+            checkpoint_signatures={"source docs": "required-doc-drift"},
+        )
+        with self.assertRaisesRegex(ValueError, "repair evidence is invalid"):
+            record_gate_evidence(
+                evidence_path=self.evidence_path,
+                preflight=preflight,
+                gate="documentation",
+                fields={
+                    "decision": "updated",
+                    "target": "guide.md",
+                    "reason": "a failed checkpoint still needs a verified receipt",
+                    "resume_checkpoint": "source docs",
+                    "repair_evidence": ".tao/repair-verification/missing.json",
+                },
+            )
+
+        self.assertEqual(
+            {},
+            documented_required_doc_updates(
+                evidence_path=self.evidence_path,
+                route=self.route,
+            ),
+        )
+        self.assertIn(
+            "execution capsule required doc hash changed: guide.md",
+            validate_source_docs_binding(
+                capsule,
+                self.project,
+                self.rules,
+                self.evidence_path,
+                self.route,
+                documented_updates={},
+            ),
+        )
+
+    def test_failed_route_can_bind_required_doc_after_verified_repair(self) -> None:
+        self.route = {
+            **self.route,
+            "gates": ["source docs", "verify"],
+        }
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        preflight["route"] = self.route
+        self.evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+        self._write_ledger()
+        capsule = refresh_execution_capsule(
+            self.project, self.rules, self.evidence_path, self.route
+        )
+        (self.rules / "guide.md").write_text("# Repaired Guide\n", encoding="utf-8")
+        (self.rules / "test_repair.py").write_text(
+            "import unittest\n\n"
+            "class RepairTest(unittest.TestCase):\n"
+            "    def test_ok(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        record_failure_checkpoints(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            checkpoints=["source docs"],
+            signature="required-doc-drift",
+            checkpoint_signatures={"source docs": "required-doc-drift"},
+        )
+        repair = create_repair_receipt(
+            project=self.project,
+            rules=self.rules,
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            target="guide.md",
+            checkpoint="source docs",
+            verification_kind="unittest",
+            test_selector="test_repair.RepairTest.test_ok",
+        )
+        self.assertTrue(repair["created"])
+        self.assertEqual("SUCCESS", repair["status"])
+
         record_gate_evidence(
             evidence_path=self.evidence_path,
             preflight=preflight,
@@ -656,9 +766,10 @@ class ExecutionCapsuleTests(unittest.TestCase):
                 "decision": "updated",
                 "target": "guide.md",
                 "reason": "the failed checkpoint required an instruction repair",
+                "resume_checkpoint": "source docs",
+                "repair_evidence": repair["receipt_path"],
             },
         )
-
         documented_updates = documented_required_doc_updates(
             evidence_path=self.evidence_path,
             route=self.route,
@@ -677,10 +788,29 @@ class ExecutionCapsuleTests(unittest.TestCase):
             ),
         )
 
+    def test_git_repository_error_is_not_downgraded_to_non_git(self) -> None:
+        with (
+            patch.object(
+                capsule_state,
+                "git_repository_root",
+                side_effect=RuntimeError("dubious ownership"),
+            ),
+            patch.object(capsule_state, "is_non_git_workspace", return_value=False),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "dubious ownership"):
+                capsule_state._git_repository_root_or_none(self.project)
+
+    def test_genuine_non_git_path_uses_directory_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            state, duplicate = git_states_for_paths(project, project)
+
+        self.assertEqual(DIRECTORY_STATE_HEAD, state["head"])
+        self.assertEqual(state, duplicate)
+
     def test_documentation_gate_cannot_mint_a_receipt_for_a_non_required_doc_target(self) -> None:
-        # The documentation gate now mints receipts even off-route (required-doc
-        # repair), so the remaining fail-closed boundary is the target itself:
-        # only an exact route required doc can receive a byte receipt.
+        # Required-doc receipts are exact-path capabilities. Even a documentation
+        # entry carrying repair-like prose cannot authorize an unrelated target.
         capsule = refresh_execution_capsule(
             self.project, self.rules, self.evidence_path, self.route
         )

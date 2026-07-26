@@ -200,7 +200,7 @@ def reusable_review_workflow_validation(project: Path, rules: Path) -> dict[str,
             project_record=record["project_git"],
             rules_record=record["rules_git"],
         )
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         return None
     if project_git != record["project_git"] or rules_git != record["rules_git"]:
         return None

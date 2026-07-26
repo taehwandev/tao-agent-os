@@ -347,7 +347,12 @@ class FinishGatePolicyTests(unittest.TestCase):
             joined_failures = " ".join(failures)
             self.assertIn("documentation SUCCESS", joined_failures)
             self.assertIn("exact route-relative required doc target", joined_failures)
-            self.assertIn("before repair-verify", joined_failures)
+            self.assertIn(
+                "run repair-verify for the actual failed checkpoint first",
+                joined_failures,
+            )
+            self.assertIn("repair_evidence", joined_failures)
+            self.assertIn("resume_checkpoint", joined_failures)
 
     def test_source_docs_gate_covers_source_driven_routes_only(self) -> None:
         for command in sorted(SOURCE_DOCS_COMMANDS):

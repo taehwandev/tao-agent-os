@@ -372,6 +372,13 @@ Use the lightweight `analysis` route for read-only investigation. It has no
 code-work, test, documentation, or review gate; keep it in the current session
 and do not launch a Codex child unless the caller explicitly requires isolation.
 It retains only the active runtime instruction as a required document.
+
+`analysis` is read-only intrinsically, and `start --read-only` declares the same
+non-mutating mode on any other route. Read-only skips the VibeGuard audit for
+the whole lifecycle, so it is a claim the run must keep: `finish` compares the
+worktree against the state `start` recorded and fails when it moved. Do not
+declare read-only for work that may edit, and do not use it to avoid a
+VibeGuard blocker; rerun the lifecycle without the flag instead.
 The detailed review-only classifier precedence, intrinsic analysis read-only
 mode, worker reservation claim-on-accept, and non-Git rules-root capsule
 contracts are owned by
@@ -550,12 +557,16 @@ affected by the new guidance. This proactive refresh is not a repair cycle. If
 a required hook has already reported the drift as `FAIL`, use the normal single
 retrospective repair cycle; a fresh start alone must not erase that failure. If
 the repair intentionally edits required documents, reread their current bytes
-and record one new `documentation` `SUCCESS` entry per drifted document with
-`decision=updated` and that exact route-relative required-doc path as `target`
-before `repair-verify`; recording only the repair target does not rebind other
-drifted required docs. The bound final-byte documentation receipt is the only
-source-doc snapshot exception; the structural repair receipt does not replace
-it.
+and run `repair-verify` against each changed required document and the actual
+failed checkpoint first. Then record one new `documentation` `SUCCESS` entry
+per drifted document with `decision=updated`, that exact route-relative
+required-doc path as `target`, and the verified receipt path and checkpoint as
+`repair_evidence` and `resume_checkpoint`. Recording only the repair target
+does not rebind other drifted required docs. A route that already requires the
+`documentation` gate does not need repair fields for its normal task artifact.
+The bound final-byte documentation receipt remains the source-doc snapshot
+exception; off-route evidence may mint it only from the failed checkpoint's
+validated structural repair receipt.
 
 For work-producing tasks, do not wait until final reporting to think about
 documentation. Treat `documentation impact` as a pre-code/pre-edit checkpoint:
