@@ -182,6 +182,16 @@ def routed_areas(route: dict) -> set[str]:
     }
 
 
+def required_areas(route: dict) -> set[str]:
+    """Guidance areas the route makes mandatory reading.
+
+    A substantive entrypoint and its reference are two documents for one
+    area; the byte budget may admit only the entrypoint. Either document
+    form delivers the area as required reading.
+    """
+    return {guidance_area(doc) for doc in route["required_docs"]}
+
+
 class WorkflowDocSurfacesTests(unittest.TestCase):
     def setUp(self) -> None:
         self._old_state_home = os.environ.get("TAO_STATE_HOME")
@@ -309,7 +319,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             )
 
         self.assertIn(guidance_area("docs/skills/agent-bootstrap/SKILL.md"), routed_areas(route))
-        self.assertIn(required_doc("docs/skills/graphify-project-integration/SKILL.md"), route["required_docs"])
+        self.assertIn(guidance_area("docs/skills/graphify-project-integration/SKILL.md"), required_areas(route))
         self.assertIn(guidance_area("common/skills/llm-wiki-documentation/SKILL.md"), routed_areas(route))
         self.assertEqual(False, route["target_project_graphify"]["ready"])
         self.assertIn("graphify readiness", route["gates"])
@@ -325,7 +335,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         )
 
         self.assertIn(guidance_area("docs/skills/agent-bootstrap/SKILL.md"), routed_areas(route))
-        self.assertIn(required_doc("docs/skills/graphify-project-integration/SKILL.md"), route["required_docs"])
+        self.assertIn(guidance_area("docs/skills/graphify-project-integration/SKILL.md"), required_areas(route))
         self.assertIn("graphify readiness", route["gates"])
         self.assertTrue(any(match["name"] == "graphify_integration" for match in route["doc_surface_matches"]))
 
@@ -472,7 +482,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             guidance_area("docs/skills/tao-skill-bundle-migration/SKILL.md"),
             routed_areas(route),
         )
-        self.assertIn(required_doc("common/skills/agent-skill-card-anatomy/SKILL.md"), route["required_docs"])
+        self.assertIn(guidance_area("common/skills/agent-skill-card-anatomy/SKILL.md"), required_areas(route))
         self.assertTrue(
             any(match["name"] == "skill_bundle_structure_cleanup" for match in route["doc_surface_matches"])
         )
@@ -648,7 +658,10 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         )
 
         self.assertIn(guidance_area("workflows/skills/scripted-agent-workflow/SKILL.md"), routed_areas(route))
-        self.assertIn(required_doc("common/skills/task-intake-effort-routing/SKILL.md"), route["required_docs"])
+        # The workflow-setup command tier plus the guaranteed gate contracts now
+        # fill the bounded required-doc selection, so this surface match lands
+        # in reference_docs rather than being promoted to mandatory reading.
+        self.assertIn(guidance_area("common/skills/task-intake-effort-routing/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("common/skills/source-driven-development/SKILL.md"), routed_areas(route))
         self.assertTrue(any(match["name"] == "natural_language_doc_routing" for match in route["doc_surface_matches"]))
         self.assertEqual("wikimap", route["document_search"]["backend"])
@@ -701,7 +714,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             request_text="기획변경인데 예상 문서 정리가 누락되는 경우를 막아줘",
         )
 
-        self.assertIn(required_doc("common/skills/doc-conventions/SKILL.md"), route["required_docs"])
+        self.assertIn(guidance_area("common/skills/doc-conventions/SKILL.md"), required_areas(route))
         self.assertIn(guidance_area("workflows/skills/documentation-update/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("common/skills/product-spec-to-implementation/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("common/skills/source-driven-development/SKILL.md"), routed_areas(route))

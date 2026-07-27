@@ -7,7 +7,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agent_gate_evidence import record_gate_evidence
+from agent_finish_gate_policy import validate_gate_evidence
+from agent_gate_evidence import (
+    incomplete_gate_evidence_failures,
+    merge_gate_evidence_from_ledger,
+    record_gate_evidence,
+)
 from agent_finish_final_checks import record_successful_review_workflow_validation
 from agent_inprocess import run_workflow_validate
 from agent_review_boundary import format_boundary_note_requirements, missing_boundary_note_fields
@@ -18,6 +23,7 @@ from agent_workspace_policy import is_git_status_review_only, is_writing_workspa
 
 
 CommandRunner = Callable[[list[str], Path], dict[str, Any]]
+FinishWithResult = Callable[..., int]
 
 
 def review_hook(
@@ -26,11 +32,21 @@ def review_hook(
     git_status: Callable[[Path], tuple[dict[str, Any], list[str]]],
     vibeguard_command: Callable[[Path, Path], list[str]],
     parse_overall: Callable[[str], str],
-    finish_with_result: Callable[[str, bool, list[str], Path | None, dict[str, Any], int], int],
+    finish_with_result: FinishWithResult,
 ) -> int:
     checks: dict[str, Any] = {}
-    failures: list[str] = []
-    record_review_input_evidence(args, checks, failures)
+    prerequisite_failures: list[str] = []
+    record_review_prerequisite_readiness(args, checks, prerequisite_failures)
+    if prerequisite_failures:
+        return finish_with_result(
+            "review",
+            False,
+            review_prerequisite_failure_details(prerequisite_failures),
+            args.output,
+            checks,
+            args.repair_cycle,
+            invocation_error=True,
+        )
 
     review_paths = review_pathspec(args)
     review_scope = review_scope_label(args, review_paths)
@@ -55,14 +71,32 @@ def review_hook(
     checks["changed_path_count"] = len(status_before_lines)
     checks["changed_path_limit"] = args.max_changed_paths
     if status_before["returncode"] != 0 and not status_before.get("review_only"):
-        failures.append("git status failed")
+        failures = ["git status failed"]
     elif full_status_before["returncode"] != 0 and not full_status_before.get("review_only"):
-        failures.append("git status failed")
+        failures = ["git status failed"]
     elif len(status_before_lines) > args.max_changed_paths:
-        failures.append(
+        scope_failure = (
             f"review scope has {len(status_before_lines)} changed paths; "
             f"limit is {args.max_changed_paths}; split the change or run a smaller review scope"
         )
+        checks["review_scope_failure"] = scope_failure
+        return finish_with_result(
+            "review",
+            False,
+            review_scope_invocation_failure_details(
+                scope_failure,
+                review_scope,
+                len(status_before_lines),
+            ),
+            args.output,
+            checks,
+            args.repair_cycle,
+            invocation_error=True,
+        )
+    else:
+        failures = []
+
+    record_review_input_evidence(args, checks, failures)
 
     structure = structure_review(
         args.project,
@@ -116,7 +150,11 @@ def review_hook(
     )
 
     if not failures:
-        evidence_path = args.evidence if args.evidence else args.project / ".tao" / "preflight.json"
+        evidence_path = (
+            args.evidence
+            if args.evidence
+            else args.project / ".tao" / "preflight.json"
+        )
         record_successful_review_workflow_validation(
             args.project,
             args.rules,
@@ -167,6 +205,53 @@ def record_review_input_evidence(
         failures.append("boundary plan evidence is required for this route")
     if "side-effect audit" in route_gates and not side_effect_evidence:
         failures.append("side-effect audit evidence is required for this route")
+
+
+def record_review_prerequisite_readiness(
+    args: Any,
+    checks: dict[str, Any],
+    failures: list[str],
+) -> None:
+    evidence_path = args.evidence if args.evidence else args.project / ".tao" / "preflight.json"
+    try:
+        preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        failures.append("review preflight evidence is missing or invalid")
+        return
+
+    route = preflight.get("route") or {}
+    route_gates = [gate for gate in route.get("gates") or [] if isinstance(gate, str)]
+    if "review hook" not in route_gates:
+        checks["review_prerequisite_gates"] = []
+        return
+
+    prerequisite_gates = route_gates[:route_gates.index("review hook")]
+    gate_evidence, diagnostics = merge_gate_evidence_from_ledger(
+        route=route,
+        evidence_path=evidence_path,
+    )
+    missing_gates = [gate for gate in prerequisite_gates if not gate_evidence.get(gate)]
+    checks["review_prerequisite_gates"] = prerequisite_gates
+    checks["review_prerequisite_missing"] = missing_gates
+    checks["review_prerequisite_ledger"] = diagnostics
+
+    if missing_gates:
+        failures.append(
+            "review prerequisites are incomplete before review hook: " + ", ".join(missing_gates)
+        )
+    failures.extend(
+        f"review prerequisites: {failure}"
+        for failure in incomplete_gate_evidence_failures(diagnostics)
+    )
+    if not missing_gates:
+        failures.extend(
+            f"review prerequisites: {failure}"
+            for failure in validate_gate_evidence(
+                gate_evidence,
+                prerequisite_gates,
+                route=route,
+            )
+        )
 
 
 def record_review_workflow_validation(
@@ -326,7 +411,9 @@ def structure_evidence_failures(structure: dict[str, Any], structure_evidence: s
             "structure boundary note evidence is required for "
             f"{format_boundary_note_requirements(boundary_requirements)}; "
             "structure-review-evidence must explicitly include owner, allowed imports, "
-            f"forbidden imports, callers/tests, and verification. Missing: {', '.join(missing_fields)}"
+            f"forbidden imports, callers/tests, and verification. Missing: {', '.join(missing_fields)}. "
+            "Example: owner=domain; allowed imports=contracts; forbidden imports=ui; "
+            "callers/tests=app and domain tests; verification=focused tests"
         )
     return failures
 
@@ -466,6 +553,28 @@ def review_failure_details(
     )
     details.append("do not finalize with FAIL; ask only when recovery needs a scope decision, destructive action, credential change, external state, or a broader refactor")
     return details
+
+
+def review_prerequisite_failure_details(failures: list[str]) -> list[str]:
+    details = [f"review prerequisite: {failure}" for failure in failures]
+    details.append(
+        "review did not start: record or correct the missing prerequisite gate evidence, "
+        "then rerun the same review hook without a repair cycle"
+    )
+    return details
+
+
+def review_scope_invocation_failure_details(
+    failure: str,
+    review_scope: str,
+    changed_path_count: int,
+) -> list[str]:
+    return [
+        f"review scope: {review_scope}",
+        f"review invocation: {failure}",
+        "review did not start: narrow the review pathspec or rerun with "
+        f"--max-changed-paths {changed_path_count} after confirming the change is one cohesive scope",
+    ]
 
 
 def format_checked_paths(paths: list[str]) -> str:

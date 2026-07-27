@@ -17,7 +17,7 @@ BRACE_TOP_LEVEL_TYPE_RE = re.compile(
     r"^\s*"
     r"(?:(?:export\s+default\s+|export\s+|public\s+|private\s+|protected\s+|internal\s+|"
     r"open\s+|final\s+|sealed\s+|abstract\s+|data\s+|value\s+|inline\s+|static\s+|readonly\s+|"
-    r"pub\s+|pub\(crate\)\s+)*)"
+    r"expect\s+|actual\s+|pub\s+|pub\(crate\)\s+)*)"
     r"(?:(?:enum\s+class|annotation\s+class|sealed\s+class|sealed\s+interface|data\s+class|"
     r"value\s+class)\s+|"
     r"(?P<kind>class|interface|enum|struct|record|object|protocol|actor|typealias|type|trait)\s+)"
@@ -29,6 +29,13 @@ BRACE_TOP_LEVEL_FUNCTION_RE = re.compile(
     r"^\s*(?:(?:export\s+default\s+|export\s+|public\s+|private\s+|protected\s+|"
     r"internal\s+|open\s+|final\s+|static\s+|pub\s+|pub\(crate\)\s+)*)"
     r"(?:async\s+)?(?P<kind>function|func|fun|fn)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+)
+KOTLIN_TOP_LEVEL_FUNCTION_RE = re.compile(
+    r"^\s*(?:(?:public\s+|private\s+|protected\s+|internal\s+|open\s+|final\s+|"
+    r"expect\s+|actual\s+|inline\s+|tailrec\s+|operator\s+|infix\s+|external\s+|suspend\s+)*)"
+    r"(?P<kind>fun)\s+(?:<[^>]+>\s*)?"
+    r"(?:(?P<receiver>(?:[A-Za-z_][A-Za-z0-9_?.<>]*\.)+))?"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
 )
 BRACE_TOP_LEVEL_CONST_FUNCTION_RE = re.compile(
     r"^\s*(?:export\s+)?(?:const|let|var)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*="
@@ -96,7 +103,8 @@ def previous_top_level_type_declarations(
     if run_command is None or metadata.get("status") == "A":
         return []
 
-    previous = run_command(["git", "show", f"HEAD:{path.as_posix()}"], project)
+    previous_path = str(metadata.get("previous_path") or path.as_posix())
+    previous = run_command(["git", "show", f"HEAD:{previous_path}"], project)
     if previous["returncode"] != 0:
         return []
 
@@ -118,13 +126,25 @@ def top_level_type_declarations(path: Path, lines: list[str]) -> list[dict[str, 
                 BRACE_TOP_LEVEL_TYPE_RE.match(line)
                 or GO_TOP_LEVEL_TYPE_RE.match(line)
                 or TS_TYPE_ALIAS_RE.match(line)
+                or (
+                    KOTLIN_TOP_LEVEL_FUNCTION_RE.match(line)
+                    if path.suffix.lower() in {".kt", ".kts"}
+                    else None
+                )
                 or BRACE_TOP_LEVEL_FUNCTION_RE.match(line)
                 or BRACE_TOP_LEVEL_CONST_FUNCTION_RE.match(line)
             )
         else:
             match = None
         if match:
-            declaration = type_declaration(match_kind(match), match_name(match), line, index)
+            declaration = type_declaration(
+                match_kind(match),
+                match_name(match),
+                line,
+                index,
+                receiver=match_receiver(match),
+                default_public=default_public_top_level(path),
+            )
             if declaration["owner"]:
                 declarations.append(declaration)
         brace_depth = max(0, brace_depth + line.count("{") - line.count("}"))
@@ -139,19 +159,54 @@ def match_name(match: re.Match[str]) -> str:
     return match.groupdict().get("name") or match.group(1)
 
 
-def type_declaration(kind: str, name: str, line: str, index: int) -> dict[str, Any]:
+def match_receiver(match: re.Match[str]) -> str | None:
+    receiver = match.groupdict().get("receiver")
+    return receiver.rstrip(".") if receiver else None
+
+
+def type_declaration(
+    kind: str,
+    name: str,
+    line: str,
+    index: int,
+    receiver: str | None = None,
+    default_public: bool = False,
+) -> dict[str, Any]:
     return {
         "kind": kind,
         "name": name,
+        "receiver": receiver,
         "line": index + 1,
         "private": bool(re.search(r"\bprivate\b", line)) or name.startswith("_"),
+        "internal": bool(re.search(r"\binternal\b", line)),
         "exported": bool(re.search(r"\b(export|public|pub)\b", line)),
         "role": role_for_name(name),
-        "owner": top_level_owner(kind, name, line),
+        "owner": top_level_owner(kind, name, line, default_public=default_public),
     }
 
 
-def top_level_owner(kind: str, name: str, line: str) -> bool:
+def default_public_top_level(path: Path) -> bool:
+    """True where an unqualified top-level declaration is already public.
+
+    Kotlin needs this because a bare ``fun name()`` at file scope is public with
+    no modifier to match on, so a purely token-driven owner test counts zero
+    owners for a file that in fact exports every function in it. Languages whose
+    visibility is encoded in the name instead -- Go, where only a capitalized
+    identifier is exported -- must stay off this path; ``component_or_hook_name``
+    already covers them.
+    """
+
+    return path.suffix.lower() in {".kt", ".kts"}
+
+
+def top_level_owner(
+    kind: str,
+    name: str,
+    line: str,
+    default_public: bool = False,
+) -> bool:
+    if default_public and not re.search(r"\bprivate\b", line):
+        return True
     return (
         kind in TYPE_OWNER_KINDS
         or bool(re.search(r"\b(export|public|pub|internal)\b", line))
@@ -172,22 +227,33 @@ def top_level_declaration_failures(
     failures: list[str] = []
     previous_declarations = previous_declarations or []
     visible = [declaration for declaration in declarations if not declaration["private"]]
-    public = [declaration for declaration in visible if declaration["exported"] or exported_by_default(path)]
+    public = [
+        declaration
+        for declaration in visible
+        if declaration["internal"] is False and (declaration["exported"] or exported_by_default(path))
+    ]
     previous_visible = [declaration for declaration in previous_declarations if not declaration["private"]]
     previous_public = [
         declaration
         for declaration in previous_visible
-        if declaration["exported"] or exported_by_default(path)
+        if declaration["internal"] is False
+        and (declaration["exported"] or exported_by_default(path))
     ]
-    if declaration_limit_failed(public, previous_public, MAX_PUBLIC_TOP_LEVEL_OWNERS):
+    visible_owners = coalesce_kotlin_extension_families(path, visible)
+    public_owners = coalesce_kotlin_extension_families(path, public)
+    previous_visible_owners = coalesce_kotlin_extension_families(path, previous_visible)
+    previous_public_owners = coalesce_kotlin_extension_families(path, previous_public)
+    if declaration_limit_failed(public_owners, previous_public_owners, MAX_PUBLIC_TOP_LEVEL_OWNERS):
         failures.append(
-            f"{path} declares {len(public)} public/exported top-level owners ({format_declarations(public)}); "
+            f"{path} declares {len(public_owners)} public/exported top-level owners "
+            f"({format_declarations(public_owners)}); "
             f"limit is {MAX_PUBLIC_TOP_LEVEL_OWNERS}; split runtime files so one file owns one "
             "public contract, component, handler, service, or implementation"
         )
-    if declaration_limit_failed(declarations, previous_declarations, MAX_TOP_LEVEL_OWNERS):
+    if declaration_limit_failed(visible_owners, previous_visible_owners, MAX_TOP_LEVEL_OWNERS):
         failures.append(
-            f"{path} declares {len(declarations)} top-level owners ({format_declarations(declarations[:8])}); "
+            f"{path} declares {len(visible_owners)} non-private top-level owners "
+            f"({format_declarations(visible_owners[:8])}); "
             f"limit is {MAX_TOP_LEVEL_OWNERS}; move separate contracts, state, data, platform, and helpers "
             "into purpose-named files"
         )
@@ -201,6 +267,34 @@ def top_level_declaration_failures(
     return failures
 
 
+def coalesce_kotlin_extension_families(
+    path: Path,
+    declarations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if path.suffix.lower() not in {".kt", ".kts"}:
+        return declarations
+
+    owners: list[dict[str, Any]] = []
+    extension_families: dict[str, dict[str, Any]] = {}
+    for declaration in declarations:
+        receiver = declaration.get("receiver")
+        if declaration["kind"] != "fun" or not receiver:
+            owners.append(declaration)
+            continue
+
+        family = extension_families.get(receiver)
+        if family is None:
+            family = dict(declaration)
+            family["kind"] = "extension-family"
+            family["name"] = f"{receiver} extension family"
+            family["family_size"] = 1
+            extension_families[receiver] = family
+            owners.append(family)
+        else:
+            family["family_size"] += 1
+    return owners
+
+
 def declaration_limit_failed(
     declarations: list[dict[str, Any]],
     previous_declarations: list[dict[str, Any]],
@@ -210,11 +304,7 @@ def declaration_limit_failed(
         return False
     if len(previous_declarations) <= limit:
         return True
-    return bool(declaration_keys(declarations) - declaration_keys(previous_declarations))
-
-
-def declaration_keys(declarations: list[dict[str, Any]]) -> set[tuple[str, str]]:
-    return {(declaration["kind"], declaration["name"]) for declaration in declarations}
+    return len(declarations) > len(previous_declarations)
 
 
 def role_mix_expanded(roles: list[str], previous_roles: list[str]) -> bool:
@@ -281,7 +371,13 @@ def role_for_name(name: str) -> str | None:
 
 
 def format_declarations(declarations: list[dict[str, Any]]) -> str:
-    return ", ".join(f"{declaration['name']}@{declaration['line']}" for declaration in declarations)
+    return ", ".join(format_declaration(declaration) for declaration in declarations)
+
+
+def format_declaration(declaration: dict[str, Any]) -> str:
+    family_size = declaration.get("family_size")
+    family_suffix = f"[{family_size}]" if family_size else ""
+    return f"{declaration['name']}{family_suffix}@{declaration['line']}"
 
 
 def format_role_entries(entries: list[tuple[str, str | None]]) -> str:

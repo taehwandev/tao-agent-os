@@ -34,11 +34,14 @@ agent materially benefit from changing one skill actually used in this task?
   required `retrospective check` gate. Do not create a separate observation.
 - If no skill was loaded and applied, record `outcome: no_skill_used`,
   `skills_checked: none`, and `observation: not_needed`.
-- If yes, emit at most one allowlisted, content-free observation through the
-  optional `skill-feedback` hook, then record `outcome: reusable_gap` and
-  `observation: recorded`.
+- If yes, first record `outcome: reusable_gap` and `observation: deferred` on
+  the required gate. Then emit at most one allowlisted, content-free observation
+  through the optional `skill-feedback` hook. Replace the gate with
+  `observation: recorded` only when the hook created or idempotently matched it.
 - The caller may name only a skill actually loaded and applied in the completed
-  task. Do not name an unrelated or merely adjacent skill.
+  task. The id must resolve to a canonical Tao Agent OS or allowlisted
+  project-local bundle and must match `skills_checked` in the current successful
+  retrospective record. Do not name an unrelated or merely adjacent skill.
 - The hook derives an opaque occurrence key from the current preflight run. It
   never stores the raw run id.
 - If the hook, store, current preflight occurrence, or token budget is
@@ -143,6 +146,12 @@ Canonical skill writes happen only in a later bounded maintenance task:
 2. Reject or restage stale, ambiguous, cross-owner, or unverifiable proposals.
 3. Author and apply the canonical change only when the active task authorizes
    that maintenance and the applicable approval policy is satisfied.
+   Project-local targets are limited to
+   `.agents/shared/llm-skills/<skill>/**` and
+   `.agents/local/skills/<skill>/**`; the bundle must contain `SKILL.md`, and
+   the directory must match the staged promotion target. Do not write adapter
+   paths (`.codex/skills`, `.claude/skills`) or a tracked runtime mirror through
+   this maintenance hook.
 4. Run focused verification plus normal Tao Agent OS documentation,
    workflow, review, and finish checks. The maintenance recorder accepts
    `applied` only when the named canonical target is currently changed, its

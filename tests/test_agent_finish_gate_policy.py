@@ -331,6 +331,29 @@ class FinishGatePolicyTests(unittest.TestCase):
                 lesson["next_action"],
             )
 
+    def test_required_doc_drift_failure_names_exact_documentation_receipt_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ["TAO_STATE_HOME"] = temp_dir
+            failures = ["execution capsule required doc hash changed: AGENTS.md"]
+
+            agent_finish_check.process_failure_learning(
+                preflight={"agent_run_id": "required-doc-drift-recovery"},
+                missed_gates=[],
+                gate_policy_failures=[],
+                gate_signals=[],
+                failures=failures,
+            )
+
+            joined_failures = " ".join(failures)
+            self.assertIn("documentation SUCCESS", joined_failures)
+            self.assertIn("exact route-relative required doc target", joined_failures)
+            self.assertIn(
+                "run repair-verify for the actual failed checkpoint first",
+                joined_failures,
+            )
+            self.assertIn("repair_evidence", joined_failures)
+            self.assertIn("resume_checkpoint", joined_failures)
+
     def test_source_docs_gate_covers_source_driven_routes_only(self) -> None:
         for command in sorted(SOURCE_DOCS_COMMANDS):
             with self.subTest(command=command):
@@ -1410,6 +1433,26 @@ class FinishGatePolicyTests(unittest.TestCase):
         )
 
         self.assertTrue(any("claims the required_docs manifest is empty" in failure for failure in failures))
+
+    def test_source_docs_korean_nonzero_count_is_not_an_empty_manifest_claim(self) -> None:
+        route = {
+            "command": "commit",
+            "required_docs": ["AGENTS.md"],
+            "gates": [SOURCE_DOCS_GATE],
+        }
+        failures = validate_gate_evidence(
+            {
+                SOURCE_DOCS_GATE: (
+                    "read every route required_docs entry directly before implementation; "
+                    "AGENTS.md; searched source-of-truth docs before implementation; "
+                    "필수 문서 20개를 읽고 applied takeaway: use the current route"
+                )
+            },
+            [SOURCE_DOCS_GATE],
+            route=route,
+        )
+
+        self.assertEqual([], failures)
 
     def test_source_docs_route_validation_requires_the_actual_manifest_entries(self) -> None:
         route = {

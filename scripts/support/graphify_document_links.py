@@ -7,6 +7,8 @@ import posixpath
 import re
 from pathlib import Path
 
+from support.graphify_contract import PROJECT_GRAPH_PATH
+
 
 EDGE_ORIGIN = "tao_explicit_path"
 CODE_SUFFIXES = {
@@ -22,7 +24,7 @@ PATH_PATTERN = re.compile(
 def repair_project_document_links(
     project_path: Path, *, dry_run: bool = False
 ) -> dict[str, object]:
-    graph_path = project_path / "graphify-out" / "graph.json"
+    graph_path = project_path / PROJECT_GRAPH_PATH
     result: dict[str, object] = {
         "graph_path": str(graph_path),
         "document_files_scanned": 0,

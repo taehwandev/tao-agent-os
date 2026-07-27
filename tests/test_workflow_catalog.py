@@ -200,6 +200,19 @@ class WorkflowCatalogTests(unittest.TestCase):
         for name in ("start", "review", "finish"):
             self.assertIn(str(stable_launcher_path()), commands[name])
             self.assertNotIn("scripts/agent-hook.py", commands[name])
+            self.assertIn("--rules <TAO_ROOT>", commands[name])
+            self.assertIn("--evidence <RUN_EVIDENCE>", commands[name])
+
+    def test_read_only_routes_skip_mutation_only_preflight_gates(self) -> None:
+        analysis_start = next(
+            hook["command"] for hook in route_hooks("analysis") if hook["hook"] == "start"
+        )
+        task_start = next(
+            hook["command"] for hook in route_hooks("task") if hook["hook"] == "start"
+        )
+
+        self.assertIn("--read-only", analysis_start)
+        self.assertNotIn("--read-only", task_start)
 
     def test_testing_concern_is_registered(self) -> None:
         self.assertIn("testing", CONCERNS)
@@ -213,9 +226,11 @@ class WorkflowCatalogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             docs_dir = root / "docs"
+            agent_cache_dir = root / ".tao" / "skills" / "graphify"
             cache_dir = root / ".pytest_cache"
             graphify_dir = root / "graphify-out"
             docs_dir.mkdir()
+            agent_cache_dir.mkdir(parents=True)
             cache_dir.mkdir()
             graphify_dir.mkdir()
             valid_doc = docs_dir / "guide.md"
@@ -223,6 +238,7 @@ class WorkflowCatalogTests(unittest.TestCase):
                 "---\nkeyflow_id: test\nstatus: stable\ntype: human-reviewed\n---\n# Guide\n",
                 encoding="utf-8",
             )
+            (agent_cache_dir / "SKILL.md").write_text("# Local skill cache\n", encoding="utf-8")
             (cache_dir / "README.md").write_text("# Cache\n", encoding="utf-8")
             (graphify_dir / "GRAPH_REPORT.md").write_text("# Generated graph report\n", encoding="utf-8")
 

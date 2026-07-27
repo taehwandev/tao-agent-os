@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from agent_skill_catalog import NO_SKILL_IDS, normalize_skill_id, parse_skill_ids
+
 
 RETROSPECTIVE_OUTCOMES = {
     "no_reusable_gap",
@@ -17,7 +19,11 @@ RETROSPECTIVE_OBSERVATION_STATES = {
 }
 
 
-def validate_retrospective_check(evidence: str) -> list[str]:
+def validate_retrospective_check(
+    evidence: str,
+    *,
+    allowed_skill_ids: set[str] | None = None,
+) -> list[str]:
     """Require an explicit skill check while keeping follow-up non-blocking."""
 
     text = evidence.strip()
@@ -62,22 +68,34 @@ def validate_retrospective_check(evidence: str) -> list[str]:
         failures.append(
             f"retrospective check with {outcome} must use observation: not_needed"
         )
-    if outcome == "no_skill_used" and skills_checked.lower() not in {
-        "none",
-        "none_loaded",
-        "no_skill_used",
-    }:
+    normalized_skills = parse_skill_ids(skills_checked)
+    if outcome == "no_skill_used" and skills_checked.lower() not in NO_SKILL_IDS:
         failures.append(
             "retrospective check with no_skill_used must set skills checked to none"
         )
-    if outcome != "no_skill_used" and skills_checked.lower() in {
-        "none",
-        "none_loaded",
-        "no_skill_used",
-    }:
+    if outcome != "no_skill_used" and skills_checked.lower() in NO_SKILL_IDS:
         failures.append(
             "retrospective check must name the skill or skills evaluated"
         )
+    if outcome != "no_skill_used":
+        raw_skills = [item.strip() for item in skills_checked.split(",") if item.strip()]
+        if not raw_skills or len(normalized_skills) != len(raw_skills) or any(
+            not skill for skill in normalized_skills
+        ):
+            failures.append(
+                "retrospective check skills checked must contain canonical skill slugs"
+            )
+        elif allowed_skill_ids is not None:
+            unknown = [
+                raw
+                for raw, normalized in zip(raw_skills, normalized_skills)
+                if normalize_skill_id(normalized) not in allowed_skill_ids
+            ]
+            if unknown:
+                failures.append(
+                    "retrospective check named unknown canonical skills: "
+                    + ", ".join(unknown)
+                )
     return failures
 
 

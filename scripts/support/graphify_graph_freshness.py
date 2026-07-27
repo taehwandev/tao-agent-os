@@ -9,6 +9,7 @@ from support.graphify_input_inspection import (
     is_graphify_runtime_adapter_input,
     read_manifest_state,
 )
+from support.graphify_contract import PROJECT_GRAPH_DIR
 
 
 GRAPH_INPUT_SUFFIXES = {
@@ -91,7 +92,9 @@ def _dirty_source_paths(project_path: Path) -> list[str]:
         if (
             not value
             or ".tao" in Path(value).parts
+            or Path(value).parts[:2] == (".agents", "local")
             or value.startswith("graphify-out/")
+            or value.startswith(f"{PROJECT_GRAPH_DIR.as_posix()}/")
         ):
             continue
         paths.append(value)

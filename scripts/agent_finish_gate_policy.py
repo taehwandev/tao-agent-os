@@ -101,6 +101,7 @@ def validate_gate_evidence(
     required_gates: list[str],
     *,
     route: dict[str, object] | None = None,
+    allowed_skill_ids: set[str] | None = None,
 ) -> list[str]:
     failures: list[str] = []
     required = set(required_gates)
@@ -137,7 +138,8 @@ def validate_gate_evidence(
     if RETROSPECTIVE_CHECK_GATE in required:
         failures.extend(
             validate_retrospective_check(
-                gate_evidence.get(RETROSPECTIVE_CHECK_GATE, "")
+                gate_evidence.get(RETROSPECTIVE_CHECK_GATE, ""),
+                allowed_skill_ids=allowed_skill_ids,
             )
         )
     if GRAPHIFY_READINESS_GATE in required:

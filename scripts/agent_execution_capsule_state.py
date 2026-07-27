@@ -9,11 +9,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from agent_directory_fingerprint import directory_state
 from agent_worktree_fingerprint import (
     capture_worktree_state,
     git_output,
     worktree_signature,
 )
+from agent_workspace_policy import is_non_git_workspace
 
 
 SCHEMA_VERSION = 4
@@ -112,17 +114,40 @@ def git_states_for_paths(
     project_record: dict[str, str] | None = None,
     rules_record: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
-    """Capture project/rules state, hashing a shared repository only once."""
+    """Capture project/rules state, supporting non-Git runtime roots."""
 
     project = project.resolve()
     rules = rules.resolve()
-    project_root = git_repository_root(project)
-    rules_root = git_repository_root(rules)
-    if project_root == rules_root:
+    project_root = _git_repository_root_or_none(project)
+    if project == rules:
+        shared_state = (
+            git_state(project, project_record)
+            if project_root is not None
+            else directory_state(project, project_record)
+        )
+        return shared_state, shared_state
+    rules_root = _git_repository_root_or_none(rules)
+    if project_root is not None and project_root == rules_root:
         shared_record = project_record if project_record == rules_record else None
         shared_state = git_state(project, shared_record)
         return shared_state, shared_state
-    return git_state(project, project_record), git_state(rules, rules_record)
+    return (
+        git_state(project, project_record)
+        if project_root is not None
+        else directory_state(project, project_record),
+        git_state(rules, rules_record)
+        if rules_root is not None
+        else directory_state(rules, rules_record),
+    )
+
+
+def _git_repository_root_or_none(path: Path) -> Path | None:
+    try:
+        return git_repository_root(path)
+    except RuntimeError:
+        if is_non_git_workspace(path):
+            return None
+        raise
 
 
 def _is_reusable_git_state(value: Any) -> bool:

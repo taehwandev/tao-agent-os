@@ -57,7 +57,7 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                     next(entry for entry in cleanup if name in entry)
                     for name in STALE_PERMISSION_ENTRYPOINTS
                 ]
-                self.assertEqual(2, len(stale))
+                self.assertEqual(len(STALE_PERMISSION_ENTRYPOINTS), len(stale))
                 with tempfile.TemporaryDirectory() as temp_dir:
                     target = Path(temp_dir) / "settings.json"
                     target.write_text(
@@ -361,9 +361,10 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                     "--rules",
                     str(ROOT),
                     "--command",
-                    "task",
+                    "review",
                     "--request",
-                    "bounded worker task",
+                    "Review only the current bounded worker fixture diff.",
+                    "--read-only",
                     "--evidence",
                     str(evidence),
                 ],
@@ -386,9 +387,10 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                     "--rules",
                     str(ROOT),
                     "--command",
-                    "task",
+                    "review",
                     "--request",
-                    "bounded worker task",
+                    "Review only the current bounded worker fixture diff.",
+                    "--read-only",
                     "--evidence",
                     str(evidence),
                     "--worker-reservation-token",
@@ -401,6 +403,72 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                 check=False,
             )
             self.assertNotEqual(2, with_token.returncode, with_token.stderr)
+            self.assertFalse(worker_reservation_matches(worker, token))
+
+    def test_worker_route_rejection_keeps_reservation_for_corrected_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            worker = project / ".tao" / "workers" / "worker-id"
+            worker.mkdir(parents=True)
+            evidence = worker / "preflight.json"
+            token = create_worker_reservation(worker)
+
+            rejected = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "agent-preflight.py"),
+                    "--project",
+                    str(project),
+                    "--rules",
+                    str(ROOT),
+                    "--command",
+                    "review",
+                    "--request",
+                    "Implement permission architecture",
+                    "--read-only",
+                    "--evidence",
+                    str(evidence),
+                    "--worker-reservation-token",
+                    token,
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(0, rejected.returncode)
+            self.assertIn("needs clarification", rejected.stderr)
+            self.assertTrue(worker_reservation_matches(worker, token))
+
+            accepted = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "agent-preflight.py"),
+                    "--project",
+                    str(project),
+                    "--rules",
+                    str(ROOT),
+                    "--command",
+                    "review",
+                    "--request",
+                    "Review only the current diff for notification permission correctness.",
+                    "--read-only",
+                    "--evidence",
+                    str(evidence),
+                    "--worker-reservation-token",
+                    token,
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            self.assertIn("Route: review", accepted.stdout)
             self.assertFalse(worker_reservation_matches(worker, token))
 
     def test_worker_gate_ledger_rejects_replaced_directory_symlink(self) -> None:

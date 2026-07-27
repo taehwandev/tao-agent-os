@@ -216,14 +216,17 @@ integration together. Graphify is included by default for `--target`:
 python3 <TAO_ROOT>/scripts/setup-agent-hooks.py --target <TARGET_REPO>
 ```
 
-This installs one canonical project-local Graphify skill under
-`.tao/skills/graphify`, repo-relative runtime links for Codex,
-Claude, and AGY, and their runtime integration. It must not silently run
-initial extraction. Read `docs/skills/graphify-project-integration/SKILL.md`,
-then read the target's canonical Graphify `SKILL.md`, build the initial graph
-from the target root, and rerun the check. Use `--skip-graphify` only as an
-explicit project opt-out. Bulk `--github-projects` needs explicit `--graphify`
-because it writes across multiple repositories.
+This installs the runtime-owned Graphify bundle once under the user's shared
+Tao home and links Codex, Claude, and AGY to that canonical copy. The target
+repo receives no skill bundle or runtime link; it owns only generated state
+under `.agents/local/graphify-out`. Setup must not silently run initial
+extraction. Read `docs/skills/graphify-project-integration/SKILL.md`, then read
+the installed canonical Graphify `SKILL.md`, build the initial graph from the
+target root, and rerun the check. Use `--skip-graphify` only as an explicit
+project opt-out. Bulk `--github-projects` needs explicit `--graphify` because
+that flag adds a Graphify readiness check to every discovered repository; the
+check inspects and writes nothing, but opting in per run keeps a wide sweep
+from reporting on repositories the caller never meant to include.
 
 Then check runtime bridges, hooks, and permission allowlists:
 

@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from agent_finish_gate_learning_validators import validate_retrospective_check
+from agent_gate_evidence import record_gate_evidence, reset_gate_evidence_ledger
+from agent_skill_feedback import record_skill_feedback
+from agent_skill_learning import curate_observations, record_observation, review_candidate
+from agent_skill_maintenance import complete_verified_skill_maintenance
+
+
+class RetrospectiveSkillBindingTests(unittest.TestCase):
+    def test_retrospective_rejects_unknown_canonical_skill(self) -> None:
+        evidence = (
+            "retrospective check; skills checked: made-up-skill; "
+            "outcome: no_reusable_gap; observation: not_needed"
+        )
+        failures = validate_retrospective_check(
+            evidence,
+            allowed_skill_ids={"retrospective_learning"},
+        )
+        self.assertTrue(any("unknown canonical skills" in item for item in failures))
+
+    def test_feedback_requires_current_bound_retrospective(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "project"
+            rules = root / "rules"
+            state = root / "state"
+            evidence = project / ".tao" / "runs" / "one" / "preflight.json"
+            skill = rules / "workflows" / "skills" / "retrospective-learning" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("canonical\n", encoding="utf-8")
+            evidence.parent.mkdir(parents=True)
+            preflight = {
+                "agent_run_id": "opaque-runtime-run",
+                "route": {"command": "task", "gates": ["retrospective check"]},
+            }
+            evidence.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence, preflight)
+            record_gate_evidence(
+                evidence_path=evidence,
+                preflight=preflight,
+                gate="retrospective check",
+                evidence=(
+                    "retrospective check; skills checked: retrospective-learning; "
+                    "outcome: reusable_gap; observation: deferred"
+                ),
+                fields={
+                    "skills_checked": "retrospective-learning",
+                    "outcome": "reusable_gap",
+                    "observation": "deferred",
+                },
+                status="SUCCESS",
+                source="test",
+            )
+
+            with patch("agent_skill_feedback.state_home", return_value=state):
+                accepted, _ = record_skill_feedback(
+                    project=project,
+                    rules=rules,
+                    evidence_path=evidence,
+                    outcome="observed",
+                    skill_id="retrospective-learning",
+                    signal="missing_binding_rule",
+                )
+                rejected, _ = record_skill_feedback(
+                    project=project,
+                    rules=rules,
+                    evidence_path=evidence,
+                    outcome="observed",
+                    skill_id="unrelated-skill",
+                    signal="missing_binding_rule",
+                )
+
+            self.assertTrue(accepted["created"])
+            self.assertEqual("unknown_canonical_skill", rejected["reason"])
+
+    def test_project_local_skill_maintenance_is_allowlisted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            project = root / "project"
+            rules = root / "rules"
+            rules.mkdir()
+            bundle = project / ".agents" / "shared" / "llm-skills" / "local-skill"
+            bundle.mkdir(parents=True)
+            (bundle / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+            target = bundle / "helper.py"
+            target.write_text("value = 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+            subprocess.run(["git", "add", "-A"], cwd=project, check=True)
+            target.write_text("value = 2\n", encoding="utf-8")
+            candidate = self._stage_candidate(state, "project_local_apply")
+
+            result = complete_verified_skill_maintenance(
+                state,
+                project=project,
+                rules=rules,
+                candidate_id=candidate,
+                outcome="applied",
+                verification_kind="py_compile",
+                target=".agents/shared/llm-skills/local-skill/helper.py",
+            )
+
+            self.assertTrue(result["updated"])
+
+    def test_project_adapter_skill_is_not_a_maintenance_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            project = root / "project"
+            rules = root / "rules"
+            rules.mkdir()
+            bundle = project / ".codex" / "skills" / "local-skill"
+            bundle.mkdir(parents=True)
+            (bundle / "SKILL.md").write_text("adapter\n", encoding="utf-8")
+            target = bundle / "helper.py"
+            target.write_text("value = 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+            candidate = self._stage_candidate(state, "adapter_rejected")
+
+            result = complete_verified_skill_maintenance(
+                state,
+                project=project,
+                rules=rules,
+                candidate_id=candidate,
+                outcome="applied",
+                verification_kind="py_compile",
+                target=".codex/skills/local-skill/helper.py",
+            )
+
+            self.assertFalse(result["updated"])
+            self.assertEqual("maintenance_target_mismatch", result["reason"])
+
+    @staticmethod
+    def _stage_candidate(state: Path, signal: str) -> str:
+        for occurrence in ("one", "two"):
+            record_observation(
+                state,
+                occurrence_id=f"{signal}_{occurrence}",
+                skill_id="local_skill",
+                signal=signal,
+            )
+        queued = curate_observations(state)["queued"]
+        candidate = queued[0]
+        review_candidate(
+            state,
+            candidate,
+            decision="stage_patch",
+            gap_type="missing_rule",
+            change_type="guidance_patch",
+            promotion_target="local_skill",
+        )
+        return candidate
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -25,6 +25,7 @@ from agent_verification_command import (
     run_verification_command,
     verification_command,
     verification_target_is_changed,
+    verification_workdir,
 )
 
 
@@ -58,7 +59,12 @@ def create_repair_receipt(
     if resolved is None or not resolved[0].is_file():
         return {"created": False, "reason": "target_not_found"}
     target_path, target_scope, target_relative, target_root = resolved
-    if not verification_target_is_changed(target_root, target_path):
+    if not verification_target_is_changed(
+        target_root,
+        target_path,
+        preflight=preflight,
+        target_relative=target_relative,
+    ):
         return {"created": False, "reason": "target_not_changed"}
     command = verification_command(
         project=project,
@@ -71,7 +77,14 @@ def create_repair_receipt(
         return {"created": False, "reason": "invalid_verification_contract"}
 
     execute = runner or run_verification_command
-    result = execute(command, rules if verification_kind != "unittest" else project)
+    result = execute(
+        command,
+        verification_workdir(
+            verification_kind=verification_kind,
+            target_root=target_root,
+            rules=rules,
+        ),
+    )
     returncode = int(result.get("returncode", 1))
     status = "SUCCESS" if returncode == 0 else "FAIL"
     core = {

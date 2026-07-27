@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
+from support.graphify_contract import PROJECT_GRAPH_PATH
 from support.graphify_input_inspection import normalize_relative_path, project_knowledge_files
 
 
@@ -42,6 +45,95 @@ def inspect_graph_integrity(project_path: Path, graph_path: Path) -> dict[str, o
         and invalid_edges == 0,
         **relationship,
     }
+
+
+def repair_graph_integrity(graph_path: Path, *, dry_run: bool = False) -> dict[str, object]:
+    """Remove invalid edges, then fail closed on ambiguous node corruption."""
+    try:
+        payload = json.loads(graph_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "graph_path": str(graph_path),
+            "ready": False,
+            "removed_edge_count": 0,
+            "reason": "graph is missing or invalid JSON",
+        }
+
+    nodes = payload.get("nodes")
+    edge_key = "links" if isinstance(payload.get("links"), list) else "edges"
+    edges = payload.get(edge_key)
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return {
+            "graph_path": str(graph_path),
+            "ready": False,
+            "removed_edge_count": 0,
+            "reason": "graph nodes or edges are not lists",
+        }
+
+    node_types, _, malformed_nodes, duplicate_nodes = _index_nodes(nodes)
+    node_ids = set(node_types)
+
+    valid_edges: list[dict[str, object]] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        source = str(edge.get("source") or "")
+        target = str(edge.get("target") or "")
+        if source not in node_ids or target not in node_ids or source == target:
+            continue
+        valid_edges.append(edge)
+
+    removed_edges = len(edges) - len(valid_edges)
+    if removed_edges and not dry_run:
+        payload[edge_key] = valid_edges
+        _write_graph_payload(graph_path, payload)
+
+    if dry_run:
+        _, invalid_edges, _ = _index_edges(valid_edges, node_types)
+        ready = bool(node_types) and not (
+            malformed_nodes or duplicate_nodes or invalid_edges
+        )
+    else:
+        verified = inspect_graph_integrity(_project_root_for_graph(graph_path), graph_path)
+        ready = bool(verified.get("graph_integrity_ready"))
+
+    return {
+        "graph_path": str(graph_path),
+        "ready": ready,
+        "removed_node_count": 0,
+        "removed_edge_count": removed_edges,
+        "node_count": len(node_types),
+        "edge_count": len(valid_edges),
+        "dry_run": dry_run,
+    }
+
+
+def _write_graph_payload(graph_path: Path, payload: dict[str, object]) -> None:
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=graph_path.parent,
+            prefix=f".{graph_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+            handle.write("\n")
+            temp_path = Path(handle.name)
+        os.replace(temp_path, graph_path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _project_root_for_graph(graph_path: Path) -> Path:
+    parts = PROJECT_GRAPH_PATH.parts
+    if len(graph_path.parts) >= len(parts) and graph_path.parts[-len(parts):] == parts:
+        return graph_path.parents[len(parts) - 1]
+    return graph_path.parent
 
 
 class _GraphPayload(tuple):

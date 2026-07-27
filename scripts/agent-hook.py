@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the three essential Tao Agent OS hooks.
+"""Run the essential Tao Agent OS hooks.
 
 Hooks intentionally expose only two outcomes: SUCCESS or FAIL. Details explain
 why, but callers should treat any non-zero exit as blocking.
@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_gate_evidence import resync_gate_evidence_ledger
+from agent_execution_capsule_state import git_states_for_paths
 from agent_handoff_hook import handoff_hook
 from agent_hook_gate_records import (
     gate_batch_hook,
@@ -23,6 +24,7 @@ from agent_hook_gate_records import (
 )
 from agent_hook_runtime import (
     REVIEW_CHANGED_PATH_LIMIT,
+    existing_directory,
     existing_path,
     finish_with_result,
     git_status,
@@ -48,13 +50,53 @@ from agent_review_structure import (
     REVIEW_FUNCTION_LINE_LIMIT,
     REVIEW_SOURCE_FILE_LINE_LIMIT,
 )
-from agent_run_registry import register_run, transition_run
-from agent_context_store import context_snapshot_path, refresh_and_validate_context_snapshot, validate_context_snapshot
+from agent_run_registry import (
+    claim_run,
+    register_run,
+    touch_run,
+    transition_run,
+)
+from agent_context_store import (
+    context_snapshot_failures_are_replaceable,
+    context_snapshot_path,
+    refresh_and_validate_context_snapshot,
+    validate_context_snapshot,
+)
 from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def start_hook(args: argparse.Namespace) -> int:
+    evidence_path = preflight_evidence_path(args)
+    request_intake = {
+        "request": args.request,
+        "request_classified": bool(args.request_classified),
+        "classification_evidence": args.classification_evidence,
+    }
+    # A run that was interrupted stays `running` forever unless the separate
+    # maintenance entrypoint is invoked, and nothing in the lifecycle invokes
+    # it. Without the sweep inside this claim one abandoned run permanently
+    # holds the shared evidence path: start refuses it and directs the agent to
+    # an isolated --evidence path, while the Claude pre-tool gate only ever
+    # reads the default one, so every edit is denied with no in-band way out.
+    # Sweeping, deciding and registering happen in one registry transaction, so
+    # two concurrent starts cannot both conclude the path is free.
+    claim = claim_run(
+        args.project,
+        evidence_path,
+        {"command": args.command},
+        request_intake,
+    )
+    if claim["conflict"]:
+        return finish_with_result(
+            "start",
+            False,
+            [_claim_refusal_detail(claim)],
+            args.output,
+            {},
+            args.repair_cycle,
+            invocation_error=True,
+        )
     command = [
         "--project",
         str(args.project),
@@ -74,6 +116,8 @@ def start_hook(args: argparse.Namespace) -> int:
         command.extend(["--platform", platform])
     for concern in args.concern:
         command.extend(["--concern", concern])
+    if args.read_only:
+        command.append("--read-only")
     if args.evidence:
         command.extend(["--evidence", str(args.evidence)])
     if args.worker_reservation_token:
@@ -92,7 +136,11 @@ def start_hook(args: argparse.Namespace) -> int:
         # validation fails, start must not leave an orphaned running record.
         success = _refresh_started_context(args, details) and success
         if success:
-            _register_started_run(args, details)
+            success = _bind_read_only_execution_state(args, details)
+        if success:
+            _register_started_run(args, details, claim["run"])
+    if not success:
+        _release_claimed_run(args, claim["run"])
     return finish_with_result(
         "start",
         success,
@@ -100,7 +148,9 @@ def start_hook(args: argparse.Namespace) -> int:
         args.output,
         {"preflight": result},
         args.repair_cycle,
-        invocation_error=_is_invocation_error(result),
+        invocation_error=_is_invocation_error(result) or (
+            not success and result.get("returncode") == 0
+        ),
     )
 
 
@@ -183,7 +233,54 @@ def finish_hook(args: argparse.Namespace) -> int:
     )
 
 
-def _register_started_run(args: argparse.Namespace, details: list[str]) -> None:
+def _claim_refusal_detail(claim: dict[str, Any]) -> str:
+    """Explain a refusal the agent cannot otherwise see in the registry.
+
+    A run held past the staleness window by a still-living process keeps the
+    path until its grace ceiling, so without naming it the agent only sees a
+    path that stays blocked for no visible reason.
+    """
+
+    detail = (
+        "preflight evidence is already bound to another active request; "
+        "use one isolated --evidence .tao/runs/<opaque>/preflight.json path "
+        "for the full start/gate/review/finish lifecycle"
+    )
+    if claim.get("held"):
+        detail += (
+            "; the holding run reported no progress recently but its owning "
+            "process is still alive, so it keeps the path until it finishes or "
+            "its grace ceiling expires"
+        )
+    return detail
+
+
+def _release_claimed_run(args: argparse.Namespace, run: dict[str, Any] | None) -> None:
+    """Give back the evidence path when the start that claimed it never began.
+
+    The claim is taken before preflight so two starts cannot both win the path.
+    A start that then fails produced no run to protect, and leaving the claim
+    standing would block the next attempt for a whole staleness window.
+    """
+
+    if not run:
+        return
+    try:
+        transition_run(
+            args.project,
+            preflight_evidence_path(args),
+            "cancelled",
+            run_id=str(run.get("run_id") or "") or None,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return
+
+
+def _register_started_run(
+    args: argparse.Namespace,
+    details: list[str],
+    claimed: dict[str, Any] | None,
+) -> None:
     """Persist lifecycle state without making registry health a startup blocker."""
 
     try:
@@ -194,6 +291,7 @@ def _register_started_run(args: argparse.Namespace, details: list[str]) -> None:
             evidence_path,
             payload.get("route") or {},
             payload.get("request_intake") or {},
+            reuse_run_id=str((claimed or {}).get("run_id") or "") or None,
         )
         payload["agent_run_id"] = run["run_id"]
         write_json(evidence_path, payload)
@@ -212,6 +310,48 @@ def _register_started_run(args: argparse.Namespace, details: list[str]) -> None:
         details.append("agent run registry: running")
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         details.append("agent run registry: unavailable; lifecycle continues")
+
+
+def _bind_read_only_execution_state(
+    args: argparse.Namespace,
+    details: list[str],
+) -> bool:
+    """Bind a VibeGuard-skipping run to strong start-time workspace bytes."""
+
+    evidence_path = preflight_evidence_path(args)
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        if not (payload.get("execution_mode") or {}).get("read_only"):
+            return True
+        # Both roots matter. A read-only run against a separate rules checkout
+        # can still edit that checkout, and fingerprinting the project twice
+        # would let those edits through the finish check unseen.
+        project_state, rules_state = git_states_for_paths(args.project, args.rules)
+        payload["read_only_execution_state"] = {
+            "project": project_state,
+            "rules": rules_state,
+        }
+        write_json(evidence_path, payload)
+        resync_gate_evidence_ledger(evidence_path, payload)
+    except (OSError, RuntimeError, ValueError, TypeError, json.JSONDecodeError) as error:
+        details.append(f"read-only execution state: capture failed ({error})")
+        return False
+    details.append("read-only execution state: bound")
+    return True
+
+
+def _refresh_run_heartbeat(args: argparse.Namespace) -> None:
+    """Mark the run alive on every post-start lifecycle hook.
+
+    Any hook reaching this point is an agent actively working the run, which is
+    the proof of life the staleness sweep needs. Registry problems must never
+    block the hook itself, so failures here stay silent.
+    """
+
+    try:
+        touch_run(args.project, preflight_evidence_path(args))
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return
 
 
 def _transition_finished_run(args: argparse.Namespace, success: bool) -> None:
@@ -240,11 +380,9 @@ def _refresh_started_context(args: argparse.Namespace, details: list[str]) -> bo
                 payload.get("route") or {},
                 payload.get("request_intake") or {},
             )
-            replaceable = {
-                "context snapshot request fingerprint does not match",
-                "context snapshot route fingerprint does not match",
-            }
-            if prior_failures and set(prior_failures).difference(replaceable):
+            if prior_failures and not context_snapshot_failures_are_replaceable(
+                prior_failures
+            ):
                 raise ValueError("context snapshot validation failed: " + "; ".join(prior_failures))
             if prior_failures:
                 details.append("context snapshot: stale request replaced")
@@ -324,12 +462,15 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
             "repair-verify",
         ),
     )
-    parser.add_argument("--project", type=existing_path, default=Path.cwd())
-    parser.add_argument("--rules", type=existing_path, default=ROOT)
+    parser.add_argument("--project", type=existing_directory, default=Path.cwd())
+    parser.add_argument("--rules", type=existing_directory, default=ROOT)
     parser.add_argument(
         "--output",
         type=existing_path,
-        help="hook evidence output for start, handoff, review, or finish",
+        help=(
+            "hook result output for start, handoff, review, or finish; this is not "
+            "the preflight evidence consumed by later lifecycle hooks"
+        ),
     )
     parser.add_argument(
         "--evidence",
@@ -371,6 +512,11 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     start.add_argument("--classification-evidence", default="")
+    start.add_argument(
+        "--read-only",
+        action="store_true",
+        help="declare a non-mutating analysis run and skip VibeGuard audits",
+    )
     start.add_argument("--platform", action="append", default=[])
     start.add_argument(
         "--concern",
@@ -530,13 +676,61 @@ def _parse_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
+    if not args.evidence:
+        return ""
+    if args.hook == "start":
+        try:
+            args.evidence.resolve().relative_to((args.project / ".tao").resolve())
+        except (OSError, RuntimeError, ValueError):
+            return (
+                "start --evidence must be under the current project's .tao "
+                "evidence root so later lifecycle hooks can validate the same capsule"
+            )
+        return ""
+    try:
+        payload = json.loads(args.evidence.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if (
+        isinstance(payload, dict)
+        and payload.get("hook") == "start"
+        and "preflight" in payload
+        and "route" not in payload
+    ):
+        return (
+            "--evidence must name the preflight evidence written by start --evidence, "
+            "not the start hook result written by --output"
+        )
+    return ""
+
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
+    if (
+        args.hook == "start"
+        and args.output
+        and not args.evidence
+        and args.output.name == "preflight.json"
+    ):
+        parser.error(
+            "start --output stores the hook result, not preflight evidence; "
+            "pass the preflight path with --evidence and use a distinct "
+            "--output path such as start.json"
+        )
+    lifecycle_evidence_error = _lifecycle_evidence_error(args)
+    if lifecycle_evidence_error:
+        parser.error(lifecycle_evidence_error)
     worker_error = _apply_worker_evidence_boundary(args)
     if worker_error:
         print_status(args.hook, False, [worker_error])
         return 2
+    # Must follow _apply_worker_evidence_boundary so a worker refreshes its own
+    # run, and must skip `start`: start refreshes nothing it is about to sweep,
+    # or it would revive the very record whose evidence path it needs to claim.
+    if args.hook != "start":
+        _refresh_run_heartbeat(args)
     if args.hook == "repair-verify":
         repair_evidence_path = preflight_evidence_path(args)
         try:

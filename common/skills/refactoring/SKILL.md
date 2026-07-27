@@ -10,7 +10,7 @@ Use when routed to `common/skills/refactoring/SKILL.md` or when work needs this 
 
 ## Read
 
-- `references/current-guidance.md` for the detailed guidance for this skill.
+- `references/current-guidance.md` for the detailed guidance, including structural hard-gate recovery.
 - Related `SKILL.md` entrypoints named by the reference before loading their detailed references.
 
 ## Process

@@ -38,8 +38,8 @@ vibeguard audit . --rules .
 최신화 후 여러 단계 작업을 맡길 때는 에이전트가 wrapper evidence를 만들게 하는 것이 안전합니다. 지침을 읽었다는 말만으로는 충분하지 않습니다.
 
 작업 전에는 `~/.tao/bin/tao-hook start`를 한 번만 실행합니다. 이 명령이 라우팅과
-preflight를 함께 수행하므로 성공 뒤에 `workflow.py route`나
-`agent-preflight.py`를 따로 반복하지 않습니다:
+preflight를 함께 수행하므로 성공 뒤에 `<TAO_LAUNCHER> workflow route`나
+`<TAO_LAUNCHER> agent-preflight`를 따로 반복하지 않습니다:
 
 에이전트 런타임에서 실행할 때는 `${TAO_HOME}`을 먼저 실제 절대 경로로 치환하세요. 승인 민감 명령에는 `$HOME`, `${HOME}`, `~`, 상대 경로를 남기지 않습니다.
 
@@ -52,7 +52,7 @@ preflight를 함께 수행하므로 성공 뒤에 `workflow.py route`나
 ```
 
 start가 만든 route의 `required_docs`를 수정이나 검토 전에 직접 읽습니다.
-의미 있는 수정 뒤에는 `agent-hook.py review` review hook을 실행하고,
+의미 있는 수정 뒤에는 `<TAO_LAUNCHER> review` review hook을 실행하고,
 남은 gate를 명시적 구조 상태로 기록한 다음 마무리 전에는 읽기 전용 finish
 hook을 실행합니다:
 
@@ -70,7 +70,7 @@ hook을 실행합니다:
 `finish`는 gate ledger를 쓰거나 덮어쓰지 않습니다. gate 상태 수정은
 `gate`/`gate-batch`로만 기록하며, 각 gate의 가장 최신 구조 상태가 기준입니다.
 
-`workflow.py route`, `agent-preflight.py`, `agent-finish-check.py` 직접 호출은
+`<TAO_LAUNCHER> workflow route`, `<TAO_LAUNCHER> agent-preflight`, `<TAO_LAUNCHER> agent-finish-check` 직접 호출은
 hook이 unavailable인 경우의 하위(lower-level) 진단 또는 호환성 fallback일 뿐이며 같은
 작업에서 두 번째 lifecycle로 실행하지 않습니다.
 

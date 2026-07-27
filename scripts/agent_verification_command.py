@@ -1,10 +1,12 @@
 """Allowlisted commands and contained targets for structural verification."""
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -17,6 +19,15 @@ VERIFICATION_KINDS = {
     "workflow_validate",
 }
 Runner = Callable[[list[str], Path], dict[str, Any]]
+
+
+def verification_workdir(
+    *,
+    verification_kind: str,
+    target_root: Path,
+    rules: Path,
+) -> Path:
+    return target_root if verification_kind == "unittest" else rules
 
 
 def resolve_verification_target(
@@ -43,7 +54,13 @@ def resolve_verification_target(
     return None
 
 
-def verification_target_is_changed(root: Path, target: Path) -> bool:
+def verification_target_is_changed(
+    root: Path,
+    target: Path,
+    *,
+    preflight: dict[str, Any] | None = None,
+    target_relative: str = "",
+) -> bool:
     try:
         relative = target.relative_to(root)
     except ValueError:
@@ -52,7 +69,59 @@ def verification_target_is_changed(root: Path, target: Path) -> bool:
         ["git", "status", "--porcelain", "--untracked-files=all", "--", relative.as_posix()],
         root,
     )
-    return result["returncode"] == 0 and bool(str(result.get("stdout") or "").strip())
+    if result["returncode"] == 0 and bool(str(result.get("stdout") or "").strip()):
+        return True
+    if preflight is None or not target_relative:
+        return False
+    required_docs = (preflight.get("execution_snapshot") or {}).get("required_docs") or []
+    baseline = next(
+        (
+            item
+            for item in required_docs
+            if isinstance(item, dict) and item.get("path") == target_relative
+        ),
+        None,
+    )
+    baseline_sha256 = str((baseline or {}).get("sha256") or "")
+    if baseline_sha256:
+        current_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+        return current_sha256 != baseline_sha256
+    return non_git_target_changed_after_preflight(
+        root,
+        target,
+        preflight,
+        git_status_returncode=int(result.get("returncode", 1)),
+    )
+
+
+def non_git_target_changed_after_preflight(
+    root: Path,
+    target: Path,
+    preflight: dict[str, Any],
+    *,
+    git_status_returncode: int,
+) -> bool:
+    if git_status_returncode == 0:
+        return False
+    project = str(preflight.get("project") or "").strip()
+    if not project:
+        return False
+    project_root = Path(project).expanduser().resolve()
+    if root.resolve() == project_root:
+        git_status = preflight.get("git_status") or {}
+        if git_status.get("review_only") is not True:
+            return False
+    timestamp = str(preflight.get("timestamp") or "").strip()
+    if not timestamp:
+        return False
+    try:
+        started_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        modified_at = datetime.fromtimestamp(target.stat().st_mtime, tz=timezone.utc)
+    except (OSError, ValueError):
+        return False
+    return modified_at > started_at.astimezone(timezone.utc)
 
 
 def verification_command(

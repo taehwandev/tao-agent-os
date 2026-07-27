@@ -49,6 +49,11 @@ Use after implementation, before handing off or committing.
    Omit a field only when `tao-hook review --help` and the active route both
    confirm it is not required. A missing field is a failed checkpoint, not a
    prompt for the hook to perform that review.
+   Use `--review-outcome findings` only when unresolved findings intentionally
+   keep the checkpoint failed. When the hook reports structure pressure, record
+   whether the diff increased the unit size or added a responsibility; do not
+   omit `--structure-review-evidence` merely because the pressure was
+   pre-existing.
 3. Confirm boundary-plan evidence exists for code work, or record why the
    change had no code boundary.
 4. Confirm affected docs are updated, or record why no docs changed.

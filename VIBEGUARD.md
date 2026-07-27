@@ -115,6 +115,6 @@ vibeguard evidence install-claude-hook .
 Before finishing Tao Agent OS changes, run:
 
 ```bash
-python3 scripts/workflow.py validate
+<TAO_LAUNCHER> workflow validate
 vibeguard audit . --rules .
 ```

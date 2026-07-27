@@ -12,6 +12,8 @@ from agent_delegation_plan import validate_delegation_plan_evidence
 from agent_execution_capsule import capsule_path_for_evidence, read_execution_capsule
 from agent_execution_capsule_state import (
     execution_capsule_binding_fingerprint,
+    git_states_for_paths,
+    is_sha256,
     preflight_snapshot_binding_fingerprint,
 )
 from agent_execution_capsule_validation import (
@@ -80,6 +82,8 @@ def check_required_gates(
     gate_signals: list[dict[str, str]],
     failures: list[str],
     delegation_plan: dict[str, Any] | None = None,
+    *,
+    allowed_skill_ids: set[str] | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
     required_gates = route.get("gates") or []
     if not required_gates:
@@ -100,6 +104,7 @@ def check_required_gates(
         gate_evidence,
         required_gates,
         route=route,
+        allowed_skill_ids=allowed_skill_ids,
     )
     gate_policy_failures.extend(
         validate_delegation_plan_evidence(required_gates, gate_evidence, delegation_plan or {})
@@ -272,10 +277,6 @@ def check_request_intake(
     question_resolution_route = route.get("command") in QUESTION_ROUTE_COMMANDS
     command = str(route.get("command") or "")
     classification_evidence = request_intake.get("classification_evidence", "")
-    evidence_allows_command_work = classification_evidence_allows_command_work(
-        command,
-        classification_evidence,
-    )
 
     if request_classified and not request_intake.get("classification_evidence"):
         append_unique(missed_gates, "request intake")
@@ -309,13 +310,10 @@ def check_request_intake(
         )
         failures.append(block_reason)
 
-    grill_me_required = (
-        _classification_requires_grill_me(request_classification)
-        or (
-            classification_evidence_requires_clarification(classification_evidence)
-            and not evidence_allows_command_work
-        )
-        or grill_me_requested(_request_text(request_intake, request_classification))
+    grill_me_required = grill_me_is_required(
+        route,
+        request_intake,
+        request_classification,
     )
     grill_me_gate = next((gate for gate in GRILL_ME_EVIDENCE_GATES if gate_evidence.get(gate)), "")
     if grill_me_required and grill_me_gate:
@@ -349,11 +347,115 @@ def check_request_intake(
     return grill_me_required
 
 
-def check_preflight_vibeguard(preflight: dict[str, Any], failures: list[str]) -> None:
+def grill_me_is_required(
+    route: dict[str, Any],
+    request_intake: dict[str, Any],
+    request_classification: dict[str, Any],
+) -> bool:
+    command = str(route.get("command") or "")
+    classification_evidence = request_intake.get("classification_evidence", "")
+    return (
+        _classification_requires_grill_me(request_classification)
+        or (
+            classification_evidence_requires_clarification(classification_evidence)
+            and not classification_evidence_allows_command_work(
+                command,
+                classification_evidence,
+            )
+        )
+        or grill_me_requested(_request_text(request_intake, request_classification))
+    )
+
+
+def check_read_only_execution(
+    preflight: dict[str, Any],
+    project: Path,
+    failures: list[str],
+    *,
+    read_only: bool,
+    state_reader: Any = git_states_for_paths,
+) -> None:
+    """Hold a read-only run to the claim that bought it the VibeGuard skip.
+
+    Declaring ``--read-only`` disables the safety audit for the whole
+    lifecycle, and the declaration is made at start -- before any edit has
+    happened. Without this check the flag is an unverified promise: an agent can
+    declare a non-mutating run on any route, edit freely, and finish with no
+    audit. Compare the worktree against the state start recorded and fail closed
+    when it moved.
+    """
+
+    if not read_only:
+        return
+    recorded = preflight.get("read_only_execution_state")
+    if not (
+        isinstance(recorded, dict)
+        and set(recorded) == {"project", "rules"}
+        and all(_is_workspace_state(recorded[root]) for root in ("project", "rules"))
+    ):
+        failures.append(
+            "read-only execution is missing its strong start-time workspace fingerprint "
+            "for the project and rules roots; rerun start before finishing"
+        )
+        return
+    rules_value = preflight.get("rules")
+    if not isinstance(rules_value, str) or not rules_value.strip():
+        failures.append(
+            "read-only execution cannot be verified without the rules root recorded at start"
+        )
+        return
+    try:
+        current_project, current_rules = state_reader(project, Path(rules_value))
+    except (OSError, RuntimeError, ValueError):
+        failures.append(
+            "read-only execution workspace state could not be verified; "
+            "Git and directory inspection errors fail closed"
+        )
+        return
+    checked = [("project", current_project), ("rules", current_rules)]
+    try:
+        if Path(rules_value).resolve() == project.resolve():
+            # One checkout serving as both roots produces one state, so keep
+            # the report to a single drift rather than the same one twice.
+            checked = checked[:1]
+    except OSError:
+        pass
+    for root, current in checked:
+        recorded_root = recorded[root]
+        if (
+            current["head"] != recorded_root["head"]
+            or current["worktree_fingerprint"]
+            != recorded_root["worktree_fingerprint"]
+        ):
+            failures.append(
+                f"read-only execution was declared but the {root} root changed after start; "
+                "read-only skips VibeGuard, so rerun the lifecycle without --read-only"
+            )
+
+
+def _is_workspace_state(state: Any) -> bool:
+    return (
+        isinstance(state, dict)
+        and set(state) == {"head", "worktree_fingerprint", "worktree_signature"}
+        and isinstance(state.get("head"), str)
+        and bool(state["head"])
+        and is_sha256(state.get("worktree_fingerprint"))
+        and is_sha256(state.get("worktree_signature"))
+    )
+
+
+def check_preflight_vibeguard(
+    preflight: dict[str, Any],
+    failures: list[str],
+    *,
+    read_only: bool = False,
+) -> None:
     preflight_vibeguard_command = preflight.get("vibeguard") or {}
     preflight_vibeguard = preflight_vibeguard_command.get("overall") or {}
     if not preflight_vibeguard:
         failures.append("preflight evidence is missing VibeGuard result")
+    elif preflight_vibeguard_command.get("skipped") and not read_only:
+        failures.append("preflight VibeGuard was skipped without read-only execution mode")
     elif preflight_vibeguard_command.get("returncode") != 0:
         failures.append("preflight VibeGuard audit failed")
     elif preflight_vibeguard.get("status") == "unknown":

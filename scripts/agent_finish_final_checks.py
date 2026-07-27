@@ -13,8 +13,12 @@ from agent_execution_capsule_state import (
 )
 from agent_finish_common import add_gate_signal, parse_overall, run_command, vibeguard_command
 from agent_inprocess import run_workflow_validate
-from agent_vibeguard_cache import cached_vibeguard
-from agent_workspace_policy import is_writing_workspace, non_git_writing_workspace_note
+from agent_vibeguard_cache import cached_vibeguard, skipped_vibeguard
+from agent_workspace_policy import (
+    is_non_git_workspace,
+    is_writing_workspace,
+    non_git_writing_workspace_note,
+)
 
 
 REVIEW_VALIDATION_SCHEMA_VERSION = 3
@@ -28,6 +32,7 @@ def run_final_checks(
     allow_vibeguard_review: str | None,
     gate_signals: list[dict[str, str]],
     failures: list[str],
+    read_only: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
     review_validation = reusable_review_workflow_validation(project, rules)
     validate = review_validation or run_workflow_validate(tao_root)
@@ -41,7 +46,10 @@ def run_final_checks(
             "skipped": True,
             "review_note": non_git_writing_workspace_note(project),
         }
-        if is_writing_workspace(project)
+        if (
+            is_writing_workspace(project)
+            or (read_only and is_non_git_workspace(project))
+        )
         else (
             {
                 "command": [],
@@ -59,12 +67,16 @@ def run_final_checks(
             else run_command(["git", "diff", "--check"], project)
         )
     )
-    vibeguard = cached_vibeguard(
-        project=project,
-        rules=rules,
-        run_command=run_command,
-        vibeguard_command=vibeguard_command,
-        parse_overall=parse_overall,
+    vibeguard = (
+        skipped_vibeguard(project)
+        if read_only
+        else cached_vibeguard(
+            project=project,
+            rules=rules,
+            run_command=run_command,
+            vibeguard_command=vibeguard_command,
+            parse_overall=parse_overall,
+        )
     )
     _record_final_check_signals(validate, diff_check, vibeguard, allow_vibeguard_review, gate_signals, failures)
     return validate, diff_check, vibeguard, vibeguard["overall"]["status"]
@@ -102,7 +114,9 @@ def _record_vibeguard_signal(
     failures: list[str],
 ) -> None:
     overall = vibeguard["overall"]["status"]
-    if vibeguard["returncode"] != 0:
+    if vibeguard.get("skipped"):
+        add_gate_signal(gate_signals, "SUCCESS", "VibeGuard", "skipped", overall)
+    elif vibeguard["returncode"] != 0:
         add_gate_signal(gate_signals, "FAIL", "VibeGuard", "failed", "non-zero exit")
         failures.append("final VibeGuard audit failed")
     elif overall != "Ready" and not allow_vibeguard_review:
@@ -136,8 +150,14 @@ def record_successful_review_workflow_validation(
         return
     try:
         project_git, rules_git = git_states_for_paths(project, rules)
-        evidence = file_hash_record(evidence_path)
-    except (OSError, RuntimeError):
+        evidence_relative = evidence_path.resolve().relative_to(
+            (project.resolve() / ".tao").resolve()
+        )
+        evidence = {
+            "path": evidence_relative.as_posix(),
+            "sha256": file_hash_record(evidence_path)["sha256"],
+        }
+    except (OSError, RuntimeError, ValueError):
         return
     atomic_write_json(
         review_validation_path(project),
@@ -161,9 +181,18 @@ def reusable_review_workflow_validation(project: Path, rules: Path) -> dict[str,
     record = read_json_object(review_validation_path(project))
     if not _valid_review_validation_record(record):
         return None
-    evidence_path = project / ".tao" / record["preflight_evidence"]["filename"]
+    evidence_path = (
+        project.resolve()
+        / ".tao"
+        / record["preflight_evidence"]["path"]
+    ).resolve()
     try:
-        if not evidence_path.is_file() or file_hash_record(evidence_path) != record["preflight_evidence"]:
+        evidence_path.relative_to((project.resolve() / ".tao").resolve())
+        current_evidence = {
+            "path": record["preflight_evidence"]["path"],
+            "sha256": file_hash_record(evidence_path)["sha256"],
+        }
+        if not evidence_path.is_file() or current_evidence != record["preflight_evidence"]:
             return None
         project_git, rules_git = git_states_for_paths(
             project,
@@ -171,7 +200,7 @@ def reusable_review_workflow_validation(project: Path, rules: Path) -> dict[str,
             project_record=record["project_git"],
             rules_record=record["rules_git"],
         )
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         return None
     if project_git != record["project_git"] or rules_git != record["rules_git"]:
         return None
@@ -205,9 +234,9 @@ def _valid_review_validation_record(record: dict[str, Any]) -> bool:
         return False
     if not isinstance(record.get("preflight_evidence"), dict):
         return False
-    if set(record["preflight_evidence"]) != {"filename", "sha256"}:
+    if set(record["preflight_evidence"]) != {"path", "sha256"}:
         return False
-    if not isinstance(record["preflight_evidence"].get("filename"), str):
+    if not isinstance(record["preflight_evidence"].get("path"), str):
         return False
     if not isinstance(record["preflight_evidence"].get("sha256"), str):
         return False

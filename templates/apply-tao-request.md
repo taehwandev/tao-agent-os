@@ -18,6 +18,12 @@ to follow Tao Agent OS without changing repo-local instruction files.
 Step 1 - Apply Tao Agent OS to this project:
 https://github.com/taehwandev/tao-agent-os
 
+Tao Agent OS stable launcher:
+<TAO_LAUNCHER>
+
+Resolve that placeholder to the installed launcher's absolute path. Do not
+invoke an internal runtime Python entrypoint directly.
+
 Before changing anything, open and read this project's current agent instructions first:
 AGENTS.md, CLAUDE.md, CODEX.md, .agents/README.md, CONTRIBUTING.md, task docs,
 PRD/ARD docs, equivalent project docs, or explicitly documented local override
@@ -56,7 +62,7 @@ Select one setup mode and tell me which one you selected before editing:
   submodule, vendored dependency, or workspace dependency.
 
 A usable Tao Agent OS root must contain AGENTS.md, index.md, and
-scripts/workflow.py. Validate it with:
+<TAO_LAUNCHER> workflow. Validate it with:
 
 <TAO_LAUNCHER> workflow validate
 
@@ -72,16 +78,16 @@ to update user-level runtime config, then run:
 This setup is global by design. It allows only Tao Agent OS-managed
 entrypoints with suffix-aware runtime matchers. It must not broadly allow
 `python3`.
-For Codex, update `~/.codex/rules/default.rules` with direct `python3 <script>`
-argv prefixes for the same scripts using resolved absolute paths only. Do not
-use `$HOME`, `${HOME}`, `~`, relative paths, or shell `-lc` wrappers for
-Tao Agent OS Python wrappers: those forms can be treated as shell expansion or
-a single shell string before the runtime permission matcher sees the trusted
-script path. For Claude Code, update `~/.claude/settings.json` so managed hooks
+For Codex, update `~/.codex/rules/default.rules` with the resolved absolute
+stable launcher argv prefix only. Do not use `$HOME`, `${HOME}`, `~`, relative
+paths, or shell `-lc` wrappers around the launcher: those forms can be treated
+as shell expansion or a single shell string before the runtime permission
+matcher sees the trusted command. For Claude Code, update
+`~/.claude/settings.json` so managed hooks
 call `<TAO_LAUNCHER>`, and refresh
 `~/.tao/tao-root` to the selected Tao Agent OS checkout so
-moves or migrations do not leave Claude pointing at a stale `workflow.py`
-absolute path. For
+moves or migrations do not leave Claude pointing at a stale checkout-local
+command. For
 AGY/Antigravity, support both
 `~/.gemini/config/config.json` and
 `~/.gemini/antigravity-cli/settings.json`; hooks remain in
@@ -91,7 +97,7 @@ Do not install token-usage event hooks from Tao Agent OS. Spill token metering
 is optional and belongs to the separate Spill installer. If the local Spill
 setup helper exists, Tao Agent OS setup may add a safe workflow label bridge.
 If the helper is absent, remove only Tao Agent OS-managed Spill label hooks/env
-and keep the normal Tao Agent OS Python wrapper permissions.
+and keep the normal Tao Agent OS stable launcher permissions.
 
 VibeGuard is required. After selecting the Tao Agent OS root, apply VibeGuard
 with the selected Tao Agent OS root as the rule source.
@@ -154,8 +160,8 @@ For any multi-step setup or follow-up task, run `<TAO_LAUNCHER> start` once with
 `--request "<USER_REQUEST>"` before selecting task documents, editing,
 reviewing, committing, or reporting completion. It performs workflow routing
 and preflight; do not separately repeat workflow list, classify, route, or
-preflight after it succeeds. Direct `workflow.py route` and
-`agent-preflight.py` calls are lower-level diagnostic or compatibility
+preflight after it succeeds. Direct `<TAO_LAUNCHER> workflow route` and
+`<TAO_LAUNCHER> agent-preflight` calls are lower-level diagnostic or compatibility
 fallbacks only. If the request is a direct
 question, answer it before routing or editing. If the direct question asks how
 to start app, product, or feature work, answer with PRD -> ARD ->
@@ -189,7 +195,7 @@ gate evidence, then run the read-only finish check:
 <TAO_LAUNCHER> gate-batch --project . --rules <TAO_ROOT> --gate-record '[{"gate":"<gate>","status":"SUCCESS","evidence":"<evidence>"}]'
 <TAO_LAUNCHER> finish --project . --rules <TAO_ROOT>
 
-Call `workflow.py route`, `agent-preflight.py`, or `agent-finish-check.py`
+Call `<TAO_LAUNCHER> workflow route`, `<TAO_LAUNCHER> agent-preflight`, or `<TAO_LAUNCHER> agent-finish-check`
 directly only as lower-level diagnostic or compatibility fallbacks when the
 corresponding hook is unavailable; never run them as a second lifecycle.
 
@@ -232,9 +238,8 @@ user-level runtime config and then run:
 
 Keep the permission allowlist narrow: allow only Tao Agent OS-managed
 entrypoints by suffix-aware runtime matcher, not broad `python3`. For Claude
-managed hooks, prefer the stable `<TAO_LAUNCHER>`
-launcher plus the refreshed root pointer over a moving checkout's absolute
-`scripts/workflow.py` path.
+managed hooks, prefer `<TAO_LAUNCHER>` plus the refreshed root pointer
+over a moving checkout-local command.
 The setup command should install or repair the managed bridge block for Codex,
 Claude, and Gemini/Antigravity/AGY when those runtimes are present.
 
@@ -248,7 +253,7 @@ file the active runtime loads.
 The bridge must force this behavior:
 - Start every task by identifying the current project root.
 - If the runtime starts from ~ or another non-project directory, resolve the
-  target with `agent-entry.py` or `project-discover.py` before project work.
+  target with `<TAO_LAUNCHER> agent-entry` or `<TAO_LAUNCHER> project-discover` before project work.
 - If discovery is `ambiguous` or `not_found`, ask me for the target project
   instead of proceeding.
 - Before project work, open the project-root instruction file for the active runtime.
@@ -261,8 +266,8 @@ The bridge must force this behavior:
   repeat workflow list, classify, route, or preflight after it succeeds.
 - Read every route `required_docs` entry directly after start and before editing
   or reviewing. Keep the route's review and finish hooks in the lifecycle.
-- Treat direct `workflow.py route`, `agent-preflight.py`, and
-  `agent-finish-check.py` calls as lower-level diagnostic or compatibility
+- Treat direct `<TAO_LAUNCHER> workflow route`, `<TAO_LAUNCHER> agent-preflight`, and
+  `<TAO_LAUNCHER> agent-finish-check` calls as lower-level diagnostic or compatibility
   fallbacks only; never run them as a second lifecycle.
 - Do not wait for me to name document keywords. Infer the work surface from the
   request, platform, concern, and touched files, then read the route

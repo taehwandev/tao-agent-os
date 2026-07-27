@@ -25,14 +25,22 @@ automation boundary.
 1. Classify the event as blocking failure repair or successful-task closeout.
 2. Open only the matching focused reference.
 3. Keep failure repair inside the bounded repair-and-resume cycle.
+   Select the active Tao Agent OS root as the canonical repair owner. An
+   upstream or reference Tao Agent OS checkout is not a repair target unless
+   the user explicitly starts a runtime migration task.
 4. After task verification and review, but before finish, inspect the skills
    actually loaded and applied and complete the required `retrospective check`.
 5. Record the exact fields `skills_checked`, `outcome`, and `observation`.
+   Every named skill must resolve to a canonical Tao Agent OS bundle or an
+   allowlisted project-local bundle; normalize hyphens to underscores when
+   binding it to the feedback record.
    `outcome` must be `no_reusable_gap`, `reusable_gap`, or `no_skill_used`.
    `observation` must be `not_needed`, `recorded`, or `deferred`.
-   Pair `no_reusable_gap` and `no_skill_used` with `not_needed`; pair
-   `reusable_gap` with `recorded` or `deferred`. A reusable gap may produce at
-   most one content-free observation tied to an actually used skill.
+   Pair `no_reusable_gap` and `no_skill_used` with `not_needed`. For a reusable
+   gap, first record `deferred`, run the optional feedback hook, then replace it
+   with `recorded` only when the hook created or deduplicated the bound
+   observation. A reusable gap may produce at most one content-free observation
+   tied to an actually used skill.
 6. Keep observation storage, curation, review, staging, and later canonical
    maintenance separate and non-blocking. They remain outside required finish
    gates even though the retrospective check itself is required.
@@ -53,6 +61,8 @@ automation boundary.
 
 - If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
 - If detailed guidance changes, validate links and frontmatter for all three references.
+- If failure-repair ownership or output changes, prove the executable recovery
+  policy names Tao Agent OS and not a reference Tao Agent OS checkout.
 - If routing changes, prove every route requires `retrospective check`, its
   structured evidence is validated, and every skill-learning hook remains
   optional.
@@ -60,3 +70,7 @@ automation boundary.
   a reviewer are unavailable.
 - Prove only later staged maintenance can write canonical skill files, subject
   to its verification and approval policy.
+- Prove project-local maintenance is restricted to
+  `.agents/shared/llm-skills/<skill>/**` and
+  `.agents/local/skills/<skill>/**`, with a real bundle `SKILL.md` and matching
+  promotion target.

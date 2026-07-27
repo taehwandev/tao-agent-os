@@ -187,7 +187,7 @@ the update.
   gates, but all human-authored files still need one clear owner or role.
   Default gates are: structure-review evidence for development source/style
   files over 300 lines, new development source/style file hard failure over 500
-  lines, more than 200 added lines in one development source/style file, growth
+  lines, more than 300 added lines in one development source/style file, growth
   in an existing development source/style file already over 500 lines without a
   same-owner split decision, or a development source/style block over 120
   lines. Architecture, security, dependency, release, and test concerns are

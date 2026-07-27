@@ -88,7 +88,7 @@ def check_new_path_rules(
 ) -> None:
     for path in paths:
         metadata = path_metadata.get(str(path), {})
-        if metadata.get("status") != "A":
+        if metadata.get("status") not in {"A", "R", "C"}:
             continue
         path_text = path.as_posix()
         for pattern in forbidden_new_paths:

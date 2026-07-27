@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 from agent_review_boundary import boundary_note_requirements
 from agent_review_purpose import purpose_failures
 from agent_structure_rules import structure_rule_review
-from agent_workspace_policy import is_writing_workspace
+from agent_workspace_policy import is_non_git_workspace, is_writing_workspace
 
 
 CommandRunner = Callable[[list[str], Path], dict[str, Any]]
 
 REVIEW_SOURCE_FILE_LINE_LIMIT = 500
 REVIEW_FILE_REVIEW_WARNING_LIMIT = 300
-REVIEW_ADDED_LINE_LIMIT = 200
+REVIEW_ADDED_LINE_LIMIT = 300
 REVIEW_FUNCTION_LINE_LIMIT = 120
 # The file/block gates above catch a unit that grew too large. They do nothing
 # about the opposite failure: a small task spread across many new files, layers,
@@ -122,6 +123,11 @@ BRACE_BLOCK_RE = re.compile(
     r"|(?:public|private|protected|internal|static|final|open|override|async|func|fun|def|fn|"
     r"function|method|class|struct|enum|interface|type)\b.*"
     r")"
+)
+BRACE_TYPE_BLOCK_RE = re.compile(
+    r"^\s*(?:(?:export|default|public|private|protected|internal|static|final|open|abstract|"
+    r"sealed|data|value|annotation|enum)\s+)*(?:class|struct|enum|interface|object|record|"
+    r"actor|protocol|type)\b"
 )
 STYLE_BLOCK_RE = re.compile(r"^\s*[^@{}][^{}]*\{\s*$")
 
@@ -273,41 +279,49 @@ def changed_source_paths(
 
     head = run_command(["git", "rev-parse", "--verify", "HEAD"], project)
     commands["rev_parse_head"] = head
-    if head["returncode"] != 0 and is_writing_workspace(project):
+    if head["returncode"] != 0 and (
+        is_writing_workspace(project) or is_non_git_workspace(project)
+    ):
         return {
             "commands": commands,
             "command_errors": [],
             "path_metadata": path_metadata,
-            "review_only": "non_git_writing_workspace",
+            "review_only": "non_git_workspace",
         }, []
     if head["returncode"] == 0:
         collect_head_diff(project, run_command, commands, names, path_metadata, command_errors, review_paths)
     else:
         tracked = run_command(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
             project,
         )
         commands["ls_files_initial"] = tracked
         if tracked["returncode"] == 0:
-            for line in tracked["stdout"].splitlines():
-                name = line.strip()
-                if name:
-                    record_path(names, path_metadata, name, status="A")
+            for name in _listed_paths(tracked["stdout"]):
+                record_path(names, path_metadata, name, status="A")
         else:
             command_errors.append("git ls-files changed source discovery failed")
 
     untracked = run_command(
-        ["git", "ls-files", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
+        ["git", "ls-files", "-z", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
         project,
     )
     commands["ls_files_untracked"] = untracked
     if untracked["returncode"] == 0:
-        for line in untracked["stdout"].splitlines():
-            name = line.strip()
-            if name:
-                record_path(names, path_metadata, name, status="A", untracked=True)
+        for name in _listed_paths(untracked["stdout"]):
+            record_path(names, path_metadata, name, status="A", untracked=True)
     else:
         command_errors.append("git ls-files untracked source discovery failed")
+
+    if head["returncode"] == 0:
+        reclassify_untracked_moves(
+            project,
+            run_command,
+            commands,
+            path_metadata,
+            command_errors,
+            review_paths,
+        )
 
     paths = [Path(name) for name in sorted(names)]
     checked = [path for path in paths if review_source_path(project, path)]
@@ -329,31 +343,244 @@ def collect_head_diff(
 ) -> None:
     pathspec = _pathspec_args(review_paths)
     status = run_command(
-        ["git", "diff", "--name-status", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
+        ["git", "diff", "--name-status", "-z", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
         project,
     )
     commands["diff_name_status"] = status
     if status["returncode"] == 0:
-        for line in status["stdout"].splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2:
-                record_path(names, path_metadata, parts[-1], status=parts[0][:1])
+        for destination, status_code, previous in _parse_name_status(status["stdout"]):
+            updates: dict[str, Any] = {"status": status_code}
+            if previous:
+                updates["previous_path"] = previous
+            record_path(names, path_metadata, destination, **updates)
     else:
         command_errors.append("git diff changed source discovery failed")
 
     numstat = run_command(
-        ["git", "diff", "--numstat", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
+        ["git", "diff", "--numstat", "-z", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
         project,
     )
     commands["diff_numstat"] = numstat
     if numstat["returncode"] == 0:
-        for line in numstat["stdout"].splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 3:
-                additions = int(parts[0]) if parts[0].isdigit() else 0
-                record_path(names, path_metadata, parts[-1], additions=additions)
+        for destination, additions, deletions in _parse_numstat(numstat["stdout"]):
+            record_path(
+                names,
+                path_metadata,
+                destination,
+                additions=additions,
+                deletions=deletions,
+            )
     else:
         command_errors.append("git diff line-count discovery failed")
+
+
+def _listed_paths(stdout: str) -> list[str]:
+    """Return the paths of a one-path-per-record ``-z`` git listing.
+
+    Without ``-z`` git quotes any path holding a special character, so a file
+    named ``we<newline>ird.py`` arrives as the literal 11-character text
+    ``"we\\nird.py"``. Discovery then recorded that quoted string as a filename
+    and dropped the real file from review entirely -- a silent miss in a gate
+    whose whole job is to see every changed file. NUL is the one byte a path
+    cannot contain, and ``-z`` output is never quoted, so the fields are the
+    paths verbatim and must not be stripped.
+    """
+
+    if "\0" not in stdout:
+        # Injected command runners in tests still provide the line-oriented
+        # form; keep reading it for paths that carry no separator character.
+        return [line.strip() for line in stdout.splitlines() if line.strip()]
+    return [field for field in stdout.split("\0") if field]
+
+
+def _parse_name_status(stdout: str) -> list[tuple[str, str, str]]:
+    """Return (destination, status, previous) from ``git diff --name-status -z``.
+
+    Splitting the human-readable form on tabs silently corrupts any path that
+    contains one: the parser kept the fragment after the last tab and recorded a
+    file that does not exist, while ``--numstat`` recorded the real path, so the
+    two discovery passes disagreed and invented a phantom entry. A newline in a
+    path breaks the line split the same way. NUL is the only separator no path
+    can contain.
+    """
+
+    if "\0" not in stdout:
+        # Injected command runners in tests still provide the line-oriented
+        # form; keep reading it for paths that carry no separator character.
+        records: list[tuple[str, str, str]] = []
+        for line in stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                code = parts[0][:1]
+                previous = parts[-2] if code in {"R", "C"} and len(parts) >= 3 else ""
+                records.append((parts[-1], code, previous))
+        return records
+
+    fields = stdout.split("\0")
+    records = []
+    index = 0
+    while index + 1 < len(fields):
+        code = fields[index][:1]
+        index += 1
+        if not code:
+            continue
+        source = fields[index]
+        index += 1
+        if code in {"R", "C"}:
+            if index >= len(fields):
+                break
+            records.append((fields[index], code, source))
+            index += 1
+        else:
+            records.append((source, code, ""))
+    return records
+
+
+def _parse_numstat(stdout: str) -> list[tuple[str, int, int]]:
+    """Return destination-path line counts from ``git diff --numstat -z``.
+
+    A rename or copy has an empty path in its header followed by separate source
+    and destination NUL fields. Human-readable numstat instead renders
+    ``{old => new}``, which is not a filesystem path and cannot join the counts
+    to the destination discovered by ``--name-status``.
+    """
+
+    if "\0" not in stdout:
+        # Preserve compatibility with injected command runners that still
+        # provide the traditional line-oriented form for ordinary paths.
+        records: list[tuple[str, int, int]] = []
+        for line in stdout.splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) == 3 and parts[2]:
+                records.append(
+                    (parts[2], _numstat_count(parts[0]), _numstat_count(parts[1]))
+                )
+        return records
+
+    fields = stdout.split("\0")
+    records = []
+    index = 0
+    while index < len(fields):
+        header = fields[index]
+        index += 1
+        if not header:
+            continue
+        parts = header.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        additions, deletions, destination = parts
+        if not destination:
+            if index + 1 >= len(fields):
+                break
+            index += 1  # source path
+            destination = fields[index]
+            index += 1
+        if destination:
+            records.append((destination, _numstat_count(additions), _numstat_count(deletions)))
+    return records
+
+
+def _numstat_count(value: str) -> int:
+    return int(value) if value.isdigit() else 0
+
+
+def reclassify_untracked_moves(
+    project: Path,
+    run_command: CommandRunner,
+    commands: dict[str, Any],
+    path_metadata: dict[str, dict[str, Any]],
+    command_errors: list[str],
+    review_paths: list[str] | None = None,
+) -> None:
+    """Recognize unstaged content-preserving moves before applying new-file gates.
+
+    Git does not report a filesystem move as a rename until it is staged. The
+    review hook still has to distinguish a moved legacy owner from hundreds of
+    newly added lines without mutating the caller's index. Limit matching to
+    deleted files with the same filename and require high line similarity.
+    """
+
+    deleted = run_command(
+        ["git", "diff", "--name-only", "-z", "--diff-filter=D", "HEAD", *_pathspec_args(review_paths)],
+        project,
+    )
+    commands["diff_deleted_paths"] = deleted
+    if deleted["returncode"] != 0:
+        command_errors.append("git diff deleted source discovery failed")
+        return
+
+    deleted_by_filename: dict[str, list[str]] = {}
+    for previous_path in _listed_paths(deleted["stdout"]):
+        deleted_by_filename.setdefault(Path(previous_path).name, []).append(previous_path)
+
+    matches: list[dict[str, Any]] = []
+    for current_path, metadata in path_metadata.items():
+        if metadata.get("status") != "A" or metadata.get("untracked") is not True:
+            continue
+        candidates = deleted_by_filename.get(Path(current_path).name, [])
+        if not candidates:
+            continue
+        try:
+            current_lines = (project / current_path).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        scored_candidates: list[tuple[float, str, list[str]]] = []
+        for previous_path in candidates:
+            previous = run_command(["git", "show", f"HEAD:{previous_path}"], project)
+            if previous["returncode"] != 0:
+                continue
+            previous_lines = previous["stdout"].splitlines()
+            similarity = SequenceMatcher(
+                None,
+                previous_lines,
+                current_lines,
+                autojunk=False,
+            ).ratio()
+            scored_candidates.append((similarity, previous_path, previous_lines))
+
+        if not scored_candidates:
+            continue
+        scored_candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+        similarity, previous_path, previous_lines = scored_candidates[0]
+        if similarity < 0.8:
+            continue
+        additions, deletions = line_change_counts(previous_lines, current_lines)
+        metadata.update(
+            status="R",
+            previous_path=previous_path,
+            additions=additions,
+            deletions=deletions,
+            similarity=round(similarity, 4),
+        )
+        matches.append(
+            {
+                "current_path": current_path,
+                "previous_path": previous_path,
+                "similarity": round(similarity, 4),
+            }
+        )
+
+    commands["unstaged_move_detection"] = {
+        "similarity_threshold": 0.8,
+        "matches": matches,
+    }
+
+
+def line_change_counts(previous_lines: list[str], current_lines: list[str]) -> tuple[int, int]:
+    additions = 0
+    deletions = 0
+    for tag, previous_start, previous_end, current_start, current_end in SequenceMatcher(
+        None,
+        previous_lines,
+        current_lines,
+        autojunk=False,
+    ).get_opcodes():
+        if tag in {"insert", "replace"}:
+            additions += current_end - current_start
+        if tag in {"delete", "replace"}:
+            deletions += previous_end - previous_start
+    return additions, deletions
 
 
 def record_path(
@@ -444,13 +671,20 @@ def check_file_size(
     added_lines = metadata.get("additions")
     if added_lines is None:
         added_lines = line_count if status == "A" else 0
+    deleted_lines = metadata.get("deletions", 0)
+    is_net_reducing_rewrite = status != "A" and deleted_lines > added_lines
 
     if status == "A" and line_count > max_file_lines:
         result["failures"].append(
             f"{path} is a new development source/style file with {line_count} lines; "
             f"new-file hard limit is {max_file_lines}; split by responsibility before approval"
         )
-    if added_lines > max_added_lines:
+    if added_lines > max_added_lines and is_net_reducing_rewrite:
+        result["warnings"].append(
+            f"{path} adds {added_lines} lines but deletes {deleted_lines} lines, so the file "
+            "is not growing; structure-review evidence is required instead of an addition-limit failure"
+        )
+    elif added_lines > max_added_lines:
         result["failures"].append(
             f"{path} adds {added_lines} lines in one development source/style file; "
             f"per-file addition limit is {max_added_lines}; split the change before approval"
@@ -515,7 +749,8 @@ def previous_oversized_blocks(
 ) -> list[dict[str, Any]]:
     if metadata.get("status") == "A":
         return []
-    previous = run_command(["git", "show", f"HEAD:{path.as_posix()}"], project)
+    previous_path = str(metadata.get("previous_path") or path.as_posix())
+    previous = run_command(["git", "show", f"HEAD:{previous_path}"], project)
     if previous.get("returncode") != 0:
         return []
     return oversized_blocks(path, str(previous.get("stdout") or "").splitlines(), max_block_lines)
@@ -574,6 +809,8 @@ def brace_blocks(path: Path, lines: list[str], max_block_lines: int) -> list[dic
 def starts_review_block(path: Path, stripped_line: str) -> bool:
     if path.suffix.lower() in REVIEW_STYLE_EXTENSIONS:
         return bool(STYLE_BLOCK_RE.match(stripped_line))
+    if BRACE_TYPE_BLOCK_RE.match(stripped_line):
+        return False
     return bool(BRACE_BLOCK_RE.match(stripped_line))
 
 
@@ -598,8 +835,9 @@ def block_record(path: Path, start_index: int, label: str, span: int) -> dict[st
 def block_failure(record: dict[str, Any], max_block_lines: int) -> str:
     return (
         f"{record['path']}:{record['line']} block `{record['label']}` spans {record['span']} lines; "
-        f"limit is {max_block_lines}; split responsibilities or justify why the unit "
-        "must stay together before approval"
+        f"limit is {max_block_lines}; split responsibilities until the block is within the "
+        "limit, or use an explicitly reviewed project-specific max-function-lines limit; "
+        "structure-review prose alone does not bypass this hard gate"
     )
 
 

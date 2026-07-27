@@ -244,6 +244,20 @@ class WorkflowParallelTests(unittest.TestCase):
 
         self.assertEqual([], failures)
 
+    def test_korean_state_order_dependency_is_a_concrete_serial_reason(self) -> None:
+        failures = validate_gate_evidence(
+            {
+                MULTI_AGENT_GATE: (
+                    "serial/single-agent: JIRA 생성과 단일 git branch/worktree 생성은 "
+                    "동일 외부 상태에 순서 의존하는 setup 작업이라 독립된 두 구현 slice가 없다. "
+                    "검증: 생성 결과와 git 상태 확인"
+                )
+            },
+            [MULTI_AGENT_GATE],
+        )
+
+        self.assertEqual([], failures)
+
     def test_negative_worker_language_does_not_require_parallel_plan(self) -> None:
         from agent_delegation_plan import validate_delegation_plan_evidence
 

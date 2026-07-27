@@ -1,129 +1,118 @@
-"""Read-only Graphify canonical-source and readiness inspection."""
+"""Read-only Graphify global-skill and target-graph inspection."""
 
 from __future__ import annotations
 
+import hashlib
+import os
 import shutil
 from pathlib import Path
 from typing import Iterable
 
 from support.graphify_contract import (
-    CANONICAL_SKILL_DIR,
-    CANONICAL_SKILL_PATH,
+    GLOBAL_CANONICAL_SKILL_DIR,
+    GLOBAL_CANONICAL_SKILL_PATH,
     GLOBAL_PLATFORM_SKILL_DIRS,
-    PLATFORM_CANONICAL_INTEGRATION_TARGETS,
-    PLATFORM_INTEGRATION_PATHS,
-    PLATFORM_SKILL_DIRS,
-    TRACKING_POLICY_PATHS,
+    PROJECT_GRAPH_PATH,
+    PROJECT_RUNTIME_ASSET_PATHS,
+    RUNTIME_BUNDLED_SKILL_DIR,
+    leaked_runtime_asset,
 )
-from support.graphify_git_tracking import inspect_graphify_git_tracking
 from support.graphify_graph_state import inspect_project_graph_state
 from support.graphify_input_inspection import inspect_project_graph_inputs
-from support.graphify_paths import file_link_ready, runtime_link_ready
+from support.graphify_paths import runtime_link_ready
+
+
+DEFAULT_PLATFORMS = ("antigravity", "claude", "codex")
 
 
 def discover_project_graphify_platforms(project_path: Path) -> list[str]:
-    platforms: list[str] = []
-    for platform in ("codex", "claude", "antigravity"):
-        skill_dir = project_path / PLATFORM_SKILL_DIRS[platform]
-        integration_paths = PLATFORM_INTEGRATION_PATHS[platform]
-        if skill_dir.exists() or skill_dir.is_symlink() or any(
-            (project_path / path).exists() for path in integration_paths
-        ):
-            platforms.append(platform)
-    return platforms
+    """Return runtime platforms without reading target-project skill folders."""
+
+    del project_path
+    return list(DEFAULT_PLATFORMS)
 
 
 def inspect_target_graphify(
     project_path: Path,
     platforms: Iterable[str] | None = None,
+    *,
+    home_path: Path | None = None,
+    bundled_skill_dir: Path | None = None,
 ) -> dict[str, object]:
-    selected = sorted(set(platforms or discover_project_graphify_platforms(project_path)))
-    canonical_skill = project_path / CANONICAL_SKILL_PATH
-    integration_paths = [
-        project_path / path
-        for platform in selected
-        for path in PLATFORM_INTEGRATION_PATHS[platform]
+    selected = sorted(set(platforms or DEFAULT_PLATFORMS))
+    home = home_path or Path.home()
+    # A caller-provided home is primarily a fixture/alternate-home seam. It can
+    # provide its matching bundle explicitly; production inspection uses the
+    # active runtime bundle and therefore always enforces freshness.
+    check_bundle_freshness = home_path is None or bundled_skill_dir is not None
+    global_state = inspect_global_graphify(
+        home,
+        selected,
+        bundled_skill_dir=bundled_skill_dir,
+        check_bundle_freshness=check_bundle_freshness,
+    )
+    unexpected_assets = [
+        project_path / relative
+        for relative in PROJECT_RUNTIME_ASSET_PATHS
+        if leaked_runtime_asset(project_path, relative)
     ]
-    missing_integrations: list[Path] = []
-    invalid_integration_links: list[Path] = []
-    for path in integration_paths:
-        canonical_target = PLATFORM_CANONICAL_INTEGRATION_TARGETS.get(
-            path.relative_to(project_path)
-        )
-        if canonical_target is None:
-            missing_integrations.append(path)
-            continue
-        if not file_link_ready(path, project_path / canonical_target):
-            invalid_integration_links.append(path)
-            missing_integrations.append(path)
-
-    runtime_links = {
-        platform: project_path / PLATFORM_SKILL_DIRS[platform]
-        for platform in selected
-    }
-    invalid_links = [
-        link
-        for link in runtime_links.values()
-        if not runtime_link_ready(link, project_path / CANONICAL_SKILL_DIR)
-    ]
-    missing_policies = [
-        project_path / path
-        for path in TRACKING_POLICY_PATHS
-        if not (project_path / path).is_file()
-    ]
-    graph_path = project_path / "graphify-out" / "graph.json"
-    cli_path = shutil.which("graphify")
+    graph_path = project_path / PROJECT_GRAPH_PATH
     input_state = inspect_project_graph_inputs(project_path)
     graph_state = inspect_project_graph_state(project_path, graph_path)
+    project_integration_ready = not unexpected_assets
     runtime_ready = bool(
-        cli_path
-        and selected
-        and canonical_skill.is_file()
-        and not invalid_links
-        and not missing_integrations
-        and not missing_policies
+        global_state["ready"]
+        and project_integration_ready
         and graph_path.is_file()
     )
     result = {
-        "cli": cli_path,
+        "cli": global_state["cli"],
         "platforms": selected,
-        "canonical_skill_doc": str(canonical_skill),
-        "canonical_skill_exists": canonical_skill.is_file(),
-        "skill_docs": [str(canonical_skill)] if canonical_skill.is_file() else [],
-        "runtime_skill_links": {key: str(value) for key, value in runtime_links.items()},
-        "invalid_runtime_links": [str(path) for path in invalid_links],
-        "integration_paths": [str(path) for path in integration_paths],
-        "missing_integrations": [str(path) for path in missing_integrations],
-        "invalid_runtime_integration_links": [
-            str(path) for path in invalid_integration_links
-        ],
-        "tracking_policy_paths": [str(project_path / path) for path in TRACKING_POLICY_PATHS],
-        "missing_tracking_policies": [str(path) for path in missing_policies],
+        "canonical_skill_doc": global_state["canonical_skill_doc"],
+        "canonical_skill_exists": global_state["canonical_skill_exists"],
+        "canonical_skill_fresh": global_state["canonical_skill_fresh"],
+        "canonical_skill_missing_files": global_state["canonical_skill_missing_files"],
+        "canonical_skill_extra_files": global_state["canonical_skill_extra_files"],
+        "canonical_skill_changed_files": global_state["canonical_skill_changed_files"],
+        "skill_docs": global_state["skill_docs"],
+        "runtime_skill_links": global_state["runtime_skill_links"],
+        "invalid_runtime_links": global_state["invalid_runtime_links"],
+        "runtime_ownership_ready": global_state["ready"],
+        "project_integration_ready": project_integration_ready,
+        "unexpected_project_runtime_assets": [str(path) for path in unexpected_assets],
+        # Compatibility key for current route/report consumers.
+        "missing_integrations": [str(path) for path in unexpected_assets],
         "graph_path": str(graph_path),
         "graph_exists": graph_path.is_file(),
         "runtime_ready": runtime_ready,
         **graph_state,
         **input_state,
     }
-    tracking = inspect_graphify_git_tracking(project_path, selected)
-    result.update(tracking)
     static_ready = bool(
         runtime_ready
         and graph_state["graph_integrity_ready"]
         and graph_state["graph_fresh"] is True
         and input_state["graph_input_policy_ready"]
         and input_state["knowledge_manifest_ready"]
-        and tracking["git_repository"]
-        and tracking["commit_ready"] is True
     )
     result["static_ready"] = static_ready
     result["ready"] = static_ready
     return result
 
 
-def inspect_global_graphify(home_path: Path, platforms: Iterable[str]) -> dict[str, object]:
+def inspect_global_graphify(
+    home_path: Path,
+    platforms: Iterable[str],
+    *,
+    bundled_skill_dir: Path | None = None,
+    check_bundle_freshness: bool = True,
+) -> dict[str, object]:
     selected = sorted(set(platforms) | {"agents"})
-    canonical_skill = home_path / CANONICAL_SKILL_PATH
+    source_bundle = bundled_skill_dir or (
+        Path(__file__).resolve().parents[2] / RUNTIME_BUNDLED_SKILL_DIR
+    )
+    installed_bundle = home_path / GLOBAL_CANONICAL_SKILL_DIR
+    canonical_skill = home_path / GLOBAL_CANONICAL_SKILL_PATH
     runtime_links = {
         platform: home_path / GLOBAL_PLATFORM_SKILL_DIRS[platform]
         for platform in selected
@@ -131,15 +120,83 @@ def inspect_global_graphify(home_path: Path, platforms: Iterable[str]) -> dict[s
     invalid_links = [
         link
         for link in runtime_links.values()
-        if not runtime_link_ready(link, home_path / CANONICAL_SKILL_DIR)
+        if not runtime_link_ready(link, home_path / GLOBAL_CANONICAL_SKILL_DIR)
     ]
     cli_path = shutil.which("graphify")
+    freshness = (
+        _inspect_bundle_freshness(source_bundle, installed_bundle)
+        if check_bundle_freshness
+        else {
+            "ready": canonical_skill.is_file(),
+            "missing_files": [],
+            "extra_files": [],
+            "changed_files": [],
+        }
+    )
+    canonical_skill_fresh = bool(freshness["ready"])
+    ready = bool(
+        cli_path
+        and canonical_skill.is_file()
+        and canonical_skill_fresh
+        and not invalid_links
+    )
     return {
         "cli": cli_path,
         "platforms": selected,
+        "bundled_skill_dir": str(source_bundle),
         "canonical_skill_doc": str(canonical_skill),
         "canonical_skill_exists": canonical_skill.is_file(),
+        "canonical_skill_fresh": canonical_skill_fresh,
+        "canonical_skill_missing_files": freshness["missing_files"],
+        "canonical_skill_extra_files": freshness["extra_files"],
+        "canonical_skill_changed_files": freshness["changed_files"],
+        "skill_docs": [str(canonical_skill)] if canonical_skill.is_file() else [],
         "runtime_skill_links": {key: str(value) for key, value in runtime_links.items()},
         "invalid_runtime_links": [str(path) for path in invalid_links],
-        "ready": bool(cli_path and canonical_skill.is_file() and not invalid_links),
+        "runtime_ownership_ready": ready,
+        "ready": ready,
     }
+
+
+def _inspect_bundle_freshness(source: Path, installed: Path) -> dict[str, object]:
+    """Compare every installed Graphify asset with the runtime-owned bundle."""
+
+    source_manifest = _bundle_manifest(source)
+    installed_manifest = _bundle_manifest(installed)
+    source_paths = set(source_manifest)
+    installed_paths = set(installed_manifest)
+    missing = sorted(source_paths - installed_paths)
+    extra = sorted(installed_paths - source_paths)
+    changed = sorted(
+        path
+        for path in source_paths & installed_paths
+        if source_manifest[path] != installed_manifest[path]
+    )
+    return {
+        "ready": bool(source_manifest) and not missing and not extra and not changed,
+        "missing_files": missing,
+        "extra_files": extra,
+        "changed_files": changed,
+    }
+
+
+def _bundle_manifest(root: Path) -> dict[str, str]:
+    """Return a deterministic recursive file/symlink signature map."""
+
+    if not root.is_dir():
+        return {}
+    manifest: dict[str, str] = {}
+    try:
+        paths = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
+    except OSError:
+        return {}
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        try:
+            if path.is_symlink():
+                manifest[relative] = "symlink:" + os.readlink(path)
+            elif path.is_file():
+                manifest[relative] = "file:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            manifest[relative] = "unreadable"
+    return manifest

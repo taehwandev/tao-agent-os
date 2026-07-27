@@ -179,6 +179,13 @@ def existing_path(value: str) -> Path:
     return Path(value).resolve()
 
 
+def existing_directory(value: str) -> Path:
+    path = existing_path(value)
+    if not path.is_dir():
+        raise argparse.ArgumentTypeError(f"expected a directory: {value}")
+    return path
+
+
 def repair_cycle(value: str) -> int:
     cycle = int(value)
     if cycle < 0 or cycle > REPAIR_CYCLE_LIMIT:

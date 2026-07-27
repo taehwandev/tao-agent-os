@@ -13,8 +13,10 @@ from typing import Any
 from agent_delegation_plan import read_delegation_plan
 from agent_global_lessons import write_retrospective_candidate
 from agent_runtime_session import runtime_session
+from agent_skill_catalog import canonical_skill_ids
 from agent_finish_check_steps import (
     check_preflight_vibeguard,
+    check_read_only_execution,
     check_request_intake,
     check_required_gates,
     read_preflight,
@@ -80,6 +82,7 @@ def build_result(
         "rules": str(rules),
         "preflight_evidence": str(evidence_path),
         "request_intake": preflight.get("request_intake") or {},
+        "execution_mode": preflight.get("execution_mode") or {},
         "request_classification": route.get("request_classification") or {},
         "required_gates": required_gates,
         "gate_evidence": gate_evidence,
@@ -131,6 +134,22 @@ def process_failure_learning(
         failures,
     )
     if retrospective_required:
+        if any(
+            failure.startswith(
+                (
+                    "execution capsule required doc size changed: ",
+                    "execution capsule required doc hash changed: ",
+                )
+            )
+            for failure in failures
+        ):
+            failures.append(
+                "required-doc drift recovery: when the repair intentionally changes that "
+                "document, run repair-verify for the actual failed checkpoint first, then "
+                "record documentation SUCCESS with decision=updated, the exact route-relative "
+                "required doc target, repair_evidence, and resume_checkpoint; this binds the "
+                "verified final document bytes without bypassing the snapshot check"
+            )
         failures.append(
             "retrospective repair is required before final report, commit, release, or handoff; "
             "record the correction plan, improve the owning Tao Agent OS doc, hook, validator, or "
@@ -218,6 +237,16 @@ def record_session_finished(project: Path, session: dict[str, Any]) -> None:
         pass
 
 
+def effective_read_only(
+    preflight: dict[str, Any],
+    route: dict[str, Any],
+) -> bool:
+    return bool(
+        (preflight.get("execution_mode") or {}).get("read_only")
+        or route.get("command") == "analysis"
+    )
+
+
 def main() -> int:
     tao_root = Path(__file__).resolve().parents[1]
     args = build_parser(tao_root).parse_args()
@@ -242,6 +271,7 @@ def main() -> int:
         gate_signals,
         failures,
         delegation_plan,
+        allowed_skill_ids=canonical_skill_ids(project, rules),
     )
     capsule_binding_failures = route_gate_capsule_binding_failures(
         route,
@@ -264,7 +294,14 @@ def main() -> int:
         missed_gates,
         failures,
     )
-    check_preflight_vibeguard(preflight, failures)
+    read_only = effective_read_only(preflight, route)
+    check_preflight_vibeguard(preflight, failures, read_only=read_only)
+    check_read_only_execution(
+        preflight,
+        project,
+        failures,
+        read_only=read_only,
+    )
     validate, diff_check, vibeguard, overall = run_final_checks(
         tao_root,
         project,
@@ -272,6 +309,7 @@ def main() -> int:
         args.allow_vibeguard_review,
         gate_signals,
         failures,
+        read_only=read_only,
     )
     retrospective_required, retrospective_lesson = process_failure_learning(
         preflight=preflight,

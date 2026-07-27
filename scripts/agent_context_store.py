@@ -14,9 +14,29 @@ from agent_state_lock import project_state_lock, state_lock
 SCHEMA_VERSION = 2
 CONTEXT_FILENAME = "context-snapshot.json"
 
+_REPLACEABLE_CONTEXT_FAILURES = {
+    "context snapshot route fingerprint does not match",
+    "context snapshot request fingerprint does not match",
+    "execution capsule required-doc manifest does not match",
+}
+_REPLACEABLE_REQUIRED_DOC_FAILURE_PREFIXES = (
+    "execution capsule required doc size changed: ",
+    "execution capsule required doc hash changed: ",
+)
+
 
 def context_snapshot_path(project: Path) -> Path:
     return project.resolve() / ".tao" / CONTEXT_FILENAME
+
+
+def context_snapshot_failures_are_replaceable(failures: list[str]) -> bool:
+    """Return whether a fresh start may safely replace the prior snapshot."""
+
+    return bool(failures) and all(
+        failure in _REPLACEABLE_CONTEXT_FAILURES
+        or failure.startswith(_REPLACEABLE_REQUIRED_DOC_FAILURE_PREFIXES)
+        for failure in failures
+    )
 
 
 def refresh_context_snapshot(

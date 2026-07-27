@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +18,7 @@ if str(SCRIPTS) not in sys.path:
 from agent_hook_runtime import repair_context_failures
 from agent_repair_ledger import record_failure_checkpoints
 from agent_repair_verification import create_repair_receipt, validate_repair_receipt
+from agent_verification_command import verification_workdir
 
 
 def _init_repo(project: Path) -> None:
@@ -77,6 +81,180 @@ class AgentRepairVerificationTests(unittest.TestCase):
             )
             self.assertTrue(changed["created"])
             self.assertEqual("SUCCESS", changed["status"])
+
+    def test_unittest_verification_runs_from_target_owner_root(self) -> None:
+        project = Path("/tmp/project")
+        rules = Path("/tmp/rules")
+
+        self.assertEqual(
+            project,
+            verification_workdir(
+                verification_kind="unittest",
+                target_root=project,
+                rules=rules,
+            ),
+        )
+        self.assertEqual(
+            rules,
+            verification_workdir(
+                verification_kind="unittest",
+                target_root=rules,
+                rules=rules,
+            ),
+        )
+        self.assertEqual(
+            rules,
+            verification_workdir(
+                verification_kind="py_compile",
+                target_root=project,
+                rules=rules,
+            ),
+        )
+
+    def test_receipt_accepts_changed_rules_target_ignored_by_parent_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            _init_repo(project)
+            (project / ".gitignore").write_text(".agents/\n", encoding="utf-8")
+            subprocess.run(["git", "add", ".gitignore"], cwd=str(project), check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "ignore local runtime"],
+                cwd=str(project),
+                check=True,
+            )
+
+            rules = project / ".agents" / "local" / "runtime"
+            rules.mkdir(parents=True)
+            target = rules / "repair.py"
+            original = "x = 1\n"
+            target.write_text(original, encoding="utf-8")
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            preflight = {
+                "route": {"command": "bugfix", "gates": ["tests", "handoff"]},
+                "execution_snapshot": {
+                    "required_docs": [
+                        {
+                            "path": "repair.py",
+                            "sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+                        }
+                    ]
+                },
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            record_failure_checkpoints(
+                evidence_path=evidence_path,
+                preflight=preflight,
+                checkpoints=["tests"],
+                signature="sig-a",
+                checkpoint_signatures={"tests": "sig-a"},
+            )
+            target.write_text("x = 2\n", encoding="utf-8")
+
+            receipt = create_repair_receipt(
+                project=project,
+                rules=rules,
+                evidence_path=evidence_path,
+                preflight=preflight,
+                target="repair.py",
+                checkpoint="tests",
+                verification_kind="py_compile",
+            )
+
+            self.assertTrue(receipt["created"])
+            self.assertEqual("SUCCESS", receipt["status"])
+            self.assertEqual(
+                [],
+                validate_repair_receipt(
+                    project=project,
+                    rules=rules,
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                    target="repair.py",
+                    checkpoint="tests",
+                    receipt_path=Path(receipt["receipt_path"]),
+                ),
+            )
+
+    def test_receipt_accepts_non_git_target_changed_after_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            started_at = datetime.now(timezone.utc)
+            preflight = {
+                "project": str(project),
+                "timestamp": started_at.isoformat(),
+                "git_status": {"returncode": 128, "review_only": True},
+                "route": {"command": "bugfix", "gates": ["tests", "handoff"]},
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            record_failure_checkpoints(
+                evidence_path=evidence_path,
+                preflight=preflight,
+                checkpoints=["tests"],
+                signature="sig-a",
+                checkpoint_signatures={"tests": "sig-a"},
+            )
+            target = project / "target.py"
+            target.write_text("x = 2\n", encoding="utf-8")
+            modified_at = started_at + timedelta(seconds=1)
+            os.utime(target, (modified_at.timestamp(), modified_at.timestamp()))
+
+            receipt = create_repair_receipt(
+                project=project,
+                rules=ROOT,
+                evidence_path=evidence_path,
+                preflight=preflight,
+                target="target.py",
+                checkpoint="tests",
+                verification_kind="py_compile",
+            )
+
+            self.assertTrue(receipt["created"])
+            self.assertEqual("SUCCESS", receipt["status"])
+
+    def test_receipt_accepts_non_git_rules_target_changed_after_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            rules = root / "rules"
+            project.mkdir()
+            rules.mkdir()
+            _init_repo(project)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            started_at = datetime.now(timezone.utc)
+            preflight = {
+                "project": str(project),
+                "timestamp": started_at.isoformat(),
+                "route": {"command": "bugfix", "gates": ["tests", "handoff"]},
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            record_failure_checkpoints(
+                evidence_path=evidence_path,
+                preflight=preflight,
+                checkpoints=["tests"],
+                signature="sig-a",
+                checkpoint_signatures={"tests": "sig-a"},
+            )
+            target = rules / "repair.py"
+            target.write_text("x = 2\n", encoding="utf-8")
+            modified_at = started_at + timedelta(seconds=1)
+            os.utime(target, (modified_at.timestamp(), modified_at.timestamp()))
+
+            receipt = create_repair_receipt(
+                project=project,
+                rules=rules,
+                evidence_path=evidence_path,
+                preflight=preflight,
+                target="repair.py",
+                checkpoint="tests",
+                verification_kind="py_compile",
+            )
+
+            self.assertTrue(receipt["created"])
+            self.assertEqual("SUCCESS", receipt["status"])
 
     def test_valid_receipt_unlocks_repair_cycle_exactly_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
