@@ -58,6 +58,12 @@ input-complete local graph; and a scoped query smoke check.
    `GRAPHIFY_OUT=.agents/local/graphify-out`.
 7. Run a scoped query/path/explain smoke check and record all seven readiness fields.
 
+If the active Tao lifecycle was declared read-only and readiness finds a stale
+or missing graph, do not build or update it inside that run. The ignored local
+graph is still project-root mutation for the read-only finish contract. Restart
+the lifecycle without `--read-only` before changing the graph, then resume the
+readiness check.
+
 ## Common Rationalizations
 
 | Rationalization | Required response |
