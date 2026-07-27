@@ -13,7 +13,13 @@ Use when work may continue across turns, interruptions, context compaction, anot
 - `workflows/skills/agent-task-lifecycle/SKILL.md`
 - `common/skills/verification-policy/SKILL.md`
 - `common/skills/agent-editing-safety/SKILL.md`
+- `workflows/skills/session-continuation-protocol/SKILL.md` when the work must
+  survive the process itself ending, rather than only crossing turns
 - active task-specific workflow from `index.md`
+
+This card selects what state is worth carrying. Persisting that state so a later
+session can rediscover it after a closed terminal or a killed process is a
+separate contract, owned by the session continuation protocol card above.
 
 ## Continuation State
 
