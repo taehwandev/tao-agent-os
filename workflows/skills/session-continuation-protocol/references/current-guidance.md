@@ -620,8 +620,10 @@ non-negotiable, because they are the reason this feature exists:
   transcript/log/command-output field, secret-shaped value, absolute path, path
   traversal, and symlinked run directory are each rejected.
 - **Never-sync boundary.** Make the exact packet path tracked or not ignored,
-  and attempt every Tao-owned export, sync, IPC, telemetry, capsule, lesson,
-  and publish boundary. Each attempt must fail without rendering packet prose.
+  then attempt both the fixed packet storage-class marker and canonical packet
+  path at every Tao-owned sync, export, publish, IPC, telemetry, global-lesson,
+  execution-capsule, diagnostic, and artifact boundary. Each attempt must fail
+  without rendering packet prose.
 - **Claude isolated evidence.** Bind a resumed session to a run-local preflight
   path and prove the edit gate accepts only that exact session/path/generation;
   using the old `.tao/preflight.json` must not unlock it.

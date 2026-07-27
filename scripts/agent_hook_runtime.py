@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_continuation_outbound import assert_no_continuation_outbound
 from agent_repair_ledger import (
     checkpoint_failure_signature,
     checkpoint_has_recorded_failure,
@@ -81,6 +82,10 @@ def parse_overall(output: str) -> str:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
+    assert_no_continuation_outbound(
+        {"path": path, "payload": payload},
+        boundary="diagnostic",
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 

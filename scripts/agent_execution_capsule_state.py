@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from agent_continuation_outbound import assert_no_continuation_outbound
 from agent_directory_fingerprint import directory_state
 from agent_worktree_fingerprint import (
     capture_worktree_state,
@@ -225,6 +226,10 @@ def preflight_snapshot_binding_fingerprint(snapshot: dict[str, Any]) -> str | No
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    assert_no_continuation_outbound(
+        {"path": path, "payload": payload},
+        boundary="artifact",
+    )
     if path.parent.is_symlink():
         raise OSError(f"Symbolic link detected in directory: {path.parent}")
 

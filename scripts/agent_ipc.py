@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_continuation_outbound import assert_no_continuation_outbound
 from agent_execution_capsule_state import atomic_write_json, read_json_object
 from agent_state_lock import project_state_lock, state_lock
 
@@ -53,6 +54,8 @@ def emit_event(
         "attempt": attempt,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    assert_no_continuation_outbound(event, boundary="ipc")
+    assert_no_continuation_outbound(event, boundary="telemetry")
     path = events_path(project)
     with project_state_lock(project), state_lock(path):
         payload = read_json_object(path)

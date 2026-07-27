@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_continuation_outbound import assert_no_continuation_outbound
 from agent_execution_capsule_state import (
     PREFLIGHT_SNAPSHOT_SCHEMA_VERSION,
     REUSE_POLICY,
@@ -61,7 +62,7 @@ def refresh_execution_capsule(
     }
     if ledger_path.is_file():
         capsule["gate_ledger"] = file_hash_record(ledger_path)
-    atomic_write_json(selected_output, capsule)
+    _write_execution_capsule(selected_output, capsule)
     return capsule
 
 
@@ -107,8 +108,16 @@ def synchronize_execution_capsule_gate_ledger(
         raise FileNotFoundError(f"execution capsule gate ledger is missing: {ledger_path}")
     updated = dict(capsule)
     updated["gate_ledger"] = file_hash_record(ledger_path)
-    atomic_write_json(selected_output, updated)
+    _write_execution_capsule(selected_output, updated)
     return updated
+
+
+def _write_execution_capsule(path: Path, payload: dict[str, Any]) -> None:
+    assert_no_continuation_outbound(
+        {"path": path, "payload": payload},
+        boundary="execution_capsule",
+    )
+    atomic_write_json(path, payload)
 
 
 def read_execution_capsule(path: Path) -> dict[str, Any]:

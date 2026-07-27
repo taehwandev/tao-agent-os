@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from agent_continuation_outbound import assert_no_continuation_outbound
 from agent_execution_capsule_state import atomic_write_json
 from agent_lesson_files import (
     existing_candidates,
@@ -27,6 +28,7 @@ def upsert_retrospective_candidate(
     relative_path = Path("lessons") / "inbox" / f"{lesson['lesson_id']}.json"
     path = root / relative_path
     try:
+        assert_no_continuation_outbound(lesson, boundary="global_lesson")
         with state_lock(path):
             inbox_prior, promoted_prior, duplicate_paths = existing_candidates(
                 root, lesson["lesson_id"]
