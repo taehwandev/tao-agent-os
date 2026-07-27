@@ -9,18 +9,20 @@ import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from agent_continuation_claim import claim_resume, holder_state
-from agent_continuation_drift import verify_drift
+import agent_continuation_claim
+from agent_continuation_claim import claim_resume
 from agent_continuation_store import continuation_path, read_continuation_packet
 from agent_run_owner import owner_death_is_proven, process_owner
 from agent_run_registry import (
     recover_stale_runs,
     registry_path,
+    resume_holder_state,
     resume_run,
     transition_run,
 )
@@ -77,18 +79,6 @@ def run_record(fixture: Fixture) -> dict:
     return next(run for run in payload["runs"] if run["run_id"] == fixture.run_id)
 
 
-def drift_of(fixture: Fixture) -> dict:
-    packet = read_continuation_packet(
-        fixture.project, continuation_path(fixture.project, fixture.run_id)
-    )["packet"]
-    return verify_drift(
-        fixture.project,
-        fixture.rules,
-        packet,
-        required_doc_records=fixture.preflight["execution_snapshot"]["required_docs"],
-    )
-
-
 def kill_after_checkpoint(fixture: Fixture, *, write_checkpoint: bool) -> None:
     """Run a real process that dies with no shutdown path of any kind."""
 
@@ -122,11 +112,9 @@ class KilledOwnerTests(unittest.TestCase):
                 fixture.project, continuation_path(fixture.project, fixture.run_id)
             )
             self.assertEqual("ok", stored["status"])
-            self.assertEqual("dead_proven", holder_state(run_record(fixture)))
+            self.assertEqual("dead_proven", resume_holder_state(run_record(fixture)))
 
-            result = claim_resume(
-                fixture.project, fixture.run_id, expected_generation=0, drift=drift_of(fixture)
-            )
+            result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
 
             self.assertEqual("ready", result["result"])
             self.assertEqual("running", run_record(fixture)["state"])
@@ -152,9 +140,7 @@ class KilledOwnerTests(unittest.TestCase):
                     fixture.project, continuation_path(fixture.project, fixture.run_id)
                 )["status"],
             )
-            result = claim_resume(
-                fixture.project, fixture.run_id, expected_generation=0, drift={"status": "clean"}
-            )
+            result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
             self.assertEqual("invalid_packet", result["result"])
 
     def test_the_resuming_process_becomes_the_owner(self) -> None:
@@ -163,9 +149,7 @@ class KilledOwnerTests(unittest.TestCase):
             fixture.checkpoint("initial")
             age(fixture, minutes=1, owner_pid=dead_pid())
 
-            claim_resume(
-                fixture.project, fixture.run_id, expected_generation=0, drift=drift_of(fixture)
-            )
+            claim_resume(fixture.project, fixture.run_id, expected_generation=0)
 
             record = run_record(fixture)
             self.assertEqual(process_owner(), record["owner"])
@@ -212,22 +196,19 @@ class InterruptedMutationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = self._interrupted(directory, change_bytes=False)
 
-            result = claim_resume(
-                fixture.project, fixture.run_id, expected_generation=0, drift=drift_of(fixture)
-            )
+            result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
 
             self.assertEqual("ready", result["result"])
             self.assertIsNone(result["packet"]["checkpoint"]["mutation_pending"])
             self.assertEqual("running", run_record(fixture)["state"])
+            self.assertFalse((fixture.binding_path.parent / ".mutation-baseline.json").exists())
 
     def test_changed_bytes_require_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = self._interrupted(directory, change_bytes=True)
             before = continuation_path(fixture.project, fixture.run_id).read_bytes()
 
-            result = claim_resume(
-                fixture.project, fixture.run_id, expected_generation=0, drift=drift_of(fixture)
-            )
+            result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
 
             self.assertEqual("drift_refused", result["result"])
             self.assertEqual("reconcile_required", result["phase"])
@@ -236,13 +217,113 @@ class InterruptedMutationTests(unittest.TestCase):
             self.assertEqual(
                 before, continuation_path(fixture.project, fixture.run_id).read_bytes()
             )
+            self.assertTrue((fixture.binding_path.parent / ".mutation-baseline.json").exists())
+
+
+class AuthoritativeDriftTests(unittest.TestCase):
+    def test_a_caller_cannot_inject_a_forged_clean_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+            age(fixture, minutes=1, owner_pid=dead_pid())
+
+            with self.assertRaises(TypeError):
+                claim_resume(
+                    fixture.project,
+                    fixture.run_id,
+                    expected_generation=0,
+                    drift={"status": "clean"},  # type: ignore[call-arg]
+                )
+
+            self.assertEqual(0, run_record(fixture)["resume_generation"])
+
+    def test_disabling_the_verifier_cannot_bless_changed_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+            (fixture.project / "src" / "module.py").write_text("value = 2\n", encoding="utf-8")
+            age(fixture, minutes=1, owner_pid=dead_pid())
+            forged = {
+                "status": "clean",
+                "phase": "scoped",
+                "changed_signals": [],
+                "affected_paths": [],
+                "pending_state": None,
+            }
+
+            with patch.object(agent_continuation_claim, "verify_drift", return_value=forged):
+                result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
+
+            self.assertEqual("drift_refused", result["result"])
+            self.assertIn("project_worktree", result["changed_signals"])
+
+    def test_mutation_between_capture_and_registry_cas_prevents_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+            age(fixture, minutes=1, owner_pid=dead_pid())
+            capture = agent_continuation_claim._capture_validation
+
+            def capture_then_mutate(*args):
+                result = capture(*args)
+                (fixture.project / "src" / "module.py").write_text(
+                    "value = 2\n", encoding="utf-8"
+                )
+                return result
+
+            with patch.object(
+                agent_continuation_claim,
+                "_capture_validation",
+                side_effect=capture_then_mutate,
+            ):
+                result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
+
+            self.assertEqual("drift_refused", result["result"])
+            self.assertEqual("reconcile_required", run_record(fixture)["state"])
+            self.assertIn("project_worktree", result["changed_signals"])
+
+    def test_final_invalidation_capture_failure_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+            age(fixture, minutes=1, owner_pid=dead_pid())
+
+            with patch.object(
+                agent_continuation_claim,
+                "_current_capture",
+                side_effect=RuntimeError("capture unavailable"),
+            ):
+                result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
+
+            self.assertEqual("drift_refused", result["result"])
+            self.assertEqual("reconcile_required", run_record(fixture)["state"])
+            self.assertIsNone(result["packet"])
+
+    def test_pending_clear_failure_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+            fixture.checkpoint(
+                "pre_mutation",
+                mutation={"kind": "update", "paths": ["src/module.py"]},
+            )
+            age(fixture, minutes=1, owner_pid=dead_pid())
+
+            with patch.object(
+                agent_continuation_claim,
+                "_clear_pending_mutation",
+                side_effect=OSError("replace unavailable"),
+            ):
+                result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
+
+            self.assertEqual("drift_refused", result["result"])
+            self.assertEqual("reconcile_required", run_record(fixture)["state"])
+            self.assertIn("pending_mutation", result["changed_signals"])
 
 
 class OwnerPolicyTests(unittest.TestCase):
     def _claim(self, fixture: Fixture) -> dict:
-        return claim_resume(
-            fixture.project, fixture.run_id, expected_generation=0, drift=drift_of(fixture)
-        )
+        return claim_resume(fixture.project, fixture.run_id, expected_generation=0)
 
     def test_a_live_owner_holds_the_run_inside_its_grace_ceiling(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -288,6 +369,20 @@ class OwnerPolicyTests(unittest.TestCase):
 
             self.assertEqual("ready", self._claim(fixture)["result"])
 
+    def test_a_killed_resuming_owner_is_recovered_by_the_shared_sweep(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+            path = registry_path(fixture.project)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["runs"][0].update(state="resuming", owner={"pid": dead_pid(), "start_token": ""})
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            recovered = recover_stale_runs(fixture.project, stale_after_seconds=1)
+
+            self.assertEqual([fixture.run_id], [item["run_id"] for item in recovered])
+            self.assertEqual("failed", run_record(fixture)["state"])
+
 
 class GenerationTests(unittest.TestCase):
     def test_only_one_of_two_concurrent_claims_wins(self) -> None:
@@ -295,16 +390,13 @@ class GenerationTests(unittest.TestCase):
             fixture = Fixture(directory)
             fixture.checkpoint("initial")
             age(fixture, minutes=1, owner_pid=dead_pid())
-            drift = drift_of(fixture)
             results: list[dict] = []
             ready = threading.Barrier(2)
 
             def claim() -> None:
                 ready.wait()
                 results.append(
-                    claim_resume(
-                        fixture.project, fixture.run_id, expected_generation=0, drift=drift
-                    )
+                    claim_resume(fixture.project, fixture.run_id, expected_generation=0)
                 )
 
             threads = [threading.Thread(target=claim) for _index in range(2)]
@@ -324,15 +416,11 @@ class GenerationTests(unittest.TestCase):
             age(fixture, minutes=1, owner_pid=dead_pid())
             self.assertEqual(
                 "ready",
-                claim_resume(
-                    fixture.project, fixture.run_id, expected_generation=0, drift=drift_of(fixture)
-                )["result"],
+                claim_resume(fixture.project, fixture.run_id, expected_generation=0)["result"],
             )
             age(fixture, minutes=1, owner_pid=dead_pid())
 
-            result = claim_resume(
-                fixture.project, fixture.run_id, expected_generation=0, drift=drift_of(fixture)
-            )
+            result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
 
             self.assertEqual("claim_lost", result["result"])
             self.assertEqual(1, run_record(fixture)["resume_generation"])
@@ -348,9 +436,7 @@ class BindingTests(unittest.TestCase):
             preflight["route"] = {**preflight["route"], "gates": ["scope"]}
             fixture.binding_path.write_text(json.dumps(preflight), encoding="utf-8")
 
-            result = claim_resume(
-                fixture.project, fixture.run_id, expected_generation=0, drift={"status": "clean"}
-            )
+            result = claim_resume(fixture.project, fixture.run_id, expected_generation=0)
 
             self.assertEqual("invalid_packet", result["result"])
             self.assertEqual("running", run_record(fixture)["state"])
@@ -368,9 +454,7 @@ class BindingTests(unittest.TestCase):
 
             self.assertEqual(
                 "not_found",
-                claim_resume(
-                    fixture.project, fixture.run_id, expected_generation=0, drift={"status": "clean"}
-                )["result"],
+                claim_resume(fixture.project, fixture.run_id, expected_generation=0)["result"],
             )
 
 

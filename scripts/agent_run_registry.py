@@ -22,8 +22,9 @@ from agent_state_lock import project_state_lock, state_lock
 
 SCHEMA_VERSION = 1
 REGISTRY_FILENAME = "run-registry.json"
+ACTIVE_RUN_STATES = frozenset({"running", "paused", "resuming"})
 RUN_STATES = frozenset(
-    {"running", "paused", "failed", "completed", "cancelled", "reconcile_required"}
+    {*ACTIVE_RUN_STATES, "failed", "completed", "cancelled", "reconcile_required"}
 )
 MAX_RUNS = 100
 
@@ -148,7 +149,7 @@ def active_runs(project: Path) -> list[dict[str, Any]]:
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
-        return [run for run in payload["runs"] if run.get("state") in {"running", "paused"}]
+        return [run for run in payload["runs"] if run.get("state") in ACTIVE_RUN_STATES]
 
 
 def latest_run_id(project: Path, evidence_path: Path) -> str | None:
@@ -201,7 +202,7 @@ def touch_run(
         candidates = [
             run
             for run in payload["runs"]
-            if run.get("state") in {"running", "paused"}
+            if run.get("state") in ACTIVE_RUN_STATES
             and _matches_evidence(run, project, evidence_path)
             and (not run_id or run.get("run_id") == run_id)
         ]
@@ -277,6 +278,30 @@ def read_registry_state(path: Path) -> dict[str, Any]:
     return _read_registry(path)
 
 
+def resume_holder_state(
+    run: dict[str, Any],
+    *,
+    stale_after_seconds: int = 3600,
+    now: datetime | None = None,
+) -> str:
+    """Classify a resume holder with the registry's shared stale-owner policy."""
+
+    owner = run.get("owner")
+    if owner_death_is_proven(owner):
+        return "dead_proven"
+    moment = now or datetime.now(timezone.utc)
+    try:
+        updated = datetime.fromisoformat(str(run.get("updated_at")))
+    except (TypeError, ValueError):
+        return "live" if not owner_is_gone(owner) else "unproven_wait"
+    if updated >= moment - timedelta(seconds=stale_after_seconds):
+        return "unproven_wait" if owner_is_gone(owner) else "live"
+    ceiling = moment - timedelta(
+        seconds=stale_after_seconds * LIVE_OWNER_GRACE_MULTIPLIER
+    )
+    return "live" if updated >= ceiling and not owner_is_gone(owner) else "unproven_expired"
+
+
 def _register_locked(
     payload: dict[str, Any],
     project: Path,
@@ -322,6 +347,7 @@ def _new_run(
         "route_fingerprint": route_fingerprint(route),
         "request_fingerprint": request_fingerprint(request_intake),
         "state": "running",
+        "resume_generation": 0,
         "owner": process_owner(),
         "started_at": now,
         "updated_at": now,
@@ -355,7 +381,7 @@ def _has_active_conflict(
     expected_request: str,
 ) -> bool:
     return any(
-        run.get("state") in {"running", "paused"}
+        run.get("state") in ACTIVE_RUN_STATES
         and _matches_evidence(run, project, evidence_path)
         and (
             run.get("command") != command
@@ -379,7 +405,7 @@ def _has_active_binding(
     """
 
     return any(
-        run.get("state") in {"running", "paused"}
+        run.get("state") in ACTIVE_RUN_STATES
         and _matches_evidence(run, project, evidence_path)
         for run in payload["runs"]
     )
@@ -403,24 +429,27 @@ def _sweep_stale_runs(
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=stale_after_seconds)
-    ceiling = now - timedelta(seconds=stale_after_seconds * LIVE_OWNER_GRACE_MULTIPLIER)
     recovered: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
     for run in payload["runs"]:
-        if run.get("state") not in {"running", "paused"}:
+        if run.get("state") not in ACTIVE_RUN_STATES:
             continue
         if evidence_path is not None and not _matches_evidence(
             run, project, evidence_path
         ):
             continue
-        try:
-            updated = datetime.fromisoformat(str(run["updated_at"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-        if updated >= cutoff and not owner_death_is_proven(run.get("owner")):
-            continue
-        if updated >= ceiling and not owner_is_gone(run.get("owner")):
-            held.append(run)
+        holder = resume_holder_state(
+            run,
+            stale_after_seconds=stale_after_seconds,
+            now=now,
+        )
+        if holder not in {"dead_proven", "unproven_expired"}:
+            try:
+                updated = datetime.fromisoformat(str(run["updated_at"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if holder == "live" and updated < cutoff:
+                held.append(run)
             continue
         run["state"] = "failed"
         run["updated_at"] = now.isoformat()
@@ -432,6 +461,9 @@ def _read_registry(path: Path) -> dict[str, Any]:
     payload = read_json_object(path)
     if payload.get("schema_version") != SCHEMA_VERSION or not isinstance(payload.get("runs"), list):
         return {"schema_version": SCHEMA_VERSION, "runs": []}
+    for run in payload["runs"]:
+        if isinstance(run, dict):
+            run.setdefault("resume_generation", 0)
     return payload
 
 

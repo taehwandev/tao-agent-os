@@ -21,7 +21,6 @@ from agent_continuation_claim import (
     FREE_HOLDER_STATES,
     TERMINAL_RUN_STATES,
     claim_resume,
-    holder_state,
 )
 from agent_continuation_drift import verify_drift
 from agent_continuation_store import (
@@ -30,7 +29,7 @@ from agent_continuation_store import (
     read_continuation_packet,
 )
 from agent_execution_capsule_state import read_json_object
-from agent_run_registry import read_registry_state, registry_path
+from agent_run_registry import read_registry_state, registry_path, resume_holder_state
 
 
 DRIFT_LABELS = (
@@ -95,30 +94,26 @@ def resume_last(
         return _result("not_found", newest, reason=newest["status"])
     if newest["first_unfinished"] is None:
         return _result("not_found", newest, reason="already_finished")
-    packet, binding_path, drift = _verified(project, rules, newest["run_id"])
-    if packet is None:
-        return _result("invalid_packet", newest, reason="invalid_packet")
     claim = claim_resume(
         project,
         newest["run_id"],
         expected_generation=newest["resume_generation"],
-        drift=drift,
+        rules=rules,
         stale_after_seconds=stale_after_seconds,
     )
-    return _claimed(claim, newest, binding_path)
+    return _claimed(claim, newest)
 
 
 def _claimed(
     claim: dict[str, Any],
     entry: dict[str, Any],
-    binding_path: Path,
 ) -> dict[str, Any]:
     ready = claim["result"] == "ready"
     return _result(
         claim["result"],
         entry,
         reason="" if ready else claim["result"],
-        evidence_path=str(binding_path),
+        evidence_path=claim.get("evidence_path", ""),
         resume_generation=claim["resume_generation"],
         holder_state=claim["holder_state"] or entry["holder_state"],
         changed_signals=claim["changed_signals"],
@@ -148,33 +143,6 @@ def _result(result: str, entry: dict[str, Any], **overrides: Any) -> dict[str, A
     return payload
 
 
-def _verified(
-    project: Path,
-    rules: Path | None,
-    run_id: str,
-) -> tuple[dict[str, Any] | None, Path, dict[str, Any]]:
-    """Re-verify drift immediately before the claim that will be bound to it.
-
-    The listing already reported a verdict, but that one was measured for
-    display. Measuring again here keeps the window between the strong capture
-    and the resume compare-and-swap as narrow as this design allows.
-    """
-
-    binding_path = continuation_path(project, run_id)
-    result = read_continuation_packet(project, binding_path)
-    if result["status"] != "ok":
-        return None, binding_path, {"status": "drift_refused"}
-    packet = result["packet"]
-    binding_path = binding_path.parent / packet["binding"]["filename"]
-    binding = read_json_object(binding_path)
-    return packet, binding_path, verify_drift(
-        project,
-        _rules_root(binding, rules, project),
-        packet,
-        required_doc_records=binding_required_docs(binding),
-    )
-
-
 def _entry(
     project: Path,
     rules: Path | None,
@@ -183,7 +151,11 @@ def _entry(
     stale_after_seconds: int,
 ) -> dict[str, Any]:
     run = runs.get(run_id) or {}
-    state = holder_state(run, stale_after_seconds=stale_after_seconds) if run else "dead_proven"
+    state = (
+        resume_holder_state(run, stale_after_seconds=stale_after_seconds)
+        if run
+        else "dead_proven"
+    )
     entry: dict[str, Any] = {
         "run_id": run_id,
         "status": "legacy_no_packet" if run else "unknown_run",

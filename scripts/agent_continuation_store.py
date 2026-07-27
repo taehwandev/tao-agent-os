@@ -15,7 +15,7 @@ import stat
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 from agent_continuation_fields import RUN_ID_RE, failure
 from agent_continuation_packet import (
@@ -41,13 +41,19 @@ def continuation_path(project: Path, run_id: str) -> Path:
 def list_continuation_run_ids(project: Path) -> list[str]:
     """List run ids holding a packet file, without reading or trusting any."""
 
-    runs = project.resolve() / STATE_DIR / RUNS_DIR
-    if not runs.is_dir():
+    state = project.resolve() / STATE_DIR
+    runs = state / RUNS_DIR
+    if state.is_symlink() or runs.is_symlink() or not runs.is_dir():
         return []
     return sorted(
         entry.name
         for entry in runs.iterdir()
-        if RUN_ID_RE.match(entry.name) and (entry / CONTINUATION_FILENAME).is_file()
+        if (
+            RUN_ID_RE.match(entry.name)
+            and not entry.is_symlink()
+            and not (entry / CONTINUATION_FILENAME).is_symlink()
+            and (entry / CONTINUATION_FILENAME).is_file()
+        )
     )
 
 
@@ -83,11 +89,21 @@ def write_continuation_packet(project: Path, payload: dict[str, Any]) -> Path:
     encoded = canonical_packet_bytes(payload)
     if len(encoded) > MAX_PACKET_BYTES:
         raise ContinuationPacketError([failure("packet_too_large", "")])
-    _create_private_directory(path.parent)
     failures = boundary_failures(project, path)
     if failures:
         raise ContinuationPacketError(failures)
-    _atomic_replace(path, encoded)
+    try:
+        directory_fd = _open_private_run_directory(project.resolve(), str(payload["run_id"]))
+    except OSError as error:
+        raise ContinuationPacketError([failure("local_boundary_unavailable", "")]) from error
+    try:
+        failures = boundary_failures(project, path)
+        if failures:
+            raise ContinuationPacketError(failures)
+        _atomic_replace(path, encoded, directory_fd)
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
     return path
 
 
@@ -154,15 +170,44 @@ def _file_failures(path: Path) -> list[dict[str, str]]:
     return []
 
 
-def _create_private_directory(directory: Path) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
+def _open_private_run_directory(project: Path, run_id: str) -> Optional[int]:
+    """Create the local path without following a symlink at any component."""
+
+    secure_dir_fd = (
+        os.name == "posix"
+        and os.open in os.supports_dir_fd
+        and os.mkdir in os.supports_dir_fd
+    )
+    if not secure_dir_fd:
+        directory = project / STATE_DIR / RUNS_DIR / run_id
+        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(directory, 0o700)
+        except OSError:
+            pass
+        return None
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptor = os.open(project, flags)
     try:
-        os.chmod(directory, 0o700)
-    except OSError:
-        pass
+        for name in (STATE_DIR, RUNS_DIR, run_id):
+            try:
+                os.mkdir(name, 0o700, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            child = os.open(name, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        os.fchmod(descriptor, 0o700)
+        result = descriptor
+        descriptor = -1
+        return result
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
-def _atomic_replace(path: Path, encoded: bytes) -> None:
+def _atomic_replace(path: Path, encoded: bytes, directory_fd: Optional[int] = None) -> None:
     """Write a private temporary file, flush it, then replace the target.
 
     A crash before the rename leaves the previous packet untouched and no
@@ -170,21 +215,43 @@ def _atomic_replace(path: Path, encoded: bytes) -> None:
     checkpoint be trusted after a process death it never anticipated.
     """
 
-    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    temporary_name = f".{path.name}.{uuid.uuid4().hex}.tmp"
+    temporary = path.parent / temporary_name
+    target: Union[str, Path] = path.name if directory_fd is not None else path
+    candidate: Union[str, Path] = temporary_name if directory_fd is not None else temporary
+    descriptor = os.open(
+        candidate,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+        dir_fd=directory_fd,
+    )
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        os.replace(
+            candidate,
+            target,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
     except BaseException:
         try:
-            temporary.unlink()
+            if directory_fd is None:
+                temporary.unlink()
+            else:
+                os.unlink(temporary_name, dir_fd=directory_fd)
         except OSError:
             pass
         raise
-    _fsync_directory(path.parent)
+    if directory_fd is None:
+        _fsync_directory(path.parent)
+    else:
+        try:
+            os.fsync(directory_fd)
+        except OSError:
+            pass
 
 
 def _fsync_directory(directory: Path) -> None:

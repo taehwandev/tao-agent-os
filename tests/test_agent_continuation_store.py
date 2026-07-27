@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -91,6 +92,20 @@ class RejectedWriteTests(unittest.TestCase):
             self.assertIn("prose_too_long", rules(raised.exception.failures))
             self.assertEqual(canonical_packet_bytes(first), path.read_bytes())
 
+    def test_failed_atomic_replace_leaves_the_previous_generation_intact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            first = packet(run_id=RUN_ID)
+            path = write_continuation_packet(project, first)
+            second = packet(run_id=RUN_ID, generation=1, work=work(objective="second"))
+
+            with mock.patch("agent_continuation_store.os.replace", side_effect=OSError("stop")):
+                with self.assertRaises(OSError):
+                    write_continuation_packet(project, second)
+
+            self.assertEqual(canonical_packet_bytes(first), path.read_bytes())
+            self.assertEqual([path.name], sorted(item.name for item in path.parent.iterdir()))
+
 
 class ContainmentTests(unittest.TestCase):
     """The only accepted location is the canonical run directory under .tao."""
@@ -138,6 +153,54 @@ class ContainmentTests(unittest.TestCase):
 
             self.assertEqual("local_boundary_failed", result["status"])
             self.assertIn("symlinked_path", rules(result["failures"]))
+
+    def test_a_symlinked_run_directory_write_does_not_chmod_the_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            external = Path(directory) / "external"
+            project.mkdir()
+            external.mkdir(mode=0o755)
+            runs = project / ".tao" / "runs"
+            runs.mkdir(parents=True)
+            (runs / RUN_ID).symlink_to(external)
+            before_mode = stat.S_IMODE(external.stat().st_mode)
+
+            with self.assertRaises(ContinuationPacketError) as raised:
+                write_continuation_packet(project, packet(run_id=RUN_ID))
+
+            self.assertIn("symlinked_path", rules(raised.exception.failures))
+            self.assertEqual(before_mode, stat.S_IMODE(external.stat().st_mode))
+            self.assertFalse((external / "continuation.json").exists())
+
+    def test_a_symlinked_runs_directory_write_creates_nothing_outside(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            external = Path(directory) / "external"
+            project.mkdir()
+            external.mkdir()
+            state = project / ".tao"
+            state.mkdir()
+            (state / "runs").symlink_to(external)
+
+            with self.assertRaises(ContinuationPacketError) as raised:
+                write_continuation_packet(project, packet(run_id=RUN_ID))
+
+            self.assertIn("symlinked_path", rules(raised.exception.failures))
+            self.assertFalse((external / RUN_ID).exists())
+
+    def test_listing_refuses_a_symlinked_runs_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            external = Path(directory) / "external"
+            project.mkdir()
+            packet_dir = external / RUN_ID
+            packet_dir.mkdir(parents=True)
+            (packet_dir / "continuation.json").write_text("{}", encoding="utf-8")
+            state = project / ".tao"
+            state.mkdir()
+            (state / "runs").symlink_to(external)
+
+            self.assertEqual([], list_continuation_run_ids(project))
 
     def test_an_alternate_filename_in_the_run_directory_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

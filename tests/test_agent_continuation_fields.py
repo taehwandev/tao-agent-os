@@ -18,6 +18,7 @@ from agent_continuation_fields import (
     run_id,
     sha256_value,
     slug,
+    state_head,
     timestamp,
 )
 
@@ -58,8 +59,18 @@ class ScalarTests(unittest.TestCase):
     def test_timestamp_must_be_rfc3339_utc(self) -> None:
         self.assertEqual([], collect(timestamp, "2026-07-27T09:00:00+00:00"))
         self.assertEqual([], collect(timestamp, "2026-07-27T09:00:00Z"))
+        self.assertEqual([], collect(timestamp, "2026-07-27T09:00:00.123456Z"))
         self.assertEqual(["invalid_timestamp"], collect(timestamp, "2026-07-27T09:00:00+09:00"))
         self.assertEqual(["invalid_timestamp"], collect(timestamp, "2026-07-27 09:00"))
+        self.assertEqual(["invalid_timestamp"], collect(timestamp, "2026-07-27 09:00:00+00:00"))
+        self.assertEqual(["invalid_timestamp"], collect(timestamp, "2026-07-27T09:00:00+0000"))
+
+    def test_state_head_is_a_git_object_or_the_directory_sentinel(self) -> None:
+        self.assertEqual([], collect(state_head, "a" * 40))
+        self.assertEqual([], collect(state_head, "b" * 64))
+        self.assertEqual([], collect(state_head, "non-git-directory-v1"))
+        self.assertEqual(["invalid_state_head"], collect(state_head, "abc123"))
+        self.assertEqual(["invalid_state_head"], collect(state_head, "a" * 65))
 
     def test_run_id_and_filename_shapes(self) -> None:
         self.assertEqual([], collect(run_id, "0" * 32))
@@ -81,6 +92,9 @@ class ProseTests(unittest.TestCase):
 
     def test_non_string_prose_is_a_type_failure(self) -> None:
         self.assertEqual(["invalid_type"], collect(prose, 12, 280))
+
+    def test_invalid_unicode_is_a_stable_refusal(self) -> None:
+        self.assertEqual(["invalid_unicode"], collect(prose, "\ud800", 280))
 
 
 class IdentifierTests(unittest.TestCase):
@@ -108,6 +122,9 @@ class RelativePathTests(unittest.TestCase):
     def test_empty_segments_are_rejected(self) -> None:
         self.assertEqual(["invalid_path"], collect(relative_path, "scripts//store.py"))
         self.assertEqual(["invalid_path"], collect(relative_path, "scripts/"))
+
+    def test_invalid_unicode_path_is_a_stable_refusal(self) -> None:
+        self.assertEqual(["invalid_unicode"], collect(relative_path, "scripts/\ud800.py"))
 
 
 class DepthTests(unittest.TestCase):

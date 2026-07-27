@@ -14,7 +14,7 @@ from agent_continuation_packet import (
 )
 
 HASH = "a" * 64
-STATE = {"head": "abc123", "worktree_fingerprint": HASH, "worktree_signature": HASH}
+STATE = {"head": "b" * 40, "worktree_fingerprint": HASH, "worktree_signature": HASH}
 
 
 def packet(**overrides) -> dict:
@@ -78,6 +78,15 @@ class ValidPacketTests(unittest.TestCase):
         first = canonical_packet_bytes(packet())
         reordered = dict(reversed(list(packet().items())))
         self.assertEqual(first, canonical_packet_bytes(reordered))
+
+    def test_directory_state_sentinel_is_valid(self) -> None:
+        state = dict(STATE, head="non-git-directory-v1")
+        self.assertEqual(
+            [],
+            validate_continuation_packet(
+                packet(drift={"project": state, "rules": state, "required_docs_sha256": HASH})
+            ),
+        )
 
 
 class ClosedSchemaTests(unittest.TestCase):
@@ -170,6 +179,23 @@ class ProseBoundaryTests(unittest.TestCase):
         )
         self.assertIn("prose_budget_exceeded", rules(failures))
 
+    def test_invalid_unicode_returns_a_stable_rule_instead_of_raising(self) -> None:
+        failures = validate_continuation_packet(packet(work=work(objective="\ud800")))
+        self.assertEqual([{"rule": "invalid_unicode", "pointer": "/work/objective"}], failures)
+
+    def test_invalid_unicode_in_a_field_name_is_refused_without_echoing_it(self) -> None:
+        payload = packet()
+        payload["\ud800"] = "value"
+        failures = validate_continuation_packet(payload)
+        self.assertEqual([{"rule": "invalid_field_name", "pointer": ""}], failures)
+
+    def test_non_json_value_returns_a_stable_rule_instead_of_raising(self) -> None:
+        failures = validate_continuation_packet(packet(work=work(objective=b"bytes")))
+        self.assertEqual(
+            [{"rule": "invalid_json_value", "pointer": "/work/objective"}],
+            failures,
+        )
+
 
 class BoundedCollectionTests(unittest.TestCase):
     def test_a_thirteenth_decision_is_rejected(self) -> None:
@@ -210,6 +236,18 @@ class PathAndIdentifierTests(unittest.TestCase):
     def test_run_id_must_be_the_opaque_registry_id(self) -> None:
         failures = validate_continuation_packet(packet(run_id="not-a-run-id"))
         self.assertIn("invalid_run_id", rules(failures))
+
+    def test_arbitrary_and_oversized_state_heads_are_rejected(self) -> None:
+        for head in ("abc123", "branch/main", "a" * 65):
+            with self.subTest(head=head):
+                state = dict(STATE, head=head)
+                failures = validate_continuation_packet(
+                    packet(drift={"project": state, "rules": STATE, "required_docs_sha256": HASH})
+                )
+                self.assertIn(
+                    {"rule": "invalid_state_head", "pointer": "/drift/project/head"},
+                    failures,
+                )
 
     def test_verification_records_carry_no_command_or_output(self) -> None:
         record = {

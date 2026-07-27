@@ -10,11 +10,13 @@ packet's local-only boundary does not cover.
 
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from datetime import datetime
 from typing import Any, Callable
 
+from agent_directory_fingerprint import DIRECTORY_STATE_HEAD
 from agent_execution_capsule_state import is_sha256
 
 
@@ -27,6 +29,10 @@ MAX_PROSE_BYTES = 4 * 1024
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+GIT_HEAD_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+RFC3339_UTC_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|\+00:00)$"
+)
 # A gate name is an exact catalog entry and may contain spaces; a checkpoint
 # that is not a gate is a safe slug.  Nothing else is a checkpoint.
 CHECKPOINT_RE = re.compile(r"^[a-z0-9][a-z0-9 _.-]*$")
@@ -47,6 +53,51 @@ SECRET_RES = (
 
 def failure(rule: str, pointer: str) -> dict[str, str]:
     return {"rule": rule, "pointer": pointer}
+
+
+def json_text_failures(value: Any, pointer: str = "") -> list[dict[str, str]]:
+    """Refuse values canonical UTF-8 JSON cannot encode deterministically."""
+
+    failures: list[dict[str, str]] = []
+    active_containers: set[int] = set()
+    pending = [(value, pointer, False)]
+    while pending:
+        current, current_pointer, leaving = pending.pop()
+        if leaving:
+            active_containers.remove(id(current))
+            continue
+        if isinstance(current, str):
+            if not _valid_unicode(current):
+                failures.append(failure("invalid_unicode", current_pointer))
+        elif isinstance(current, dict):
+            if id(current) in active_containers:
+                failures.append(failure("invalid_json_value", current_pointer))
+                continue
+            active_containers.add(id(current))
+            pending.append((current, current_pointer, True))
+            children = []
+            for key, item in current.items():
+                if not isinstance(key, str) or not _valid_unicode(key):
+                    failures.append(failure("invalid_field_name", current_pointer))
+                    continue
+                token = key.replace("~", "~0").replace("/", "~1")
+                children.append((item, f"{current_pointer}/{token}", False))
+            pending.extend(reversed(children))
+        elif isinstance(current, list):
+            if id(current) in active_containers:
+                failures.append(failure("invalid_json_value", current_pointer))
+                continue
+            active_containers.add(id(current))
+            pending.append((current, current_pointer, True))
+            for index in range(len(current) - 1, -1, -1):
+                pending.append((current[index], f"{current_pointer}/{index}", False))
+        elif not (
+            current is None
+            or isinstance(current, (bool, int))
+            or isinstance(current, float) and math.isfinite(current)
+        ):
+            failures.append(failure("invalid_json_value", current_pointer))
+    return failures
 
 
 def closed_object(value: dict[str, Any], fields: tuple[str, ...], pointer: str, failures: list) -> None:
@@ -86,10 +137,27 @@ def sha256_value(value: Any, pointer: str, failures: list, *, optional: bool = F
         failures.append(failure("invalid_sha256", pointer))
 
 
+def state_head(value: Any, pointer: str, failures: list) -> None:
+    """Accept a strong Git object id or the exact non-Git directory sentinel."""
+
+    if (
+        not isinstance(value, str)
+        or not _valid_unicode(value)
+        or (value != DIRECTORY_STATE_HEAD and not GIT_HEAD_RE.fullmatch(value))
+    ):
+        failures.append(failure("invalid_state_head", pointer))
+
+
 def timestamp(value: Any, pointer: str, failures: list, *, optional: bool = False) -> None:
     if optional and value is None:
         return
     if not isinstance(value, str):
+        failures.append(failure("invalid_timestamp", pointer))
+        return
+    if not _valid_unicode(value):
+        failures.append(failure("invalid_unicode", pointer))
+        return
+    if not RFC3339_UTC_RE.fullmatch(value):
         failures.append(failure("invalid_timestamp", pointer))
         return
     try:
@@ -111,6 +179,9 @@ def prose(value: Any, pointer: str, failures: list, limit: int) -> None:
 
     if not isinstance(value, str):
         failures.append(failure("invalid_type", pointer))
+        return
+    if not _valid_unicode(value):
+        failures.append(failure("invalid_unicode", pointer))
         return
     if not value:
         failures.append(failure("prose_empty", pointer))
@@ -145,6 +216,9 @@ def relative_path(value: Any, pointer: str, failures: list) -> None:
     if not isinstance(value, str) or not value or len(value) > MAX_PATH_LENGTH:
         failures.append(failure("invalid_path", pointer))
         return
+    if not _valid_unicode(value):
+        failures.append(failure("invalid_unicode", pointer))
+        return
     if (
         value != unicodedata.normalize("NFC", value)
         or "\\" in value
@@ -171,3 +245,11 @@ def depth(value: Any, level: int = 1) -> int:
     if isinstance(value, list):
         return max((depth(item, level + 1) for item in value), default=level)
     return level
+
+
+def _valid_unicode(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True

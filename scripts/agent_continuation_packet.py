@@ -25,11 +25,13 @@ from agent_continuation_fields import (
     failure,
     filename,
     items,
+    json_text_failures,
     prose,
     relative_path,
     run_id,
     sha256_value,
     slug,
+    state_head,
     timestamp,
 )
 
@@ -79,6 +81,9 @@ def validate_continuation_packet(payload: Any) -> list[dict[str, str]]:
 
     if not isinstance(payload, dict):
         return [failure("invalid_type", "")]
+    text_failures = json_text_failures(payload)
+    if text_failures:
+        return text_failures
     version = payload.get("schema_version")
     if version != CONTINUATION_SCHEMA_VERSION:
         # A newer packet may hold fields whose meaning this reader cannot know,
@@ -130,8 +135,7 @@ def _state(value: Any, pointer: str, failures: list) -> None:
         failures.append(failure("invalid_type", pointer))
         return
     closed_object(value, STATE_FIELDS, pointer, failures)
-    if not isinstance(value.get("head"), str) or not value.get("head"):
-        failures.append(failure("invalid_type", f"{pointer}/head"))
+    state_head(value.get("head"), f"{pointer}/head", failures)
     sha256_value(value.get("worktree_fingerprint"), f"{pointer}/worktree_fingerprint", failures)
     sha256_value(value.get("worktree_signature"), f"{pointer}/worktree_signature", failures)
 
