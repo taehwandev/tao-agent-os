@@ -890,5 +890,257 @@ class NumstatDeletionAccountingTests(unittest.TestCase):
         )
 
 
+class NameStatusNulSafetyTests(unittest.TestCase):
+    """A tab or newline in a path must not corrupt changed-file discovery.
+
+    `--name-status` was split on tabs, so a path containing one kept only the
+    fragment after the last tab. `--numstat` already parsed the real path, so
+    the two passes disagreed and discovery invented a file that does not exist
+    while the real one lost its status.
+    """
+
+    TAB_PATH = "src/we\tird.py"
+
+    @staticmethod
+    def _collect(name_status: str, numstat: str = "") -> dict:
+        from agent_review_structure import collect_head_diff
+
+        def run_command(command, project):
+            if "--name-status" in command:
+                return {"returncode": 0, "stdout": name_status, "stderr": ""}
+            if "--numstat" in command:
+                return {"returncode": 0, "stdout": numstat, "stderr": ""}
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        metadata: dict = {}
+        collect_head_diff(Path("."), run_command, {}, set(), metadata, [])
+        return metadata
+
+    def test_name_status_requests_nul_separated_output(self) -> None:
+        from agent_review_structure import collect_head_diff
+
+        commands: list[list[str]] = []
+
+        def run_command(command, project):
+            commands.append(command)
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        collect_head_diff(Path("."), run_command, {}, set(), {}, [])
+
+        name_status = next(c for c in commands if "--name-status" in c)
+        self.assertIn("-z", name_status)
+
+    def test_tab_in_path_keeps_one_correct_entry(self) -> None:
+        metadata = self._collect(
+            f"M\0{self.TAB_PATH}\0",
+            f"5\t2\t{self.TAB_PATH}\0",
+        )
+
+        self.assertEqual([self.TAB_PATH], list(metadata))
+        self.assertEqual("M", metadata[self.TAB_PATH]["status"])
+        self.assertEqual(5, metadata[self.TAB_PATH]["additions"])
+        self.assertEqual(2, metadata[self.TAB_PATH]["deletions"])
+
+    def test_newline_in_path_does_not_split_the_record(self) -> None:
+        newline_path = "src/we\nird.py"
+        metadata = self._collect(f"M\0{newline_path}\0")
+
+        self.assertEqual([newline_path], list(metadata))
+
+    def test_rename_with_separator_characters_keeps_both_paths(self) -> None:
+        metadata = self._collect("R100\0old\tname.py\0new\tname.py\0")
+
+        self.assertEqual(["new\tname.py"], list(metadata))
+        self.assertEqual("old\tname.py", metadata["new\tname.py"]["previous_path"])
+
+    def test_negative_control_ordinary_paths_are_unaffected(self) -> None:
+        """The control: NUL parsing must still handle the common case.
+
+        If it broke plain paths, every review would lose its changed-file set.
+        """
+
+        metadata = self._collect(
+            "M\0src/plain.py\0A\0src/added.py\0",
+            "3\t1\tsrc/plain.py\0",
+        )
+
+        self.assertEqual(["src/added.py", "src/plain.py"], sorted(metadata))
+        self.assertEqual("A", metadata["src/added.py"]["status"])
+        self.assertEqual(3, metadata["src/plain.py"]["additions"])
+
+    def test_line_oriented_output_still_parses_for_injected_runners(self) -> None:
+        metadata = self._collect("M\tsrc/plain.py\n", "3\t1\tsrc/plain.py\n")
+
+        self.assertEqual("M", metadata["src/plain.py"]["status"])
+        self.assertEqual(3, metadata["src/plain.py"]["additions"])
+
+
+class ListedPathNulSafetyTests(unittest.TestCase):
+    """`git ls-files`/`--name-only` discovery must survive a path separator.
+
+    Git quotes any path containing a newline or other special character unless
+    `-z` is passed, so `we<newline>ird.py` arrived as the literal text
+    `"we\\nird.py"`. Discovery recorded that quoted string and the real file was
+    never reviewed at all, which is the one outcome this gate exists to prevent.
+    These run against a real repository because the defect lives in git's output
+    encoding, not in the parser alone.
+    """
+
+    NEWLINE_NAME = "we\nird.py"
+    TAB_NAME = "we\tird.py"
+
+    @staticmethod
+    def _run_command(command: list[str], cwd: Path) -> dict[str, object]:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        return {
+            "command": command,
+            "cwd": str(cwd),
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+
+    @classmethod
+    def _git(cls, project: Path, *args: str) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Tao Agent OS Tests",
+                "-c",
+                "user.email=tao@example.invalid",
+                *args,
+            ],
+            cwd=project,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    @classmethod
+    def _initial_repository(cls, project: Path) -> None:
+        (project / "src").mkdir()
+        (project / "src" / "base.py").write_text("value = 1\n", encoding="utf-8")
+        cls._git(project, "init")
+        cls._git(project, "add", "-A")
+        cls._git(project, "commit", "-m", "initial")
+
+    def _discover_untracked(self, filename: str) -> tuple[dict, list[Path]]:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            self._initial_repository(project)
+            (project / "src" / filename).write_text("value = 2\n", encoding="utf-8")
+
+            return changed_source_paths(project, self._run_command)
+
+    def test_newline_path_is_discovered_with_its_real_name(self) -> None:
+        discovery, checked = self._discover_untracked(self.NEWLINE_NAME)
+
+        expected = f"src/{self.NEWLINE_NAME}"
+        self.assertIn(expected, discovery["path_metadata"])
+        self.assertEqual([Path(expected)], checked)
+
+    def test_tab_path_is_discovered_with_its_real_name(self) -> None:
+        discovery, checked = self._discover_untracked(self.TAB_NAME)
+
+        expected = f"src/{self.TAB_NAME}"
+        self.assertIn(expected, discovery["path_metadata"])
+        self.assertEqual([Path(expected)], checked)
+
+    def test_no_quoted_phantom_path_is_recorded(self) -> None:
+        """The negative control: reverting `-z` reinstates the quoted phantom.
+
+        Without the fix `path_metadata` holds `"src/we\\nird.py"` -- quotes and a
+        two-character backslash-n -- and `checked` is empty.
+        """
+
+        discovery, checked = self._discover_untracked(self.NEWLINE_NAME)
+
+        self.assertEqual([], [name for name in discovery["path_metadata"] if '"' in name])
+        self.assertNotEqual([], checked)
+
+    def test_initial_commit_discovery_keeps_a_newline_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / self.NEWLINE_NAME).write_text("value = 1\n", encoding="utf-8")
+            self._git(project, "init")
+
+            discovery, checked = changed_source_paths(project, self._run_command)
+
+        expected = f"src/{self.NEWLINE_NAME}"
+        self.assertIn(expected, discovery["path_metadata"])
+        self.assertEqual([Path(expected)], checked)
+
+    def test_unstaged_move_of_a_newline_path_is_still_recognized(self) -> None:
+        """Covers the deleted-path listing that feeds move reclassification."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            body = "".join(f"value_{index} = {index}\n" for index in range(20))
+            (project / "src" / self.NEWLINE_NAME).write_text(body, encoding="utf-8")
+            self._git(project, "init")
+            self._git(project, "add", "-A")
+            self._git(project, "commit", "-m", "initial")
+
+            (project / "lib").mkdir()
+            (project / "lib" / self.NEWLINE_NAME).write_text(body, encoding="utf-8")
+            (project / "src" / self.NEWLINE_NAME).unlink()
+
+            discovery, _checked = changed_source_paths(project, self._run_command)
+
+        moved = discovery["path_metadata"][f"lib/{self.NEWLINE_NAME}"]
+        self.assertEqual("R", moved["status"])
+        self.assertEqual(f"src/{self.NEWLINE_NAME}", moved["previous_path"])
+
+    def test_ordinary_paths_are_still_discovered(self) -> None:
+        """The opposite-direction control: NUL parsing must not lose plain paths.
+
+        If it did, every review would silently run against an empty file set.
+        """
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            self._initial_repository(project)
+            (project / "src" / "base.py").write_text("value = 3\n", encoding="utf-8")
+            (project / "src" / "added.py").write_text("value = 4\n", encoding="utf-8")
+
+            discovery, checked = changed_source_paths(project, self._run_command)
+
+        self.assertEqual([Path("src/added.py"), Path("src/base.py")], checked)
+        self.assertEqual("M", discovery["path_metadata"]["src/base.py"]["status"])
+        self.assertEqual("A", discovery["path_metadata"]["src/added.py"]["status"])
+
+    def test_discovery_commands_request_nul_separated_listings(self) -> None:
+        commands: list[list[str]] = []
+
+        def run_command(command: list[str], project: Path) -> dict[str, object]:
+            commands.append(command)
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        changed_source_paths(Path("."), run_command)
+
+        for marker in ("--others", "--name-only"):
+            with self.subTest(marker=marker):
+                listing = next(command for command in commands if marker in command)
+                self.assertIn("-z", listing)
+
+    def test_line_oriented_listings_still_parse_for_injected_runners(self) -> None:
+        from agent_review_structure import _listed_paths
+
+        self.assertEqual(
+            ["src/a.py", "src/b.py"],
+            _listed_paths("src/a.py\nsrc/b.py\n"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

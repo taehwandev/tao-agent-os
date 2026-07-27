@@ -390,30 +390,58 @@ def check_read_only_execution(
     recorded = preflight.get("read_only_execution_state")
     if not (
         isinstance(recorded, dict)
-        and set(recorded) == {"head", "worktree_fingerprint", "worktree_signature"}
-        and isinstance(recorded.get("head"), str)
-        and bool(recorded["head"])
-        and is_sha256(recorded.get("worktree_fingerprint"))
-        and is_sha256(recorded.get("worktree_signature"))
+        and set(recorded) == {"project", "rules"}
+        and all(_is_workspace_state(recorded[root]) for root in ("project", "rules"))
     ):
         failures.append(
-            "read-only execution is missing its strong start-time workspace fingerprint; "
-            "rerun start before finishing"
+            "read-only execution is missing its strong start-time workspace fingerprint "
+            "for the project and rules roots; rerun start before finishing"
+        )
+        return
+    rules_value = preflight.get("rules")
+    if not isinstance(rules_value, str) or not rules_value.strip():
+        failures.append(
+            "read-only execution cannot be verified without the rules root recorded at start"
         )
         return
     try:
-        current, _ = state_reader(project, project)
+        current_project, current_rules = state_reader(project, Path(rules_value))
     except (OSError, RuntimeError, ValueError):
         failures.append(
             "read-only execution workspace state could not be verified; "
             "Git and directory inspection errors fail closed"
         )
         return
-    if current != recorded:
-        failures.append(
-            "read-only execution was declared but the worktree changed after start; "
-            "read-only skips VibeGuard, so rerun the lifecycle without --read-only"
-        )
+    checked = [("project", current_project), ("rules", current_rules)]
+    try:
+        if Path(rules_value).resolve() == project.resolve():
+            # One checkout serving as both roots produces one state, so keep
+            # the report to a single drift rather than the same one twice.
+            checked = checked[:1]
+    except OSError:
+        pass
+    for root, current in checked:
+        recorded_root = recorded[root]
+        if (
+            current["head"] != recorded_root["head"]
+            or current["worktree_fingerprint"]
+            != recorded_root["worktree_fingerprint"]
+        ):
+            failures.append(
+                f"read-only execution was declared but the {root} root changed after start; "
+                "read-only skips VibeGuard, so rerun the lifecycle without --read-only"
+            )
+
+
+def _is_workspace_state(state: Any) -> bool:
+    return (
+        isinstance(state, dict)
+        and set(state) == {"head", "worktree_fingerprint", "worktree_signature"}
+        and isinstance(state.get("head"), str)
+        and bool(state["head"])
+        and is_sha256(state.get("worktree_fingerprint"))
+        and is_sha256(state.get("worktree_signature"))
+    )
 
 
 def check_preflight_vibeguard(

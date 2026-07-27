@@ -314,5 +314,51 @@ fun buildEcho() = 5
                 self.assertTrue(any("non-private top-level owners" in item for item in failures))
 
 
+class KotlinMultiplatformOwnerTests(unittest.TestCase):
+    """`expect`/`actual` are declaration modifiers, not a separate construct.
+
+    The function pattern already listed them, so `expect fun` counted while
+    `expect class` did not: a multiplatform file could declare any number of
+    top-level classes and report zero owners, bypassing both budgets.
+    """
+
+    def _declare(self, keyword: str, name: str = "Widgets.kt"):
+        source = "package a\n\n" + "\n\n".join(
+            f"{keyword} class Widget{index}" for index in range(5)
+        )
+        path = Path(f"app/src/commonMain/kotlin/{name}")
+        return path, top_level_type_declarations(path, source.splitlines())
+
+    def test_expect_classes_count_as_owners(self) -> None:
+        path, found = self._declare("expect")
+
+        self.assertEqual(5, len(found))
+        self.assertTrue(top_level_declaration_failures(path, found))
+
+    def test_actual_classes_count_as_owners(self) -> None:
+        path, found = self._declare("actual")
+
+        self.assertEqual(5, len(found))
+        self.assertTrue(top_level_declaration_failures(path, found))
+
+    def test_expect_and_actual_functions_still_count(self) -> None:
+        path = Path("app/src/commonMain/kotlin/Builders.kt")
+        source = "package a\n\nexpect fun buildAlpha(): Int\n\nactual fun buildBravo(): Int = 2\n"
+        found = top_level_type_declarations(path, source.splitlines())
+
+        self.assertEqual(["buildAlpha", "buildBravo"], [item["name"] for item in found])
+
+    def test_negative_control_private_multiplatform_classes_stay_unowned(self) -> None:
+        """The control: widening the modifier list must not swallow `private`."""
+
+        path = Path("app/src/commonMain/kotlin/Internals.kt")
+        source = "package a\n\n" + "\n\n".join(
+            f"private class Helper{index}" for index in range(5)
+        )
+        found = top_level_type_declarations(path, source.splitlines())
+
+        self.assertEqual([], top_level_declaration_failures(path, found))
+
+
 if __name__ == "__main__":
     unittest.main()

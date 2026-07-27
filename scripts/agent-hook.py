@@ -51,9 +51,9 @@ from agent_review_structure import (
     REVIEW_SOURCE_FILE_LINE_LIMIT,
 )
 from agent_run_registry import (
-    active_run_conflict,
-    recover_stale_runs,
+    claim_run,
     register_run,
+    touch_run,
     transition_run,
 )
 from agent_context_store import (
@@ -75,25 +75,23 @@ def start_hook(args: argparse.Namespace) -> int:
     }
     # A run that was interrupted stays `running` forever unless the separate
     # maintenance entrypoint is invoked, and nothing in the lifecycle invokes
-    # it. Without this sweep one abandoned run permanently claims the shared
-    # evidence path: start refuses it and directs the agent to an isolated
-    # --evidence path, while the Claude pre-tool gate only ever reads the
-    # default one, so every edit is denied with no in-band way out.
-    recover_stale_runs(args.project)
-    if active_run_conflict(
+    # it. Without the sweep inside this claim one abandoned run permanently
+    # holds the shared evidence path: start refuses it and directs the agent to
+    # an isolated --evidence path, while the Claude pre-tool gate only ever
+    # reads the default one, so every edit is denied with no in-band way out.
+    # Sweeping, deciding and registering happen in one registry transaction, so
+    # two concurrent starts cannot both conclude the path is free.
+    claim = claim_run(
         args.project,
         evidence_path,
-        command=args.command,
-        request_intake=request_intake,
-    ):
+        {"command": args.command},
+        request_intake,
+    )
+    if claim["conflict"]:
         return finish_with_result(
             "start",
             False,
-            [
-                "preflight evidence is already bound to another active request; "
-                "use one isolated --evidence .tao/runs/<opaque>/preflight.json path "
-                "for the full start/gate/review/finish lifecycle"
-            ],
+            [_claim_refusal_detail(claim)],
             args.output,
             {},
             args.repair_cycle,
@@ -140,7 +138,9 @@ def start_hook(args: argparse.Namespace) -> int:
         if success:
             success = _bind_read_only_execution_state(args, details)
         if success:
-            _register_started_run(args, details)
+            _register_started_run(args, details, claim["run"])
+    if not success:
+        _release_claimed_run(args, claim["run"])
     return finish_with_result(
         "start",
         success,
@@ -233,7 +233,54 @@ def finish_hook(args: argparse.Namespace) -> int:
     )
 
 
-def _register_started_run(args: argparse.Namespace, details: list[str]) -> None:
+def _claim_refusal_detail(claim: dict[str, Any]) -> str:
+    """Explain a refusal the agent cannot otherwise see in the registry.
+
+    A run held past the staleness window by a still-living process keeps the
+    path until its grace ceiling, so without naming it the agent only sees a
+    path that stays blocked for no visible reason.
+    """
+
+    detail = (
+        "preflight evidence is already bound to another active request; "
+        "use one isolated --evidence .tao/runs/<opaque>/preflight.json path "
+        "for the full start/gate/review/finish lifecycle"
+    )
+    if claim.get("held"):
+        detail += (
+            "; the holding run reported no progress recently but its owning "
+            "process is still alive, so it keeps the path until it finishes or "
+            "its grace ceiling expires"
+        )
+    return detail
+
+
+def _release_claimed_run(args: argparse.Namespace, run: dict[str, Any] | None) -> None:
+    """Give back the evidence path when the start that claimed it never began.
+
+    The claim is taken before preflight so two starts cannot both win the path.
+    A start that then fails produced no run to protect, and leaving the claim
+    standing would block the next attempt for a whole staleness window.
+    """
+
+    if not run:
+        return
+    try:
+        transition_run(
+            args.project,
+            preflight_evidence_path(args),
+            "cancelled",
+            run_id=str(run.get("run_id") or "") or None,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return
+
+
+def _register_started_run(
+    args: argparse.Namespace,
+    details: list[str],
+    claimed: dict[str, Any] | None,
+) -> None:
     """Persist lifecycle state without making registry health a startup blocker."""
 
     try:
@@ -244,7 +291,7 @@ def _register_started_run(args: argparse.Namespace, details: list[str]) -> None:
             evidence_path,
             payload.get("route") or {},
             payload.get("request_intake") or {},
-            reuse_active=True,
+            reuse_run_id=str((claimed or {}).get("run_id") or "") or None,
         )
         payload["agent_run_id"] = run["run_id"]
         write_json(evidence_path, payload)
@@ -276,8 +323,14 @@ def _bind_read_only_execution_state(
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
         if not (payload.get("execution_mode") or {}).get("read_only"):
             return True
-        state, _ = git_states_for_paths(args.project, args.project)
-        payload["read_only_execution_state"] = state
+        # Both roots matter. A read-only run against a separate rules checkout
+        # can still edit that checkout, and fingerprinting the project twice
+        # would let those edits through the finish check unseen.
+        project_state, rules_state = git_states_for_paths(args.project, args.rules)
+        payload["read_only_execution_state"] = {
+            "project": project_state,
+            "rules": rules_state,
+        }
         write_json(evidence_path, payload)
         resync_gate_evidence_ledger(evidence_path, payload)
     except (OSError, RuntimeError, ValueError, TypeError, json.JSONDecodeError) as error:
@@ -285,6 +338,20 @@ def _bind_read_only_execution_state(
         return False
     details.append("read-only execution state: bound")
     return True
+
+
+def _refresh_run_heartbeat(args: argparse.Namespace) -> None:
+    """Mark the run alive on every post-start lifecycle hook.
+
+    Any hook reaching this point is an agent actively working the run, which is
+    the proof of life the staleness sweep needs. Registry problems must never
+    block the hook itself, so failures here stay silent.
+    """
+
+    try:
+        touch_run(args.project, preflight_evidence_path(args))
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return
 
 
 def _transition_finished_run(args: argparse.Namespace, success: bool) -> None:
@@ -659,6 +726,11 @@ def main() -> int:
     if worker_error:
         print_status(args.hook, False, [worker_error])
         return 2
+    # Must follow _apply_worker_evidence_boundary so a worker refreshes its own
+    # run, and must skip `start`: start refreshes nothing it is about to sweep,
+    # or it would revive the very record whose evidence path it needs to claim.
+    if args.hook != "start":
+        _refresh_run_heartbeat(args)
     if args.hook == "repair-verify":
         repair_evidence_path = preflight_evidence_path(args)
         try:

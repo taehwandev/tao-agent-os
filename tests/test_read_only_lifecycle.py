@@ -131,8 +131,13 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
     """
 
     @staticmethod
-    def _preflight(state: dict[str, str]) -> dict:
-        return {"read_only_execution_state": state}
+    def _preflight(state: dict[str, str], rules: Path) -> dict:
+        # These cases run project and rules from one root, so both fingerprints
+        # are the same value; the point under test is the worktree comparison.
+        return {
+            "rules": str(rules),
+            "read_only_execution_state": {"project": state, "rules": state},
+        }
 
     @staticmethod
     def _init_repository(project: Path) -> Path:
@@ -161,7 +166,25 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
             failures: list[str] = []
 
             check_read_only_execution(
-                self._preflight(state),
+                self._preflight(state, project),
+                project,
+                failures,
+                read_only=True,
+            )
+
+        self.assertEqual([], failures)
+
+    def test_same_bytes_with_changed_metadata_keeps_the_read_only_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            target = self._init_repository(project)
+            target.write_text("dirty-a\n", encoding="utf-8")
+            state, _ = git_states_for_paths(project, project)
+            target.write_text("dirty-a\n", encoding="utf-8")
+            failures: list[str] = []
+
+            check_read_only_execution(
+                self._preflight(state, project),
                 project,
                 failures,
                 read_only=True,
@@ -179,7 +202,7 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
             failures: list[str] = []
 
             check_read_only_execution(
-                self._preflight(state),
+                self._preflight(state, project),
                 project,
                 failures,
                 read_only=True,
@@ -219,7 +242,7 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
             failures: list[str] = []
 
             check_read_only_execution(
-                self._preflight(state),
+                self._preflight(state, project),
                 project,
                 failures,
                 read_only=True,
@@ -228,14 +251,14 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
 
             target.write_text("draft-b\n", encoding="utf-8")
             check_read_only_execution(
-                self._preflight(state),
+                self._preflight(state, project),
                 project,
                 failures,
                 read_only=True,
             )
 
         self.assertEqual(1, len(failures))
-        self.assertIn("worktree changed after start", failures[0])
+        self.assertIn("project root changed after start", failures[0])
 
     def test_git_inspection_error_fails_closed(self) -> None:
         failures: list[str] = []
@@ -246,7 +269,7 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
         }
 
         check_read_only_execution(
-            self._preflight(state),
+            self._preflight(state, Path("/tmp/project")),
             Path("/tmp/project"),
             failures,
             read_only=True,
@@ -283,7 +306,7 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
                 json.dumps({"execution_mode": {"read_only": True}}),
                 encoding="utf-8",
             )
-            args = Namespace(project=project, evidence=evidence_path)
+            args = Namespace(project=project, rules=project, evidence=evidence_path)
             details: list[str] = []
 
             self.assertTrue(
@@ -292,10 +315,12 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
             payload = json.loads(evidence_path.read_text(encoding="utf-8"))
 
         state = payload["read_only_execution_state"]
-        self.assertEqual(
-            {"head", "worktree_fingerprint", "worktree_signature"},
-            set(state),
-        )
+        self.assertEqual({"project", "rules"}, set(state))
+        for root in ("project", "rules"):
+            self.assertEqual(
+                {"head", "worktree_fingerprint", "worktree_signature"},
+                set(state[root]),
+            )
         self.assertEqual(["read-only execution state: bound"], details)
 
     def test_start_fails_when_read_only_state_cannot_be_captured(self) -> None:
@@ -306,7 +331,7 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
                 json.dumps({"execution_mode": {"read_only": True}}),
                 encoding="utf-8",
             )
-            args = Namespace(project=project, evidence=evidence_path)
+            args = Namespace(project=project, rules=project, evidence=evidence_path)
             details: list[str] = []
 
             with patch.object(
@@ -321,6 +346,114 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
             ["read-only execution state: capture failed (git inspection failed)"],
             details,
         )
+
+
+class ReadOnlyRulesRootTests(unittest.TestCase):
+    """Read-only must fingerprint the rules root, not the project twice.
+
+    A read-only run against a separate rules checkout can still edit that
+    checkout. Capturing the project state under both keys made the comparison
+    trivially true for rules, so edits to shared guidance finished unnoticed.
+    """
+
+    @staticmethod
+    def _state(head: str) -> dict:
+        return {
+            "head": head,
+            "worktree_fingerprint": "a" * 64,
+            "worktree_signature": "b" * 64,
+        }
+
+    def _preflight(self) -> dict:
+        return {
+            "rules": "/rules",
+            "read_only_execution_state": {
+                "project": self._state("project-head"),
+                "rules": self._state("rules-head"),
+            },
+        }
+
+    def test_unchanged_project_and_rules_pass(self) -> None:
+        failures: list[str] = []
+
+        check_read_only_execution(
+            self._preflight(),
+            Path("/project"),
+            failures,
+            read_only=True,
+            state_reader=lambda project, rules: (
+                self._state("project-head"),
+                self._state("rules-head"),
+            ),
+        )
+
+        self.assertEqual([], failures)
+
+    def test_changed_rules_root_fails_closed(self) -> None:
+        failures: list[str] = []
+
+        check_read_only_execution(
+            self._preflight(),
+            Path("/project"),
+            failures,
+            read_only=True,
+            state_reader=lambda project, rules: (
+                self._state("project-head"),
+                self._state("rules-moved"),
+            ),
+        )
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("rules root changed after start", failures[0])
+
+    def test_negative_control_changed_project_still_fails(self) -> None:
+        """The control: widening to two roots must not drop the project check."""
+
+        failures: list[str] = []
+
+        check_read_only_execution(
+            self._preflight(),
+            Path("/project"),
+            failures,
+            read_only=True,
+            state_reader=lambda project, rules: (
+                self._state("project-moved"),
+                self._state("rules-head"),
+            ),
+        )
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("project root changed after start", failures[0])
+
+    def test_reader_receives_the_recorded_rules_root(self) -> None:
+        seen: list[tuple] = []
+
+        def reader(project, rules):
+            seen.append((project, rules))
+            return self._state("project-head"), self._state("rules-head")
+
+        check_read_only_execution(
+            self._preflight(), Path("/project"), [], read_only=True, state_reader=reader
+        )
+
+        self.assertEqual([(Path("/project"), Path("/rules"))], seen)
+
+    def test_legacy_single_root_state_fails_closed(self) -> None:
+        failures: list[str] = []
+
+        check_read_only_execution(
+            {"rules": "/rules", "read_only_execution_state": self._state("only-project")},
+            Path("/project"),
+            failures,
+            read_only=True,
+            state_reader=lambda project, rules: (
+                self._state("only-project"),
+                self._state("only-project"),
+            ),
+        )
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("project and rules roots", failures[0])
 
 
 if __name__ == "__main__":

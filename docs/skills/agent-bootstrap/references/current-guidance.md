@@ -224,7 +224,9 @@ extraction. Read `docs/skills/graphify-project-integration/SKILL.md`, then read
 the installed canonical Graphify `SKILL.md`, build the initial graph from the
 target root, and rerun the check. Use `--skip-graphify` only as an explicit
 project opt-out. Bulk `--github-projects` needs explicit `--graphify` because
-it writes generated state across multiple repositories.
+that flag adds a Graphify readiness check to every discovered repository; the
+check inspects and writes nothing, but opting in per run keeps a wide sweep
+from reporting on repositories the caller never meant to include.
 
 Then check runtime bridges, hooks, and permission allowlists:
 

@@ -294,35 +294,111 @@ CODE_AUTHORING_REQUEST_PATTERNS = (
 )
 EXPLICIT_CONCERN_EXCLUSION_PATTERNS = {
     "graphify": (
-        r"\b(?:do not|don't|must not|should not)\s+"
-        r"(?:(?:run|use|invoke|call|install|enable)\s+|rely\s+on\s+)graphify\b",
-        r"\bwithout\s+(?:(?:running|using|invoking|calling|installing|relying\s+on)\s+)?graphify\b",
-        r"\bgraphify\b.{0,40}\b(?:excluded?|disabled?|out\s+of\s+scope)\b",
+        r"\b(?:do not|don't|must not|should not|never)\s+"
+        r"(?:(?:run|use|invoke|call|execute|include|install|enable|build|update|query)\s+|"
+        r"rely\s+on\s+)graphify\b",
+        r"\bwithout\s+(?:(?:running|using|invoking|calling|executing|including|installing|"
+        r"relying\s+on)\s+)?graphify\b",
+        # An opt-out is as often a bare removal verb as a negated action verb:
+        # "Skip Graphify for this task" carries no do-not for the pattern above
+        # to attach to.
+        r"\b(?:skip|omit|exclude|disable|bypass|drop|leave\s+out)\s+"
+        r"(?:(?:running|using|invoking|calling|executing|installing|the)\s+)?"
+        r"graphify\b",
+        r"\bleave\s+graphify\s+out\b",
+        r"\bgraphify\b.{0,40}\b(?:excluded?|disabled?|skipped?|omitted?|"
+        r"bypassed?|dropped?|left\s+out|out\s+of\s+scope)\b",
         r"\bgraphify\b.{0,40}\b(?:must not|should not|do not|don't)\s+"
-        r"(?:be\s+)?(?:run|used|invoked|called|installed|enabled)\b",
+        r"(?:be\s+)?(?:run|used|invoked|called|included|installed|enabled)\b",
         r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프).{0,40}"
         r"(?:실행|사용|설치)(?:은|는|을|를)?\s*(?:제외|금지|하지\s*마|하지\s*않)",
         r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프).{0,40}"
         r"(?:돌리면\s*안|돌리지\s*마|안\s*돌)",
-        r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프)(?:가|이|를|을)?\s*없이",
+        r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프)"
+        r"(?:\s*(?:가|이|를|을))?\s*없이",
+        # Korean drops the verb freely: "Graphify 는 하지 마" carries no
+        # 실행/사용/설치 for the verb-anchored patterns above to attach to, so a
+        # bare topic-marked negation or removal verb ("그래피는 빼줘") has to be
+        # recognised on its own. The verb must sit right after the concern word
+        # with only a case marker between: 그래프 is an ordinary word, so a
+        # wider gap would start excluding sentences that merely mention a chart.
+        r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프)"
+        r"(?:\s*(?:는|은|를|을|도|만))?\s*"
+        r"(?:하지\s*마|하지\s*않|안\s*함|금지|제외|생략|건너뛰|스킵|무시|빼)",
+    ),
+}
+# Checked before the exclusion patterns above and, when it matches, cancels
+# them. "Do not skip graphify" / "Graphify 는 제외하지 마" are negators applied
+# to an opt-out verb, so they ask for the exact opposite of the exclusion they
+# textually contain. Suppressing the exclusion in one place keeps each pattern
+# above readable; the alternative is a negative lookbehind for every negator on
+# every exclusion pattern, and Python needs those fixed-width.
+EXPLICIT_CONCERN_EXCLUSION_NEGATION_PATTERNS = {
+    "graphify": (
+        r"\b(?:do not|don'?t|must not|mustn'?t|should not|shouldn'?t|never|"
+        r"no need to)\s+(?:\w+\s+){0,2}?"
+        r"(?:skip|omit|exclude|disable|bypass|drop|leave\s+out)\b",
+        # Korean puts the negator after the verb. Anchored to opt-out verb
+        # stems only, so a plain "Graphify 는 하지 마" stays an exclusion.
+        r"(?:제외|생략|무시|배제|스킵)하지\s*(?:마|말|않)",
+        r"(?:빼|건너뛰)지\s*(?:마|말|않)",
     ),
 }
 
 
+# Korean attaches a particle straight onto a Latin keyword — "Graphify는",
+# "SwiftUI에서" — and Python's \b sees no boundary there because Hangul is a
+# word character too. That silently blinded every \b-anchored hint and
+# exclusion to the ordinary Korean spelling: "Graphify는 제외하지 마" inferred
+# no concern at all. Splitting that one junction before matching repairs all of
+# them at once instead of loosening 228 individual patterns, and it cannot
+# create a substring match: the space only ever lands between a complete
+# Latin/digit run and an attached Hangul syllable, never inside an identifier
+# like "graphifyer" or a path fragment.
+_LATIN_HANGUL_JUNCTION = re.compile(r"(?<=[A-Za-z0-9])(?=[가-힣ㄱ-ㆎ])")
+
+
+def _match_text(text: str) -> str:
+    # Editors commonly replace ASCII apostrophes with smart quotes. Concern
+    # matching treats both spellings as the same request so ``Don’t include``
+    # cannot bypass the explicit opt-out that ``Don't include`` already
+    # expresses.
+    ascii_apostrophes = text.replace("’", "'").replace("‘", "'")
+    return _LATIN_HANGUL_JUNCTION.sub(" ", ascii_apostrophes)
+
+
 def infer_concerns_from_request(text: str) -> list[str]:
-    normalized = " ".join(text.strip().split())
+    normalized = _match_text(" ".join(text.strip().split()))
     if not normalized:
         return []
     inferred: list[str] = []
     for concern, patterns in REQUEST_CONCERN_HINTS:
-        excluded = _matches(
-            EXPLICIT_CONCERN_EXCLUSION_PATTERNS.get(concern, ()),
-            normalized,
-            re.IGNORECASE,
-        )
-        if _matches(patterns, normalized, re.IGNORECASE) and not excluded:
+        if _matches(patterns, normalized, re.IGNORECASE) and not _is_opted_out(
+            concern, normalized
+        ):
             inferred.append(concern)
     return unique(inferred)
+
+
+def _is_opted_out(concern: str, normalized: str) -> bool:
+    """Report whether the request explicitly asks for the concern to be dropped.
+
+    A double negation ("do not skip graphify") textually contains its own
+    exclusion, so the negation cancels the exclusion instead of competing with
+    it inside the same regex.
+    """
+
+    if not _matches(
+        EXPLICIT_CONCERN_EXCLUSION_PATTERNS.get(concern, ()),
+        normalized,
+        re.IGNORECASE,
+    ):
+        return False
+    return not _matches(
+        EXPLICIT_CONCERN_EXCLUSION_NEGATION_PATTERNS.get(concern, ()),
+        normalized,
+        re.IGNORECASE,
+    )
 
 
 def classify_request(text: str) -> dict[str, object]:

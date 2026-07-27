@@ -292,28 +292,24 @@ def changed_source_paths(
         collect_head_diff(project, run_command, commands, names, path_metadata, command_errors, review_paths)
     else:
         tracked = run_command(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
             project,
         )
         commands["ls_files_initial"] = tracked
         if tracked["returncode"] == 0:
-            for line in tracked["stdout"].splitlines():
-                name = line.strip()
-                if name:
-                    record_path(names, path_metadata, name, status="A")
+            for name in _listed_paths(tracked["stdout"]):
+                record_path(names, path_metadata, name, status="A")
         else:
             command_errors.append("git ls-files changed source discovery failed")
 
     untracked = run_command(
-        ["git", "ls-files", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
+        ["git", "ls-files", "-z", "--others", "--exclude-standard", *_pathspec_args(review_paths)],
         project,
     )
     commands["ls_files_untracked"] = untracked
     if untracked["returncode"] == 0:
-        for line in untracked["stdout"].splitlines():
-            name = line.strip()
-            if name:
-                record_path(names, path_metadata, name, status="A", untracked=True)
+        for name in _listed_paths(untracked["stdout"]):
+            record_path(names, path_metadata, name, status="A", untracked=True)
     else:
         command_errors.append("git ls-files untracked source discovery failed")
 
@@ -347,19 +343,16 @@ def collect_head_diff(
 ) -> None:
     pathspec = _pathspec_args(review_paths)
     status = run_command(
-        ["git", "diff", "--name-status", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
+        ["git", "diff", "--name-status", "-z", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
         project,
     )
     commands["diff_name_status"] = status
     if status["returncode"] == 0:
-        for line in status["stdout"].splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2:
-                status_code = parts[0][:1]
-                updates: dict[str, Any] = {"status": status_code}
-                if status_code in {"R", "C"} and len(parts) >= 3:
-                    updates["previous_path"] = parts[-2]
-                record_path(names, path_metadata, parts[-1], **updates)
+        for destination, status_code, previous in _parse_name_status(status["stdout"]):
+            updates: dict[str, Any] = {"status": status_code}
+            if previous:
+                updates["previous_path"] = previous
+            record_path(names, path_metadata, destination, **updates)
     else:
         command_errors.append("git diff changed source discovery failed")
 
@@ -379,6 +372,68 @@ def collect_head_diff(
             )
     else:
         command_errors.append("git diff line-count discovery failed")
+
+
+def _listed_paths(stdout: str) -> list[str]:
+    """Return the paths of a one-path-per-record ``-z`` git listing.
+
+    Without ``-z`` git quotes any path holding a special character, so a file
+    named ``we<newline>ird.py`` arrives as the literal 11-character text
+    ``"we\\nird.py"``. Discovery then recorded that quoted string as a filename
+    and dropped the real file from review entirely -- a silent miss in a gate
+    whose whole job is to see every changed file. NUL is the one byte a path
+    cannot contain, and ``-z`` output is never quoted, so the fields are the
+    paths verbatim and must not be stripped.
+    """
+
+    if "\0" not in stdout:
+        # Injected command runners in tests still provide the line-oriented
+        # form; keep reading it for paths that carry no separator character.
+        return [line.strip() for line in stdout.splitlines() if line.strip()]
+    return [field for field in stdout.split("\0") if field]
+
+
+def _parse_name_status(stdout: str) -> list[tuple[str, str, str]]:
+    """Return (destination, status, previous) from ``git diff --name-status -z``.
+
+    Splitting the human-readable form on tabs silently corrupts any path that
+    contains one: the parser kept the fragment after the last tab and recorded a
+    file that does not exist, while ``--numstat`` recorded the real path, so the
+    two discovery passes disagreed and invented a phantom entry. A newline in a
+    path breaks the line split the same way. NUL is the only separator no path
+    can contain.
+    """
+
+    if "\0" not in stdout:
+        # Injected command runners in tests still provide the line-oriented
+        # form; keep reading it for paths that carry no separator character.
+        records: list[tuple[str, str, str]] = []
+        for line in stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                code = parts[0][:1]
+                previous = parts[-2] if code in {"R", "C"} and len(parts) >= 3 else ""
+                records.append((parts[-1], code, previous))
+        return records
+
+    fields = stdout.split("\0")
+    records = []
+    index = 0
+    while index + 1 < len(fields):
+        code = fields[index][:1]
+        index += 1
+        if not code:
+            continue
+        source = fields[index]
+        index += 1
+        if code in {"R", "C"}:
+            if index >= len(fields):
+                break
+            records.append((fields[index], code, source))
+            index += 1
+        else:
+            records.append((source, code, ""))
+    return records
 
 
 def _parse_numstat(stdout: str) -> list[tuple[str, int, int]]:
@@ -446,7 +501,7 @@ def reclassify_untracked_moves(
     """
 
     deleted = run_command(
-        ["git", "diff", "--name-only", "--diff-filter=D", "HEAD", *_pathspec_args(review_paths)],
+        ["git", "diff", "--name-only", "-z", "--diff-filter=D", "HEAD", *_pathspec_args(review_paths)],
         project,
     )
     commands["diff_deleted_paths"] = deleted
@@ -455,10 +510,8 @@ def reclassify_untracked_moves(
         return
 
     deleted_by_filename: dict[str, list[str]] = {}
-    for line in deleted["stdout"].splitlines():
-        previous_path = line.strip()
-        if previous_path:
-            deleted_by_filename.setdefault(Path(previous_path).name, []).append(previous_path)
+    for previous_path in _listed_paths(deleted["stdout"]):
+        deleted_by_filename.setdefault(Path(previous_path).name, []).append(previous_path)
 
     matches: list[dict[str, Any]] = []
     for current_path, metadata in path_metadata.items():

@@ -99,6 +99,18 @@ consumes it atomically only after request classification and route acceptance
 succeed. A rejected request leaves the reservation available for one corrected
 retry; accepted intake claims it before writing preflight evidence.
 
+Parent run evidence claims are exclusive per independent `start` invocation,
+including two invocations with the same request fingerprint. Request identity
+does not prove caller identity. Only the claimant may reuse its active binding,
+and only by presenting the opaque run id returned by that claim; a second
+caller must wait or receive a conflict before either caller enters preflight.
+Run-owner evidence must bind a process expected to span the agent session. If
+the host cannot prove that process identity, record no owner and retain the
+bounded timestamp-recovery contract rather than substituting the short-lived
+hook or its session leader. A binding whose recorded owner is provably gone is
+released on the next claim, so waiting applies only to claimants that are alive
+or unproven.
+
 When the installed rules root is intentionally not a Git repository, execution
 capsules bind it with a bounded, content-free directory fingerprint instead of
 requiring callers to initialize another repository. The fingerprint excludes
@@ -601,6 +613,13 @@ through `gate` or `gate-batch`, then rerun the same review hook. Only a review
 that starts after all prerequisites are complete can enter failure repair. Gates
 that follow `review hook`, such as `retrospective check` and `report`, remain
 closeout work and are not review prerequisites.
+
+Treat a package-role boundary as an evidence requirement even when the task did
+not create a new folder. When the reviewed package contains multiple roles,
+write `--structure-review-evidence` with all five literal labels:
+`owner: ...; allowed imports: ...; forbidden imports: ...; callers/tests: ...;
+verification: ...`. “No new package boundary” or a general structure summary
+does not replace any field.
 
 Before invoking the finish hook, compare the current ledger with the complete
 route gate list. If the route ends in `handoff`, record that gate as a

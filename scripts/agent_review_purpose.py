@@ -17,7 +17,7 @@ BRACE_TOP_LEVEL_TYPE_RE = re.compile(
     r"^\s*"
     r"(?:(?:export\s+default\s+|export\s+|public\s+|private\s+|protected\s+|internal\s+|"
     r"open\s+|final\s+|sealed\s+|abstract\s+|data\s+|value\s+|inline\s+|static\s+|readonly\s+|"
-    r"pub\s+|pub\(crate\)\s+)*)"
+    r"expect\s+|actual\s+|pub\s+|pub\(crate\)\s+)*)"
     r"(?:(?:enum\s+class|annotation\s+class|sealed\s+class|sealed\s+interface|data\s+class|"
     r"value\s+class)\s+|"
     r"(?P<kind>class|interface|enum|struct|record|object|protocol|actor|typealias|type|trait)\s+)"
