@@ -22,7 +22,9 @@ from agent_state_lock import project_state_lock, state_lock
 
 SCHEMA_VERSION = 1
 REGISTRY_FILENAME = "run-registry.json"
-RUN_STATES = frozenset({"running", "paused", "failed", "completed", "cancelled"})
+RUN_STATES = frozenset(
+    {"running", "paused", "failed", "completed", "cancelled", "reconcile_required"}
+)
 MAX_RUNS = 100
 
 
@@ -262,6 +264,17 @@ def resume_run(project: Path, run_id: str) -> dict[str, Any] | None:
             return None
     _safe_event(project, "run.resumed", run_id=run_id, state="running")
     return run
+
+
+def read_registry_state(path: Path) -> dict[str, Any]:
+    """Read registry state for a caller already holding the registry locks.
+
+    ``state_lock`` is not reentrant, so the continuation resume transaction --
+    which must decide ownership and record it without releasing the lock in
+    between -- cannot reach the registry through the public functions above.
+    """
+
+    return _read_registry(path)
 
 
 def _register_locked(

@@ -676,3 +676,41 @@ a control proving the capability can fail has not been verified.
 - The canonical local-only path, ignored-state, filesystem, or outbound deny
   boundary cannot be proven.
 - A free-text field exceeds its cap; reject rather than truncate.
+
+## Open Questions
+
+Raised while implementing stage 1 (shared layer). Each names a place where the
+implementation and this card differ, or where the card does not decide
+something the code had to. None was resolved by preference; they are listed for
+the card's owner.
+
+1. **There is no `resuming` registry state.** The two-phase reserve/capture/CAS
+   was collapsed into one transaction under the existing registry locks, so the
+   intermediate state is never observable and never needs sweeping. Drift is
+   verified before the lock and the resume generation is the compare-and-swap,
+   which keeps the worktree scan out of the lock by a different route than the
+   one this card describes.
+2. **Which id names the run directory?** The packet path requires `<run-id>` to
+   be the exact registry id, but the isolated evidence directory is chosen by a
+   launcher before the registry issues that id. The shared layer therefore
+   requires the adapter to register first and then create the directory. The
+   alternative is letting the registry adopt a pre-reserved opaque id. This card
+   should say which.
+3. **Worktree drift can name a signal but no paths.** The refusal is required to
+   name repo-relative affected paths, but the project and rules signals are a
+   single content fingerprint, so only the required-document signal can name
+   exact paths. Either version 1 accepts a signal without paths, or it needs a
+   bounded path enumeration this card does not currently define. A rules-root
+   HEAD move is likewise reported under `rules_worktree`, because the signal
+   table gives HEAD only to the project.
+4. **The undeclared-path check trusts the caller's report.** The schema
+   deliberately stores no per-path baseline, so the post-mutation checkpoint
+   compares the reported changed scope against the declared allowed set. It
+   cannot see a changed path the caller never reports. If that gap matters, the
+   pending record needs per-path digests and a larger cap.
+5. **The outbound deny rule is not implemented.** Decision 4's third control
+   requires every Tao-owned sync, export, telemetry, capsule, lesson, and
+   publish boundary to reject the packet schema id and its path. Stage 1 changed
+   none of those modules, so the never-sync property currently rests on
+   containment, the Git-ignored precondition, and file permissions alone. The
+   negative test that attempts each outbound class still has no owner.
