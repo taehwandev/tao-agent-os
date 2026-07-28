@@ -165,16 +165,31 @@ command.
 
 Claude's runtime bridge is otherwise advisory: unlike the Codex prefix rule,
 prose alone does not stop a file edit when the agent skipped `start`. To make
-workflow entry enforceable rather than optional, `setup-agent-hooks.py` also
-installs a Claude `PreToolUse` gate (`tao-hook claude-pretool-gate`,
-matcher `Edit|Write|MultiEdit|NotebookEdit`). The gate denies a file-edit tool
-call when the nearest Tao Agent OS project (a directory with `.tao/`
-or an instruction file naming Tao Agent OS) has no fresh `preflight.json`,
-which forces the agent to run `start` before mutating files. After fresh
-evidence exists the gate marks the session and steps aside. It is fail-open:
-non-edit tools, directories outside Tao Agent OS, and any unexpected error allow
-the call, so the gate can never brick ordinary editing. Tune the freshness
-window with `TAO_CLAUDE_GATE_MAX_AGE_SECONDS` (default 8 hours).
+workflow entry and continuation enforceable, `setup-agent-hooks.py` installs:
+
+- a `SessionStart` continuation hook for `startup|resume|fork`;
+- the Claude `PreToolUse` workflow/checkpoint gate for
+  `Edit|Write|MultiEdit|NotebookEdit`;
+- matching `PostToolUse` and `PostToolUseFailure` continuation hooks; and
+- the existing `Stop` finish gate.
+
+The start hook allocates `.tao/runs/<opaque-run-id>/preflight.json` when Claude
+supplies a runtime session id. Every later hook uses the common exact-session
+resolver and requires runtime name, session id, registry evidence key, and
+resume generation to identify that path; `.tao/preflight.json`, freshness
+alone, and newest-file selection never unlock editing. `PreToolUse` fails closed
+when the required pre-mutation checkpoint cannot be written. The post hooks
+clear the pending mutation after success or failure and block the next agentic
+step when reconciliation is required. Non-edit tools and directories outside
+Tao Agent OS remain outside this gate. Tune the freshness window with
+`TAO_CLAUDE_GATE_MAX_AGE_SECONDS` (default 8 hours).
+
+Claude's file tools expose one exact `file_path`, so they can be bracketed
+automatically. Arbitrary `Bash` commands do not expose a trustworthy changed
+path set. Agents must bracket a shell command, formatter, or generator that may
+write with the provider-neutral `checkpoint --checkpoint-kind pre_mutation`
+and `post_mutation` commands and the complete bounded path set. Do not parse
+command prose to guess ownership or describe Bash as automatically covered.
 When executing Tao Agent OS wrapper commands from an agent runtime, replace
 `<TAO_ROOT>` with the resolved absolute path. Do not leave `$HOME`,
 `${HOME}`, `~`, or a relative path in the executable command.
@@ -575,8 +590,8 @@ Claude:
   refreshes `~/.tao/tao-root` to the current checkout and
   removes stale managed hook commands that still point at old roots. The stable
   launcher supports both script aliases such as `workflow` and direct
-  `agent-hook.py` subcommand aliases such as `start`, `handoff`, `review`, and
-  `finish`; these aliases must execute the hook, not skip with
+  `agent-hook.py` subcommand aliases such as `start`, `handoff`, `review`,
+  `checkpoint`, `resume`, and `finish`; these aliases must execute the hook, not skip with
   success.
 - Claude Tao Agent OS permissions should allow only that stable launcher and
   the narrow managed helper commands with the runtime's trailing wildcard form

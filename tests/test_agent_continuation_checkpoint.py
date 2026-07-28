@@ -155,12 +155,54 @@ class InitialCheckpointTests(unittest.TestCase):
             self.assertEqual(WORK["objective"], second["work"]["objective"])
             self.assertEqual(["waiting on review"], second["work"]["blockers"])
 
+    def test_a_stale_checkpoint_generation_cannot_overwrite_a_newer_snapshot(self) -> None:
+        """The control would overwrite generation 1 without the packet CAS."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+            stale = fixture.packet()
+            newer = fixture.checkpoint(
+                "decision", work={"blockers": ["newer decision"]}
+            )
+
+            with (
+                patch.object(checkpoint_module, "_base_packet", return_value=stale),
+                self.assertRaises(ContinuationPacketError) as raised,
+            ):
+                fixture.checkpoint(
+                    "decision", work={"blockers": ["stale decision"]}
+                )
+
+            self.assertEqual(
+                ["checkpoint_generation_changed"],
+                [item["rule"] for item in raised.exception.failures],
+            )
+            self.assertEqual(newer, fixture.packet())
+
     def test_a_later_checkpoint_requires_an_existing_packet(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)
 
             with self.assertRaises(ContinuationPacketError):
                 fixture.checkpoint("lifecycle")
+
+    def test_a_running_owner_cannot_forge_a_completed_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.checkpoint("initial")
+
+            with self.assertRaises(ContinuationPacketError) as raised:
+                fixture.checkpoint(
+                    "lifecycle",
+                    phase="done",
+                    finalize_completed=True,
+                )
+
+            self.assertEqual(
+                ["invalid_completed_checkpoint"],
+                [item["rule"] for item in raised.exception.failures],
+            )
 
     def test_a_binding_outside_the_run_directory_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -80,6 +80,42 @@ def project_state_dir_target(project: Path) -> Path:
     return project / STATE_DIR_NAME
 
 
+STATE_DIR_IGNORE = """\
+# Tao Agent OS per-project runtime state. Local-only by construction.
+#
+# The continuation packet records what a run decided and what remains. It is a
+# project-local work summary, so publishing it is a boundary violation rather
+# than a mess -- and the storage layer proves local-only status by asking Git,
+# not by trusting this directory's name. Without this file a fresh checkout
+# answers "not ignored", the packet write is refused, and a feature that should
+# merely be unavailable instead reads as a hard failure.
+#
+# Ignoring this file too keeps the whole state root invisible to the project.
+/*
+"""
+
+
+def ensure_local_only_state_dir(project: Path) -> Path:
+    """Create ``<project>/.tao`` already ignored by Git, and return it.
+
+    Callers create this directory implicitly by writing evidence into it, which
+    is why the ignore rule has to be established by whoever opens the run rather
+    than by whoever happens to write first. An existing ignore file is left
+    alone: a project that already declared its own rules for this directory --
+    tracking a skills subtree, say -- must not have them silently replaced.
+    """
+    state_dir = project_state_dir_target(project)
+    if is_global_state_dir(state_dir):
+        # The global install is not project state; `project_scoped_state_error`
+        # already refuses this target, and writing here would ignore the install.
+        return state_dir
+    state_dir.mkdir(parents=True, exist_ok=True)
+    ignore_path = state_dir / ".gitignore"
+    if not ignore_path.exists():
+        ignore_path.write_text(STATE_DIR_IGNORE, encoding="utf-8")
+    return state_dir
+
+
 def project_scoped_state_error(project: Path) -> str:
     """Why ``project`` may not receive project-scoped state, or "" when it may.
 

@@ -804,6 +804,29 @@ class RepairLedgerCycleTests(unittest.TestCase):
         # `gate` subprocess calls: right after start entries were
         # ["request intake"], and after exactly one more `gate` call it
         # became just the new gate, with "request intake" gone.
+        #
+        # Run it under both runtime-session states. `start` puts its evidence in
+        # an isolated run directory when a session is present and on the shared
+        # default path when it is not, so a hard-coded ledger path silently
+        # tested whichever environment the suite happened to run in: green in a
+        # bare shell, red inside Claude Code. The ledger must be read where the
+        # product resolves it, and the property being asserted holds either way.
+        for session_id in ("ledger-cycle-session", ""):
+            with self.subTest(session=session_id or "none"):
+                self._assert_start_then_gate_preserves_intake(session_id)
+
+    def _assert_start_then_gate_preserves_intake(self, session_id: str) -> None:
+        from agent_gate_evidence import gate_evidence_path_for_preflight
+        from agent_runtime_session import SESSION_ENV_VARS, resolve_runtime_evidence
+
+        session_env = {variable: session_id for _, variable in SESSION_ENV_VARS}
+        with patch.dict(os.environ, session_env, clear=False):
+            for variable, value in session_env.items():
+                if not value:
+                    os.environ.pop(variable, None)
+            self._run_start_then_gate(bool(session_id), gate_evidence_path_for_preflight, resolve_runtime_evidence)
+
+    def _run_start_then_gate(self, has_session, ledger_for, resolve_evidence) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
@@ -834,7 +857,16 @@ class RepairLedgerCycleTests(unittest.TestCase):
                 start_exit = agent_hook.main()
             self.assertEqual(0, start_exit)
 
-            ledger_path = project / ".tao" / "gate-evidence.json"
+            evidence_path = None
+            if has_session:
+                evidence_path = resolve_evidence(project)
+                self.assertIsNotNone(
+                    evidence_path,
+                    "a session-bound start must leave exactly one resolvable run",
+                )
+            ledger_path = ledger_for(
+                evidence_path or project / ".tao" / "preflight.json"
+            )
             after_start = json.loads(ledger_path.read_text(encoding="utf-8"))
             self.assertEqual(
                 ["request intake"], [entry["gate"] for entry in after_start["entries"]]

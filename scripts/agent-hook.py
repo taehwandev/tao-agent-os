@@ -17,11 +17,19 @@ from typing import Any
 from agent_gate_evidence import resync_gate_evidence_ledger
 from agent_execution_capsule_state import git_states_for_paths
 from agent_handoff_hook import handoff_hook
+from agent_hook_continuation import (
+    checkpoint_after_hook,
+    gate_checkpoint_name,
+    record_lifecycle_checkpoint,
+    start_objective,
+)
+from agent_hook_checkpoint import add_checkpoint_arguments, checkpoint_hook
 from agent_hook_gate_records import (
     gate_batch_hook,
     gate_hook,
     preflight_evidence_path,
 )
+from agent_hook_resume import add_resume_arguments, resume_hook
 from agent_hook_runtime import (
     REVIEW_CHANGED_PATH_LIMIT,
     existing_directory,
@@ -62,11 +70,17 @@ from agent_context_store import (
     refresh_and_validate_context_snapshot,
     validate_context_snapshot,
 )
+from support.global_state import ensure_local_only_state_dir
 from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def start_hook(args: argparse.Namespace) -> int:
+    # Establish the local-only state root before anything writes into it. The
+    # continuation store proves local-only status by asking Git, so a checkout
+    # that has never been ignored refuses every packet write -- and the Claude
+    # pre-tool gate turned that refusal into a denial of every edit.
+    ensure_local_only_state_dir(args.project)
     evidence_path = preflight_evidence_path(args)
     request_intake = {
         "request": args.request,
@@ -139,6 +153,13 @@ def start_hook(args: argparse.Namespace) -> int:
             success = _bind_read_only_execution_state(args, details)
         if success:
             _register_started_run(args, details, claim["run"])
+            # The route and objective are known and nothing has been mutated
+            # yet, which is the only moment an initial packet can describe.
+            details.append(
+                record_lifecycle_checkpoint(
+                    args, "initial", work={"objective": start_objective(args)}
+                )
+            )
     if not success:
         _release_claimed_run(args, claim["run"])
     return finish_with_result(
@@ -222,7 +243,24 @@ def finish_hook(args: argparse.Namespace) -> int:
     success = result["returncode"] == 0
     details = ["finish check completed" if success else "finish check failed"]
     details.extend(_summary_lines(result))
-    _transition_finished_run(args, success)
+    if success:
+        # Complete the registry first. If the process dies between these two
+        # writes, the run is already terminal and cannot be resumed from a
+        # packet that still displays the pre-finish checkpoint.
+        _transition_finished_run(args, True)
+        details.append(
+            record_lifecycle_checkpoint(
+                args,
+                "lifecycle",
+                phase="done",
+                finalize_completed=True,
+            )
+        )
+    else:
+        # A failed finish remains a resumable checkpoint, so record it while
+        # the run is still active and only then move the registry to failed.
+        details.append(record_lifecycle_checkpoint(args, "lifecycle"))
+        _transition_finished_run(args, False)
     return finish_with_result(
         "finish",
         success,
@@ -451,6 +489,8 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         choices=(
             "start",
             "handoff",
+            "resume",
+            "checkpoint",
             "gate",
             "gate-batch",
             "review",
@@ -656,6 +696,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_arguments(parser)
     _add_start_arguments(parser)
+    add_resume_arguments(parser)
+    add_checkpoint_arguments(parser)
     _add_review_arguments(parser)
     _add_finish_arguments(parser)
     _add_skill_feedback_arguments(parser)
@@ -705,6 +747,17 @@ def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
     return ""
 
 
+def _run_checkpoint_hook(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> int:
+    if not args.checkpoint_kind:
+        parser.error("checkpoint requires --checkpoint-kind")
+    if args.mutation_kind and args.checkpoint_kind != "pre_mutation":
+        parser.error("--mutation-kind is only valid for pre_mutation")
+    return checkpoint_hook(args)
+
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
@@ -729,8 +782,16 @@ def main() -> int:
     # Must follow _apply_worker_evidence_boundary so a worker refreshes its own
     # run, and must skip `start`: start refreshes nothing it is about to sweep,
     # or it would revive the very record whose evidence path it needs to claim.
-    if args.hook != "start":
+    # `resume` is skipped for the opposite reason: a heartbeat is a registry
+    # write, and `resume --list` promises to leave the registry byte-identical.
+    if args.hook not in ("start", "resume"):
         _refresh_run_heartbeat(args)
+    if args.hook == "resume":
+        if args.list_mode == args.last_mode:
+            parser.error("resume requires exactly one of --list or --last")
+        return resume_hook(args)
+    if args.hook == "checkpoint":
+        return _run_checkpoint_hook(parser, args)
     if args.hook == "repair-verify":
         repair_evidence_path = preflight_evidence_path(args)
         try:
@@ -798,21 +859,11 @@ def main() -> int:
                 "--request-classified"
             )
         return start_hook(args)
-    if args.hook == "review":
-        args.review_path = [path.strip() for path in args.review_path if path.strip()]
-        if args.review_path and args.review_scope == "working-tree":
-            args.review_scope = "pathspec"
-        if args.review_scope == "pathspec" and not args.review_path:
-            parser.error("review --review-scope pathspec requires at least one --review-path")
-        return review_hook(args, run_command, git_status, vibeguard_command, parse_overall, finish_with_result)
+    checkpointed = _checkpointed_hook(args, parser)
+    if checkpointed is not None:
+        return checkpointed
     if args.hook == "handoff":
         return handoff_hook(args)
-    if args.hook == "gate":
-        if not args.gate_name:
-            parser.error("gate requires --gate-name")
-        return gate_hook(args)
-    if args.hook == "gate-batch":
-        return gate_batch_hook(args)
     if args.hook == "skill-feedback":
         return skill_feedback_hook(args)
     if args.hook == "skill-curate":
@@ -822,6 +873,43 @@ def main() -> int:
     if args.hook == "skill-maintenance":
         return skill_maintenance_hook(args)
     return finish_hook(args)
+
+
+def _checkpointed_hook(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> int | None:
+    """Run a hook whose completion is a continuation lifecycle transition.
+
+    A gate record, a batch of them and a review are the during-work points the
+    packet must be refreshed at, so they dispatch together rather than each
+    growing its own copy of the same side effect. ``None`` means this was not
+    one of them.
+    """
+
+    if args.hook == "review":
+        args.review_path = [path.strip() for path in args.review_path if path.strip()]
+        if args.review_path and args.review_scope == "working-tree":
+            args.review_scope = "pathspec"
+        if args.review_scope == "pathspec" and not args.review_path:
+            parser.error("review --review-scope pathspec requires at least one --review-path")
+        return checkpoint_after_hook(
+            args,
+            review_hook(
+                args, run_command, git_status, vibeguard_command, parse_overall, finish_with_result
+            ),
+            "lifecycle",
+            phase="reviewing",
+        )
+    if args.hook == "gate":
+        if not args.gate_name:
+            parser.error("gate requires --gate-name")
+        return checkpoint_after_hook(
+            args, gate_hook(args), "lifecycle", last_completed=gate_checkpoint_name(args)
+        )
+    if args.hook == "gate-batch":
+        return checkpoint_after_hook(args, gate_batch_hook(args), "lifecycle")
+    return None
 
 
 def _apply_worker_evidence_boundary(args: argparse.Namespace) -> str:

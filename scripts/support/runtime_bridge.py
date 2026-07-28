@@ -58,6 +58,12 @@ RUNTIME_FINISH_BRIDGE_PHRASE = (
     "For multi-step work, run Tao Agent OS agent-hook.py finish before final report, commit, "
     "release, or handoff; direct agent-finish-check.py is a lower-level fallback only."
 )
+RUNTIME_CONTINUATION_BRIDGE_PHRASE = (
+    "When the active run has continuation support, write one bounded semantic checkpoint through "
+    "agent-hook.py checkpoint after required-doc reading and task scoping, then refresh it at "
+    "material decisions and lifecycle transitions. Use --work-stdin for work summaries; never put "
+    "prompts, transcripts, logs, command text, or secrets in the packet."
+)
 RUNTIME_CAPSULE_BRIDGE_PHRASES = [
     (
         "At each parent-to-worker boundary, run Tao Agent OS agent-hook.py handoff; it lazily creates "
@@ -100,6 +106,7 @@ RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES = [
     *RUNTIME_BRIDGE_GRAPH_PHRASES,
     *RUNTIME_CAPSULE_BRIDGE_PHRASES,
     RUNTIME_FINISH_BRIDGE_PHRASE,
+    RUNTIME_CONTINUATION_BRIDGE_PHRASE,
     AUTO_DELEGATION_BRIDGE_PHRASE,
     "Do not mention Tao Agent OS setup, hook, permission, helper, or label commands in normal conversation.",
     "Do not report whether background labels, hooks, or metering ran unless the user explicitly asks about that subsystem.",
@@ -144,6 +151,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         "- If routing/search misses a clearly relevant platform, concern, or document surface, stop and report the gap instead of proceeding from memory.",
         *[f"- {phrase}" for phrase in RUNTIME_CAPSULE_BRIDGE_PHRASES],
         f"- {RUNTIME_FINISH_BRIDGE_PHRASE}",
+        f"- {RUNTIME_CONTINUATION_BRIDGE_PHRASE}",
         f"- {AUTO_DELEGATION_BRIDGE_PHRASE}",
         *native_delegation_phrase,
         *dispatch_phrase,

@@ -17,6 +17,7 @@ from support.runtime_bridge import (
     RUNTIME_BRIDGE_BEGIN,
     RUNTIME_BRIDGE_END,
     RUNTIME_CAPSULE_BRIDGE_PHRASES,
+    RUNTIME_CONTINUATION_BRIDGE_PHRASE,
     RUNTIME_FINISH_BRIDGE_PHRASE,
     RUNTIME_NATIVE_DELEGATION_PHRASES,
     RUNTIME_START_BRIDGE_PHRASE,
@@ -41,6 +42,10 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                 self.assertIn(RUNTIME_START_BRIDGE_PHRASE, block)
                 self.assertIn(RUNTIME_FINISH_BRIDGE_PHRASE, required)
                 self.assertIn(RUNTIME_FINISH_BRIDGE_PHRASE, block)
+                self.assertIn(RUNTIME_CONTINUATION_BRIDGE_PHRASE, required)
+                self.assertIn(RUNTIME_CONTINUATION_BRIDGE_PHRASE, block)
+                self.assertIn("--work-stdin", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
+                self.assertNotIn("--request", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
                 for phrase in RUNTIME_CAPSULE_BRIDGE_PHRASES:
                     self.assertIn(phrase, required)
                     self.assertIn(phrase, block)

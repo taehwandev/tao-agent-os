@@ -91,6 +91,36 @@ not turn an unbounded agent session into one batch. Shell commands, formatters,
 generators, notebooks, and runtime-native write tools all use the same boundary.
 A mutating tool must not run until the pre-mutation rewrite succeeds.
 
+**What that blocking is for, and where it stops.** Holding the tool back is how
+a mutation is kept from running against a checkpoint that would misdescribe it.
+That reasoning needs a checkpoint capable of being wrong. Where none can be
+written at all, blocking protects nothing and costs the session the editor it
+would take to fix the cause, so these are skips and not refusals:
+
+| Case | Why no checkpoint exists |
+| --- | --- |
+| storage the packet cannot legally live in | the state root is not yet Git-ignored, so the write is correctly refused |
+| the adapter module is missing | a broken install, not a policy violation |
+| the edit is outside the project | changed scope is project-local by definition |
+| an open pending whose bytes never moved | its tool did not run; supersede it, and refuse only once bytes have moved |
+
+This is the rule the lifecycle already follows when it reports `checkpoint:
+skipped; no packet is reachable` and continues. An adapter that is stricter at
+the tool boundary than the protocol is at its own gates is not being safe. The
+first four rows were each shipped as a hard denial of every subsequent edit;
+the last one meant a single declined permission prompt ended a session's
+ability to edit anything.
+
+Whoever opens the run establishes the storage precondition, rather than leaving
+the first writer to discover it is absent. `start` creates the state root
+already ignored, and leaves an existing ignore file alone.
+
+The post-mutation side never blocks. It runs after the bytes landed, so a
+refusal there cannot prevent the write; it only reports a mutation that
+succeeded as failed. An unclosed bracket is already handled without blocking
+anything: the pending record survives, worktree verification fails against it,
+and resume enters reconciliation.
+
 **Reasoning.** A shutdown-time write assumes a shutdown that runs. A gate-only
 write has a different version of the same defect: a session may perform hours
 of edits before the next gate. Pre/post mutation checkpoints bound that gap
@@ -431,8 +461,20 @@ Advisory `remaining_work` may explain the checkpoint but cannot move it.
 
 Path: `<TARGET_REPO>/.tao/runs/<run-id>/continuation.json`.
 
-The run-id directory is the existing isolated-run convention, so a packet is
-automatically scoped to one run and cannot collide with a concurrent session.
+This card originally called the run-id directory an existing convention. It was
+not: `register_run` minted an opaque id unrelated to the evidence path, so no
+real run could satisfy the writer's containment check and the whole protocol
+would have shipped inert. A run started with evidence at
+`<TARGET_REPO>/.tao/runs/<32-hex>/preflight.json` now *adopts* that directory
+name as its run id, which costs nothing because the name is already an opaque
+per-lifecycle token, and makes the packet reachable from the trust record it
+binds to. Any other evidence path keeps a minted id and simply has no packet;
+the lifecycle says so rather than failing. An id already present in the registry
+is never adopted a second time, since two records sharing one opaque id would
+make "the run" ambiguous for every later lookup.
+
+Because the directory is per-lifecycle, a packet is scoped to one run and
+cannot collide with a concurrent session.
 
 The common writer validates the complete object before touching the target,
 serializes canonical JSON, enforces the 24 KiB limit, writes a unique mode
@@ -484,12 +526,25 @@ unsafe failure remains blocked.
 The logical CLI surface is:
 
 ```text
+tao checkpoint --checkpoint-kind <initial|pre_mutation|post_mutation|decision|lifecycle|stop>
+  [--phase <phase>] [--last-completed <checkpoint>]
+  [--mutation-kind <enum> --mutation-path <relative-path> ...]
+  [--work-stdin]
 tao resume --list
 tao resume --last
 ```
 
-The installed stable launcher may expose these as aliases, but both call the
+The installed stable launcher may expose these as aliases, but all call the
 same common implementation. A runtime adapter does not parse the filesystem.
+
+`--work-stdin` accepts one partial closed `work` object on stdin. It never
+accepts work prose as command-line arguments, so semantic state does not move
+into shell history or process listings. Unknown fields, including `prompt`,
+`transcript`, `summary`, `notes`, `command`, and `log`, are refused without
+echoing their values. `pre_mutation` is strict: the command fails unless the
+caller supplies an exact run-local evidence binding, mutation enum, and bounded
+relative path set. Lifecycle callers may still use their separate best-effort
+wrapper after their own gate outcome is already decided.
 
 `tao resume --list` is read-only. It enumerates canonical packets for the
 current selected checkout only and reports:
@@ -559,17 +614,22 @@ Runtime-native conversation continuation remains separate. Claude, Codex, or
 another runtime may restore its own conversation, but Tao's packet is the
 authority for project work state and may be used without the old conversation.
 
-Known per-runtime constraint: `scripts/claude_pretool_gate.py` resolves evidence
-at exactly one hardcoded path, `.tao/preflight.json`: `evidence_mtime`,
-`deny_reason`, and `recorded_session_id` all construct
-`root / STATE_DIR / PREFLIGHT_NAME`. It cannot see a run started with an
-isolated `--evidence` path.
+The Claude adapter uses the common read-only active-session resolver. A start
+without explicit evidence allocates one
+`.tao/runs/<opaque-run-id>/preflight.json` path and every later hook resolves
+that same path only when runtime name, session id, registry evidence key, and
+resume generation agree. It never scans for the newest file. `SessionStart`
+calls the common resume transaction and injects work prose only for `ready`;
+drift and owner refusals render no saved work. `PreToolUse` brackets
+`Edit|Write|MultiEdit|NotebookEdit` before execution, and `PostToolUse` plus
+`PostToolUseFailure` close the same mutation after the tool outcome.
 
-The later Claude adapter must replace that selection with a common, read-only
-active-session binding resolver. The resolver returns one already-claimed
-evidence path for the exact runtime session and resume generation; it does not
-scan for the newest file and the Claude gate does not learn takeover or drift
-policy. This is a thin-adapter repair, not a Claude-specific resume design.
+Claude does not expose a trustworthy changed-path set for arbitrary `Bash`
+commands. A shell command, formatter, or generator that may write files must
+therefore call the common `pre_mutation` checkpoint explicitly with its bounded
+paths before execution and the common `post_mutation` checkpoint afterward.
+The adapter must not guess paths from command text or claim automatic coverage
+it cannot enforce.
 
 ## Retention And Checkout Scope
 

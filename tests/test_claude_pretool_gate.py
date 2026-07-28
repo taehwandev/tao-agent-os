@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -29,6 +30,11 @@ from support.claude_setup import (
     _merge_claude_pre_tool_gate,
 )
 from support.setup_config_files import read_json
+from agent_continuation_checkpoint import write_continuation_checkpoint
+from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
+from agent_route_state import request_fingerprint, route_fingerprint
+from agent_run_registry import register_run
+from agent_runtime_session import resolve_runtime_evidence
 
 
 def _decide(payload: dict) -> tuple[int, str]:
@@ -51,16 +57,57 @@ def _opt_in_project(base: Path) -> Path:
 
 def _write_preflight(project: Path, session_id: str | None = None) -> None:
     """Write preflight evidence the way `start` does, stamped with its session."""
-    payload: dict = {}
-    if session_id is not None:
-        payload["runtime_session"] = {"runtime": "claude", "session_id": session_id}
-    (project / ".tao" / "preflight.json").write_text(
-        json.dumps(payload), encoding="utf-8"
+    if session_id is None:
+        (project / ".tao" / "preflight.json").write_text("{}", encoding="utf-8")
+        return
+    session = {"runtime": "claude", "session_id": session_id}
+    if resolve_runtime_evidence(project, session) is not None:
+        return
+    route = {"command": "task", "gates": ["finish"], "required_docs": []}
+    intake = {"request": "test request", "request_classified": False}
+    run_id = uuid.uuid4().hex
+    evidence = project / ".tao" / "runs" / run_id / "preflight.json"
+    evidence.parent.mkdir(parents=True)
+    registered = register_run(project, evidence, route, intake)
+    assert registered["run_id"] == run_id
+    payload = {
+        "project": str(project),
+        "rules": str(project),
+        "route": route,
+        "request_intake": intake,
+        "runtime_session": session,
+        "execution_snapshot": {
+            "schema_version": PREFLIGHT_SNAPSHOT_SCHEMA_VERSION,
+            "route_fingerprint": route_fingerprint(route),
+            "request_fingerprint": request_fingerprint(intake),
+            "required_docs": [],
+        },
+    }
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    write_continuation_checkpoint(
+        project=project,
+        rules=project,
+        run_id=run_id,
+        kind="initial",
+        binding_path=evidence,
+        work={"objective": "task workflow"},
     )
 
 
-def _age_preflight(project: Path, seconds: float) -> None:
-    preflight = project / ".tao" / "preflight.json"
+def _age_preflight(
+    project: Path, seconds: float, session_id: str | None = None
+) -> None:
+    preflight = (
+        resolve_runtime_evidence(
+            project, {"runtime": "claude", "session_id": session_id}
+        )
+        if session_id
+        else None
+    )
+    candidates = list((project / ".tao").glob("runs/*/preflight.json"))
+    preflight = preflight or (
+        candidates[-1] if candidates else project / ".tao" / "preflight.json"
+    )
     stamp = time.time() - seconds
     os.utime(preflight, (stamp, stamp))
 
@@ -102,13 +149,24 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _write_preflight(project, "s5")
-            payload = {"tool_name": "Write", "cwd": str(project), "session_id": "s5"}
+            target = project / "note.md"
+            payload = {
+                "tool_name": "Write",
+                "cwd": str(project),
+                "session_id": "s5",
+                "tool_input": {"file_path": str(target)},
+            }
 
             for attempt in range(3):
                 code, out = _decide(payload)
+                target.write_text(f"attempt {attempt}\n", encoding="utf-8")
+                post = gate.ClaudeContinuationAdapter.post_mutation(
+                    {**payload, "hook_event_name": "PostToolUse"}
+                )
                 with self.subTest(attempt=attempt):
                     self.assertEqual(0, code)
                     self.assertEqual("", out)
+                    self.assertIsNone(post)
 
     def test_preflight_from_another_session_does_not_open_the_gate(self) -> None:
         # Regression: preflight.json is shared across runtimes and outlives a
@@ -142,7 +200,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _write_preflight(project, "s7")
-            _age_preflight(project, gate.DEFAULT_MAX_AGE_SECONDS + 60)
+            _age_preflight(project, gate.DEFAULT_MAX_AGE_SECONDS + 60, "s7")
 
             code, out = _decide(
                 {"tool_name": "Write", "cwd": str(project), "session_id": "s7"}
@@ -196,17 +254,15 @@ class ClaudePreToolGateTests(unittest.TestCase):
             self.assertEqual(0, code)
             self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
-    def test_gate_never_writes_evidence(self) -> None:
-        # `start` is the only writer of workflow-entry proof. A gate that can
-        # write it can fabricate it, which is how the first bypass happened.
+    def test_denied_gate_never_fabricates_a_continuation_packet(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
-            state = project / ".tao"
-            before = sorted(p.name for p in state.rglob("*"))
 
             _decide({"tool_name": "Write", "cwd": str(project), "session_id": "sX"})
 
-            self.assertEqual(before, sorted(p.name for p in state.rglob("*")))
+            self.assertEqual(
+                [], list((project / ".tao").glob("runs/*/continuation.json"))
+            )
 
     def test_deny_reason_names_the_actual_cause(self) -> None:
         # Each cause has a different fix. Reporting "no fresh evidence" for a
@@ -217,19 +273,18 @@ class ClaudePreToolGateTests(unittest.TestCase):
             payload = {"tool_name": "Write", "cwd": str(project), "session_id": "s1"}
 
             _, missing = _decide(payload)
-            self.assertIn("No preflight evidence", _reason(missing))
+            self.assertIn("No exact run-local preflight evidence", _reason(missing))
 
             _write_preflight(project)
             _, unstamped = _decide(payload)
-            self.assertIn("records no runtime session", _reason(unstamped))
-            self.assertIn("CLAUDE_CODE_SESSION_ID", _reason(unstamped))
+            self.assertIn("default-path evidence", _reason(unstamped))
 
             _write_preflight(project, "another-session")
             _, foreign = _decide(payload)
-            self.assertIn("belongs to a different session", _reason(foreign))
+            self.assertIn("another session is not reusable", _reason(foreign))
 
             _write_preflight(project, "s1")
-            _age_preflight(project, gate.DEFAULT_MAX_AGE_SECONDS + 60)
+            _age_preflight(project, gate.DEFAULT_MAX_AGE_SECONDS + 60, "s1")
             _, stale = _decide(payload)
             self.assertIn("older than the freshness window", _reason(stale))
 
@@ -265,14 +320,23 @@ class ClaudePreToolGateTests(unittest.TestCase):
         # Gate 2 (sprawl) is what these tests exercise; put the session past
         # gate 1 explicitly rather than depending on preflight timing.
         _satisfy_workflow_entry(project, session)
-        return _decide(
-            {
-                "tool_name": "Write",
-                "cwd": str(project),
-                "session_id": session,
-                "tool_input": {"file_path": relative},
-            }
-        )
+        payload = {
+            "tool_name": "Write",
+            "cwd": str(project),
+            "session_id": session,
+            "tool_input": {"file_path": relative},
+        }
+        code, output = _decide(payload)
+        if not output:
+            target = project / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"{relative}\n", encoding="utf-8")
+            post = gate.ClaudeContinuationAdapter.post_mutation(
+                {**payload, "hook_event_name": "PostToolUse"}
+            )
+            if post:
+                raise AssertionError(post)
+        return code, output
 
     def test_new_source_files_up_to_budget_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

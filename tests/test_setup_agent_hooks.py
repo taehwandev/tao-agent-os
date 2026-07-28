@@ -1007,6 +1007,27 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertNotIn("unsupported Tao Agent OS script alias: gate-batch", result.stderr)
         self.assertIn("--gate-record", result.stdout)
 
+    def test_stable_launcher_supports_resume_alias(self) -> None:
+        """A resume the installed launcher rejects is a resume no session has."""
+
+        with tempfile.TemporaryDirectory() as temp_home:
+            with patch.dict(os.environ, {"HOME": temp_home}):
+                ensure_stable_launcher(ROOT, dry_run=False)
+                launcher = stable_launcher_path()
+
+                result = subprocess.run(
+                    [str(launcher), "resume", "--help"],
+                    cwd=str(ROOT),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+
+        self.assertEqual(0, result.returncode)
+        self.assertNotIn("unsupported Tao Agent OS script alias: resume", result.stderr)
+        self.assertIn("--last", result.stdout)
+
     def test_stable_launcher_supports_optional_skill_feedback_alias(self) -> None:
         expected = {
             "skill-feedback": "--skill-feedback-outcome",

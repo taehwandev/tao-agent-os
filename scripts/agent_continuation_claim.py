@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_continuation_checkpoint import MUTATION_BASELINE_FILENAME, binding_record, binding_required_docs
+from agent_continuation_checkpoint import binding_record, binding_required_docs
 from agent_continuation_drift import capture_drift_state, verify_drift
+from agent_continuation_mutation_state import MutationCheckpointState
 from agent_continuation_packet import ContinuationPacketError
 from agent_continuation_store import continuation_path, read_continuation_packet, write_continuation_packet
 from agent_execution_capsule_state import atomic_write_json, git_states_for_paths, read_json_object
@@ -289,7 +290,7 @@ def _clear_pending_mutation(project: Path, packet: dict[str, Any]) -> dict[str, 
     updated["generation"] = int(packet.get("generation") or 0) + 1
     updated["updated_at"] = datetime.now(timezone.utc).isoformat()
     write_continuation_packet(project, updated)
-    baseline = continuation_path(project, str(packet["run_id"])).parent / MUTATION_BASELINE_FILENAME
+    baseline = MutationCheckpointState.path(project, str(packet["run_id"]))
     baseline.unlink(missing_ok=True)
     return updated
 
