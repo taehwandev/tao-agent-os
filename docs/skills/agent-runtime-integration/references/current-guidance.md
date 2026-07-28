@@ -108,6 +108,45 @@ repo-local templates should carry only the short invocation, reuse, ownership,
 and fallback contract rather than duplicating the full schema or invalidation
 rules.
 
+## Installer Ownership Boundary
+
+A runtime reads one settings file, so every installer writes into a space it
+shares with tools it knows nothing about. Setup, update, repair, and uninstall
+may touch only entries whose provenance is readable, and provenance must be
+something the installer produced, not something it recognises.
+
+| Signal | Verdict |
+| --- | --- |
+| a unique alias inside the command the installer generated | ownership |
+| a marker block the installer emitted around its lines | ownership |
+| a matching timeout, event, or install directory | resemblance |
+| an environment value another product also sets | resemblance |
+| the absence of another product's file | not proof that product is gone |
+
+Resemblance is where this goes wrong, because two products configuring the same
+runtime naturally look alike. Two hooks on the same event with the same timeout
+prove nothing about who wrote either. An environment entry is the hardest case:
+its value is the same string whoever set it, so an installer that removes it on
+value equality will eventually delete a live setting belonging to something
+else. Record what was actually written, keep that record in the installer's own
+state directory, and remove only what the record names. A stale entry left
+behind is a cheaper failure than a working one deleted.
+
+Removal granularity matters as much as the predicate. Configuration formats
+group entries, and dropping a group to remove one owned entry takes its
+neighbours with it. Filter within the group and keep the rest.
+
+Never write into another product's install tree, and never make setup depend on
+another product being installed. When a companion tool is absent, degrade to
+doing less rather than to cleaning up on its behalf.
+
+Synchronous lifecycle hooks must be bounded, whoever owns them: a runtime kills
+what overruns, and the failure surfaces as that lifecycle event failing rather
+than as the slow hook being named. When diagnosing a hook timeout, identify the
+owning command first — the reported failure is the event, not the culprit — and
+leave the fix with the product that owns it. Implementation details of another
+product's hook belong in that product's documentation, not here.
+
 ## Setup Modes
 
 Select one mode before wiring a runtime:
