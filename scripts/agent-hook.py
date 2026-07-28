@@ -55,6 +55,7 @@ from agent_skill_hooks import (
     skill_review_hook,
 )
 from agent_review_structure import (
+    REVIEW_ADDED_LINE_LIMIT,
     REVIEW_FUNCTION_LINE_LIMIT,
     REVIEW_SOURCE_FILE_LINE_LIMIT,
 )
@@ -633,6 +634,16 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
         type=non_negative_int,
         default=REVIEW_FUNCTION_LINE_LIMIT,
         help="fail review when a changed function, class, component, or style block is above this line count",
+    )
+    review.add_argument(
+        "--max-added-lines",
+        type=non_negative_int,
+        default=REVIEW_ADDED_LINE_LIMIT,
+        help=(
+            "fail review when a changed development source/style file adds more than this many lines; "
+            "raise it only for a file that cannot be split, such as one distributed as a single "
+            "standalone artifact, and state the reason in the structure review evidence"
+        ),
     )
 
 
