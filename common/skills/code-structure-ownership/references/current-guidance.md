@@ -63,6 +63,17 @@ list has more than one owner, keep a support type file-private when it has one
 caller, or move an independently importable contract or behavior into its own
 purpose-named file before implementation.
 
+Make file-private intent visible to the executable review before coding. In
+TypeScript and JavaScript, a non-exported top-level support type, interface,
+option shape, or tiny helper still looks like a separate named owner unless its
+identifier starts with `_`; use that prefix only for cohesive support owned by
+the file's one public component, hook, or function family. Do not use `_` to
+hide an independently testable, importable, stateful, or side-effecting owner;
+move that owner to a purpose-named file instead. Other languages should use
+their native private declaration syntax or the repository's explicit private
+naming convention. Count the resulting non-private owners against the hook's
+limit in the structure packet.
+
 For non-trivial code work, the structure packet should include:
 
 ```text
