@@ -39,6 +39,8 @@ import time
 from pathlib import Path
 
 try:  # The gate must never fail to load; the import is only used for a message.
+    from claude_continuation_hook import ClaudeContinuationAdapter
+    from agent_runtime_session import resolve_runtime_evidence
     from support.stable_launcher import stable_launcher_path
     from support.global_state import is_project_state_dir
 except ImportError:  # pragma: no cover - exercised only on a broken install
@@ -48,12 +50,16 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     def is_project_state_dir(path: Path) -> bool:
         return path.is_dir() and path.resolve() != (Path.home() / ".tao").resolve()
 
+    def resolve_runtime_evidence(project: Path, session: dict[str, str]) -> Path | None:
+        return None
+
+    ClaudeContinuationAdapter = None
+
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # Only Write creates a file from nothing; Edit/MultiEdit require an existing
 # file, so new-file sprawl flows through Write.
 NEW_FILE_TOOLS = {"Write"}
 STATE_DIR = ".tao"
-PREFLIGHT_NAME = "preflight.json"
 SESSION_MARKER_DIR = "claude-pretool-gate"
 NEW_FILE_STATE_SUFFIX = ".newfiles"
 SPRAWL_ACK_SUFFIX = ".sprawl-ack"
@@ -144,15 +150,17 @@ def find_project_root(cwd: Path) -> Path | None:
     return None
 
 
-def evidence_mtime(root: Path) -> float | None:
+def evidence_mtime(evidence: Path | None) -> float | None:
+    if evidence is None:
+        return None
     try:
-        return (root / STATE_DIR / PREFLIGHT_NAME).stat().st_mtime
+        return evidence.stat().st_mtime
     except OSError:
         return None
 
 
-def evidence_is_fresh(root: Path) -> bool:
-    mtime = evidence_mtime(root)
+def evidence_is_fresh(evidence: Path | None) -> bool:
+    mtime = evidence_mtime(evidence)
     if mtime is None:
         return False
     return (time.time() - mtime) <= max_age_seconds()
@@ -170,26 +178,16 @@ def deny_reason(root: Path, session_id: str = "") -> str:
     preflight is sitting right there sends the reader looking for a missing
     file. Each cause has a different fix, so each gets its own sentence.
     """
-    preflight = root / STATE_DIR / PREFLIGHT_NAME
-    recorded = recorded_session_id(root)
-    if evidence_mtime(root) is None:
-        cause = f"No preflight evidence at {preflight}."
-    elif not evidence_is_fresh(root):
-        cause = f"Preflight evidence at {preflight} is older than the freshness window."
-    elif not recorded:
+    evidence = session_evidence(root, session_id)
+    if evidence is None:
         cause = (
-            f"Preflight evidence at {preflight} records no runtime session, so it "
-            "cannot prove start ran in this session. This happens when the start hook "
-            "ran without CLAUDE_CODE_SESSION_ID in its environment; rerunning start "
-            "from a Bash tool call records it."
+            "No exact run-local preflight evidence is bound to this runtime session. "
+            "Fresh or default-path evidence from another session is not reusable."
         )
-    elif session_id and recorded != session_id:
-        cause = (
-            f"Preflight evidence at {preflight} belongs to a different session, so it "
-            "proves nothing about this one."
-        )
+    elif not evidence_is_fresh(evidence):
+        cause = f"Preflight evidence at {evidence} is older than the freshness window."
     else:
-        cause = f"Preflight evidence at {preflight} does not satisfy the workflow entry gate."
+        cause = f"Preflight evidence at {evidence} does not satisfy the workflow entry gate."
     return (
         "Tao Agent OS: run the workflow start hook before editing files in this "
         f"project. {cause} "
@@ -218,20 +216,17 @@ def workflow_entry_allows(root: Path, session_id: str) -> bool:
         # Nothing to attribute the evidence to. Falling back to freshness here
         # would reopen the original bypass on any payload missing a session.
         return False
-    return recorded_session_id(root) == session_id and evidence_is_fresh(root)
+    evidence = session_evidence(root, session_id)
+    return evidence is not None and evidence_is_fresh(evidence)
 
 
-def recorded_session_id(root: Path) -> str:
-    """Session id that the `start` hook stamped into the preflight evidence."""
-    try:
-        payload = json.loads((root / STATE_DIR / PREFLIGHT_NAME).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return ""
-    runtime_session = payload.get("runtime_session")
-    if not isinstance(runtime_session, dict):
-        return ""
-    recorded = runtime_session.get("session_id")
-    return recorded if isinstance(recorded, str) else ""
+def session_evidence(root: Path, session_id: str) -> Path | None:
+    if not session_id:
+        return None
+    return resolve_runtime_evidence(
+        root,
+        {"runtime": "claude", "session_id": session_id},
+    )
 
 
 def record_edit_activity(root: Path, session_id: str) -> None:
@@ -424,6 +419,15 @@ def decide(payload: dict) -> int:
     sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
     if sprawl_reason:
         return deny(sprawl_reason)
+    # A missing adapter module is a broken install, not a policy violation. This
+    # gate promises never to fail to load; denying every edit because an import
+    # failed breaks that promise and removes the means of repairing the install.
+    if ClaudeContinuationAdapter is not None:
+        continuation_reason = ClaudeContinuationAdapter.pre_mutation(
+            payload, root=root, cwd=cwd, session_id=session_id
+        )
+        if continuation_reason:
+            return deny(continuation_reason)
     record_edit_activity(root, session_id)
     record_session_project(root, session_id)
     return allow()

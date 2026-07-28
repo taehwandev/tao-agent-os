@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +28,25 @@ from agent_finish_check_steps import validate_recorded_grill_me_evidence
 from agent_finish_documentation import required_doc_target_failures
 from agent_hook_runtime import finish_with_result, print_status
 from agent_skill_catalog import canonical_skill_ids
+from agent_runtime_session import resolve_runtime_evidence, runtime_session
 
 
 def preflight_evidence_path(args: argparse.Namespace) -> Path:
-    return args.evidence if args.evidence else args.project / ".tao" / "preflight.json"
+    if args.evidence:
+        return args.evidence
+    session = runtime_session()
+    if session:
+        active = resolve_runtime_evidence(args.project, session)
+        if active is not None:
+            args.evidence = active
+            return active
+        if getattr(args, "hook", "") == "start":
+            generated = (
+                args.project / ".tao" / "runs" / uuid.uuid4().hex / "preflight.json"
+            )
+            args.evidence = generated
+            return generated
+    return args.project / ".tao" / "preflight.json"
 
 
 def gate_hook(args: argparse.Namespace) -> int:
