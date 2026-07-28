@@ -138,6 +138,7 @@ def structure_review(
     max_block_lines: int,
     run_command: CommandRunner,
     review_paths: list[str] | None = None,
+    max_added_lines: int = REVIEW_ADDED_LINE_LIMIT,
 ) -> dict[str, Any]:
     discovery, paths = changed_source_paths(project, run_command, review_paths)
     result: dict[str, Any] = {
@@ -148,10 +149,10 @@ def structure_review(
         "test_exempt_paths": [],
         "max_file_lines": max_file_lines,
         "max_block_lines": max_block_lines,
-        "max_added_lines": REVIEW_ADDED_LINE_LIMIT,
+        "max_added_lines": max_added_lines,
         "review_warning_file_lines": REVIEW_FILE_REVIEW_WARNING_LIMIT,
         "test_max_file_lines": REVIEW_TEST_FILE_LINE_LIMIT,
-        "test_max_added_lines": REVIEW_TEST_ADDED_LINE_LIMIT,
+        "test_max_added_lines": max_added_lines * REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER,
         "test_review_warning_file_lines": REVIEW_TEST_FILE_REVIEW_WARNING_LIMIT,
         "scope": STRUCTURE_REVIEW_SCOPE_NOTE,
         "warnings": [],
@@ -185,12 +186,19 @@ def structure_review(
                 REVIEW_TEST_FILE_LINE_LIMIT,
                 metadata,
                 result,
-                max_added_lines=REVIEW_TEST_ADDED_LINE_LIMIT,
+                max_added_lines=max_added_lines * REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER,
                 review_warning_file_lines=REVIEW_TEST_FILE_REVIEW_WARNING_LIMIT,
             )
             continue
 
-        check_file_size(relative, lines, max_file_lines, metadata, result)
+        check_file_size(
+            relative,
+            lines,
+            max_file_lines,
+            metadata,
+            result,
+            max_added_lines=max_added_lines,
+        )
         block_failures, block_warnings = large_block_findings(
             project,
             relative,

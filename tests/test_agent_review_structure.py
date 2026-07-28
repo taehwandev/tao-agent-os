@@ -1141,6 +1141,67 @@ class ListedPathNulSafetyTests(unittest.TestCase):
             _listed_paths("src/a.py\nsrc/b.py\n"),
         )
 
+    def _addition_review(self, added: int, **kwargs: object) -> dict[str, object]:
+        """Review one modified source file that adds `added` lines."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = project / "src" / "adapter.py"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("value = 1\n" * added, encoding="utf-8")
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                if command[:3] == ["git", "rev-parse", "--verify"]:
+                    stdout = "abc\n"
+                elif command[:3] == ["git", "diff", "--name-status"]:
+                    stdout = "M\tsrc/adapter.py\n"
+                elif command[:3] == ["git", "diff", "--numstat"]:
+                    stdout = f"{added}\t0\tsrc/adapter.py\n"
+                else:
+                    stdout = ""
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": 0,
+                    "stdout": stdout,
+                    "stderr": "",
+                }
+
+            return structure_review(project, 5000, 120, run_command, **kwargs)
+
+    def test_default_addition_limit_still_fails_an_oversized_addition(self) -> None:
+        result = self._addition_review(REVIEW_ADDED_LINE_LIMIT + 1)
+
+        self.assertEqual(REVIEW_ADDED_LINE_LIMIT, result["max_added_lines"])
+        self.assertTrue(
+            any("per-file addition limit" in failure for failure in result["failures"])
+        )
+
+    def test_raised_addition_limit_allows_an_unsplittable_single_file_artifact(self) -> None:
+        # A source file distributed and installed as a single standalone artifact
+        # cannot be split, so the reviewer may raise the limit for that run.
+        result = self._addition_review(REVIEW_ADDED_LINE_LIMIT + 1, max_added_lines=600)
+
+        self.assertEqual(600, result["max_added_lines"])
+        self.assertEqual([], [f for f in result["failures"] if "addition limit" in f])
+
+    def test_raised_addition_limit_still_fails_past_the_raised_value(self) -> None:
+        result = self._addition_review(601, max_added_lines=600)
+
+        self.assertTrue(
+            any("per-file addition limit is 600" in failure for failure in result["failures"])
+        )
+
+    def test_raised_addition_limit_scales_the_test_file_budget(self) -> None:
+        from agent_review_structure import REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER
+
+        result = self._addition_review(1, max_added_lines=600)
+
+        self.assertEqual(
+            600 * REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER,
+            result["test_max_added_lines"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

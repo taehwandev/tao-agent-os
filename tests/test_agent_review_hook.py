@@ -639,5 +639,37 @@ class ReviewHookTests(unittest.TestCase):
         self.assertNotIn("--gate", finish_hook["command"])
 
 
+class RaisedAdditionLimitEvidenceTests(unittest.TestCase):
+    """A raised per-file addition limit must be justified, not silent."""
+
+    def test_default_limit_needs_no_addition_justification(self) -> None:
+        from agent_review_hook import raised_addition_limit_failures
+        from agent_review_structure import REVIEW_ADDED_LINE_LIMIT
+
+        structure = {"max_added_lines": REVIEW_ADDED_LINE_LIMIT}
+
+        self.assertEqual([], raised_addition_limit_failures(structure, ""))
+
+    def test_raised_limit_without_a_reason_fails(self) -> None:
+        from agent_review_hook import raised_addition_limit_failures
+
+        failures = raised_addition_limit_failures(
+            {"max_added_lines": 600}, "owner=domain; verification=focused tests"
+        )
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("per-file addition limit was raised to 600", failures[0])
+
+    def test_raised_limit_with_a_single_file_artifact_reason_passes(self) -> None:
+        from agent_review_hook import raised_addition_limit_failures
+
+        failures = raised_addition_limit_failures(
+            {"max_added_lines": 600},
+            "adapters/codex/spill-importer.mjs is installed as a single standalone artifact and cannot be split",
+        )
+
+        self.assertEqual([], failures)
+
+
 if __name__ == "__main__":
     unittest.main()

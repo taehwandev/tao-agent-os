@@ -16,7 +16,7 @@ from agent_gate_evidence import (
 from agent_finish_final_checks import record_successful_review_workflow_validation
 from agent_inprocess import run_workflow_validate
 from agent_review_boundary import format_boundary_note_requirements, missing_boundary_note_fields
-from agent_review_structure import structure_review
+from agent_review_structure import REVIEW_ADDED_LINE_LIMIT, structure_review
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_vibeguard_cache import cached_vibeguard
 from agent_workspace_policy import is_git_status_review_only, is_writing_workspace, non_git_writing_workspace_note
@@ -104,6 +104,7 @@ def review_hook(
         args.max_function_lines,
         run_command,
         review_paths,
+        max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
     )
     checks["structure_review"] = structure
     failures.extend(f"structure review: {failure}" for failure in structure["failures"])
@@ -404,6 +405,7 @@ def structure_evidence_failures(structure: dict[str, Any], structure_evidence: s
         if len(structure["warnings"]) > 5:
             warning_summary += "; ..."
         failures.append(f"structure review evidence is required: {warning_summary}")
+    failures.extend(raised_addition_limit_failures(structure, structure_evidence))
     boundary_requirements = structure.get("boundary_note_requirements", [])
     missing_fields = missing_boundary_note_fields(structure_evidence) if boundary_requirements else []
     if missing_fields:
@@ -416,6 +418,44 @@ def structure_evidence_failures(structure: dict[str, Any], structure_evidence: s
             "callers/tests=app and domain tests; verification=focused tests"
         )
     return failures
+
+
+def raised_addition_limit_failures(
+    structure: dict[str, Any], structure_evidence: str
+) -> list[str]:
+    """Keep a raised per-file addition limit an explicitly reviewed decision.
+
+    Raising the limit is legitimate for a file that cannot be split, such as one
+    distributed as a single standalone artifact. It stops being legitimate the
+    moment it is raised silently, so the reviewer has to say why in the
+    structure review evidence.
+    """
+
+    limit = structure.get("max_added_lines")
+    if not isinstance(limit, int) or limit <= REVIEW_ADDED_LINE_LIMIT:
+        return []
+    text = structure_evidence.lower()
+    if not any(
+        phrase in text
+        for phrase in (
+            "addition limit",
+            "added line",
+            "added-line",
+            "single file",
+            "single-file",
+            "standalone",
+            "cannot be split",
+            "추가 줄",
+            "단일 파일",
+            "분할 불가",
+        )
+    ):
+        return [
+            f"per-file addition limit was raised to {limit} from {REVIEW_ADDED_LINE_LIMIT}; "
+            "structure-review-evidence must name the file that cannot be split and why, "
+            "for example a source file distributed and installed as a single standalone artifact"
+        ]
+    return []
 
 
 def review_outcome_failures(outcome: str) -> list[str]:
