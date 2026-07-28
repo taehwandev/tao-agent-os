@@ -63,6 +63,12 @@ list has more than one owner, keep a support type file-private when it has one
 caller, or move an independently importable contract or behavior into its own
 purpose-named file before implementation.
 
+An exported object model plus exported parameter or result aliases is still
+multiple public owners. When those aliases exist only to annotate the model's
+single caller, keep them file-private and let the caller derive them with
+`Parameters` or `ReturnType`; when callers need to import the aliases directly,
+move that contract family to its own purpose-named owner file.
+
 Make file-private intent visible to the executable review before coding. In
 TypeScript and JavaScript, a non-exported top-level support type, interface,
 option shape, or tiny helper still looks like a separate named owner unless its
