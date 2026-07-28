@@ -431,8 +431,20 @@ Advisory `remaining_work` may explain the checkpoint but cannot move it.
 
 Path: `<TARGET_REPO>/.tao/runs/<run-id>/continuation.json`.
 
-The run-id directory is the existing isolated-run convention, so a packet is
-automatically scoped to one run and cannot collide with a concurrent session.
+This card originally called the run-id directory an existing convention. It was
+not: `register_run` minted an opaque id unrelated to the evidence path, so no
+real run could satisfy the writer's containment check and the whole protocol
+would have shipped inert. A run started with evidence at
+`<TARGET_REPO>/.tao/runs/<32-hex>/preflight.json` now *adopts* that directory
+name as its run id, which costs nothing because the name is already an opaque
+per-lifecycle token, and makes the packet reachable from the trust record it
+binds to. Any other evidence path keeps a minted id and simply has no packet;
+the lifecycle says so rather than failing. An id already present in the registry
+is never adopted a second time, since two records sharing one opaque id would
+make "the run" ambiguous for every later lookup.
+
+Because the directory is per-lifecycle, a packet is scoped to one run and
+cannot collide with a concurrent session.
 
 The common writer validates the complete object before touching the target,
 serializes canonical JSON, enforces the 24 KiB limit, writes a unique mode

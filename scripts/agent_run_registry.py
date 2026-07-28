@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +23,8 @@ from agent_state_lock import project_state_lock, state_lock
 
 SCHEMA_VERSION = 1
 REGISTRY_FILENAME = "run-registry.json"
+RUNS_DIR = "runs"
+RUN_DIRECTORY_RE = re.compile(r"^[0-9a-f]{32}$")
 ACTIVE_RUN_STATES = frozenset({"running", "paused", "resuming"})
 RUN_STATES = frozenset(
     {*ACTIVE_RUN_STATES, "failed", "completed", "cancelled", "reconcile_required"}
@@ -318,7 +321,13 @@ def _register_locked(
     functions that take the lock themselves.
     """
 
-    run = _new_run(project, evidence_path, route, request_intake)
+    run = _new_run(
+        project,
+        evidence_path,
+        route,
+        request_intake,
+        run_id=_run_id_for(payload, project, evidence_path),
+    )
     if reuse_run_id:
         existing = _reusable_run(payload, project, evidence_path, reuse_run_id)
         if existing is not None:
@@ -331,15 +340,47 @@ def _register_locked(
     return run, True
 
 
+def _run_id_for(
+    payload: dict[str, Any],
+    project: Path,
+    evidence_path: Path,
+) -> str:
+    """Adopt an isolated-run evidence directory as this run's opaque id.
+
+    A continuation packet lives at ``.tao/runs/<run-id>/continuation.json``,
+    beside the trust record it binds to, so a run only has a reachable packet
+    when the opaque directory the agent was told to isolate its evidence in *is*
+    the run id. Adopting it costs nothing -- the directory name is already an
+    opaque 32-hex token chosen per lifecycle -- and any other evidence path
+    keeps a freshly minted id and simply has no packet.
+
+    An id already present in the registry is never adopted a second time. Two
+    records sharing one opaque id would make "the run" ambiguous for every later
+    lookup, which is worse than a run without a packet.
+    """
+
+    directory = evidence_path.resolve().parent
+    name = directory.name
+    if (
+        RUN_DIRECTORY_RE.match(name)
+        and directory.parent == project.resolve() / ".tao" / RUNS_DIR
+        and not any(run.get("run_id") == name for run in payload["runs"])
+    ):
+        return name
+    return uuid.uuid4().hex
+
+
 def _new_run(
     project: Path,
     evidence_path: Path,
     route: dict[str, Any],
     request_intake: dict[str, Any] | None,
+    *,
+    run_id: str = "",
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     return {
-        "run_id": uuid.uuid4().hex,
+        "run_id": run_id or uuid.uuid4().hex,
         "project_id": _opaque_project_id(project),
         "evidence_name": evidence_path.name,
         "evidence_key": _evidence_key(project, evidence_path),

@@ -125,6 +125,7 @@ SCRIPT_ALIASES = {
 HOOK_ALIASES = {
     "start",
     "handoff",
+    "resume",
     "gate",
     "gate-batch",
     "review",
