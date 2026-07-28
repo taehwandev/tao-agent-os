@@ -100,6 +100,25 @@ when `status` is `review` or `stable`; instead, treat `draft` as provisional,
 `review` as active, and `stable` as broad-use guidance. The `keyflow_id` field
 is retained for metadata compatibility and should not be renamed casually.
 
+## Release Version Contract
+
+This repository releases with monthly CalVer `vYY.MM.N`, the scheme described in
+`common/skills/release-versioning/references/current-guidance.md`. That card
+leaves `N` to each repository, and this is the repository-local definition it
+defers to.
+
+- The tag is the deployment unit. `N` counts tags within that month and restarts
+  at `1` when the month changes, so the release after `v26.07.10` is `v26.08.1`.
+- Release notes are optional here and were adopted partway through. A tag with no
+  GitHub release is still a deployment, and the count of published releases is
+  never the counter.
+- Measure a release range from the previous tag, not from the previous tag that
+  happened to carry notes.
+
+The last rule is written down because getting it wrong is quiet. Notes that skip
+a deployment read as complete while silently absorbing its commits into the next
+release's story, and the tag numbers still look consecutive.
+
 ## Priority
 
 When instructions conflict, follow this order:
