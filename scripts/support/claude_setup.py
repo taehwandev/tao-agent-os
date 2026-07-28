@@ -10,6 +10,7 @@ from support.permission_entries import (
     claude_legacy_permission_entries,
     claude_permission_entries,
 )
+from support.claude_continuation_setup import configure_claude_continuation
 from support.runtime_bridge import (
     merge_runtime_bridge,
     runtime_bridge_block,
@@ -79,6 +80,15 @@ def configure_claude(
     )
     status = _merge_claude_pre_tool_gate(target, gate_cmd, dry_run)
     results.append({"tool": "claude", "hook": "PreToolUse_workflow_gate", "status": status, "path": str(target)})
+
+    results.extend(
+        configure_claude_continuation(
+            target,
+            dry_run=dry_run,
+            launcher_path=launcher_path,
+            matcher=_PRETOOL_GATE_MATCHER,
+        )
+    )
 
     stop_cmd = (
         f"TAO_HOOK_SOFT_FAIL=1 {quote(str(launcher_path))} {_STOP_GATE_ALIAS}"
