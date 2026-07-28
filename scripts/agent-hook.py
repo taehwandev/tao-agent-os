@@ -23,6 +23,7 @@ from agent_hook_continuation import (
     record_lifecycle_checkpoint,
     start_objective,
 )
+from agent_hook_checkpoint import add_checkpoint_arguments, checkpoint_hook
 from agent_hook_gate_records import (
     gate_batch_hook,
     gate_hook,
@@ -69,11 +70,17 @@ from agent_context_store import (
     refresh_and_validate_context_snapshot,
     validate_context_snapshot,
 )
+from support.global_state import ensure_local_only_state_dir
 from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def start_hook(args: argparse.Namespace) -> int:
+    # Establish the local-only state root before anything writes into it. The
+    # continuation store proves local-only status by asking Git, so a checkout
+    # that has never been ignored refuses every packet write -- and the Claude
+    # pre-tool gate turned that refusal into a denial of every edit.
+    ensure_local_only_state_dir(args.project)
     evidence_path = preflight_evidence_path(args)
     request_intake = {
         "request": args.request,
@@ -236,12 +243,24 @@ def finish_hook(args: argparse.Namespace) -> int:
     success = result["returncode"] == 0
     details = ["finish check completed" if success else "finish check failed"]
     details.extend(_summary_lines(result))
-    # Must precede the transition: the writer refuses a run that is no longer
-    # active, and a completed or failed run is exactly that.
-    details.append(
-        record_lifecycle_checkpoint(args, "lifecycle", phase="done" if success else None)
-    )
-    _transition_finished_run(args, success)
+    if success:
+        # Complete the registry first. If the process dies between these two
+        # writes, the run is already terminal and cannot be resumed from a
+        # packet that still displays the pre-finish checkpoint.
+        _transition_finished_run(args, True)
+        details.append(
+            record_lifecycle_checkpoint(
+                args,
+                "lifecycle",
+                phase="done",
+                finalize_completed=True,
+            )
+        )
+    else:
+        # A failed finish remains a resumable checkpoint, so record it while
+        # the run is still active and only then move the registry to failed.
+        details.append(record_lifecycle_checkpoint(args, "lifecycle"))
+        _transition_finished_run(args, False)
     return finish_with_result(
         "finish",
         success,
@@ -471,6 +490,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
             "start",
             "handoff",
             "resume",
+            "checkpoint",
             "gate",
             "gate-batch",
             "review",
@@ -677,6 +697,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_arguments(parser)
     _add_start_arguments(parser)
     add_resume_arguments(parser)
+    add_checkpoint_arguments(parser)
     _add_review_arguments(parser)
     _add_finish_arguments(parser)
     _add_skill_feedback_arguments(parser)
@@ -726,6 +747,17 @@ def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
     return ""
 
 
+def _run_checkpoint_hook(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> int:
+    if not args.checkpoint_kind:
+        parser.error("checkpoint requires --checkpoint-kind")
+    if args.mutation_kind and args.checkpoint_kind != "pre_mutation":
+        parser.error("--mutation-kind is only valid for pre_mutation")
+    return checkpoint_hook(args)
+
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
@@ -758,6 +790,8 @@ def main() -> int:
         if args.list_mode == args.last_mode:
             parser.error("resume requires exactly one of --list or --last")
         return resume_hook(args)
+    if args.hook == "checkpoint":
+        return _run_checkpoint_hook(parser, args)
     if args.hook == "repair-verify":
         repair_evidence_path = preflight_evidence_path(args)
         try:

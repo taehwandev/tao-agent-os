@@ -16,10 +16,12 @@ could ever bind to, and demanding one would deadlock the caller.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any
 
 from agent_continuation_resume import resume_last, resume_list
 from agent_hook_runtime import finish_with_result
+from agent_runtime_session import bind_resumed_runtime_session
 
 
 LISTED_ENTRY_LIMIT = 12
@@ -43,6 +45,10 @@ REFUSAL_GUIDANCE = {
         "the newest packet's project-local, Git-ignored boundary could not be proven"
     ),
     "claim_lost": "another session claimed this run between capture and commit",
+    "runtime_binding_refused": (
+        "the resume claim completed but could not bind the exact runtime session; "
+        "no work summary was rendered"
+    ),
 }
 
 
@@ -61,6 +67,16 @@ def add_resume_arguments(parser: argparse.ArgumentParser) -> None:
         dest="last_mode",
         action="store_true",
         help="claim the newest unfinished packet, or refuse it by name",
+    )
+    resume.add_argument(
+        "--runtime",
+        default="",
+        help="runtime name for an exact session binding after a successful claim",
+    )
+    resume.add_argument(
+        "--runtime-session-id",
+        default="",
+        help="opaque runtime session id to bind after a successful claim",
     )
 
 
@@ -96,6 +112,35 @@ def _resume_last(args: argparse.Namespace) -> int:
 
     result = resume_last(args.project, rules=args.rules)
     ready = result["result"] == "ready"
+    if ready and (args.runtime or args.runtime_session_id):
+        if not args.runtime or not args.runtime_session_id:
+            result = {
+                **result,
+                "result": "runtime_binding_refused",
+                "reason": "incomplete_runtime_binding",
+                "work": None,
+                "checkpoint": None,
+            }
+            ready = False
+        else:
+            try:
+                bind_resumed_runtime_session(
+                    project=args.project,
+                    evidence_path=Path(result["evidence_path"]),
+                    run_id=result["run_id"],
+                    resume_generation=int(result["resume_generation"]),
+                    runtime=args.runtime,
+                    session_id=args.runtime_session_id,
+                )
+            except (OSError, RuntimeError, ValueError):
+                result = {
+                    **result,
+                    "result": "runtime_binding_refused",
+                    "reason": "runtime_binding_refused",
+                    "work": None,
+                    "checkpoint": None,
+                }
+                ready = False
     details = [f"resume result: {result['result']}"]
     details.extend(_ready_lines(result) if ready else _refusal_lines(result))
     return finish_with_result(

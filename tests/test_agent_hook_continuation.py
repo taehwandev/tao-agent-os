@@ -33,10 +33,10 @@ def _load_script(name: str, filename: str):
 agent_hook = _load_script("agent_hook_continuation_test", "agent-hook.py")
 
 import agent_hook_continuation as wiring
-from agent_continuation_fields import MAX_TEXT
 from agent_continuation_packet import validate_continuation_packet
 from agent_continuation_store import continuation_path, read_continuation_packet
 from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION, doc_hash_record
+from agent_gate_evidence import record_gate_evidence
 from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import register_run, registry_path
 
@@ -157,27 +157,23 @@ class CheckpointContentTests(unittest.TestCase):
             self.assertEqual(RUN_ID, packet["run_id"])
             self.assertEqual("scoped", packet["phase"])
             self.assertEqual("scope", packet["checkpoint"]["first_unfinished"])
-            self.assertEqual(INTAKE["request"], packet["work"]["objective"])
+            self.assertEqual("task workflow", packet["work"]["objective"])
+            self.assertNotIn(INTAKE["request"], json.dumps(packet))
 
-    def test_an_objective_is_bounded_to_one_normalized_line(self) -> None:
-        """A request the schema would refuse still has to produce a checkpoint.
-
-        The packet rejects over-long or multi-line prose rather than truncating
-        it, so the caller supplying the field is the one that must bound it.
-        Losing the whole packet because a request had a newline in it would be
-        the loss this feature exists to prevent.
-        """
+    def test_raw_request_content_never_becomes_the_initial_objective(self) -> None:
+        """Prompt bytes must not be normalized into a supposedly safe summary."""
 
         with tempfile.TemporaryDirectory() as directory:
             run = HookRun(directory)
-            request = "resume\tthe\nwork​after a kill " + "x" * 400
+            request = "password=demo-value\n" + "private prompt text " * 20
             args = run.args("start", request=request)
 
             objective = wiring.start_objective(args)
             wiring.record_lifecycle_checkpoint(args, "initial", work={"objective": objective})
 
-            self.assertEqual(MAX_TEXT, len(objective))
-            self.assertEqual("resume the work after a kill " + "x" * 251, objective)
+            self.assertEqual("task workflow", objective)
+            self.assertNotIn("demo-value", json.dumps(run.packet()))
+            self.assertNotIn("private prompt text", json.dumps(run.packet()))
             self.assertEqual([], validate_continuation_packet(run.packet()))
 
     def test_an_empty_request_still_produces_an_objective(self) -> None:
@@ -185,7 +181,7 @@ class CheckpointContentTests(unittest.TestCase):
             run = HookRun(directory)
             args = run.args("start", request="", command="bugfix")
 
-            self.assertEqual("bugfix run", wiring.start_objective(args))
+            self.assertEqual("bugfix workflow", wiring.start_objective(args))
 
     def test_a_failed_hook_never_names_a_completed_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -390,8 +386,8 @@ class DispatchTests(unittest.TestCase):
             self.assertEqual(["lifecycle"], [call["kind"] for call in calls])
             self.assertEqual("reviewing", calls[0]["phase"])
 
-    def test_finish_checkpoints_before_the_run_leaves_its_active_state(self) -> None:
-        """The writer refuses an inactive run, so finish must checkpoint first."""
+    def test_successful_finish_finalizes_after_the_run_becomes_completed(self) -> None:
+        """A completed packet must derive its display state from completed."""
 
         with tempfile.TemporaryDirectory() as directory:
             run = HookRun(directory)
@@ -412,7 +408,49 @@ class DispatchTests(unittest.TestCase):
             ):
                 agent_hook.main()
 
-            self.assertEqual(["running"], states)
+            self.assertEqual(["completed"], states)
+
+    def test_successful_finish_leaves_no_cached_unfinished_checkpoint(self) -> None:
+        """The pre-fix control leaves ``first_unfinished`` equal to ``finish``."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            wiring.record_lifecycle_checkpoint(
+                run.args("start"),
+                "initial",
+                work={"objective": "finish the lifecycle"},
+            )
+            preflight = json.loads(run.evidence.read_text(encoding="utf-8"))
+            for gate in ROUTE["gates"]:
+                record_gate_evidence(
+                    evidence_path=run.evidence,
+                    preflight=preflight,
+                    gate=gate,
+                    evidence="completed in the finish regression fixture",
+                )
+
+            with (
+                patch.object(
+                    agent_hook,
+                    "run_script_main",
+                    return_value={"returncode": 0, "stdout": "", "stderr": ""},
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                code = agent_hook.finish_hook(
+                    run.args("finish", allow_vibeguard_review=None)
+                )
+
+            registry = json.loads(
+                registry_path(run.project).read_text(encoding="utf-8")
+            )
+            record = next(
+                item for item in registry["runs"] if item["run_id"] == run.run_id
+            )
+            self.assertEqual(0, code)
+            self.assertEqual("completed", record["state"])
+            self.assertEqual("done", run.packet()["phase"])
+            self.assertIsNone(run.packet()["checkpoint"]["first_unfinished"])
 
     def test_start_checkpoints_the_initial_packet_after_registering_the_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -442,7 +480,8 @@ class DispatchTests(unittest.TestCase):
                 )
 
             self.assertEqual(["initial"], [call["kind"] for call in calls])
-            self.assertEqual(INTAKE["request"], calls[0]["work"]["objective"])
+            self.assertEqual("task workflow", calls[0]["work"]["objective"])
+            self.assertNotIn(INTAKE["request"], json.dumps(calls[0]["work"]))
 
 
 if __name__ == "__main__":

@@ -9,17 +9,13 @@ each lifecycle transition, and -- best effort only -- at Stop.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import stat
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from agent_continuation_drift import capture_drift_state, required_docs_digest
 from agent_continuation_fields import failure
+from agent_continuation_mutation_state import MutationCheckpointState
 from agent_continuation_packet import (
     CONTINUATION_SCHEMA_VERSION,
     STORAGE_CLASS,
@@ -34,7 +30,6 @@ from agent_execution_capsule_state import (
     CAPSULE_FILENAME,
     atomic_write_json,
     execution_capsule_binding_fingerprint,
-    is_sha256,
     preflight_snapshot_binding_fingerprint,
     read_json_object,
     sha256_file,
@@ -47,16 +42,11 @@ from agent_route_state import route_fingerprint
 from agent_run_owner import process_owner
 from agent_run_registry import read_registry_state, registry_path
 from agent_state_lock import project_state_lock, state_lock
-from agent_worktree_fingerprint import MAX_UNTRACKED_BYTES, MAX_UNTRACKED_FILES
-from agent_worktree_scan import WorktreeFingerprintLimitExceeded
-from agent_workspace_policy import is_non_git_workspace
 
 
 CHECKPOINT_KINDS = ("initial", "pre_mutation", "post_mutation", "decision", "lifecycle", "stop")
 PHASE_BY_KIND = {"initial": "scoped", "pre_mutation": "acting", "post_mutation": "acting"}
 ACTIVE_CHECKPOINT_STATES = {"running", "resuming"}
-MUTATION_BASELINE_FILENAME = ".mutation-baseline.json"
-MAX_MUTATION_BASELINE_BYTES = 1024 * 1024
 EMPTY_WORK: dict[str, Any] = {
     "objective": "",
     "non_goals": [],
@@ -80,6 +70,7 @@ def write_continuation_checkpoint(
     phase: str | None = None,
     mutation: dict[str, Any] | None = None,
     last_completed: str | None = None,
+    finalize_completed: bool = False,
 ) -> dict[str, Any]:
     """Rewrite the whole packet for one checkpoint and return it.
 
@@ -92,8 +83,21 @@ def write_continuation_checkpoint(
     if kind not in CHECKPOINT_KINDS:
         raise ValueError(f"unsupported continuation checkpoint kind: {kind}")
     record = _owned_run(project, run_id)
+    if finalize_completed and not (
+        kind == "lifecycle"
+        and phase == "done"
+        and record.get("state") == "completed"
+    ):
+        raise ContinuationPacketError(
+            [failure("invalid_completed_checkpoint", "/phase")]
+        )
     base = _base_packet(project, run_id, kind)
     binding_payload = _binding_payload(project, run_id, binding_path)
+    work_update = dict(work or {})
+    if kind == "post_mutation":
+        work_update = MutationCheckpointState.merge_changed_scope(
+            project, run_id, base, work_update
+        )
     drift = capture_drift_state(
         project,
         rules,
@@ -108,7 +112,7 @@ def write_continuation_checkpoint(
         "phase": phase or PHASE_BY_KIND.get(kind) or str(base.get("phase") or "scoped"),
         "binding": binding_record(binding_path, binding_payload),
         "drift": drift,
-        "work": {**(base.get("work") or EMPTY_WORK), **(work or {})},
+        "work": {**(base.get("work") or EMPTY_WORK), **work_update},
         "checkpoint": {
             "last_completed": last_completed
             if last_completed is not None
@@ -121,9 +125,19 @@ def write_continuation_checkpoint(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if kind == "post_mutation":
-        _reject_undeclared_paths(project, run_id, base, packet)
-    baseline = _mutation_baseline(project) if kind == "pre_mutation" else None
-    _write_owned_checkpoint(project, run_id, record, packet, baseline=baseline)
+        MutationCheckpointState.reject_undeclared_paths(project, run_id, base, packet)
+    baseline = MutationCheckpointState.capture(project) if kind == "pre_mutation" else None
+    _write_owned_checkpoint(
+        project,
+        run_id,
+        record,
+        packet,
+        baseline=baseline,
+        expected_packet_generation=None
+        if kind == "initial"
+        else int(base.get("generation") or 0),
+        finalize_completed=finalize_completed,
+    )
     return packet
 
 
@@ -205,6 +219,8 @@ def _write_owned_checkpoint(
     packet: dict[str, Any],
     *,
     baseline: dict[str, str] | None,
+    expected_packet_generation: int | None,
+    finalize_completed: bool,
 ) -> None:
     """Compare owner/generation and replace the packet under one registry lock."""
 
@@ -214,7 +230,10 @@ def _write_owned_checkpoint(
         current = next((run for run in payload["runs"] if run.get("run_id") == run_id), None)
         if current is None:
             raise ContinuationPacketError([failure("unknown_run", "/run_id")])
-        if current.get("state") not in ACTIVE_CHECKPOINT_STATES:
+        allowed_states = (
+            {"completed"} if finalize_completed else ACTIVE_CHECKPOINT_STATES
+        )
+        if current.get("state") not in allowed_states:
             raise ContinuationPacketError([failure("run_not_active", "/run_id")])
         if (current.get("owner") or {}) != (expected.get("owner") or {}):
             raise ContinuationPacketError([failure("owner_changed", "/run_id")])
@@ -222,8 +241,24 @@ def _write_owned_checkpoint(
             expected.get("resume_generation") or 0
         ):
             raise ContinuationPacketError([failure("resume_generation_changed", "/run_id")])
-        baseline_path = _mutation_baseline_path(project, run_id)
-        if baseline is not None and not _baseline_is_local(project, baseline_path):
+        existing = read_continuation_packet(project, continuation_path(project, run_id))
+        if expected_packet_generation is None:
+            if existing["status"] == "ok":
+                raise ContinuationPacketError(
+                    [failure("checkpoint_generation_changed", "/generation")]
+                )
+        elif (
+            existing["status"] != "ok"
+            or int(existing["packet"].get("generation") or 0)
+            != expected_packet_generation
+        ):
+            raise ContinuationPacketError(
+                [failure("checkpoint_generation_changed", "/generation")]
+            )
+        baseline_path = MutationCheckpointState.path(project, run_id)
+        if baseline is not None and not MutationCheckpointState.is_local(
+            project, baseline_path
+        ):
             raise ContinuationPacketError(
                 [failure("mutation_baseline_not_git_ignored", "/checkpoint/mutation_pending")]
             )
@@ -270,6 +305,28 @@ def binding_record(binding_path: Path, payload: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _nothing_written_since(previous: dict[str, Any], drift: dict[str, Any]) -> bool:
+    """True when the pending mutation's tool never reached the filesystem.
+
+    A pending record is cleared by the post-mutation checkpoint, so anything
+    that stops the tool between the two -- a declined permission prompt above
+    all, but equally an aborted turn -- leaves it in place. Refusing every later
+    mutation for that would make one declined prompt lock the session out of
+    editing, with no in-band way back.
+
+    The pending record carries the project and rules state it was written
+    against, so "the tool never ran" is checkable rather than assumed: identical
+    state means no bytes moved and this pending describes a mutation that did
+    not happen. Superseding it is then the same conclusion resume already draws
+    from the same evidence. Changed state is the opposite case and still raises,
+    because those bytes need reconciliation, not a fresh pending on top.
+    """
+    return (
+        previous.get("project") == drift["project"]
+        and previous.get("rules") == drift["rules"]
+    )
+
+
 def _pending(
     kind: str,
     base: dict[str, Any],
@@ -283,6 +340,10 @@ def _pending(
         return None
     if kind != "pre_mutation":
         return previous
+    if previous is not None and not _nothing_written_since(previous, drift):
+        raise ContinuationPacketError(
+            [failure("mutation_already_pending", "/checkpoint/mutation_pending")]
+        )
     if not isinstance(mutation, dict):
         raise ContinuationPacketError([failure("missing_mutation", "/checkpoint/mutation_pending")])
     return {
@@ -292,185 +353,6 @@ def _pending(
         "rules": drift["rules"],
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-
-
-def _reject_undeclared_paths(
-    project: Path,
-    run_id: str,
-    base: dict[str, Any],
-    packet: dict[str, Any],
-) -> None:
-    """Fail the post-mutation checkpoint on any path the batch never declared."""
-
-    declared = set((base.get("checkpoint") or {}).get("mutation_pending", {}).get("paths") or [])
-    known = _scope_paths((base.get("work") or {}).get("changed_scope") or [])
-    for index, path in enumerate(_scope_paths((packet.get("work") or {}).get("changed_scope") or [])):
-        if path not in known and path not in declared:
-            raise ContinuationPacketError(
-                [failure("undeclared_changed_path", f"/work/changed_scope/{index}")]
-            )
-    baseline = _read_mutation_baseline(project, run_id)
-    if (
-        baseline.get("packet_generation") != base.get("generation")
-        or not isinstance(baseline.get("states"), dict)
-    ):
-        raise ContinuationPacketError(
-            [failure("missing_mutation_baseline", "/checkpoint/mutation_pending")]
-        )
-    current = _mutation_baseline(project)
-    changed = {
-        key
-        for key in set(baseline["states"]) | set(current)
-        if baseline["states"].get(key) != current.get(key)
-    }
-    allowed = {_path_key(path) for path in declared}
-    if changed - allowed:
-        raise ContinuationPacketError(
-            [failure("undeclared_changed_path", "/checkpoint/mutation_pending/paths")]
-        )
-
-
-def _scope_paths(records: Any) -> list[str]:
-    paths: list[str] = []
-    for record in records or []:
-        if not isinstance(record, dict):
-            continue
-        paths.extend(str(record[key]) for key in ("path", "from", "to") if record.get(key))
-    return paths
-
-
-def _mutation_baseline_path(project: Path, run_id: str) -> Path:
-    return continuation_path(project, run_id).parent / MUTATION_BASELINE_FILENAME
-
-
-def _baseline_is_local(project: Path, path: Path) -> bool:
-    if any(
-        candidate.is_symlink()
-        for candidate in (path, path.parent, path.parent.parent, path.parent.parent.parent)
-    ):
-        return False
-    if is_non_git_workspace(project):
-        return True
-    return subprocess.run(
-        ["git", "check-ignore", "-q", str(path)],
-        cwd=project,
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    ).returncode == 0
-
-
-def _read_mutation_baseline(project: Path, run_id: str) -> dict[str, Any]:
-    """Read only the closed, owner-only sidecar without following its symlink."""
-
-    path = _mutation_baseline_path(project, run_id)
-    if not _baseline_is_local(project, path):
-        return {}
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-        info = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_nlink != 1
-            or stat.S_IMODE(info.st_mode) & 0o077
-            or info.st_size > MAX_MUTATION_BASELINE_BYTES
-        ):
-            os.close(descriptor)
-            return {}
-        with os.fdopen(descriptor, "rb") as stream:
-            encoded = stream.read(MAX_MUTATION_BASELINE_BYTES + 1)
-        payload = json.loads(encoded.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return {}
-    if not isinstance(payload, dict) or set(payload) != {"packet_generation", "states"}:
-        return {}
-    generation = payload.get("packet_generation")
-    states = payload.get("states")
-    if (
-        not isinstance(generation, int)
-        or isinstance(generation, bool)
-        or generation < 0
-        or not isinstance(states, dict)
-        or len(states) > MAX_UNTRACKED_FILES
-        or any(not is_sha256(key) or not is_sha256(value) for key, value in states.items())
-    ):
-        return {}
-    return payload
-
-
-def _mutation_baseline(project: Path) -> dict[str, str]:
-    """Capture a bounded, path-opaque baseline for post-mutation comparison."""
-
-    records = (
-        _git_changed_records(project)
-        if not is_non_git_workspace(project)
-        else {path: b"" for path in _local_paths(project)}
-    )
-    if len(records) > MAX_UNTRACKED_FILES:
-        raise WorktreeFingerprintLimitExceeded("mutation baseline path count exceeds limit")
-    total = 0
-    states: dict[str, str] = {}
-    for relative, record in records.items():
-        candidate = project / relative
-        try:
-            metadata = candidate.lstat()
-        except FileNotFoundError:
-            payload = record + b"\0missing"
-        else:
-            total += metadata.st_size
-            if total > MAX_UNTRACKED_BYTES:
-                raise WorktreeFingerprintLimitExceeded("mutation baseline bytes exceed limit")
-            mode = str(stat.S_IMODE(metadata.st_mode)).encode("ascii")
-            if stat.S_ISLNK(metadata.st_mode):
-                payload = record + b"\0link\0" + mode + b"\0" + os.fsencode(os.readlink(candidate))
-            elif stat.S_ISREG(metadata.st_mode):
-                payload = record + b"\0file\0" + mode + b"\0" + candidate.read_bytes()
-            else:
-                payload = record + b"\0mode:" + mode
-        states[_path_key(relative.as_posix())] = hashlib.sha256(payload).hexdigest()
-    return states
-
-
-def _git_changed_records(project: Path) -> dict[Path, bytes]:
-    completed = subprocess.run(
-        ["git", "status", "--porcelain=v2", "-z", "--untracked-files=all"],
-        cwd=project,
-        check=False,
-        stdout=subprocess.PIPE,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError("cannot capture mutation baseline: git status failed")
-    records: dict[Path, bytes] = {}
-    items = [item for item in completed.stdout.split(b"\0") if item]
-    index = 0
-    while index < len(items):
-        record = items[index]
-        kind = record[:1]
-        limit = {b"1": 8, b"2": 9, b"u": 10}.get(kind)
-        relative = record[2:] if kind == b"?" else (
-            record.split(b" ", limit)[limit] if limit is not None else b""
-        )
-        if relative:
-            records[Path(os.fsdecode(relative))] = record
-        if kind == b"2" and index + 1 < len(items):
-            index += 1
-            records[Path(os.fsdecode(items[index]))] = b"rename-source\0" + record
-        index += 1
-    return records
-
-
-def _local_paths(project: Path) -> set[Path]:
-    return {
-        path.relative_to(project)
-        for path in project.rglob("*")
-        if (path.is_file() or path.is_symlink())
-        and not ({".tao", ".git"} & set(path.relative_to(project).parts))
-    }
-
-
-def _path_key(path: str) -> str:
-    return hashlib.sha256(path.encode("utf-8", errors="surrogateescape")).hexdigest()
 
 
 def _latest_gate_statuses(binding_path: Path, route: dict[str, Any]) -> dict[str, str]:

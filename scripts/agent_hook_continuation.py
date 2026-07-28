@@ -17,17 +17,15 @@ packet bound to a record it cannot prove.
 from __future__ import annotations
 
 import argparse
-import unicodedata
 from pathlib import Path
 from typing import Any
 
 from agent_continuation_checkpoint import write_continuation_checkpoint
-from agent_continuation_fields import CHECKPOINT_RE, MAX_TEXT, RUN_ID_RE
+from agent_continuation_fields import CHECKPOINT_RE, RUN_ID_RE
 from agent_hook_gate_records import preflight_evidence_path
 
 
 RUNS_DIR = "runs"
-FORBIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 SKIPPED_DETAIL = (
     "continuation checkpoint: skipped; this run's evidence is not a "
     ".tao/runs/<run-id>/preflight.json path, so no packet is reachable"
@@ -50,24 +48,18 @@ def run_binding_path(args: argparse.Namespace) -> Path | None:
 
 
 def start_objective(args: argparse.Namespace) -> str:
-    """Bound the recorded request into one objective line the schema accepts.
+    """Return a content-free initial label derived only from the route enum.
 
-    The packet refuses prose it cannot store rather than truncating it, so the
-    caller supplying the field is the one that must bound it. Every character
-    the schema forbids becomes a separator rather than disappearing -- deleting
-    a line break would join two words into one that was never written -- and the
-    collapsed result is cut to the cap. An objective labels the work; it is not
-    the request.
+    ``--request`` is prompt content.  Copying, normalizing, summarizing, or
+    truncating it here would still persist prompt bytes in the continuation
+    packet before an agent had made a bounded semantic decision.  The initial
+    packet therefore records only the selected route.  A later explicit
+    ``checkpoint`` command may replace this label with a schema-bounded work
+    summary supplied through stdin.
     """
 
-    text = unicodedata.normalize("NFC", str(getattr(args, "request", "") or ""))
-    cleaned = " ".join(
-        "".join(
-            " " if unicodedata.category(character) in FORBIDDEN_CATEGORIES else character
-            for character in text
-        ).split()
-    )
-    return cleaned[:MAX_TEXT] or f"{getattr(args, 'command', '') or 'task'} run"
+    command = str(getattr(args, "command", "") or "task")
+    return f"{command} workflow"
 
 
 def gate_checkpoint_name(args: argparse.Namespace) -> str | None:
@@ -87,6 +79,7 @@ def record_lifecycle_checkpoint(
     phase: str | None = None,
     last_completed: str | None = None,
     mutation: dict[str, Any] | None = None,
+    finalize_completed: bool = False,
 ) -> str:
     """Write one checkpoint for this lifecycle point and report what happened.
 
@@ -117,6 +110,7 @@ def record_lifecycle_checkpoint(
             phase=phase,
             last_completed=last_completed,
             mutation=mutation,
+            finalize_completed=finalize_completed,
         )
     except Exception as error:  # noqa: BLE001 - a packet must never block a hook
         return f"continuation checkpoint: unavailable ({error}); lifecycle continues"

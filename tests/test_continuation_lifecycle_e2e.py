@@ -33,6 +33,7 @@ if str(SCRIPTS) not in sys.path:
 from agent_run_registry import registry_path
 
 REQUEST = "implement the resume list command in src/module.py with a unit test"
+SAFE_OBJECTIVE = "finish the bounded continuation resume wiring"
 GATE = "source docs"
 POLL_SECONDS = 0.005
 DEADLINE_SECONDS = 120
@@ -61,9 +62,10 @@ Path(pidfile).write_text(str(os.getpid()), encoding="utf-8")
 entry = [sys.executable, runner] if runner else [sys.executable, root + "/scripts/agent-hook.py"]
 
 
-def hook(*arguments):
+def hook(*arguments, input_text=None):
     return subprocess.run(
         [*entry, *arguments, "--project", project, "--rules", rules, "--evidence", evidence],
+        input=input_text,
         capture_output=True,
         text=True,
     )
@@ -83,9 +85,25 @@ gate = hook(
     "--field", "source=AGENTS.md",
     "--field", "takeaway=follow the routed lifecycle",
 )
+semantic = None
+if not runner:
+    semantic = hook(
+        "checkpoint",
+        "--checkpoint-kind", "decision",
+        "--work-stdin",
+        input_text={work!r},
+    )
 Path(readyfile).write_text(
-    "start={{0}} gate={{1}}\\n{{2}}{{3}}{{4}}{{5}}".format(
-        start.returncode, gate.returncode, start.stdout, start.stderr, gate.stdout, gate.stderr
+    "start={{0}} gate={{1}} semantic={{2}}\\n{{3}}{{4}}{{5}}{{6}}{{7}}{{8}}".format(
+        start.returncode,
+        gate.returncode,
+        semantic.returncode if semantic else "skipped",
+        start.stdout,
+        start.stderr,
+        gate.stdout,
+        gate.stderr,
+        semantic.stdout if semantic else "",
+        semantic.stderr if semantic else "",
     ),
     encoding="utf-8",
 )
@@ -161,7 +179,20 @@ class Checkout:
 
     def child_script(self, *, wired: bool) -> tuple[Path, str]:
         script = self.directory / "child.py"
-        script.write_text(CHILD.format(request=REQUEST, gate=GATE), encoding="utf-8")
+        work = json.dumps(
+            {
+                "objective": SAFE_OBJECTIVE,
+                "remaining_work": [
+                    {
+                        "checkpoint": "documentation impact",
+                        "action": "continue from the first unfinished route gate",
+                    }
+                ],
+            }
+        )
+        script.write_text(
+            CHILD.format(request=REQUEST, gate=GATE, work=work), encoding="utf-8"
+        )
         if wired:
             return script, ""
         runner = self.directory / "runner.py"
@@ -230,7 +261,7 @@ class KillNineResumeTests(unittest.TestCase):
             checkout = Checkout(directory)
 
             report = checkout.kill_after_work(wired=True)
-            self.assertIn("start=0 gate=0", report)
+            self.assertIn("start=0 gate=0 semantic=0", report)
 
             listed = checkout.resume("--list")
             resumed = checkout.resume("--last")
@@ -241,7 +272,8 @@ class KillNineResumeTests(unittest.TestCase):
             self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
             self.assertIn("SUCCESS resume", resumed.stdout)
             self.assertIn("resume result: ready", resumed.stdout)
-            self.assertIn(f"objective: {REQUEST}", resumed.stdout)
+            self.assertIn(f"objective: {SAFE_OBJECTIVE}", resumed.stdout)
+            self.assertNotIn(REQUEST, resumed.stdout)
             # The gate the dead child recorded is complete, so the resumed
             # checkpoint is the next one -- proof the gate checkpoint ran too,
             # not only the initial one written by start.
@@ -254,7 +286,7 @@ class KillNineResumeTests(unittest.TestCase):
             checkout = Checkout(directory)
 
             report = checkout.kill_after_work(wired=False)
-            self.assertIn("start=0 gate=0", report)
+            self.assertIn("start=0 gate=0 semantic=skipped", report)
 
             listed = checkout.resume("--list")
             resumed = checkout.resume("--last")
