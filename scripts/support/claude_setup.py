@@ -16,6 +16,7 @@ from support.runtime_bridge import (
     runtime_bridge_block,
     runtime_bridge_required_phrases,
 )
+from support.global_state import global_state_dir
 from support.setup_config_files import merge_permissions_allow, quote, read_json, write_json
 
 # Identify the managed hook by the command it runs, not by the launcher's
@@ -324,6 +325,40 @@ def _is_managed_claude_spill_bridge_command(command: str) -> bool:
     )
 
 
+_RUNTIME_ENV_KEYS = ("SPILL_AI_TOOL", "SPILL_TOKEN_USAGE_AI_TOOL")
+
+
+def _managed_env_record_path() -> Path:
+    """Where this installer records the env keys it actually wrote.
+
+    A hook command carries its own provenance -- the Tao alias is in the command
+    string -- so ownership is readable from the config itself. An environment
+    entry cannot: `SPILL_AI_TOOL=claude` looks identical whether this installer
+    wrote it, another tool did, or the user did by hand. Value equality is a
+    resemblance, and removing on resemblance is how one product deletes
+    another's configuration. Keep the proof in Tao's own state directory
+    instead, and remove only what it names.
+    """
+    return global_state_dir() / "managed-runtime-env.json"
+
+
+def _managed_env_keys(target: Path) -> list[str]:
+    record = read_json(_managed_env_record_path())
+    entry = record.get(str(target))
+    return [key for key in entry if isinstance(key, str)] if isinstance(entry, list) else []
+
+
+def _record_managed_env_keys(target: Path, keys: list[str]) -> None:
+    path = _managed_env_record_path()
+    record = read_json(path)
+    if keys:
+        record[str(target)] = sorted(set(_managed_env_keys(target)) | set(keys))
+    else:
+        record.pop(str(target), None)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, record)
+
+
 def _set_claude_env(target: Path, dry_run: bool) -> str:
     config = read_json(target)
     env = config.get("env", {})
@@ -331,34 +366,39 @@ def _set_claude_env(target: Path, dry_run: bool) -> str:
         return "ok"
     if dry_run:
         return "missing"
-    env["SPILL_AI_TOOL"] = "claude"
-    env["SPILL_TOKEN_USAGE_AI_TOOL"] = "claude"
+    written = [key for key in _RUNTIME_ENV_KEYS if key not in env]
+    for key in _RUNTIME_ENV_KEYS:
+        env[key] = "claude"
     config["env"] = env
     write_json(target, config)
+    _record_managed_env_keys(target, written)
     return "installed"
 
 
 def _remove_claude_env(target: Path, dry_run: bool) -> str:
+    """Remove only the env keys this installer recorded writing.
+
+    The trigger for this path is the Spill setup helper being absent, which is
+    weaker than "Spill is gone": a moved, renamed, or restructured install looks
+    the same. Without a record, leaving a stale key behind is the cheap failure
+    and deleting a live one is not.
+    """
     config = read_json(target)
     env = config.get("env", {})
     if not isinstance(env, dict):
         return "ok"
 
-    changed = False
-    for key, expected in (
-        ("SPILL_AI_TOOL", "claude"),
-        ("SPILL_TOKEN_USAGE_AI_TOOL", "claude"),
-    ):
-        if env.get(key) == expected:
-            env.pop(key)
-            changed = True
-    if not changed:
+    owned = [key for key in _managed_env_keys(target) if key in env]
+    if not owned:
         return "ok"
     if dry_run:
         return "would_remove"
+    for key in owned:
+        env.pop(key)
     if env:
         config["env"] = env
     else:
         config.pop("env", None)
     write_json(target, config)
+    _record_managed_env_keys(target, [])
     return "removed"
