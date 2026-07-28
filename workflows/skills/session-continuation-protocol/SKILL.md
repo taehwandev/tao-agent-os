@@ -84,6 +84,12 @@ strip the resume record of the content that makes it useful.
 
 ## Red Flags
 
+- An adapter blocks a mutation for a condition that produces no checkpoint:
+  missing storage, a missing module, an edit outside the project, or a pending
+  whose tool never wrote. Blocking guards against a checkpoint that would
+  misdescribe the mutation, so where none can exist it only removes the editor
+  needed to fix the cause.
+- A refusal is raised after the bytes already landed.
 - A packet field accepts unbounded free text.
 - A packet or aggregate prose payload exceeds the schema cap.
 - A resume path reads a packet without verifying HEAD or worktree state.
@@ -119,7 +125,13 @@ Before claiming this protocol works in a runtime, verify with negative controls:
 - refusal while a live owner is inside the shared grace ceiling, plus recovery
   after that ceiling, proving takeover follows one age-aware owner rule
 
+- a first edit in a freshly cloned checkout, proving the run establishes its own
+  storage precondition rather than inheriting one the fixtures wrote
+
 A green resume test that never fails when the property is broken proves nothing.
+Check what the fixture sets up before trusting it: a non-git workspace, or one
+whose `.gitignore` the test wrote itself, passes every storage check while a
+real checkout fails all of them.
 
 ## Report
 
