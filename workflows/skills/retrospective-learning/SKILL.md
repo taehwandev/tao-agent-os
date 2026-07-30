@@ -6,10 +6,11 @@ type: ai-generated
 
 # Retrospective Learning Workflow
 
-Use at the closeout of every workflow, when a required hook or gate failed, or
-when completed work exposed a reusable gap in a skill the agent actually used.
-This bundle is the single owner of the failure-repair and skill-learning
-automation boundary.
+Use at the closeout of every workflow, when a required hook or gate failed,
+when the user explicitly reports that a previously completed result was wrong
+and asks to correct that same result, or when completed work exposed a reusable
+gap in a skill the agent actually used. This bundle is the single owner of the
+failure-repair and skill-learning automation boundary.
 
 ## Read
 
@@ -23,6 +24,9 @@ automation boundary.
 ## Process
 
 1. Classify the event as blocking failure repair or successful-task closeout.
+   A user-confirmed wrong completion is blocking failure repair even when the
+   earlier lifecycle recorded success; do not wait for recurrence or treat the
+   correction as ordinary successful-task feedback.
 2. Open only the matching focused reference.
 3. Keep failure repair inside the bounded repair-and-resume cycle.
    Select the active Tao Agent OS root as the canonical repair owner. An
@@ -52,6 +56,8 @@ automation boundary.
 - Do not let a successful-task feedback write, review, or promotion block task completion.
 - Do not skip the retrospective check merely because no reusable gap is
   expected; record `no_reusable_gap` or `no_skill_used` explicitly.
+- Do not route a user-confirmed wrong completion as an ordinary follow-up,
+  optional improvement, or successful-task observation.
 - Do not treat prose keywords as truth, recurrence, or promotion evidence.
 - Do not let an observation hook, curator, or reviewer mutate a canonical skill.
 - Do not collapse observation, deterministic curation, bounded review, staged
@@ -68,6 +74,16 @@ automation boundary.
   optional.
 - Prove successful-task feedback remains non-blocking when storage, tokens, or
   a reviewer are unavailable.
+- Prove a user-confirmed wrong completion enters blocking failure repair while
+  an optional improvement or unrelated follow-up does not.
+- Prove correction routing requires an explicit completed-result anchor, keeps
+  `triage`, `ambiguity`, and read-only `analysis` available for diagnosis, and
+  still refuses work routes that would bypass repair.
+- Prove `observation: recorded` is refused until the current occurrence has a
+  matching stored observation for one checked skill.
+- Prove new observations reject legacy signal slugs while the curator preserves
+  historical records, applies only the versioned exact compatibility table, and
+  reports every unmapped legacy record without fuzzy merging.
 - Prove only later staged maintenance can write canonical skill files, subject
   to its verification and approval policy.
 - Prove project-local maintenance is restricted to

@@ -6,20 +6,27 @@ type: human-reviewed-needed
 
 # Required Hook Or Gate Failure Repair
 
-Use only when a required hook, gate, or finish check fails. This flow is
-blocking because the current task does not yet satisfy its execution contract.
+Use when a required hook, gate, or finish check fails, or when the user
+explicitly reports that a previously completed result was wrong and asks to
+correct that same result. This flow is blocking because the current task does
+not yet satisfy its execution contract.
 
 ## Repair And Resume
 
-1. Stop finalization and preserve the original task checkpoint.
+1. Stop finalization and preserve the original task checkpoint. For a
+   user-confirmed wrong completion, treat the earlier completion decision as the
+   failed checkpoint even when its recorded gates were successful.
 2. Record the observed failure, earliest failed checkpoint, and stable failure
    signature used to identify recurrence.
 3. Separate facts, assumptions, missed signals, and unknowns. Name the root
    cause as a missing rule, unclear ownership, weak verification, stale docs,
    missing platform guidance, ambiguous decision, or execution error.
-4. Select the canonical Tao Agent OS owner. Improve at least one durable
-   enforcement surface: owning guidance, hook, validator, or focused test. A
-   note or queued lesson alone is not a repair.
+4. Select the canonical Tao Agent OS owner. When the failure exposes a reusable
+   operating-rule gap, update the owning guidance before resuming executable
+   work, then enforce it through the closest hook, validator, or focused test.
+   If the owning guidance already states the exact rule, preserve it and repair
+   the execution or verification surface instead of duplicating prose. A note
+   or queued lesson alone is not a repair.
 5. Verify the repair with the closest allowlisted documentation, workflow,
    hook, validator, or test check. Generate a structural repair receipt that
    binds the actual changed target hash, current preflight and route, recorded
@@ -30,6 +37,11 @@ blocking because the current task does not yet satisfy its execution contract.
    `first_failed_checkpoint`. Do not replay the same action unchanged and do not
    restart unrelated earlier work.
 7. Re-run the failed scope once. Stop if the same failure signature remains.
+
+The successful-task observation threshold does not apply to this blocking
+flow. A user-confirmed wrong completion repairs the current task immediately;
+it is not queued as a first passive occurrence while the incorrect result
+remains unresolved.
 
 If the failure signature reports that a required guidance document changed
 because a temporary instruction edit was reverted, keep the canonical restored

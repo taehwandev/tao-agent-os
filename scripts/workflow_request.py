@@ -9,13 +9,17 @@ from workflow_catalog import REQUEST_CONCERN_HINTS
 from workflow_common import ANSWER_ONLY_CLARITY, QUESTION_ROUTE_COMMANDS, unique
 from workflow_request_patterns import (
     BROAD_PATTERNS,
+    COMPLETION_FAILURE_PATTERNS,
+    CORRECTION_ACTION_PATTERNS,
     DIRECT_QUESTION_PATTERNS,
     GRILL_ME_REQUEST_PATTERNS,
     EXACT_PATTERNS,
+    IMPERATIVE_CORRECTION_ACTION_PATTERNS,
     INSPECTION_PATTERNS,
     RELEASE_ACTION_PATTERNS,
     REFACTOR_ACTION_PATTERNS,
     QUESTION_ACTION_PATTERNS,
+    PRIOR_COMPLETION_REFERENCE_PATTERNS,
     REVIEW_ACTION_PATTERNS,
     RISKY_PATTERNS,
     SCOPED_PATTERNS,
@@ -224,6 +228,17 @@ COMMIT_NEGATION_PATTERNS = (
     r"\bcommit(?:ting|s)?\s+is\s+(?:only\s+|just\s+|simply\s+)?(?:a\s+|the\s+)?"
     r"(?:term|word|noun|concept)\b",
     r"\b(?:before|prior to)\s+commit(?:ting|s)?\b",
+)
+MUTATION_ACTION_NEGATION_PATTERNS = (
+    r"\b(?:do not|don't|does not|doesn't|never|won't|will not|should not|"
+    r"shouldn't|must not|mustn't|cannot|can't)\s+(?:\w+\s+){0,2}"
+    r"(?:commit|push|merge|release|deploy|publish|tag)\b",
+    r"\b(?:commit|push|merge|release|deploy|publish|tag)"
+    r"(?:\s*(?:/|,|·|\band\b)\s*"
+    r"(?:commit|push|merge|release|deploy|publish|tag))*"
+    r"(?:은|는|을|를)?\s*"
+    r"(?:하지\s*(?:않|마)|안\s*(?:하|해|함|한다|합니다)|"
+    r"(?:하면|해서는)\s*안|금지)",
 )
 COMMIT_RELEASE_SUBSTEP_PATTERNS = (
     r"\b(first|before|current|pending|staged|working tree|worktree|warning cleanup)\b",
@@ -472,7 +487,7 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
     has_workflow_setup_action = _matches(WORKFLOW_SETUP_ACTION_PATTERNS, lowered)
     has_ui_feature_action = _matches(UI_FEATURE_ACTION_PATTERNS, lowered)
     has_commit_action = _has_commit_action(normalized)
-    has_release_action = _matches(RELEASE_ACTION_PATTERNS, normalized, re.IGNORECASE)
+    has_release_action = _has_release_action(normalized)
     release_scope_signal_count = _release_scope_signal_count(normalized)
     has_release_scope = release_scope_signal_count >= 2
     commit_release_substep = has_commit_action and (
@@ -480,9 +495,14 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
     )
     inspection_lacks_target = has_inspection and _inspection_lacks_target(lowered)
     has_direct_question = _matches(DIRECT_QUESTION_PATTERNS, lowered)
-    asks_agent_action = _matches(QUESTION_ACTION_PATTERNS, lowered)
+    asks_agent_action = _matches(QUESTION_ACTION_PATTERNS, lowered) or _matches(
+        IMPERATIVE_CORRECTION_ACTION_PATTERNS,
+        lowered,
+        re.IGNORECASE,
+    )
     short_without_target = len(normalized.split()) <= 8 and not (has_exact or has_scoped)
     asks_drill = _matches(GRILL_ME_REQUEST_PATTERNS, lowered)
+    has_user_correction = _has_user_confirmed_correction(lowered)
     underspecified_action = (
         asks_agent_action
         and not (has_exact or has_scoped or has_inspection)
@@ -512,6 +532,7 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
         "asks_agent_action": asks_agent_action,
         "short_without_target": short_without_target,
         "asks_drill": asks_drill,
+        "has_user_correction": has_user_correction,
         "underspecified_action": underspecified_action,
     }
 
@@ -533,7 +554,11 @@ def _intake_gate_decision(
     has_scoped = bool(flags["has_scoped"])
     has_risky = bool(flags["has_risky"])
 
-    if flags["has_direct_question"] and not flags["asks_agent_action"]:
+    if (
+        flags["has_direct_question"]
+        and not flags["asks_agent_action"]
+        and not flags["has_user_correction"]
+    ):
         flags["clarity"] = ANSWER_ONLY_CLARITY
         flags["effort"] = "standard" if has_broad else "quick"
         route = "product" if has_broad else "none"
@@ -565,6 +590,17 @@ def _explicit_action_decision(
             flags["has_ui_feature_action"],
         )
     )
+    if flags["has_user_correction"]:
+        flags["clarity"] = "clear-scoped"
+        flags["effort"] = "standard"
+        return (
+            "retrospective",
+            False,
+            "work",
+            "The user explicitly reports that a previously completed result was wrong "
+            "and asks to correct that same result; repair the failed closeout before "
+            "resuming the original work.",
+        )
     if review_only_request:
         flags["clarity"] = "clear-scoped"
         flags["effort"] = "standard"
@@ -685,13 +721,33 @@ def _matches(patterns: object, text: str, flags: int = 0) -> bool:
     return any(re.search(pattern, text, flags) for pattern in patterns)
 
 
+def _has_user_confirmed_correction(text: str) -> bool:
+    return (
+        _matches(PRIOR_COMPLETION_REFERENCE_PATTERNS, text, re.IGNORECASE)
+        and _matches(COMPLETION_FAILURE_PATTERNS, text, re.IGNORECASE)
+        and _matches(CORRECTION_ACTION_PATTERNS, text, re.IGNORECASE)
+    )
+
+
 def _has_commit_action(text: str) -> bool:
     if not _matches(COMMIT_ACTION_PATTERNS, text, re.IGNORECASE):
         return False
     # "do not commit", "commit is only a term", "before committing" all
     # match COMMIT_ACTION_PATTERNS' bare \bcommit\b, but none of them are a
     # request or approval to actually commit.
-    return not _matches(COMMIT_NEGATION_PATTERNS, text, re.IGNORECASE)
+    return not _matches(
+        COMMIT_NEGATION_PATTERNS + MUTATION_ACTION_NEGATION_PATTERNS,
+        text,
+        re.IGNORECASE,
+    )
+
+
+def _has_release_action(text: str) -> bool:
+    return _matches(RELEASE_ACTION_PATTERNS, text, re.IGNORECASE) and not _matches(
+        MUTATION_ACTION_NEGATION_PATTERNS,
+        text,
+        re.IGNORECASE,
+    )
 
 
 def _release_scope_signal_count(text: str) -> int:
@@ -783,6 +839,14 @@ def route_block_reason(
         return (
             "The current request is broad app/product/feature work. Use route `product` "
             "so PRD and ARD gates run before implementation; do not route it as `feature`."
+        )
+    if (
+        classification["recommended_route"] == "retrospective"
+        and command not in QUESTION_ROUTE_COMMANDS | {"analysis", "retrospective"}
+    ):
+        return (
+            "The user explicitly corrected a previously completed result. Use route "
+            "`retrospective` to repair the failed closeout before resuming the original work."
         )
     return None
 

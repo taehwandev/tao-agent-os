@@ -498,6 +498,48 @@ class GateEvidenceLedgerTests(unittest.TestCase):
         self.assertEqual({}, gate_evidence)
         self.assertIn("stale", " ".join(diagnostics["warnings"]))
 
+    def test_new_request_cannot_reuse_prior_review_success_on_same_route(self) -> None:
+        route = {
+            "command": "review",
+            "docs": ["AGENTS.md"],
+            "gates": ["review hook"],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            evidence_path = Path(temp_dir) / "preflight.json"
+            old_preflight = {
+                "route": route,
+                "request_intake": {"request": "review the first change"},
+            }
+            evidence_path.write_text(json.dumps(old_preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence_path, old_preflight)
+            record_gate_evidence(
+                evidence_path=evidence_path,
+                preflight=old_preflight,
+                gate="review hook",
+                evidence="first request review completed",
+                source="review",
+            )
+
+            new_preflight = {
+                "route": route,
+                "request_intake": {"request": "review a different change"},
+            }
+            evidence_path.write_text(json.dumps(new_preflight), encoding="utf-8")
+            stale_evidence, stale_diagnostics = merge_gate_evidence_from_ledger(
+                route=route,
+                evidence_path=evidence_path,
+            )
+            reset_gate_evidence_ledger(evidence_path, new_preflight)
+            fresh_evidence, fresh_diagnostics = merge_gate_evidence_from_ledger(
+                route=route,
+                evidence_path=evidence_path,
+            )
+
+        self.assertNotIn("review hook", stale_evidence)
+        self.assertIn("stale", " ".join(stale_diagnostics["warnings"]))
+        self.assertNotIn("review hook", fresh_evidence)
+        self.assertFalse(fresh_diagnostics["used"])
+
 
 if __name__ == "__main__":
     unittest.main()

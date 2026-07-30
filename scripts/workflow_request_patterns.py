@@ -48,6 +48,32 @@ QUESTION_ACTION_PATTERNS = (
     "\uad6c\uc131\ud574\uc918",
     r"(\ud574\ubcf4\uc790|\uc9c4\ud589\ud574\uc918|\ud30c\uc545\ud574\uc918|\ud30c\uc545\uc880)",
 )
+PRIOR_COMPLETION_REFERENCE_PATTERNS = (
+    r"\b(?:previously|earlier|just)\s+(?:completed|finished|reported|delivered)"
+    r"\s+(?:result|work|change|implementation|answer|output)\b",
+    r"\b(?:result|work|change|implementation|answer|output)\s+"
+    r"(?:you|we|the\s+agent)\s+(?:just\s+)?"
+    r"(?:completed|finished|reported|delivered)\b",
+    r"\b(?:completed|finished|reported|delivered)\s+"
+    r"(?:result|work|change|implementation|answer|output)\b",
+    r"(?:방금|아까|이전(?:에)?|저번(?:에)?|지난번(?:에)?)\s*"
+    r"(?:완료한|완료했던|끝낸|끝냈던|마친|마쳤던)\s*"
+    r"(?:작업|결과|수정|구현|답변)",
+    r"(?:완료한|완료했던|끝낸|끝냈던|마친|마쳤던)\s*"
+    r"(?:작업|결과|수정|구현|답변)",
+)
+COMPLETION_FAILURE_PATTERNS = (
+    r"\b(?:wrong|incorrect|mistake|broken|failed|incomplete|missing|omitted)\b",
+    r"(?:잘못|틀렸|실수|오류|깨졌|빠졌|누락|미완성)",
+)
+CORRECTION_ACTION_PATTERNS = (
+    r"\b(?:fix|correct|redo|revise|repair|rework)\b",
+    r"(?:고쳐|수정|바로잡|재작업|다시\s*(?:해|하|고쳐|수정|작성|구현))",
+)
+IMPERATIVE_CORRECTION_ACTION_PATTERNS = (
+    r"(?:^|[.!?;,]\s*)(?:please\s+|just\s+)?"
+    r"(?:fix|correct|redo|revise|repair|rework)\b",
+)
 EXACT_PATTERNS = (
     r"`[^`]+`",
     r"(?:^|\s)(?:~/|\.{1,2}/|/)[A-Za-z0-9_./-]+",

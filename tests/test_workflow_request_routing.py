@@ -519,12 +519,80 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
                 self.assertFalse(classification["grill_me"])
                 self.assertIsNone(route_block_reason("bugfix", classification))
 
+    def test_user_confirmed_wrong_completion_routes_to_retrospective(self) -> None:
+        for request in (
+            "방금 완료한 작업이 잘못됐어. 같은 작업을 다시 수정해줘.",
+            "The result you just completed was wrong. Fix that same work again.",
+        ):
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertEqual("clear-scoped", classification["clarity"])
+                self.assertEqual("retrospective", classification["recommended_route"])
+                self.assertFalse(classification["grill_me"])
+                self.assertEqual("work", classification["response_mode"])
+                self.assertIsNone(route_block_reason("retrospective", classification))
+                self.assertIsNotNone(route_block_reason("bugfix", classification))
+
+    def test_ordinary_bugfix_language_does_not_claim_a_completed_agent_result(self) -> None:
+        exact_bugfixes = (
+            "just fix the incorrect output in src/parser.py",
+            "last change is missing a null check, fix src/parser.py",
+            "prior work is missing a null check, correct scripts/foo.py",
+        )
+        for request in exact_bugfixes:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertNotEqual("retrospective", classification["recommended_route"])
+                self.assertEqual("work", classification["response_mode"])
+                self.assertIsNone(route_block_reason("bugfix", classification))
+
+        korean_follow_up = classify_request("이전 문서가 잘못됐으니 수정해줘")
+        self.assertNotEqual(
+            "retrospective",
+            korean_follow_up["recommended_route"],
+        )
+
+    def test_correction_repair_allows_diagnostic_routes_but_blocks_work_bypass(self) -> None:
+        classification = classify_request(
+            "The result you just completed was wrong. Fix that same work again."
+        )
+
+        for command in ("triage", "ambiguity", "analysis", "retrospective"):
+            with self.subTest(command=command):
+                self.assertIsNone(route_block_reason(command, classification))
+        for command in ("bugfix", "feature", "task", "release"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(route_block_reason(command, classification))
+
+    def test_improvement_or_unrelated_mistake_text_is_not_correction_repair(self) -> None:
+        for request in (
+            "아하 그럼 그 작업을 더 개선해줘",
+            "실수 방지 문서를 작성해줘",
+            "Improve the completed work with one more example.",
+        ):
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertNotEqual("retrospective", classification["recommended_route"])
+
     def test_bare_follow_up_without_scope_still_requires_triage(self) -> None:
         classification = classify_request("수정해줘")
 
         self.assertEqual("vague-action", classification["clarity"])
         self.assertEqual("triage", classification["recommended_route"])
         self.assertIsNotNone(route_block_reason("bugfix", classification))
+
+    def test_negated_commit_push_merge_list_does_not_become_commit_or_release_work(self) -> None:
+        classification = classify_request(
+            "Implement the scoped fixes; commit/push/merge는 하지 않는다."
+        )
+
+        self.assertNotIn(
+            classification["recommended_route"],
+            {"commit", "release"},
+        )
 
     def test_planning_change_doc_omission_request_routes_to_workflow_setup(self) -> None:
         classification = classify_request("기획변경 때 문서 정리가 누락되는 걸 막아줘")
