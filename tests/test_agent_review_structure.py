@@ -58,6 +58,8 @@ class AgentReviewStructureTests(unittest.TestCase):
         self.assertIn("forbidden imports", failures[0])
         self.assertIn("verification", failures[0])
         self.assertIn("Example: owner=", failures[0])
+        self.assertIn("existing multi-role package", failures[0])
+        self.assertIn("not only when the diff creates a new package boundary", failures[0])
 
         complete = structure_evidence_failures(
             structure,

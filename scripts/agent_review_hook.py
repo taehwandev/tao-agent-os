@@ -412,6 +412,8 @@ def structure_evidence_failures(structure: dict[str, Any], structure_evidence: s
         failures.append(
             "structure boundary note evidence is required for "
             f"{format_boundary_note_requirements(boundary_requirements)}; "
+            "this applies when an added runtime file enters an existing multi-role package, "
+            "not only when the diff creates a new package boundary; "
             "structure-review-evidence must explicitly include owner, allowed imports, "
             f"forbidden imports, callers/tests, and verification. Missing: {', '.join(missing_fields)}. "
             "Example: owner=domain; allowed imports=contracts; forbidden imports=ui; "
