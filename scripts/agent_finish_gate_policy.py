@@ -189,11 +189,18 @@ def validate_gate_evidence(
 
 def _validate_graphify_readiness(evidence: str) -> list[str]:
     lower = evidence.lower()
+    ownership_anchor = (
+        "runtime ownership="
+        if "runtime ownership=" in lower
+        else "git ownership="
+        if "git ownership=" in lower
+        else "runtime ownership="
+    )
     required_anchors = (
         "cli=",
         "skill doc=",
         "runtime links=",
-        "git ownership=",
+        ownership_anchor,
         "project integration=",
         "target graph=",
         "query smoke=",

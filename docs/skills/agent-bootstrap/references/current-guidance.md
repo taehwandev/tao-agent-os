@@ -345,7 +345,7 @@ Before reporting success:
   repo-specific rules.
 - When Graphify is enabled, the `graphify readiness` gate proves CLI, the
   installed and read canonical `.tao` `SKILL.md`, runtime links that
-  resolve to it, portable Git ownership, project integration, a fresh and
+  resolve to it, runtime ownership, project integration, a fresh and
   input-complete target-root graph, and a successful scoped query smoke check.
   When project docs and code coexist, the check also proves a representative
   project-doc-to-source relationship rather than mere co-presence of nodes.

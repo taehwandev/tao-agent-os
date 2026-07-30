@@ -202,6 +202,10 @@ Graphify routes include a `graphify readiness` gate with these fields:
 
 Every structural field must be exactly `success`. Put paths, versions, graph
 counts, and query output in descriptive evidence rather than the status fields.
+`runtime_ownership` is the canonical field name for new records. Readers may
+accept the former `git_ownership` name only as a compatibility alias and must
+canonicalize it before validation or persistence; generated commands, guidance,
+and newly written ledger entries must not emit the legacy name.
 
 Presence of a shared skill does not prove the target graph exists. Presence of a
 graph does not prove the shared skill was read or the query succeeded.

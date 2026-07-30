@@ -63,7 +63,7 @@ FIELD_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "cli",
         "skill_doc",
         "runtime_links",
-        "git_ownership",
+        "runtime_ownership",
         "project_integration",
         "graph",
         "query_smoke",
@@ -406,6 +406,7 @@ def synthesize_gate_evidence(
     evidence: str,
     fields: dict[str, str],
 ) -> tuple[str, list[str]]:
+    fields = _canonical_structured_gate_fields(gate, fields)
     missing = missing_structured_gate_fields(gate, evidence, fields)
     if missing:
         return "", missing
@@ -547,7 +548,7 @@ def synthesize_gate_evidence(
         return (
             f"graphify readiness: cli={fields['cli']}; skill doc="
             f"{fields['skill_doc']}; runtime links={fields['runtime_links']}; "
-            f"git ownership={fields['git_ownership']}; project integration="
+            f"runtime ownership={fields['runtime_ownership']}; project integration="
             f"{fields['project_integration']}; target graph={fields['graph']}; "
             f"query smoke={fields['query_smoke']}",
             [],
@@ -572,6 +573,7 @@ def missing_structured_gate_fields(
 ) -> list[str]:
     """Return the complete structured-field requirement for one gate record."""
 
+    fields = _canonical_structured_gate_fields(gate, fields)
     if gate in PROSE_COMPATIBLE_STRUCTURED_GATES and evidence.strip():
         return []
 
@@ -592,6 +594,23 @@ def missing_structured_gate_fields(
             if not fields.get(field, "").strip()
         )
     return list(dict.fromkeys(missing))
+
+
+def _canonical_structured_gate_fields(
+    gate: str,
+    fields: dict[str, str],
+) -> dict[str, str]:
+    """Translate bounded legacy field names without preserving them on new writes."""
+
+    if gate != "graphify readiness":
+        return fields
+    canonical = dict(fields)
+    if not canonical.get("runtime_ownership", "").strip():
+        legacy_value = canonical.get("git_ownership", "")
+        if legacy_value.strip():
+            canonical["runtime_ownership"] = legacy_value
+    canonical.pop("git_ownership", None)
+    return canonical
 
 
 def incomplete_gate_evidence_failures(diagnostics: dict[str, Any]) -> list[str]:
@@ -697,6 +716,7 @@ def canonical_gate_fields(
 ) -> dict[str, str]:
     """Populate fields the agent must not be allowed to self-declare."""
 
+    fields = _canonical_structured_gate_fields(gate, fields)
     if gate != "source docs":
         return fields
     required_docs = required_docs_for_route(preflight.get("route") or {})

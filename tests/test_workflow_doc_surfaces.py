@@ -31,6 +31,7 @@ from agent_finish_check_steps import (
     validate_grill_me_skill_evidence,
 )
 from agent_gate_evidence import (
+    canonical_gate_fields,
     gate_evidence_path_for_preflight,
     merge_gate_evidence_from_ledger,
     record_gate_evidence,
@@ -380,7 +381,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             "cli": "success",
             "skill_doc": "success",
             "runtime_links": "success",
-            "git_ownership": "success",
+            "runtime_ownership": "success",
             "project_integration": "success",
             "graph": "success",
             "query_smoke": "success",
@@ -411,9 +412,46 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         _, missing = synthesize_gate_evidence(
             "graphify readiness",
             "",
-            {key: value for key, value in success_fields.items() if key != "git_ownership"},
+            {
+                key: value
+                for key, value in success_fields.items()
+                if key != "runtime_ownership"
+            },
         )
-        self.assertEqual(["git_ownership"], missing)
+        self.assertEqual(["runtime_ownership"], missing)
+
+        legacy_fields = {
+            **{
+                key: value
+                for key, value in success_fields.items()
+                if key != "runtime_ownership"
+            },
+            "git_ownership": "success",
+        }
+        legacy_evidence, missing = synthesize_gate_evidence(
+            "graphify readiness",
+            "",
+            legacy_fields,
+        )
+        self.assertEqual([], missing)
+        self.assertIn("runtime ownership=success", legacy_evidence)
+        self.assertNotIn("git ownership=", legacy_evidence)
+        self.assertEqual(
+            success_fields,
+            canonical_gate_fields("graphify readiness", legacy_fields, {}),
+        )
+        self.assertEqual(
+            [],
+            validate_gate_evidence(
+                {
+                    "graphify readiness": legacy_evidence.replace(
+                        "runtime ownership=",
+                        "git ownership=",
+                    )
+                },
+                ["graphify readiness"],
+            ),
+        )
 
     def test_request_path_surface_promotes_docs_without_explicit_keyword(self) -> None:
         route = resolve_docs(
