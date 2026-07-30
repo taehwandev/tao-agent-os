@@ -19,12 +19,19 @@ import agent_lesson_store
 import agent_skill_learning
 import agent_skill_maintenance
 from agent_review_hook import review_outcome_failures
+from agent_skill_catalog import (
+    FEEDBACK_SIGNALS,
+    LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
+)
 from agent_skill_learning import (
     curate_observations,
     record_observation,
     review_candidate,
 )
 from agent_skill_maintenance import complete_verified_skill_maintenance
+from agent_skill_retention import prune_skill_learning_state
+from agent_skill_state import candidate_id, observation_dir, opaque_key
+from workflow_route import route_hooks
 
 
 class AgentSkillLearningTests(unittest.TestCase):
@@ -53,19 +60,19 @@ class AgentSkillLearningTests(unittest.TestCase):
                 root,
                 occurrence_id="private-runtime-run-one",
                 skill_id="verification_policy",
-                signal="missing_structured_evidence",
+                signal="weak_verification",
             )
             replay = record_observation(
                 root,
                 occurrence_id="private-runtime-run-one",
                 skill_id="verification_policy",
-                signal="missing_structured_evidence",
+                signal="weak_verification",
             )
             distinct = record_observation(
                 root,
                 occurrence_id="private-runtime-run-two",
                 skill_id="verification_policy",
-                signal="missing_structured_evidence",
+                signal="weak_verification",
             )
 
             self.assertTrue(first["created"])
@@ -89,7 +96,7 @@ class AgentSkillLearningTests(unittest.TestCase):
                 root,
                 occurrence_id="run-one",
                 skill_id="verification_policy",
-                signal="missing_structured_evidence",
+                signal="weak_verification",
             )
 
             first = curate_observations(root, min_occurrences=2)
@@ -101,7 +108,7 @@ class AgentSkillLearningTests(unittest.TestCase):
                 root,
                 occurrence_id="run-one",
                 skill_id="verification_policy",
-                signal="missing_structured_evidence",
+                signal="weak_verification",
             )
             replay = curate_observations(root, min_occurrences=2)
             self.assertEqual([], replay["queued"])
@@ -111,7 +118,7 @@ class AgentSkillLearningTests(unittest.TestCase):
                 root,
                 occurrence_id="run-two",
                 skill_id="verification_policy",
-                signal="missing_structured_evidence",
+                signal="weak_verification",
             )
             ready = curate_observations(root, min_occurrences=2)
 
@@ -123,10 +130,124 @@ class AgentSkillLearningTests(unittest.TestCase):
             self.assertEqual([], repeated_curation["queued"])
             self.assertEqual(0, repeated_curation["ready_count"])
 
+    def test_legacy_observations_use_exact_mapping_without_rewriting_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            paths = [
+                self._write_legacy_observation(
+                    root,
+                    occurrence_id=occurrence_id,
+                    skill_id="verification_policy",
+                    signal="worker_self_reported_counts_unverified",
+                )
+                for occurrence_id in ("run-one", "run-two")
+            ]
+            original_bytes = [path.read_bytes() for path in paths]
+
+            curated = curate_observations(root)
+
+            self.assertEqual(1, LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION)
+            self.assertEqual(2, curated["legacy_mapped_count"])
+            self.assertEqual(0, curated["legacy_unmapped_count"])
+            self.assertEqual(1, curated["ready_count"])
+            canonical_candidate = candidate_id(
+                "verification_policy",
+                "weak_verification",
+            )
+            self.assertEqual([canonical_candidate], curated["queued"])
+            queued = json.loads(
+                (
+                    root
+                    / "skill-learning"
+                    / "review-queue"
+                    / f"{canonical_candidate}.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual("weak_verification", queued["signal"])
+            self.assertEqual(original_bytes, [path.read_bytes() for path in paths])
+            prune_skill_learning_state(root)
+            self.assertTrue(
+                (
+                    root
+                    / "skill-learning"
+                    / "review-queue"
+                    / f"{canonical_candidate}.json"
+                ).exists()
+            )
+            self.assertTrue(
+                review_candidate(root, canonical_candidate, decision="no_change")[
+                    "updated"
+                ]
+            )
+
+    def test_unmapped_legacy_observations_are_retained_and_diagnosed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            paths = [
+                self._write_legacy_observation(
+                    root,
+                    occurrence_id=occurrence_id,
+                    skill_id="verification_policy",
+                    signal="unrecognized_old_signal",
+                )
+                for occurrence_id in ("run-one", "run-two")
+            ]
+            original_bytes = [path.read_bytes() for path in paths]
+
+            curated = curate_observations(root)
+
+            self.assertEqual(0, curated["legacy_mapped_count"])
+            self.assertEqual(2, curated["legacy_unmapped_count"])
+            self.assertEqual(0, curated["scanned"])
+            self.assertEqual([], curated["queued"])
+            self.assertEqual(original_bytes, [path.read_bytes() for path in paths])
+
+    def test_feedback_signal_vocabulary_is_discoverable_in_cli_and_route_hooks(self) -> None:
+        help_result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "agent-hook.py"),
+                "skill-feedback",
+                "--help",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(0, help_result.returncode, help_result.stderr)
+        hook_command = next(
+            hook["command"]
+            for hook in route_hooks("bugfix")
+            if hook["hook"] == "skill-feedback"
+        )
+        for signal in FEEDBACK_SIGNALS:
+            with self.subTest(signal=signal):
+                self.assertIn(signal, help_result.stdout)
+                self.assertIn(signal, hook_command)
+
+        invalid = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "agent-hook.py"),
+                "skill-feedback",
+                "--feedback-signal",
+                "custom_evidence_binding",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(2, invalid.returncode)
+        self.assertIn("invalid choice", invalid.stderr)
+
     def test_no_change_review_closes_candidate_without_staging(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            candidate_id = self._ready_candidate(root, signal="already_covered")
+            candidate_id = self._ready_candidate(root, signal="missing_rule")
 
             reviewed = review_candidate(root, candidate_id, decision="no_change")
 
@@ -154,7 +275,7 @@ class AgentSkillLearningTests(unittest.TestCase):
             )
             canonical_skill.parent.mkdir(parents=True)
             canonical_skill.write_text("canonical skill sentinel\n", encoding="utf-8")
-            candidate_id = self._ready_candidate(root, signal="missing_checklist_step")
+            candidate_id = self._ready_candidate(root, signal="weak_verification")
 
             staged = review_candidate(
                 root,
@@ -235,7 +356,7 @@ class AgentSkillLearningTests(unittest.TestCase):
             self.assertEqual("unittest", completed["verification_kind"])
             self.assertEqual("canonical skill sentinel\n", canonical_skill.read_text())
 
-            rejected_id = self._ready_candidate(root, signal="unsafe_default_patch")
+            rejected_id = self._ready_candidate(root, signal="ambiguous_decision")
             review_candidate(
                 root,
                 rejected_id,
@@ -258,10 +379,15 @@ class AgentSkillLearningTests(unittest.TestCase):
     def test_unsafe_slugs_are_rejected_without_persistence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            for skill_id, signal in (
-                ("../verification_policy", "missing_evidence"),
-                ("verification_policy", "contains private prose"),
-                ("VerificationPolicy", "missing_evidence"),
+            for skill_id, signal, reason in (
+                ("../verification_policy", "missing_rule", "unsafe_observation_fields"),
+                ("verification_policy", "contains private prose", "unknown_feedback_signal"),
+                (
+                    "verification_policy",
+                    "worker_self_reported_counts_unverified",
+                    "unknown_feedback_signal",
+                ),
+                ("VerificationPolicy", "missing_rule", "unsafe_observation_fields"),
             ):
                 with self.subTest(skill_id=skill_id, signal=signal):
                     rejected = record_observation(
@@ -271,14 +397,14 @@ class AgentSkillLearningTests(unittest.TestCase):
                         signal=signal,
                     )
                     self.assertFalse(rejected["created"])
-                    self.assertEqual("unsafe_observation_fields", rejected["reason"])
+                    self.assertEqual(reason, rejected["reason"])
 
             self.assertEqual([], list(root.rglob("*.json")))
 
     def test_unsafe_review_fields_and_missing_candidates_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            candidate_id = self._ready_candidate(root, signal="missing_review_rule")
+            candidate_id = self._ready_candidate(root, signal="missing_rule")
 
             unsafe = review_candidate(
                 root,
@@ -320,7 +446,7 @@ class AgentSkillLearningTests(unittest.TestCase):
                     root,
                     occurrence_id=occurrence_id,
                     skill_id="verification_policy",
-                    signal="missing_review_rule",
+                    signal="missing_rule",
                 )
             for path in (root / "skill-learning" / "observations").glob("*.json"):
                 payload = json.loads(path.read_text(encoding="utf-8"))
@@ -347,6 +473,37 @@ class AgentSkillLearningTests(unittest.TestCase):
         result = curate_observations(root, min_occurrences=2)
         self.assertEqual(1, result["ready_count"])
         return str(result["queued"][0])
+
+    def _write_legacy_observation(
+        self,
+        root: Path,
+        *,
+        occurrence_id: str,
+        skill_id: str,
+        signal: str,
+    ) -> Path:
+        occurrence_key = opaque_key(occurrence_id)
+        legacy_candidate = candidate_id(skill_id, signal)
+        observation_id = opaque_key(f"{legacy_candidate}:{occurrence_key}")
+        path = root / observation_dir() / f"{observation_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "observation_id": observation_id,
+                    "candidate_id": legacy_candidate,
+                    "skill_id": skill_id,
+                    "signal": signal,
+                    "occurrence_key": occurrence_key,
+                    "status": "observed",
+                    "created_at": "2026-07-30T00:00:00+00:00",
+                    "privacy": "safe_slugs_and_opaque_ids_only",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from workflow_catalog import (
     PLATFORMS,
 )
 from support.graphify_setup import inspect_target_graphify
+from agent_skill_catalog import FEEDBACK_SIGNALS
 from workflow_common import (
     REPAIR_CYCLE_LIMIT,
     REPAIR_POLICY,
@@ -596,7 +597,9 @@ def route_hooks(command: str) -> list[dict[str, object]]:
                     "--project <TARGET_REPO> --rules <TAO_ROOT> "
                     "--evidence <RUN_EVIDENCE> "
                     "--skill-feedback-outcome observed --skill-id <safe_skill_slug> "
-                    "--feedback-signal <safe_signal_slug>"
+                    "--feedback-signal <"
+                    + "|".join(sorted(FEEDBACK_SIGNALS))
+                    + ">"
                 ),
             }
         )

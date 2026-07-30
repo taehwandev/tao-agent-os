@@ -7,9 +7,11 @@ type: human-reviewed-needed
 # Successful-Task Skill Feedback
 
 Use before finish on every workflow. The closeout check is required; the
-follow-up flow begins only when completed work, user correction, review, or
+follow-up flow begins only when successful completed work, review, or
 verification exposed a reusable gap in a skill the agent actually loaded and
-applied. This Hermes-inspired follow-up is best-effort and non-blocking:
+applied. A user correction that says a completed result was wrong belongs to
+blocking failure repair instead. This Hermes-inspired follow-up is best-effort
+and non-blocking:
 
 ```text
 observe -> curate -> review -> stage -> maintain
@@ -73,7 +75,7 @@ Skill observation:
 - observation_id: <opaque id>
 - candidate_id: <opaque identity derived from skill_id + signal>
 - skill_id: <canonical safe skill id>
-- signal: <content-free safe signal slug>
+- signal: <schema-owned content-free signal identifier>
 - occurrence_key: <opaque key derived from the current preflight run>
 - status: observed
 - created_at: <timestamp>
@@ -85,15 +87,46 @@ branch names, diffs, logs, source content, environment values, secrets, or
 project-specific display names. Gap classification and change judgment do not
 belong in the observation.
 
+`signal` must be exactly one of:
+
+- `missing_rule`
+- `unclear_ownership`
+- `weak_verification`
+- `stale_guidance`
+- `missing_platform_guidance`
+- `ambiguous_decision`
+- `execution_error`
+
+The hook rejects every other signal. Do not accept arbitrary safe slugs and do
+not merge near-looking text by similarity. A bounded shared vocabulary makes
+the exact `skill_id + signal` recurrence identity reachable and auditable.
+The CLI help and generated route hook command must enumerate these values from
+the same catalog constant; `<safe_signal_slug>` is not a discoverable contract.
+
+Historical records written before this vocabulary closed are compatibility
+input, not permission for new legacy writes. The deterministic reader:
+
+- validates the historical `candidate_id` against the exact stored signal,
+- maps only entries present in the versioned exact compatibility table,
+- groups a mapped record under the canonical `skill_id + signal` identity
+  without rewriting the observation file, and
+- retains and reports every unmapped safe legacy record.
+
+Do not infer a mapping from spelling, semantic similarity, skill name, prose,
+or whichever canonical category seems closest. New writes remain strict even
+when a legacy mapping for the submitted slug exists.
+
 ## 2. Deterministic Curation
 
 A separate curator processes observations without a model. It may run through
 the explicit `skill-curate` hook or the existing bounded maintenance pass:
 
-1. Validate the observation shape and safe `skill_id` and `signal` slugs.
+1. Validate the observation shape, canonical `skill_id`, and schema-owned
+   `signal` identifier. For a historical signal, validate the original identity
+   first and then apply only the exact versioned compatibility table.
 2. Deduplicate replayed `observation_id` and opaque `occurrence_key` values.
-3. Build the recurrence identity from exact structured fields:
-   `skill_id + signal`.
+3. Build the recurrence identity from exact canonical structured fields:
+   `skill_id + signal`. Do not mutate the passive observation to achieve this.
 4. Count only distinct valid occurrence keys. Queue review at exactly two
    distinct occurrences.
 5. Queue one idempotent review item when the threshold is reached. Preserve its
@@ -105,6 +138,8 @@ the explicit `skill-curate` hook or the existing bounded maintenance pass:
    removes a terminal record, it also removes that candidate's passive
    observations so an old `no_change`, `applied`, or `rejected` decision cannot
    be resurrected. Retention never deletes or rewrites canonical skills.
+7. Report mapped and unmapped legacy counts. An unmapped record remains passive
+   evidence for migration review; silently excluding it is not curation.
 
 The lifecycle status is `observed -> review_ready -> no_change | staged_patch`,
 followed later by `applied | rejected` only after bounded maintenance.

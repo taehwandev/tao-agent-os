@@ -13,6 +13,33 @@ PROJECT_SKILL_ROOTS = (
     Path(".agents/shared/llm-skills"),
     Path(".agents/local/skills"),
 )
+FEEDBACK_SIGNALS = frozenset(
+    {
+        "missing_rule",
+        "unclear_ownership",
+        "weak_verification",
+        "stale_guidance",
+        "missing_platform_guidance",
+        "ambiguous_decision",
+        "execution_error",
+    }
+)
+LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION = 1
+LEGACY_FEEDBACK_SIGNAL_MAP = {
+    "claimed_visual_parity_without_source_diff": "weak_verification",
+    "custom_evidence_binding": "missing_rule",
+    "feature_inherits_toggle_reachability": "missing_rule",
+    "focus_guard_disables_shortcuts": "missing_rule",
+    "grill_me_evidence_prewrite_validation": "weak_verification",
+    "live_runtime_identity_check": "weak_verification",
+    "measure_metric_before_reporting_it": "weak_verification",
+    "optional_evaluation_can_be_skipped": "missing_rule",
+    "project_scope_container_dir": "unclear_ownership",
+    "question_battery_rejected_on_fast_pivot": "ambiguous_decision",
+    "stale_cache_path_ids": "stale_guidance",
+    "transparent_label_still_occupies_layout": "missing_rule",
+    "worker_self_reported_counts_unverified": "weak_verification",
+}
 
 
 def normalize_skill_id(value: str) -> str:
@@ -23,6 +50,19 @@ def normalize_skill_id(value: str) -> str:
 def parse_skill_ids(value: str) -> list[str]:
     raw_items = [item.strip() for item in re.split(r"\s*,\s*", value) if item.strip()]
     return [normalize_skill_id(item) for item in raw_items]
+
+
+def normalize_feedback_signal(
+    value: str,
+    *,
+    legacy_mapping_version: int | None = None,
+) -> str:
+    normalized = value.strip()
+    if normalized in FEEDBACK_SIGNALS:
+        return normalized
+    if legacy_mapping_version == LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION:
+        return LEGACY_FEEDBACK_SIGNAL_MAP.get(normalized, "")
+    return ""
 
 
 def canonical_skill_ids(project: Path, rules: Path) -> set[str]:

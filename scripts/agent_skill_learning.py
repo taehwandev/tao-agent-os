@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json
+from agent_skill_catalog import normalize_feedback_signal
 from agent_skill_curator import curate_observations
 from agent_skill_state import (
     CANDIDATE_ID_RE,
@@ -39,8 +40,10 @@ def record_observation(
     skill_id: str,
     signal: str,
 ) -> dict[str, Any]:
-    if not _safe_slug(skill_id) or not _safe_slug(signal):
+    if not _safe_slug(skill_id):
         return {"created": False, "reason": "unsafe_observation_fields"}
+    if normalize_feedback_signal(signal) != signal:
+        return {"created": False, "reason": "unknown_feedback_signal"}
     occurrence_key = _opaque_key(occurrence_id)
     if not occurrence_key:
         return {"created": False, "reason": "missing_occurrence_id"}

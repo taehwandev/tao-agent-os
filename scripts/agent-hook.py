@@ -54,6 +54,7 @@ from agent_skill_hooks import (
     skill_maintenance_hook,
     skill_review_hook,
 )
+from agent_skill_catalog import FEEDBACK_SIGNALS
 from agent_review_structure import (
     REVIEW_ADDED_LINE_LIMIT,
     REVIEW_FUNCTION_LINE_LIMIT,
@@ -660,7 +661,12 @@ def _add_skill_feedback_arguments(parser: argparse.ArgumentParser) -> None:
         default="no_change",
     )
     feedback.add_argument("--skill-id", default="")
-    feedback.add_argument("--feedback-signal", default="")
+    feedback.add_argument(
+        "--feedback-signal",
+        choices=tuple(sorted(FEEDBACK_SIGNALS)),
+        default="",
+        help="schema-owned content-free recurrence signal",
+    )
     feedback.add_argument("--feedback-candidate-id", default="")
     feedback.add_argument(
         "--skill-review-outcome",

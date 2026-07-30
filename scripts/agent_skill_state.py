@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json
+from agent_skill_catalog import (
+    LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
+    normalize_feedback_signal,
+)
 
 
 SCHEMA_VERSION = 1
@@ -55,6 +59,31 @@ def candidate_lock_path(candidate: str) -> Path:
     return Path("skill-learning") / "locks" / f"{candidate}.json"
 
 
+def observation_candidate_ids(payload: dict[str, Any]) -> set[str]:
+    """Return the stored and exact-mapped candidate identities for one observation."""
+
+    stored_candidate = str(payload.get("candidate_id") or "")
+    skill_id = str(payload.get("skill_id") or "")
+    raw_signal = str(payload.get("signal") or "")
+    occurrence_key = str(payload.get("occurrence_key") or "")
+    if not (
+        CANDIDATE_ID_RE.fullmatch(stored_candidate)
+        and safe_slug(skill_id)
+        and safe_slug(raw_signal)
+        and candidate_id(skill_id, raw_signal) == stored_candidate
+        and CANDIDATE_ID_RE.fullmatch(occurrence_key)
+    ):
+        return set()
+    identities = {stored_candidate}
+    signal = normalize_feedback_signal(
+        raw_signal,
+        legacy_mapping_version=LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
+    )
+    if signal:
+        identities.add(candidate_id(skill_id, signal))
+    return identities
+
+
 def terminal_candidate_exists(root: Path, candidate: str) -> bool:
     return (root / staged_path(candidate)).exists() or (root / completed_path(candidate)).exists()
 
@@ -70,7 +99,7 @@ def valid_candidate_record(
         or payload.get("status") != expected_status
         or payload.get("privacy") != "safe_slugs_and_opaque_ids_only"
         or not safe_slug(skill_id)
-        or not safe_slug(signal)
+        or normalize_feedback_signal(signal) != signal
         or candidate_id(skill_id, signal) != candidate
     ):
         return False
@@ -107,14 +136,28 @@ def candidate_occurrence_count(root: Path, candidate: str) -> int:
     occurrences: set[str] = set()
     for path in (root / observation_dir()).glob("*.json"):
         payload = read_json(path)
+        raw_signal = str(payload.get("signal") or "")
         occurrence_key = str(payload.get("occurrence_key") or "")
-        normalized = {**payload, "status": "review_ready", "distinct_occurrences": 2}
-        if (
-            payload.get("candidate_id") == candidate
-            and payload.get("status") == "observed"
+        signal = normalize_feedback_signal(
+            raw_signal,
+            legacy_mapping_version=LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
+        )
+        if not (
+            payload.get("status") == "observed"
+            and signal
+            and candidate in observation_candidate_ids(payload)
             and CANDIDATE_ID_RE.fullmatch(occurrence_key)
-            and valid_candidate_record(normalized, candidate, expected_status="review_ready")
         ):
+            continue
+        skill_id = str(payload.get("skill_id") or "")
+        normalized = {
+            **payload,
+            "candidate_id": candidate,
+            "signal": signal,
+            "status": "review_ready",
+            "distinct_occurrences": 2,
+        }
+        if valid_candidate_record(normalized, candidate, expected_status="review_ready"):
             occurrences.add(occurrence_key)
     return len(occurrences)
 

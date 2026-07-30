@@ -8,7 +8,12 @@ from typing import Any
 
 from agent_global_lessons import state_home
 from agent_gate_evidence import latest_successful_gate_fields
-from agent_skill_catalog import canonical_skill_ids, normalize_skill_id, parse_skill_ids
+from agent_skill_catalog import (
+    canonical_skill_ids,
+    normalize_feedback_signal,
+    normalize_skill_id,
+    parse_skill_ids,
+)
 from agent_skill_learning import (
     curate_observations,
     record_observation,
@@ -44,6 +49,11 @@ def record_skill_feedback(
         return {"created": False, "reason": "unknown_canonical_skill"}, [
             "skill observation skipped: unknown canonical skill; task completion is unchanged"
         ]
+    normalized_signal = normalize_feedback_signal(signal)
+    if not normalized_signal:
+        return {"created": False, "reason": "unknown_feedback_signal"}, [
+            "skill observation skipped: signal is not schema-owned; task completion is unchanged"
+        ]
     retrospective = _retrospective_fields(evidence_path)
     checked_skills = set(parse_skill_ids(retrospective.get("skills_checked", "")))
     if (
@@ -60,7 +70,7 @@ def record_skill_feedback(
         state_home(),
         occurrence_id=_occurrence_id(evidence_path),
         skill_id=normalized_skill,
-        signal=signal,
+        signal=normalized_signal,
     )
     if result.get("idempotent"):
         return result, [
@@ -89,6 +99,14 @@ def record_skill_curation() -> tuple[dict[str, Any], list[str]]:
     details = [
         f"skill observations scanned: {result['scanned']}",
         f"new review items queued: {result['ready_count']}",
+        (
+            "legacy observations mapped by exact compatibility table: "
+            f"{result['legacy_mapped_count']}"
+        ),
+        (
+            "unmapped legacy observations retained for diagnosis: "
+            f"{result['legacy_unmapped_count']}"
+        ),
     ]
     return result, details
 

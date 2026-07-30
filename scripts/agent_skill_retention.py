@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent_skill_state import observation_candidate_ids
 from agent_state_lock import state_lock
 
 
@@ -57,7 +58,7 @@ def _prune_skill_learning_state_locked(
     expired_observations = {
         path
         for path in observation_paths
-        if str(_read_json(path).get("candidate_id") or "") in expired_candidate_ids
+        if observation_candidate_ids(_read_json(path)) & expired_candidate_ids
     }
     available = [path for path in observation_paths if path not in expired_observations]
     keep = set(available[:observation_limit])
@@ -76,8 +77,8 @@ def _prune_skill_learning_state_locked(
 def _drop_unreviewable_queue_records(root: Path, kept_observations: set[Path]) -> None:
     counts: dict[str, int] = {}
     for path in kept_observations:
-        candidate_id = str(_read_json(path).get("candidate_id") or "")
-        counts[candidate_id] = counts.get(candidate_id, 0) + 1
+        for candidate_id in observation_candidate_ids(_read_json(path)):
+            counts[candidate_id] = counts.get(candidate_id, 0) + 1
     for queue_path in (root / "skill-learning" / "review-queue").glob("*.json"):
         if counts.get(queue_path.stem, 0) < DEFAULT_REVIEW_THRESHOLD:
             try:

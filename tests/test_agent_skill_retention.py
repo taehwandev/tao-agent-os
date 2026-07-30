@@ -34,7 +34,7 @@ class AgentSkillRetentionTests(unittest.TestCase):
                     state_home,
                     occurrence_id=occurrence_id,
                     skill_id="verification_policy",
-                    signal="missing_structured_evidence",
+                    signal="weak_verification",
                 )
             with patch.dict("os.environ", {"TAO_STATE_HOME": str(state_home)}):
                 result = run_maintenance(project)
@@ -49,20 +49,20 @@ class AgentSkillRetentionTests(unittest.TestCase):
                 record_observation(
                     root,
                     occurrence_id=f"run-{index}",
-                    skill_id="verification_policy",
-                    signal=f"signal_{index}",
+                    skill_id=f"verification_policy_{index}",
+                    signal="missing_rule",
                 )
             retention = prune_skill_learning_state(root, max_observations=3)
             self.assertEqual(2, retention["removed_observations"])
             self.assertEqual(3, retention["kept_observations"])
 
-            for signal in ("queue_one", "queue_two"):
+            for skill_id in ("queue_one", "queue_two"):
                 for occurrence_id in ("run-one", "run-two"):
                     record_observation(
                         root,
-                        occurrence_id=f"{signal}_{occurrence_id}",
-                        skill_id="verification_policy",
-                        signal=signal,
+                        occurrence_id=f"{skill_id}_{occurrence_id}",
+                        skill_id=skill_id,
+                        signal="missing_rule",
                     )
             with patch("agent_skill_curator.MAX_REVIEW_QUEUE", 1):
                 curated = curate_observations(root)
@@ -71,7 +71,7 @@ class AgentSkillRetentionTests(unittest.TestCase):
     def test_review_rejects_tampered_queue_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            candidate_id = self._ready_candidate(root, signal="missing_review_rule")
+            candidate_id = self._ready_candidate(root, signal="missing_rule")
             queue_path = root / "skill-learning" / "review-queue" / f"{candidate_id}.json"
             payload = json.loads(queue_path.read_text(encoding="utf-8"))
             payload.update(skill_id="PRIVATE USER TEXT", signal="/secret/path")
@@ -86,7 +86,7 @@ class AgentSkillRetentionTests(unittest.TestCase):
     def test_review_transition_rolls_back_without_split_brain(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            candidate_id = self._ready_candidate(root, signal="transition_failure")
+            candidate_id = self._ready_candidate(root, signal="execution_error")
             queue_path = root / "skill-learning" / "review-queue" / f"{candidate_id}.json"
             completed_path = root / "skill-learning" / "completed" / f"{candidate_id}.json"
             original_replace = Path.replace
@@ -107,7 +107,7 @@ class AgentSkillRetentionTests(unittest.TestCase):
     def test_maintenance_rejects_tampered_staged_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            candidate_id = self._ready_candidate(root, signal="tampered_stage")
+            candidate_id = self._ready_candidate(root, signal="stale_guidance")
             review_candidate(
                 root,
                 candidate_id,
@@ -145,7 +145,7 @@ class AgentSkillRetentionTests(unittest.TestCase):
             )
             target.write_text("x = 2\n", encoding="utf-8")
 
-            candidate_id = self._ready_candidate(root, signal="clean_apply")
+            candidate_id = self._ready_candidate(root, signal="missing_rule")
             review_candidate(
                 root,
                 candidate_id,
@@ -194,7 +194,7 @@ class AgentSkillRetentionTests(unittest.TestCase):
             )
             target.write_text("x = 2\n", encoding="utf-8")
 
-            candidate_id = self._ready_candidate(root, signal="racy_apply")
+            candidate_id = self._ready_candidate(root, signal="weak_verification")
             review_candidate(
                 root,
                 candidate_id,
@@ -235,7 +235,11 @@ class AgentSkillRetentionTests(unittest.TestCase):
             root = Path(temp_dir)
             completed_ids = []
             for index in range(2):
-                candidate_id = self._ready_candidate(root, signal=f"terminal_{index}")
+                candidate_id = self._ready_candidate(
+                    root,
+                    skill_id=f"verification_policy_{index}",
+                    signal="missing_rule",
+                )
                 review_candidate(root, candidate_id, decision="no_change")
                 completed_ids.append(candidate_id)
             retention = prune_skill_learning_state(root, max_observations=3, max_completed=1)
@@ -246,7 +250,7 @@ class AgentSkillRetentionTests(unittest.TestCase):
     def test_staged_queue_and_observations_have_hard_caps(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            candidate_id = self._ready_candidate(root, signal="queue_cap")
+            candidate_id = self._ready_candidate(root, signal="missing_rule")
             with patch("agent_skill_learning.MAX_STAGED", 0):
                 result = review_candidate(
                     root,
@@ -259,7 +263,11 @@ class AgentSkillRetentionTests(unittest.TestCase):
             self.assertEqual("staged_queue_full", result["reason"])
 
             for index in range(6):
-                staged_id = self._ready_candidate(root, signal=f"staged_{index}")
+                staged_id = self._ready_candidate(
+                    root,
+                    skill_id=f"staged_{index}",
+                    signal="missing_rule",
+                )
                 review_candidate(
                     root,
                     staged_id,
@@ -271,12 +279,18 @@ class AgentSkillRetentionTests(unittest.TestCase):
             retention = prune_skill_learning_state(root, max_observations=3)
             self.assertEqual(3, retention["kept_observations"])
 
-    def _ready_candidate(self, root: Path, *, signal: str) -> str:
+    def _ready_candidate(
+        self,
+        root: Path,
+        *,
+        skill_id: str = "verification_policy",
+        signal: str,
+    ) -> str:
         for occurrence_id in ("run-one", "run-two"):
             record_observation(
                 root,
                 occurrence_id=occurrence_id,
-                skill_id="verification_policy",
+                skill_id=skill_id,
                 signal=signal,
             )
         result = curate_observations(root, min_occurrences=2)

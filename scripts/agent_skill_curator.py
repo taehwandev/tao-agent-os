@@ -5,18 +5,21 @@ from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json
+from agent_skill_catalog import (
+    LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
+    normalize_feedback_signal,
+)
 from agent_skill_state import (
-    CANDIDATE_ID_RE,
     DEFAULT_REVIEW_THRESHOLD,
     SCHEMA_VERSION,
     candidate_id,
     candidate_lock_path,
     json_count,
     now,
+    observation_candidate_ids,
     observation_dir,
     read_json,
     review_queue_path,
-    safe_slug,
     terminal_candidate_exists,
 )
 from agent_state_lock import state_lock
@@ -38,20 +41,32 @@ def curate_observations(
 def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str, Any]:
     threshold = max(DEFAULT_REVIEW_THRESHOLD, int(min_occurrences))
     groups: dict[str, list[dict[str, Any]]] = {}
+    legacy_mapped_count = 0
+    legacy_unmapped_count = 0
     for path in sorted((root / observation_dir()).glob("*.json")):
         payload = read_json(path)
-        candidate = str(payload.get("candidate_id") or "")
         skill_id = str(payload.get("skill_id") or "")
-        signal = str(payload.get("signal") or "")
-        occurrence_key = str(payload.get("occurrence_key") or "")
-        if (
-            CANDIDATE_ID_RE.fullmatch(candidate)
-            and safe_slug(skill_id)
-            and safe_slug(signal)
-            and candidate_id(skill_id, signal) == candidate
-            and CANDIDATE_ID_RE.fullmatch(occurrence_key)
-        ):
-            groups.setdefault(candidate, []).append(payload)
+        raw_signal = str(payload.get("signal") or "")
+        compatible_candidates = observation_candidate_ids(payload)
+        if not compatible_candidates:
+            continue
+        signal = normalize_feedback_signal(
+            raw_signal,
+            legacy_mapping_version=LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
+        )
+        if not signal:
+            legacy_unmapped_count += 1
+            continue
+        canonical_candidate = candidate_id(skill_id, signal)
+        if signal != raw_signal:
+            legacy_mapped_count += 1
+        normalized_payload = {
+            **payload,
+            "candidate_id": canonical_candidate,
+            "signal": signal,
+            "_compatible_candidate_ids": compatible_candidates,
+        }
+        groups.setdefault(canonical_candidate, []).append(normalized_payload)
 
     queued: list[str] = []
     eligible_count = 0
@@ -70,7 +85,19 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
         if eligible_count > MAX_CURATED_GROUPS:
             break
         queue_path = root / review_queue_path(candidate)
-        if terminal_candidate_exists(root, candidate) or queue_path.exists():
+        compatible_candidates = set().union(
+            *(
+                set(item.get("_compatible_candidate_ids") or ())
+                for item in observations
+            )
+        )
+        if any(
+            terminal_candidate_exists(root, compatible_candidate)
+            for compatible_candidate in compatible_candidates
+        ) or any(
+            (root / review_queue_path(compatible_candidate)).exists()
+            for compatible_candidate in compatible_candidates
+        ):
             continue
         if queue_count >= MAX_REVIEW_QUEUE:
             break
@@ -102,4 +129,7 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
         "ready_count": len(queued),
         "eligible_count": eligible_count,
         "threshold": threshold,
+        "legacy_mapping_version": LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
+        "legacy_mapped_count": legacy_mapped_count,
+        "legacy_unmapped_count": legacy_unmapped_count,
     }
