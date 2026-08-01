@@ -85,6 +85,16 @@ Rules:
   changing another worker's contract, route, schema, state model, or config.
 - Review and integrate parallel changes before broad verification.
 
+Shared-checkout build discipline:
+
+When parallel workers share one checkout and the build tool holds global
+locks, daemons, or shared caches (Gradle is the canonical case), workers only
+write files. Workers never run build or VCS commands — parallel invocations
+corrupt lock and daemon state. Each worker reports its changed-file list plus
+its verification requirements. After all workers return, the lead runs the
+needed module-level compile and test commands once, merges the results, and
+greps the integrated tree for residual violations.
+
 Good splits:
 
 - domain logic versus UI wiring after the model contract is stable
@@ -268,6 +278,30 @@ For code-edit workers, include:
 - the checkout may contain user-owned changes
 - do not revert changes outside assigned scope
 - list changed files and verification in the final report
+
+## Worker Escalation Lifecycle
+
+Workers that may need a mid-task decision must be spawned resumable and
+addressable: long-lived and messageable, so the lead can deliver a decision
+and the worker resumes. A one-shot worker that emits an escalation and exits
+leaves no target for the answer.
+
+On an escalation:
+
+1. Review the options the worker presented and decide. Re-ask the user only
+   when the choice is genuinely unclear.
+2. Send the decision to the worker.
+3. Wait for the worker to resume before integrating anything from it.
+
+If the worker already exited (one-shot call), re-spawn it with the prior
+context plus the decision embedded in the new brief.
+
+After a worker returns, compare its result against the agreed plan. If it
+diverged unilaterally, instruct rollback of the divergent changes and re-spawn
+with a strengthened mandatory-escalation clause in the brief.
+
+Stop a worker after prolonged silence and re-plan. Terminate finished workers
+or let them exit naturally; do not accumulate idle worker sessions.
 
 ## Closeout
 

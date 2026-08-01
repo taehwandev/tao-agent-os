@@ -103,6 +103,28 @@ Do not invent a ticket id when none exists.
 6. Create or switch branches only after the base and dirty-worktree handling are
    clear.
 
+## Stacked Integration Branch For Multi-Phase Work
+
+When one large task must land as several reviewable pieces, orchestrate the
+split as stacked branches instead of one oversized PR:
+
+1. Split the work into phases; each phase is an independently reviewable unit.
+2. Create a parent integration branch off the mainline, then branch each phase
+   off the parent.
+3. Each phase PR targets the parent integration branch, not the mainline.
+4. After a phase PR is approved and merged, merge the phase branch back into
+   the parent before branching the next phase.
+5. Defer pushing the parent branch until the first phase is approved for push.
+   Do not create speculative remote branches.
+6. Open the final parent-to-mainline PR only after all phase PRs are merged.
+7. Get explicit user approval before every push and every PR creation.
+8. When a tracker exists, each phase's commits carry that phase's tracker id.
+
+Use `common/skills/change-size-policy/SKILL.md` to decide whether to split;
+this section owns how an approved split lands as branches and PRs. The
+mainline is whatever repo-local policy names as the integration target, not an
+assumed default branch.
+
 ## Common Rationalizations
 
 | Rationalization | Required Response |

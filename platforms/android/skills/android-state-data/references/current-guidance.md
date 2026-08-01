@@ -134,6 +134,28 @@ database rows, SDK models, or server envelopes to the ViewModel or UI.
 - Use a domain use case when multiple repositories or product policy must be
   orchestrated; do not add pass-through use cases for one repository call.
 
+## Reflection Deserializer Null Defense
+
+Reflection-based deserializers such as Gson construct objects without running
+Kotlin constructors, so DTO fields declared non-null can still be null at
+runtime when the server omits or nulls them. Mappers on those paths must
+defend non-null declarations:
+
+- `String` and `List` fields: `.orEmpty()`.
+- Enum fields: fall back to an explicit default (`?: Default`).
+- Nested objects: nullable-receiver mapping (`fun Foo?.toEntity()`), starting
+  the `?.` chain at the receiver. Guarding only inner fields still throws one
+  level deeper.
+- Primitives (`Int`, `Long`, `Boolean`) are filled with `0`/`false` and do not
+  throw, but a silent zero can still hide a broken contract; treat suspicious
+  zeros as contract questions, not safe values.
+
+Do not use these defaults to hide required-contract violations. When a
+required field is missing on a success response, normalize the mapping into a
+typed failure with diagnostics instead of papering over it with defaults.
+Deserializers that enforce Kotlin nullability at decode time, such as
+kotlinx.serialization, do not need this defense; classify the path first.
+
 ## DataStore Summary
 
 Use three practical choices:

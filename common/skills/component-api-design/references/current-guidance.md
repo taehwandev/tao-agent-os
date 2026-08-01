@@ -47,6 +47,25 @@ Avoid:
   A reusable component should not guess grouping, precision, unit labels, or
   accessibility text from a bare number.
 
+## Lifecycle-Contract Merge Gate
+
+Visual similarity justifies sharing tokens and defaults, not merging
+components. Before merging two similar-looking components into one API,
+classify each by its interaction and host lifecycle contract:
+
+- Does the user act on it (dismiss, retry, confirm), or is it fire-and-forget?
+- Which host or lifecycle owns it: a platform-managed transient surface, a
+  composition- or DOM-hosted surface, an overlay/window, or a modal owner?
+
+Components whose answers differ are different surfaces even when the designs
+look alike; an action-less transient toast on the platform's toast lifecycle
+and an action-carrying snackbar that needs a composition host are two
+components, not one. Do not force different-lifecycle surfaces into one
+nullable-parameter API, and do not re-implement one surface as another because
+they share a visual family. A status icon or shared color treatment is not the
+classification criterion. Share the numeric values through an explicit
+defaults or token owner instead.
+
 ## Controlled State
 
 Make ownership explicit:

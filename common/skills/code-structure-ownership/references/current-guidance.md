@@ -181,6 +181,26 @@ interface, struct, protocol, object, function component, hook, handler, or
 service is independently importable, testable, previewable, or reviewable, it
 must live in its own purpose-named file.
 
+For Kotlin contract and migration work, apply that rule without multiplying
+modules or packages:
+
+- each public `@Serializable` model, enum, sealed contract, repository, or
+  event contract is an independently importable owner and gets a purpose-named
+  file;
+- related models stay in the same capability package unless their dependency
+  direction, callers, or test ownership actually differ;
+- internal network DTOs may share a file only when they are private/nested
+  parts of one response aggregate; independently named request, response, or
+  item DTO families get separate files;
+- top-level mapper extensions stay together only for one response aggregate or
+  one mapping pipeline. Distinct mapper families such as user, feed, and
+  search mappers must not accumulate in a generic `*Mapper.kt` file merely
+  because one repository consumes them.
+
+This is a file-ownership rule, not a module-splitting rule. Prefer several
+small purpose-named files in one stable package over new leaf modules or
+packages that do not create a real dependency boundary.
+
 Function-only files use the same rule. A file with free functions is acceptable
 only when those functions form one cohesive contract family, pipeline, or
 private support set for one exported owner. It is a structure problem when a
@@ -408,6 +428,32 @@ When a stop signal appears, make the smallest ownership split before adding more
 behavior. The split can be file-private, package/internal, feature-local, or a
 new source file; choose the lowest level that makes responsibility, dependency
 direction, and verification obvious.
+
+### Sibling Flow Owner Ledger
+
+Product terms are not structure boundaries. A product state name or a new API
+name or endpoint, such as `draft`, `pending`, `preview`, or `re-entry`, is not
+evidence for a sibling screen, flow owner, state holder, or package.
+
+Before creating a sibling flow owner, write down the actual behavior
+differences from the nearest existing flow along five axes:
+
+1. render
+2. actions
+3. state and lifecycle
+4. side effects and navigation
+5. verification
+
+If the differences close over entry-time inputs only -- launch input, an
+identifier's presence, a precondition, the first transition or submit, a
+transient notice -- reuse the existing owner and express the difference as the
+smallest parameter, state, or mode. A separate narrow orchestration owner is
+justified only when it truly owns an independent side effect or lifecycle, and
+even then, do not duplicate the whole screen or component family. When a new
+flow owner is created, record the concrete behavioral difference and the
+independent owner responsibilities in the ledger, and check that no parallel
+component family implements the same render and actions after the first
+transition.
 
 ### Function Or Block Split
 

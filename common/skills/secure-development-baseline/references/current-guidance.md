@@ -141,6 +141,14 @@ server credentials.
 - Document setup steps as variable names and locations, not values.
 - Review generated files before committing; generated client config can still
   contain keys, app ids, endpoints, or environment-specific metadata.
+- Treat ignored source-tool outputs as security surfaces too. Raw design-tool,
+  API, browser, or handoff responses can contain signed asset URLs, auth
+  headers, or provider identifiers even when Git ignores their directory.
+- Before the final full-tree security audit, remove no-longer-needed raw tool
+  responses from the target repository or move them to an OS temporary
+  directory. Do not weaken scanner exclusions just to make the audit pass.
+- When generated evidence must be retained, keep only redacted summaries and
+  derived assets in the repository; keep raw provider responses outside it.
 - Add secret scanning or a manual secret review before publishing, tagging, or
   creating a release when the repo is public.
 

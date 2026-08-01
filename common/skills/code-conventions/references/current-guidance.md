@@ -97,6 +97,15 @@ instead of inventing a one-off style.
   associated type, or long generic shape. Still use a real Swift type when the
   code needs identity, invariants, access-controlled storage, validation, or
   security-sensitive separation.
+- Never write a fully qualified name inline in the code body to avoid adding
+  an import. Add the import and use the short name. On a simple-name collision
+  use an alias import, not an inline qualified name. An edit tool that failed
+  to modify the import block is not an exemption — fix the imports.
+- In adapters, decorators, and facades, name the wrapped or delegated
+  dependency after the role of the wrapped type, never after the wrapping
+  relationship. Do not name the field or parameter `real`, `impl`, `delegate`,
+  `wrapped`, `wrapper`, `target`, `origin`, or `inner`; a parameter delegating
+  to a user repository is `userRepository`, not `real`.
 - Treat module public exports as interfaces. A module should expose a narrow
   contract for its consumers instead of forcing them to import implementation,
   platform, SDK, fixture, or unrelated feature details.

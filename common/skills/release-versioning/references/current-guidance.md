@@ -116,6 +116,25 @@ Every repo that uses calendar or custom versioning must document:
 - If a SemVer-only tool rejects zero-padded date fields, use SemVer or a
   tool-compatible documented variant instead of forcing CalVer.
 
+## Tag-Time Guards
+
+When the repo tracks the build version in a version file or manifest, that
+tracked file is the single source of truth. A release tag records a release
+point; it never changes the build version. Run these guards, in order, before
+creating a release tag, and block the tag when any guard fails:
+
+1. Validate the tag against the scheme's strict format regex before any other
+   check; this catches truncated or over-long versions such as `v3.1` or
+   `3.1.0.0`.
+2. Refuse computed bump arguments (`major`/`minor`/`patch`) at tag time.
+   Version bumps happen only as a reviewed file-change commit before tagging;
+   require the explicit version the tracked version source already carries.
+3. Block the tag unless the tag version equals the tracked version at the
+   target commit.
+4. Monotonic guard: the new version must sort strictly above the latest
+   existing tag under the scheme's ordering. Equal or lower is blocked to
+   prevent version regressions in stores, package registries, and clients.
+
 ## Examples
 
 Use monthly CalVer:

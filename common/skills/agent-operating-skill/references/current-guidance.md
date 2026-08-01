@@ -60,6 +60,13 @@ Use this before implementation, review, refactoring, debugging, documentation, o
     `agent-hook.py gate-batch` call over repeated single-gate shell calls or
     reconstructing validator-ready prose at finish. Show a short gate signal
     after each completed gate or task step.
+    For a lightweight `analysis` route, do not jump directly from investigation
+    to `finish`: compare the active route's exact gate list with the ledger,
+    then record `investigate`, the structured `retrospective check`, and
+    `report` before calling `finish`. Treat preflight-provided `request intake`
+    as complete only when it is already present in that same ledger. `finish`
+    never infers gate completion from commands, tests, commentary, or the final
+    response draft.
 11. For work-producing or delegated tasks, record the agentic run state:
     current state, next transition or resume point, gate/command/check
     evidence, checkpoint or stop condition, and blocker status. Use it as the

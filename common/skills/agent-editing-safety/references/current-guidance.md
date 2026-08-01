@@ -48,6 +48,23 @@ Treat these as high risk:
 Prefer dry runs, previews, local checks, or explicit approval before changing
 external state.
 
+## Append-Only Enrichment Of External Records
+
+When adding discussion outcomes or context to an existing external record
+(issue, ticket, tracker description, wiki page):
+
+- Read and preserve the existing content first. If the existing content cannot
+  be fetched, do not write at all.
+- Only append a new dated section at the end. Never overwrite, reorder, or
+  delete prior content.
+- Include a provenance link to the source discussion in the appended section.
+- Summarize as facts only: preserve decisions, code blocks, and attachment
+  links; exclude bot and system noise; never extrapolate beyond what was said.
+- Unresolved ambiguities become questions to the user, one at a time, not text
+  written into the record.
+- The append updates only the record. It never touches branches or commits of
+  in-flight work.
+
 ## Sandbox And Approval
 
 - Know which paths and commands are inside the current allowed workspace before

@@ -81,6 +81,11 @@ usage to that hook and the adapter can normalize it without reading private
 content. If exact counts are unavailable, record no usage event and use
 diagnostics only when they can be content-free.
 
+Keep synchronous lifecycle-hook importers bounded. Persist an opaque per-source
+byte offset and process only complete records appended since the last recorded
+checkpoint. Run any required full-history bootstrap outside the hook timeout;
+do not hide an unbounded rescan by only increasing the hook timeout.
+
 When a product has one normalized local usage store, document runtime-specific
 sources as inputs to that store. Do not describe separate runtime sources as
 separate product databases unless the product actually reads separate databases.

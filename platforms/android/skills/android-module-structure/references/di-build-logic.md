@@ -38,6 +38,18 @@ Do not put product routes, DI graph decisions, repository bindings, signing
 secrets, flavor policy, generated module discovery, or one-off module behavior
 inside a shared convention plugin.
 
+Expose shared test dependency bundles and test runner setup as dedicated test
+convention plugins — one for Android modules and one for JVM/Kotlin modules —
+rather than as shared configure functions. Higher-level convention plugins
+apply the test convention plugin instead of calling the configure helper
+directly.
+
+Keep static-analysis rule config at an explicit repo-root tool-config path
+(for example `config/<tool>/<tool>.yml`) as the single source of truth, with
+per-module baseline files owned by each module. Register rule-set plugin
+dependencies in exactly one build-logic owner; do not duplicate them across
+plugins or place shared tool config inside the app or a feature module.
+
 ## Android DI Build Logic
 
 When an Android repo chooses Hilt, treat it as the default Android DI baseline
@@ -108,6 +120,27 @@ Use qualifiers for same-type values such as API URLs, `String` client ids,
 network clients, and dispatchers. A module that provides two `NetworkClient`
 instances without qualifiers is incomplete even when it compiles by accident in
 the current app shape.
+
+Before constructing a configured collaborator directly — `Foo()`,
+`Foo { ... }`, or stashed in an `object`, `companion object`, or top-level
+`private val` — search for existing bindings of that type: `@Inject`
+constructors, `@Provides`, `@Binds`, qualifiers, and current injection
+callers. If a binding exists, do not reuse it on type identity alone; verify
+the binding's owner and qualifier semantics match the current capability. A
+qualifier that owns network-payload serialization policy must not be injected
+into an unrelated capability such as a WebView bridge. When the owner differs,
+the current implementation owns its own qualified binding or a narrower
+encoder/parser contract instead of borrowing another capability's binding.
+Only when no binding exists, judge direct creation: a pure value or leaf with
+no configuration, identity, lifecycle, I/O, or test-replacement point may be
+created at the nearest owner; when configuration changes behavioral meaning or
+multiple callers must share one policy, the owning capability provides a
+qualified binding; when the type owns lifecycle, resources, or an execution
+environment, inject it at the appropriate scope. Wrapping in `private`,
+`internal`, or a Kotlin `object` does not make a configured collaborator a
+pure value, and locally recreating an already-DI-managed type creates
+configuration divergence and test blind spots. Prefer a narrow pure API over a
+full configured instance when only one small operation is needed.
 
 Example:
 

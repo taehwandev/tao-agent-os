@@ -139,6 +139,31 @@ Verified:
 
 Keep the subject about behavior or structure, not effort. Mention migrations, breaking changes, security impact, and follow-up work explicitly.
 
+### Tracker Key Consistency
+
+When repo policy links commits to tracker issues, check branch-to-commit key
+consistency before every commit:
+
+- Extract the tracker key from the current branch name (for example with a
+  pattern like `[A-Z]+-[0-9]+`).
+- If the branch carries a key and the commit subject lacks the identical key,
+  stop and fix the subject before committing.
+- Use the branch's key exactly. Never invent, guess, or vary a key.
+- Only work with no tracker item may omit the key.
+
+## Pull Request Creation
+
+Apply these gates when PR creation is in scope and approved:
+
+- Idempotent creation: before creating a PR, check for an already-open PR with
+  the same source and destination branches. Reuse or update that PR instead of
+  creating a duplicate.
+- Non-empty description: the PR body must carry a real work summary with at
+  least one substantive bullet. When the caller supplies none, derive bullets
+  from the non-merge commit subjects between the base branch and the source
+  branch. If no real content can be produced through any path, abort PR
+  creation instead of posting an empty or link-only body.
+
 ## Do Not
 
 - Do not commit secrets, local env files, debug logs, personal paths, private

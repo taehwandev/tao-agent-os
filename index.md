@@ -51,6 +51,7 @@ Pick the smallest relevant document set. Repo-local guidance wins over this shar
 - Testing or bug regression: `common/skills/testing/SKILL.md`
 - Scenario-driven test design and QA flow coverage: `common/skills/scenario-driven-testing/SKILL.md`
 - Verification evidence: `common/skills/verification-policy/SKILL.md`
+- Bulk mechanical change transforms and verification reliability: `common/skills/bulk-change-verification/SKILL.md`
 - Completion checklist and Definition of Done: `common/skills/definition-of-done/SKILL.md`
 - Tool, compiler, lint, test, and command failure recovery: `common/skills/tool-failure-recovery/SKILL.md`
 - Local tools, AI CLIs, runtime, usage telemetry: `common/skills/local-tools/SKILL.md`
@@ -72,6 +73,8 @@ Pick the smallest relevant document set. Repo-local guidance wins over this shar
 - Commit review: start with code review, then add `common/skills/commit-review/SKILL.md`
 - Branch strategy and branch naming: `common/skills/branch-strategy/SKILL.md`
 - Commit creation, branch/PR/push safety, staged diff policy: `common/skills/commit-workflow/SKILL.md`
+- Merged-branch and worktree cleanup safety gates: `common/skills/branch-cleanup/SKILL.md`
+- Git history investigation, blame noise filtering, origin-commit tracing: `common/skills/git-history-investigation/SKILL.md`
 
 ## Platform
 

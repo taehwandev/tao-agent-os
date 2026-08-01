@@ -51,10 +51,19 @@ A useful handoff includes:
   unrelated user-owned changes
 - commands run with pass/fail/skip result and what each proved
 - blockers, assumptions, decisions made, and decisions still needed
+- decision pivots within the session: the initial approach, the feedback that
+  reversed it, and the final approach, so a future session does not re-propose
+  an already-rejected design
+- deliberately-unapplied follow-up items recommended for separate work, kept
+  distinct from blockers, so scope discipline survives the handoff
 - next smallest safe step and which document/card should govern it
 
 Do not hand off with only a narrative summary when verification, changed files,
 or gate status are known.
+
+When handoffs accumulate in one persistent note, keep the most recent N entries
+only, newest first, each entry carrying its branch, changes, and verification
+status — including checks that are explicitly unverified.
 
 ## Stop If
 

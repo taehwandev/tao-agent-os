@@ -120,6 +120,10 @@ When a finish gate requires evidence, record the actual decision. At minimum:
   `outcome` must be `no_reusable_gap`, `reusable_gap`, or `no_skill_used`;
   `observation` must be `not_needed`, `recorded`, or `deferred`, using the
   pairing defined by the retrospective-learning skill.
+  For the common no-gap closeout, copy the exact pair
+  `{"outcome":"no_reusable_gap","observation":"not_needed"}` instead of
+  substituting near-miss natural-language values such as `no_change`, which is
+  a different real status in the retrospective lifecycle.
 12. Inspect: read existing code, docs, tests, commands, and current user changes
    before editing or judging.
 13. Decide: make a reasonable assumption when safe; ask only when ambiguity

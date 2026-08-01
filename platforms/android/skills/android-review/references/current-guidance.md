@@ -54,6 +54,15 @@ Use for Android app, Compose/ViewModel, permission, and UI flow review.
   named test instead of splitting the renderer. Create a purpose-named split
   only when a genuinely independent state, contract, or platform responsibility
   appears.
+- When reviewing a surgical change that corrects only a few lines inside an
+  existing oversized Activity/Fragment lifecycle method, first check whether
+  the change grew the block or added a responsibility. If it did neither and
+  the full refactor is outside the current scope, pass the smallest
+  project-specific `--max-function-lines` value that accommodates the current
+  block length before running the review hook, and record that judgment in the
+  structure review evidence. Never use the raised limit to hide existing debt
+  or admit new oversized owners; if the block grew or a responsibility was
+  added, split the responsibility instead of raising the limit.
 - For `api` / `impl` / `assertions`, verify that `api` exposes caller-facing
   contracts only, `impl` owns execution details, and `assertions` depends on
   `api` rather than production `impl` by default.

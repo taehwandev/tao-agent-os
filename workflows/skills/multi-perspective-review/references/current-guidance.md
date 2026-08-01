@@ -121,6 +121,32 @@ residual risk.
 - Low: polish, clarity, naming, or minor maintainability improvement.
 - Note: observation without required action.
 
+## Structured Findings
+
+When findings from parallel reviewers must be merged mechanically, require each
+finding to carry:
+
+- severity: one of the levels above
+- confidence: High (reproducible from the diff and code evidence alone),
+  Medium (conditional but evidenced), Low (plausible, needs confirmation)
+- file and line
+- duplicate_key: stable dedupe key in the form
+  `<category>:<file>:<short-problem>`, for example
+  `state:UserProfileViewModel:stale-avatar-after-save`
+- rule_ref: path of the governing rule doc, or `none`
+- evidence: grounded in the diff or referenced code
+- impact: concrete behavior, user, or maintenance effect
+- suggestion: minimal fix direction
+
+Merge cross-reviewer duplicates by duplicate_key first, then by
+file/line/title. Drop findings with no file and line evidence,
+preference-only suggestions ("looks cleaner"), "might be a problem someday"
+claims with no concrete trigger, and issues that pre-date the diff.
+
+A reviewer with nothing blocking outputs exactly `No blocking findings.` — no
+praise, no summary, no filler — so the merge step can parse results
+mechanically.
+
 ## Modes
 
 - Full review: use every perspective.
@@ -132,6 +158,52 @@ residual risk.
 
 Merge duplicate findings. If perspectives disagree, name the tradeoff instead
 of averaging it away.
+
+## Read-Only Reviewer Contract
+
+A delegated reviewer without write scope must not: create, modify, or delete
+files; author patches; run commands; run formatters; install dependencies; or
+commit. It must not report in an "I fixed it" voice. Allowed actions: read the
+diff and related files, identify risk points, write structured findings, and
+suggest a fix direction.
+
+A delegated-reviewer prompt includes, in order:
+
+- role lens: which perspective this reviewer owns
+- scope: files, diff, or PR range
+- requirement summary
+- role-specific focus notes
+- hard rules: read-only, structured findings only
+- the context packet
+
+When a reviewer runs in an external agent runtime, never guess or hardcode its
+invocation flags. Use only a user-designated invocation. If none is confirmed
+or auth is blocked, mark that reviewer unavailable, substitute an equivalent
+internal reviewer, and record the substitution in the final report.
+
+## Verify-Then-Fix
+
+Use when the review should end in applied fixes, not only comments.
+
+- Exactly one orchestrator agent applies patches. Every other reviewer is
+  read-only; its findings are advisory input, never applied verbatim.
+- The orchestrator independently re-verifies each finding against the code
+  before fixing. Even a High finding from another reviewer may be declined
+  when its evidence is weak; record the decline reason.
+- Fix only Blocker and High findings, plus Medium findings with clear runtime,
+  UX, data, or architecture regression risk. Do not fix style or naming
+  preferences, speculative cleanup, large structural changes, or pre-existing
+  problems outside the review scope.
+- One finding maps to one small patch. Do not widen existing behavior while
+  fixing.
+- For already-verified critical flows, prefer a behavior-preserving wrapper
+  over an in-place rewrite.
+- Judge UI fixes with their interaction side effects — transition, focus,
+  scroll, input method, re-render — not just the code diff.
+- Compile and run focused tests after each fix. On failure, analyze the cause
+  and add only the minimal correction.
+- Report fix-centric, not finding-centric: fixed issues, declined issues with
+  reasons, verification results, remaining risk.
 
 ## Stop If
 

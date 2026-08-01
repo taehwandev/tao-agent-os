@@ -130,6 +130,46 @@ page's purpose.
   data, or private incident details into wiki pages.
 - Do not present guesses as established behavior. Label inferred or unverified
   content.
+- Tracked, team-shared docs must never reference personal absolute paths,
+  per-user tool install locations, runtime versions, hook command strings, or
+  evidence file paths as if they were shared contracts. Per-user runtime
+  details belong in that user's own environment.
+- Before writing an improvement down, classify its owner. Per-user runtime or
+  environment behavior — hooks, validators, evidence schemas and paths,
+  installs, permissions — is fixed only in the user's runtime and must not
+  spawn a paired tracked-doc copy. Team product, code, or workflow policy goes
+  only to the exact shared owner doc.
+- When a shared doc must point at externally owned guidance, keep a thin
+  pointer to the canonical owner plus the repo-specific application delta,
+  never a synced copy.
+- Verification of doc changes includes checking that tracked shared docs gained
+  no personal paths, runtime-version contracts, or duplicated runtime rules.
+
+## Per-Module Documentation Catalog
+
+For a large multi-module repo, route module-scoped reading through one
+canonical catalog instead of per-module routing files:
+
+- Keep exactly one table with one row per module. Columns: module identity
+  summary, always-required docs, situational reference docs, and a
+  key-invariants digest that points at the rule's source-of-truth doc.
+- Agents identify the touched module from the code or build path and read only
+  that module's row plus its listed docs. Reading the repo root instructions
+  does not mean reading everything; loading the whole table as context defeats
+  the pattern's cost control.
+- Required-vs-reference criterion: required docs are the ones defining the
+  module's dependency direction and layer boundary — rules whose violation
+  still compiles but silently breaks architecture — so they are read on every
+  touch regardless of task. Reference docs are keyed to task nature (UI,
+  testing, error handling) and may be skipped otherwise. Task-nature docs are
+  added on top of the module baseline, never substituted for it.
+- Adding a module means adding one row, never a per-module routing file.
+- The catalog lives in exactly one file; other entrypoints link to it instead
+  of copying it.
+- If a touched module has no row, stop and update the catalog first instead of
+  guessing its docs.
+- Row invariants are digests only; the linked rule doc stays the source of
+  truth.
 
 ## Language
 

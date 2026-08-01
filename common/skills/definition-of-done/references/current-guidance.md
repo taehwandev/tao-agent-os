@@ -62,6 +62,21 @@ completion. A missing or vague gate is `🐱🔴 FAIL`, not a warning.
 | Learning | The required retrospective check names the skills used and records whether a reusable gap exists; optional observation storage may be deferred without skipping the check. |
 | Report | The final response names what changed, what was verified, what was skipped, and what risk remains. |
 
+## Per-Change-Type Defaults
+
+When creating or scoping a work item and no repo-local completion checklist
+exists, start the Definition of Done from the change type:
+
+| Change Type | Done Means |
+| --- | --- |
+| Feature | Implemented; no regression in existing behavior; tests considered and added or the skip reason recorded; review done. |
+| Improvement | Improvement implemented; no regression in existing behavior; review done. |
+| Bugfix | Root cause identified; fix implemented; confirmed non-reproducible in the same environment; regression test added; review done. |
+| Refactor | No behavior change confirmed; all existing tests pass; review done. |
+| Chore | Build and config verified working; review done. |
+
+These are work-item defaults, not a substitute for the Done Checklist above.
+
 ## Common Rationalizations
 
 | Rationalization | Required Response |

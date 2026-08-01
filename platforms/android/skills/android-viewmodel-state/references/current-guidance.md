@@ -126,6 +126,15 @@ state transition; the delegate only owns the reusable capability it represents.
 Do not create a `BaseViewModel` only to inherit notice, routing, permission, or
 coroutine helpers. Inject small interfaces or delegates instead.
 
+Confirmation results belong to the state owner. When a dialog or alert needs a
+confirm/cancel outcome, model it as a typed suspending notice request on the
+notice port: the ViewModel calls `val result = showNotice(Alert(...))`,
+inspects the result, and then decides the state transition, route, or effect.
+Do not model the outcome with a screen-local `mutableStateOf(isDialogVisible)`
+where the composable decides what confirm means. A custom dialog host may
+render typed state owned by the ViewModel, but the decision stays in the state
+owner.
+
 ## Stream Primitive Selection
 
 Choose `StateFlow`, `SharedFlow`, `Channel`, `suspend`, or cold `Flow` by
@@ -450,8 +459,31 @@ Implementation rules:
   payloads that contradict the status.
 - Prefer a single `onAction(ProfileAction)` surface when a screen has many
   events. Explicit callbacks are fine for small screens.
+- Do not create forwarding composables or helpers whose only job is passing
+  through ViewModel acquisition plus state collection once, such as
+  `rememberFooViewModel` or `FooWithViewModel`. The route/holder composable
+  already owns acquisition, collection, and callback wiring; a new layer must
+  own real behavior such as lifecycle, stable identity, or effect handling.
 - Persist only durable inputs needed for process recreation. Do not persist
   snackbars, transient navigation effects, or one-frame UI commands.
+
+## State Transitions And Stale Snapshots
+
+State transitions must operate on the freshest state:
+
+- Perform transitions on the state parameter inside `update { state -> ... }`.
+  Pure helpers should take the current state as a parameter and return the next
+  state instead of reading the raw backing `MutableStateFlow` value directly.
+- Never read the state holder into a local, suspend on network, notice, or
+  route results, and then write the stale snapshot back. After any suspension,
+  re-check the latest state inside `update { }` or guard the write with a
+  request token, job cancellation/replacement, or a latest-only operator such
+  as `flatMapLatest`.
+- Do not add helpers that read the raw state holder and return scroll, route,
+  validation, or notice values so the view can continue the flow. The output
+  contract stays two lanes: `UiState` fields and typed effects.
+  Counter-increment-and-return helpers and getters the view polls are the same
+  third-channel violation.
 
 ## Flow And Coroutine Rules
 
@@ -513,6 +545,12 @@ Implementation rules:
 
 - Parse navigation arguments at the route boundary and pass typed values to the
   ViewModel.
+- Restore entry/launch arguments exactly once at the entry boundary: intent
+  mapper, typed route arguments, `SavedStateHandle`, or assisted injection. Do
+  not add a second sync path into the state owner, such as a
+  `LaunchedEffect(args)` that re-sends an `Initialize(args)` action or a
+  `bind(args)` call for values the ViewModel already restores. Launch arguments
+  must not reach the state owner through two paths.
 - Do not hide route decisions in random booleans inside `UiState`.
 - Navigation, snackbar, permission prompt, file picker, and external app launch
   should be explicit outputs from the state owner.
