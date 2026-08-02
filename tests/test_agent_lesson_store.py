@@ -287,8 +287,9 @@ class LessonStoreTests(unittest.TestCase):
 
         self.assertEqual(0, result)
 
-    def test_finish_check_does_not_process_successful_task_skill_feedback(self) -> None:
+    def test_finish_check_does_not_create_successful_task_skill_feedback(self) -> None:
         self.assertFalse(hasattr(agent_finish_check, "process_finish_learning"))
+        self.assertTrue(hasattr(agent_finish_check, "process_skill_followup"))
 
     def test_every_route_requires_reflection_but_skill_feedback_hook_stays_optional(self) -> None:
         self.assertEqual(set(COMMANDS), RETROSPECTIVE_CHECK_COMMANDS)
@@ -302,6 +303,9 @@ class LessonStoreTests(unittest.TestCase):
                 self.assertTrue(route["skill_feedback"]["enabled"])
                 self.assertTrue(route["skill_feedback"]["evaluation_required"])
                 self.assertFalse(route["skill_feedback"]["blocking"])
+                self.assertTrue(
+                    route["skill_feedback"]["threshold_followup_required"]
+                )
                 hooks = [hook for hook in route["hooks"] if hook["hook"] == SKILL_FEEDBACK_HOOK]
                 self.assertEqual(1, len(hooks))
                 self.assertFalse(hooks[0]["required"])

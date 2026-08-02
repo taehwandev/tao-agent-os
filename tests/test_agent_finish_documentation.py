@@ -111,3 +111,93 @@ class RequiredDocTargetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequiredDocDriftRecoveryTests(unittest.TestCase):
+    """The recovery text must name the fields the receipt validator reads.
+
+    It previously asked for `repair_evidence` and `resume_checkpoint`, which the
+    validator never looks at, so an agent following it exactly could not clear
+    the drift and reasonably concluded the check was unsatisfiable.
+    """
+
+    def setUp(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "agent_finish_check_under_test", ROOT / "scripts" / "agent-finish-check.py"
+        )
+        assert spec and spec.loader
+        self.finish_check = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.finish_check)
+
+    def _recovery(self, rules: Path, relative: str = "GUIDANCE.md") -> str:
+        return self.finish_check._required_doc_drift_recovery(
+            rules,
+            [
+                f"execution capsule required doc hash changed: {relative}",
+                f"execution capsule required doc size changed: {relative}",
+            ],
+        )
+
+    def test_it_names_every_field_the_receipt_validator_requires(self) -> None:
+        from agent_execution_capsule_docs import validated_required_doc_update_receipt
+
+        with tempfile.TemporaryDirectory() as directory:
+            text = self._recovery(Path(directory))
+
+        for field in (
+            "artifact_receipt_version",
+            "baseline_sha256",
+            "final_sha256",
+            "final_size_bytes",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, text)
+        # The named version must be the one the validator accepts.
+        self.assertIsNotNone(
+            validated_required_doc_update_receipt(
+                {
+                    "artifact_receipt_version": "1",
+                    "baseline_sha256": "a" * 64,
+                    "final_sha256": "b" * 64,
+                    "final_size_bytes": "10",
+                }
+            )
+        )
+
+    def test_it_hands_over_the_current_bytes_rather_than_describing_them(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory)
+            (rules / "GUIDANCE.md").write_text("# guidance\n", encoding="utf-8")
+
+            text = self._recovery(rules)
+
+        from agent_execution_capsule_state import doc_hash_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory)
+            path = rules / "GUIDANCE.md"
+            path.write_text("# guidance\n", encoding="utf-8")
+            record = doc_hash_record("GUIDANCE.md", path)
+
+        self.assertIn(record["sha256"], text)
+        self.assertIn(str(record["size_bytes"]), text)
+
+    def test_a_relative_rules_root_still_yields_the_bytes(self) -> None:
+        """Containment compares resolved paths, so a relative root read as an
+        escape and silently dropped the values the guidance exists to give."""
+
+        text = self.finish_check._required_doc_drift_recovery(
+            Path("."),
+            ["execution capsule required doc hash changed: AGENTS.md"],
+        )
+
+        self.assertIn("final_sha256=", text)
+
+    def test_it_stays_silent_about_documents_that_did_not_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            text = self._recovery(Path(directory), relative="ONLY_THIS.md")
+
+        self.assertIn("ONLY_THIS.md", text)
+        self.assertNotIn("AGENTS.md", text)

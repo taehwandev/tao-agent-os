@@ -31,7 +31,13 @@ def _load_script(name: str, filename: str):
 
 agent_hook = _load_script("agent_hook_start_binding_test", "agent-hook.py")
 
-from agent_run_registry import active_runs, claim_run, register_run, registry_path
+from agent_run_registry import (
+    active_run_bindings,
+    active_runs,
+    claim_run,
+    register_run,
+    registry_path,
+)
 
 
 def _rewrite_runs(project: Path, *, hours: int, owner_pid: int) -> None:
@@ -65,12 +71,10 @@ def start_args(project: Path, request: str) -> Namespace:
 class StartRunBindingTests(unittest.TestCase):
     """Start refuses evidence held by another live request -- but only a live one.
 
-    An interrupted run keeps its `running` record forever: recovery lives in a
-    separate maintenance entrypoint that no lifecycle hook invokes. Because the
-    Claude pre-tool gate only ever reads the default `.tao/preflight.json`, an
-    abandoned run that still claims that path denies every later edit with no
-    in-band way out. Start therefore sweeps stale runs before deciding whether a
-    conflicting request is actually active.
+    Historically, an interrupted start kept a `running` record forever because
+    recovery lived in a separate maintenance entrypoint. Start now sweeps stale
+    holders and keeps its preflight window in a hook-owned transient claim so a
+    crash cannot publish incomplete runtime evidence.
     """
 
     def _args(self, project: Path, request: str) -> Namespace:
@@ -298,8 +302,99 @@ class ConcurrentStartClaimTests(unittest.TestCase):
             )
             self.assertEqual(
                 [claimed["run"]["run_id"]],
-                [run["run_id"] for run in active_runs(project)],
+                [
+                    run["run_id"]
+                    for run in json.loads(
+                        registry_path(project).read_text(encoding="utf-8")
+                    )["runs"]
+                    if run["state"] == "claiming"
+                ],
             )
+
+    def test_exception_after_claim_cancels_before_propagating(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+
+            with patch.object(
+                agent_hook,
+                "run_script_main",
+                side_effect=RuntimeError("injected preflight interruption"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "injected preflight"):
+                    agent_hook.start_hook(start_args(project, "repair interrupted start"))
+
+            payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+            self.assertEqual(["cancelled"], [run["state"] for run in payload["runs"]])
+            self.assertEqual([], active_runs(project))
+            self.assertEqual({}, active_run_bindings(project))
+
+    @unittest.skipUnless(os.name == "posix", "SIGKILL ownership proof requires POSIX")
+    def test_sigkill_during_start_releases_transient_claim_immediately(self) -> None:
+        """A real uncatchable process death must not wait for a stale window."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            script = f"""
+import importlib.util
+import sys
+import time
+from argparse import Namespace
+from pathlib import Path
+from unittest.mock import patch
+
+root = Path({str(ROOT)!r})
+scripts = root / "scripts"
+sys.path.insert(0, str(scripts))
+spec = importlib.util.spec_from_file_location("sigkill_start_hook", scripts / "agent-hook.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+args = Namespace(
+    project=Path({str(project)!r}), rules=root, command="bugfix",
+    request="repair interrupted start", request_classified=True,
+    classification_evidence="clear-scoped; blockers resolved",
+    platform=[], concern=[], read_only=False, evidence=None,
+    worker_reservation_token="", output=None, repair_cycle=0,
+)
+
+def block_after_claim(*_args, **_kwargs):
+    print("CLAIMED", flush=True)
+    time.sleep(60)
+
+with patch.object(module, "run_script_main", side_effect=block_after_claim):
+    module.start_hook(args)
+"""
+            process = subprocess.Popen(
+                [sys.executable, "-c", script],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual("CLAIMED", process.stdout.readline().strip())
+                process.kill()
+                process.communicate(timeout=5)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate(timeout=5)
+
+            payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+            abandoned = payload["runs"][-1]
+            self.assertEqual("claiming", abandoned["state"])
+            self.assertEqual(process.pid, abandoned["claim_owner"]["pid"])
+            self.assertEqual({}, active_run_bindings(project))
+
+            retry = claim_run(
+                project,
+                project / ".tao" / "preflight.json",
+                {"command": "bugfix"},
+                {"request": "repair interrupted start", "request_classified": True},
+            )
+
+            self.assertFalse(retry["conflict"])
+            self.assertEqual([abandoned["run_id"]], [run["run_id"] for run in retry["recovered"]])
+            self.assertEqual("claiming", retry["run"]["state"])
 
     def test_negative_control_a_failed_start_gives_the_path_back(self) -> None:
         """The control: claiming before preflight must not strand the path.

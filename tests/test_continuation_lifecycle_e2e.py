@@ -31,6 +31,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from agent_run_registry import registry_path
+from agent_route_state import request_fingerprint
 
 REQUEST = "implement the resume list command in src/module.py with a unit test"
 SAFE_OBJECTIVE = "finish the bounded continuation resume wiring"
@@ -75,6 +76,8 @@ start = hook(
     "start",
     "--command", "bugfix",
     "--request", {request!r},
+    "--intent-envelope", {envelope!r},
+    "--runtime-session-id", {session_id!r},
     "--request-classified",
     "--classification-evidence", "clear-scoped; blockers resolved",
 )
@@ -179,6 +182,19 @@ class Checkout:
 
     def child_script(self, *, wired: bool) -> tuple[Path, str]:
         script = self.directory / "child.py"
+        session_id = "continuation-e2e-session"
+        envelope = json.dumps(
+            {
+                "schema_version": 1,
+                "request_fingerprint": request_fingerprint({"request": REQUEST}),
+                "runtime_session_id": session_id,
+                "mode": "work",
+                "intent": "implement",
+                "target_summary": "the resume list command and its unit test",
+                "requested_effects": ["local_write"],
+                "ambiguity": "resolved",
+            }
+        )
         work = json.dumps(
             {
                 "objective": SAFE_OBJECTIVE,
@@ -191,7 +207,14 @@ class Checkout:
             }
         )
         script.write_text(
-            CHILD.format(request=REQUEST, gate=GATE, work=work), encoding="utf-8"
+            CHILD.format(
+                request=REQUEST,
+                envelope=envelope,
+                session_id=session_id,
+                gate=GATE,
+                work=work,
+            ),
+            encoding="utf-8",
         )
         if wired:
             return script, ""
