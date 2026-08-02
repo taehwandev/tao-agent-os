@@ -91,8 +91,9 @@ from workflow_request import infer_concerns_from_request
 from workflow_request import classify_request
 from workflow_request import classified_route_block_reason
 from workflow_request import route_block_reason
+from agent_route_state import request_fingerprint
 from workflow_dispatch import (
-    build_dispatch_manifest,
+    build_dispatch_manifest as _build_dispatch_manifest,
     execute_dispatch_manifest,
     print_dispatch_manifest,
 )
@@ -114,7 +115,7 @@ from workflow_route import resolve_docs, route_hooks
 from workflow_search import SearchOutcome, search_docs, search_docs_outcome
 from workflow_skill_paths import canonical_doc_path
 from workflow_spill import spill_tool_label, validate_spill_label_contracts
-from workflow import build_parser, print_dispatch, print_dispatch_finalize
+from workflow import build_parser, print_dispatch as _print_dispatch, print_dispatch_finalize
 from workflow_validate import (
     STRICT_CARD_REQUIRED_HEADINGS,
     markdown_files_to_validate,
@@ -142,6 +143,61 @@ _AGENT_HOOK_SPEC = importlib.util.spec_from_file_location(
 assert _AGENT_HOOK_SPEC and _AGENT_HOOK_SPEC.loader
 agent_hook = importlib.util.module_from_spec(_AGENT_HOOK_SPEC)
 _AGENT_HOOK_SPEC.loader.exec_module(agent_hook)
+
+_RUNTIME_SESSION_ID = "workflow-dispatch-test-session"
+
+
+def _intent_cli_args(request: str, command: str) -> list[str]:
+    requested_effect = "read" if command in {"analysis", "review", "plan", "planning"} else "local_write"
+    envelope = {
+        "schema_version": 1,
+        "request_fingerprint": request_fingerprint({"request": request}),
+        "runtime_session_id": _RUNTIME_SESSION_ID,
+        "mode": "work",
+        "intent": "dispatch",
+        "target_summary": "the dispatch test target",
+        "requested_effects": [requested_effect],
+        "ambiguity": "resolved",
+    }
+    return [
+        "--intent-envelope", json.dumps(envelope),
+        "--runtime-session-id", _RUNTIME_SESSION_ID,
+    ]
+
+
+def _authorize_dispatch_args(args: argparse.Namespace) -> argparse.Namespace:
+    request = str(args.request or "")
+    intent_args = _intent_cli_args(request, args.command)
+    args.intent_envelope = intent_args[1]
+    args.runtime_session_id = _RUNTIME_SESSION_ID
+    return args
+
+
+def print_dispatch(args: argparse.Namespace) -> int:
+    return _print_dispatch(_authorize_dispatch_args(args))
+
+
+def build_dispatch_manifest(command, request, project, **kwargs):
+    """Exercise dispatch internals after the envelope intake boundary.
+
+    CLI tests below cover that boundary itself. These tests own profile,
+    isolation, evidence and launch behavior, so they pass the already accepted
+    classification that a real envelope supplies.
+    """
+
+    kwargs.setdefault(
+        "request_classification",
+        {
+            "request": request,
+            "clarity": "clear-scoped",
+            "effort": "standard",
+            "question_drill": False,
+            "grill_me": False,
+            "response_mode": "work",
+            "recommended_route": "",
+        },
+    )
+    return _build_dispatch_manifest(command, request, project, **kwargs)
 
 
 def _init_git_repo(project: Path) -> None:
@@ -304,6 +360,15 @@ class WorkflowDispatchTests(unittest.TestCase):
             "test",
             "Run the focused tests for `scripts/workflow_dispatch.py:10`.",
             ROOT,
+            request_classification={
+                "request": "Run the focused tests for `scripts/workflow_dispatch.py:10`.",
+                "clarity": "clear-scoped",
+                "effort": "quick",
+                "question_drill": False,
+                "grill_me": False,
+                "response_mode": "work",
+                "recommended_route": "",
+            },
         )
 
         self.assertEqual("repetitive", manifest["work_profile"]["work_kind"])
@@ -360,6 +425,9 @@ class WorkflowDispatchTests(unittest.TestCase):
                     temp_dir,
                     "--format",
                     "json",
+                    *_intent_cli_args(
+                        "기획변경 때 문서 정리가 누락되는 걸 막아줘", "task"
+                    ),
                 ],
                 check=False,
                 capture_output=True,
@@ -904,7 +972,7 @@ class WorkflowDispatchTests(unittest.TestCase):
         )
 
         with patch("workflow.execute_dispatch_manifest") as execute:
-            self.assertEqual(2, print_dispatch(args))
+            self.assertEqual(2, _print_dispatch(args))
 
         execute.assert_not_called()
 

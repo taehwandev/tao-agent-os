@@ -31,6 +31,13 @@ from workflow_classified_exemption import (
     classified_intake_decision,
     parent_evidence_path,
 )
+from agent_route_state import request_fingerprint
+from workflow_intent_dual_run import (
+    classification_from_envelope,
+    dual_run_decision,
+    route_intake_decision,
+)
+from workflow_intent_envelope import read_intent_envelope
 from workflow_request import (
     classify_request,
     infer_concerns_from_request,
@@ -62,6 +69,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Affected concern. Can be repeated.",
     )
     route.add_argument("--request", help="Current user request text. Required for every non-advisory route.")
+    route.add_argument(
+        "--continuation-scope",
+        default="",
+        help=(
+            "Bounded prior scope for a terse follow-up. It supplies target identity "
+            "only and is never concatenated into the current request classifier."
+        ),
+    )
+    route.add_argument(
+        "--intent-envelope",
+        default="",
+        help=(
+            "Runtime intent envelope as JSON or a path to it. When supplied it is "
+            "the authority for intent, target and effect; the request text is not "
+            "re-read to second-guess it."
+        ),
+    )
+    route.add_argument(
+        "--runtime-session-id",
+        default="",
+        help="Current opaque runtime session id that must match the intent envelope.",
+    )
     route.add_argument(
         "--surface-path",
         action="append",
@@ -107,6 +136,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     classify = subparsers.add_parser("classify", help="Classify request clarity and effort.")
     classify.add_argument("request", help="User request text to classify.")
+    classify.add_argument("--continuation-scope", default="")
+    classify.add_argument("--command", default="task")
+    classify.add_argument(
+        "--intent-envelope",
+        default="",
+        help="runtime intent envelope as JSON or a path to it; when given it decides",
+    )
+    classify.add_argument("--runtime-session-id", default="")
     classify.add_argument("--format", choices=("markdown", "json"), default="markdown")
 
     query = subparsers.add_parser("query", help="Search Tao Agent OS docs by keyword relevance.")
@@ -131,6 +168,9 @@ def _add_dispatch_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     dispatch.add_argument("command", choices=sorted(COMMANDS), help="Task command profile.")
     dispatch.add_argument("--request", required=True, help="Current user request text.")
+    dispatch.add_argument("--continuation-scope", default="")
+    dispatch.add_argument("--intent-envelope", default="")
+    dispatch.add_argument("--runtime-session-id", default="")
     dispatch.add_argument(
         "--request-classified",
         action="store_true",
@@ -236,7 +276,27 @@ def print_query(args: argparse.Namespace) -> int:
 
 
 def print_request_classification(args: argparse.Namespace) -> int:
-    result = classify_request(args.request)
+    result = classify_request(
+        args.request,
+        continuation_scope=args.continuation_scope,
+    )
+    envelope = read_intent_envelope(getattr(args, "intent_envelope", ""))
+    if envelope is not None:
+        # Dual run: the envelope decides and the classifier result is kept only
+        # as a comparison. Letting the classifier override on disagreement
+        # would keep the natural-language path authoritative, which is what the
+        # transition removes.
+        decision = dual_run_decision(
+            getattr(args, "command", "task") or "task",
+            envelope,
+            result,
+            request_fingerprint=request_fingerprint({"request": args.request or ""}),
+            runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
+        )
+        if decision["failures"]:
+            result["intent_envelope"] = decision
+        else:
+            result = classification_from_envelope(envelope, decision)
     if args.format == "json":
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
@@ -266,27 +326,39 @@ def print_route(args: argparse.Namespace) -> int:
         # intake decision at all.
         request_classification = None
     else:
-        request_classification, block_reason = classified_intake_decision(
+        request_classification, failures = route_intake_decision(
             args.command,
-            args.request,
-            args.request_classified,
-            args.classification_evidence or "",
-            project=project_root,
-            rules=getattr(args, "rules", None),
-            parent_evidence=parent_evidence_path(
-                project_root, getattr(args, "parent_evidence", None)
-            ),
+            read_intent_envelope(getattr(args, "intent_envelope", "")),
+            request_fingerprint=request_fingerprint({"request": args.request or ""}),
+            runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
         )
-        if block_reason:
-            print(block_reason, file=sys.stderr)
-            if request_classification:
-                print(
-                    f"Classification: {request_classification['clarity']} / "
-                    f"response_mode: {request_classification['response_mode']} / "
-                    f"grill_me: {str(request_classification['grill_me']).lower()}",
-                    file=sys.stderr,
-                )
+        if failures:
+            for failure in failures:
+                print(failure, file=sys.stderr)
             return 2
+        if request_classification is None:
+            request_classification, block_reason = classified_intake_decision(
+                args.command,
+                args.request,
+                args.request_classified,
+                args.classification_evidence or "",
+                args.continuation_scope,
+                project=project_root,
+                rules=getattr(args, "rules", None),
+                parent_evidence=parent_evidence_path(
+                    project_root, getattr(args, "parent_evidence", None)
+                ),
+            )
+            if block_reason:
+                print(block_reason, file=sys.stderr)
+                if request_classification:
+                    print(
+                        f"Classification: {request_classification['clarity']} / "
+                        f"response_mode: {request_classification['response_mode']} / "
+                        f"grill_me: {str(request_classification['grill_me']).lower()}",
+                        file=sys.stderr,
+                    )
+                return 2
 
     intent_text = "" if advisory else (args.request or args.classification_evidence or "")
     inferred_concerns = infer_concerns_from_request(intent_text)
@@ -334,6 +406,37 @@ def print_route(args: argparse.Namespace) -> int:
     return 1 if route["missing"] or route.get("blocking") else 0
 
 
+def _dispatch_request_classification(
+    args: argparse.Namespace,
+    *,
+    project: Path,
+    rules: Path,
+    evidence_path: Path,
+) -> tuple[dict[str, object] | None, str | None]:
+    """Resolve dispatch intake without letting the entrypoint own policy details."""
+
+    request_classification, failures = route_intake_decision(
+        args.command,
+        read_intent_envelope(getattr(args, "intent_envelope", "")),
+        request_fingerprint=request_fingerprint({"request": args.request or ""}),
+        runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
+    )
+    if failures:
+        return None, "\n".join(failures)
+    if request_classification is not None:
+        return request_classification, None
+    return classified_intake_decision(
+        args.command,
+        args.request,
+        args.request_classified,
+        args.classification_evidence,
+        args.continuation_scope,
+        project=project,
+        rules=rules,
+        parent_evidence=evidence_path,
+    )
+
+
 def print_dispatch(args: argparse.Namespace) -> int:
     if args.request_classified and not args.classification_evidence:
         print(
@@ -348,14 +451,11 @@ def print_dispatch(args: argparse.Namespace) -> int:
         if args.evidence
         else project / ".tao" / "preflight.json"
     )
-    request_classification, block_reason = classified_intake_decision(
-        args.command,
-        args.request,
-        args.request_classified,
-        args.classification_evidence,
+    request_classification, block_reason = _dispatch_request_classification(
+        args,
         project=project,
         rules=rules,
-        parent_evidence=evidence_path,
+        evidence_path=evidence_path,
     )
     if block_reason:
         print(block_reason, file=sys.stderr)
@@ -370,6 +470,7 @@ def print_dispatch(args: argparse.Namespace) -> int:
         evidence_path,
         command=args.command,
         request=args.request,
+        continuation_scope=args.continuation_scope,
         request_classified=args.request_classified,
         classification_evidence=args.classification_evidence,
         platform=args.platform,
@@ -407,6 +508,7 @@ def print_dispatch(args: argparse.Namespace) -> int:
             args.command,
             args.request,
             Path(args.project),
+            continuation_scope=args.continuation_scope,
             work_kind=args.work_kind,
             complexity_evidence=args.complexity_evidence,
             route=route,
@@ -478,6 +580,17 @@ def main(argv: list[str]) -> int:
     if args.action == "list":
         print_supported_values()
         return 0
+    try:
+        return _dispatch_action(args)
+    except ValueError as error:
+        # The bounded continuation-scope contract is enforced by raising, which
+        # reached the terminal as a traceback. A caller that violates the bound
+        # needs the reason, not a stack, and the run must still fail closed.
+        print(f"invalid request input: {error}", file=sys.stderr)
+        return 2
+
+
+def _dispatch_action(args: argparse.Namespace) -> int:
     if args.action == "validate":
         return validate()
     if args.action == "query":

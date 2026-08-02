@@ -54,6 +54,7 @@ def classified_intake_decision(
     request: str | None,
     request_classified: bool,
     classification_evidence: str,
+    continuation_scope: str = "",
     *,
     project: Path | None = None,
     rules: Path | None = None,
@@ -84,6 +85,7 @@ def classified_intake_decision(
             parent_evidence,
             command=command,
             request=request,
+            continuation_scope=continuation_scope,
         )
 
     if not exempt and not request:
@@ -92,7 +94,14 @@ def classified_intake_decision(
         # made every downstream check pass by having nothing to inspect.
         return None, MISSING_REQUEST_INTAKE_REASON if request_classified else NO_INTAKE_REASON
 
-    classification = None if exempt else classify_request(request or "")
+    classification = (
+        None
+        if exempt
+        else classify_request(
+            request or "",
+            continuation_scope=continuation_scope,
+        )
+    )
     block_reason = route_block_reason(command, classification)
     if not block_reason and request_classified:
         block_reason = classified_route_block_reason(command, classification_evidence or "")
@@ -122,6 +131,7 @@ def parent_capsule_exemption(
     *,
     command: str,
     request: str | None,
+    continuation_scope: str = "",
 ) -> tuple[bool, str]:
     """Return whether a ready and valid parent capsule honors the exemption.
 
@@ -163,6 +173,13 @@ def parent_capsule_exemption(
     )
     if not request or request != parent_request:
         return False, "current request does not match the parent execution capsule"
+    parent_scope = (
+        str(request_intake.get("continuation_scope") or "")
+        if isinstance(request_intake, dict)
+        else ""
+    )
+    if continuation_scope != parent_scope:
+        return False, "current continuation scope does not match the parent execution capsule"
 
     try:
         failures = validate_execution_capsule(

@@ -42,37 +42,29 @@ Run the shared start hook once for every multi-step task when it exists. It
 performs request intake, routing, and preflight as one lifecycle entry:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--continuation-scope "<ESTABLISHED_TARGET>"] [--platform <platform>] [--concern <concern>]
 ```
 
 `--rules` must point to the Tao Agent OS root directory, not to an
 individual instruction file such as `AGENTS.md`.
-The start hook requires the current request with `--request`.
-`--request-classified` is a proof-carrying delegation exemption, not a
-same-session root override: add it with `--classification-evidence` only when a
-ready and valid parent capsule binds the worker to the same exact request and
-workflow command from the prior intake. A capsule for another request or route
-grants no exemption. Without that matching capsule, the classifier
-intentionally evaluates `--request` and free-text evidence cannot wave a vague
-request through. For a terse root-session
-follow-up, pass a context-complete request that preserves the verbatim follow-up
-and names the already-established scope, for example `검증해줘 — continuation
-scope: verify the required-document receipt change completed in the immediately
-preceding task`. If the scope cannot be carried forward safely, use `triage` or
-`ambiguity` instead. Direct `agent-hook.py start --request-classified` without
-the current request, evidence, and valid parent capsule is a workflow failure,
-and the form with neither a request nor a capsule is rejected outright. A caller
-that only needs the document listing and label context and asserts no intake
-uses `--advisory`; it satisfies no downstream gate, so work must be re-routed
-with a real `--request` before editing, reviewing, or reporting completion.
-If the request is a direct question, the script blocks routing so the agent
-answers before editing or running project commands. Work routes with a valid
-delegation exemption still require evidence that proves the request is
-actionable, such as `clear-exact`, `clear-scoped`, `answered ... separate
-actionable`, or `blockers resolved`; weak evidence such as `classified` or
-`done` is not sufficient. Generic resolution markers such as `clarified` or
-`no blockers` are also insufficient unless they name the resolved scope,
-decision, blocker-question outcome, or remaining separate action.
+The start hook requires the exact current request with `--request`. Every work
+route also requires a runtime-produced `--intent-envelope` and the matching
+opaque `--runtime-session-id`. The envelope binds the request fingerprint,
+session, mode, intent, bounded target, requested and prohibited effects, and
+ambiguity state. Tao validates those fields and applies route and tool effect
+floors; it does not infer work authority from request words. A missing envelope
+can reach only `triage` or `ambiguity`. Direct questions are answered before any
+project work.
+
+`--request-classified` remains a proof-carrying delegation state exemption, not
+a work authorization. Add it with `--classification-evidence` only when a ready
+and valid parent capsule binds the same exact request and workflow command. Even
+then, the worker must present its current session-bound envelope. Free-text
+evidence, a parent capsule, and `--continuation-scope` never replace that
+envelope. Continuation scope supplies prior target context only; the runtime
+must put the resolved bounded target in the envelope. A caller that only needs
+the document listing and label context uses `--advisory`, which satisfies no
+downstream gate.
 
 An explicit review-only request for a diff, patch, working tree, or changed
 files stays on the read-only `review` route even when the inspected subject
@@ -81,17 +73,11 @@ credentials. Those nouns describe what to inspect; they do not authorize
 product changes. A request that also asks to implement, refactor, commit,
 release, or deploy follows the corresponding work route instead.
 
-A short follow-up approval may continue an already settled discussion. The
-classifier recognizes an explicit referential approval such as “그럼 그건
-수정해줘” or “Then apply the agreed change” as `clear-scoped` when it has a
-clear continuation cue and an action verb. A bare “진행해”/“수정해줘” remains
-`vague-action`; without a valid parent capsule, carry the previous scope in the
-context-complete `--request` rather than relying on
-`--classification-evidence`. A delegated worker with valid capsule proof must
-also carry the prior resolved scope in `--classification-evidence` (for
-example, `clear-scoped continuation; previous scope resolved; user approval
-confirmed; no scope expansion; blockers resolved`); unresolved or
-open-question markers continue to block work routes.
+Request classification now has only two natural-language outcomes: a direct
+question is `answer_first`, and everything else is held at `triage`. It may
+still infer document concerns, but it never chooses a work route. Follow-up
+language, release words, commit words, exact paths, and continuation scope are
+not exceptions.
 
 Worker evidence reservations use validate-then-claim semantics. Intake first
 validates that the opaque token matches the requested worker evidence path, and
@@ -104,6 +90,14 @@ including two invocations with the same request fingerprint. Request identity
 does not prove caller identity. Only the claimant may reuse its active binding,
 and only by presenting the opaque run id returned by that claim; a second
 caller must wait or receive a conflict before either caller enters preflight.
+The exclusive preflight window is a transient `claiming` state owned by the
+individual start-hook process. It blocks a second claimant but is not an active
+runtime binding and must not participate in runtime evidence discovery. Start
+must persist and resync complete preflight identity before atomically promoting
+that same opaque record to launcher-owned `running`; exceptions before
+promotion cancel it in a `finally` path, and process death makes it immediately
+recoverable on the next claim. This separation prevents an incomplete start
+from becoming either a false active run or a second runtime-evidence match.
 Run-owner evidence must bind a process expected to span the agent session. If
 the host cannot prove that process identity, record no owner and retain the
 bounded timestamp-recovery contract rather than substituting the short-lived
@@ -160,10 +154,10 @@ list.
 Examples:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command product --request "<USER_REQUEST>" --platform android --concern security --concern ui
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command bugfix --request "<USER_REQUEST>" --platform server --concern api
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command docs-review --request "<USER_REQUEST>" --concern wiki
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command product --request "Show me how we build an app feature here" --platform android --concern ui
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command product --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" --platform android --concern security --concern ui
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command bugfix --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" --platform server --concern api
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command docs-review --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" --concern wiki
+Answer "Show me how we build an app feature here" in the conversation; do not start a work route for the question alone.
 <TAO_LAUNCHER> workflow validate
 ```
 
@@ -287,9 +281,12 @@ forgets them:
   one reusable content-free observation when its canonical skill id matches the
   current retrospective. Replace the gate with `observation: recorded` only
   after the hook creates or deduplicates that observation; otherwise keep
-  `deferred`, which cannot fail finish. A repeated candidate becomes
-  separate bounded
-  skill-maintenance work rather than an immediate document edit. A failed
+  `deferred`, which cannot fail finish by itself. The feedback hook runs the
+  deterministic curator after a stored observation. When the current run is an
+  occurrence that reaches the recurrence threshold, finish requires the agent
+  to complete bounded review and any staged verified maintenance before
+  reporting success. Unrelated historical queue items remain non-blocking, and
+  no hook automatically edits canonical guidance. A failed
   required hook or gate never uses this path; it follows the repair cycle.
 - `gate-batch` validates the complete batch before writing any entry. Structured
   fields alone are not enough: each record must also satisfy that gate's
@@ -333,7 +330,9 @@ forgets them:
   unrelated behavior. If investigation finds a possible meaning, policy, route,
   gate, or pass/fail interpretation change, pause for a meaning checkpoint
   before editing unless the fix is mechanical and already covered by explicit
-  tests.
+  tests. Before invoking review, measure changed entrypoint function spans as
+  well as file size; cross-entrypoint routing migrations should extract a shared
+  intake helper before any caller crosses the default function budget.
 - `review readiness`: for docs-review routes, report the reviewed Markdown
   scope's frontmatter readiness, `status`/`type` distribution, and
   human-review queue. Link/frontmatter validity alone is not enough when the
@@ -518,7 +517,7 @@ workflow's executable checklist:
 Before editing, reviewing, committing, or reporting completion:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
 ```
 
 The route may promote additional `required_docs` from the root

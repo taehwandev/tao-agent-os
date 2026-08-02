@@ -159,12 +159,19 @@ def _print_skill_feedback(policy: dict[str, object]) -> None:
     print(f"- Evaluation required: `{str(bool(policy['evaluation_required'])).lower()}`")
     print(f"- Evaluation gate: `{policy['evaluation_gate']}`")
     print(f"- Observation follow-up blocking: `{str(bool(policy['blocking'])).lower()}`")
+    print(
+        "- Current threshold candidate follow-up required: "
+        f"`{str(bool(policy['threshold_followup_required'])).lower()}`"
+    )
     print(f"- Review threshold: `{policy['candidate_threshold']}` distinct occurrences")
     print(f"- Curation: `{policy['curation']}`")
     print(f"- Review: `{policy['review']}`")
     print(f"- Write policy: `{policy['write_policy']}`")
     print(f"- Maintenance: `{policy['maintenance']}`")
-    print("- Observation, review, or maintenance unavailability never changes finish status.")
+    print(
+        "- Initial observation storage is non-blocking; once the current occurrence reaches "
+        "the threshold, bounded review and any staged maintenance must reach a terminal outcome."
+    )
     print()
 
 

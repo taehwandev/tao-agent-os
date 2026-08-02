@@ -21,6 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_worktree_identity import new_worktree_path
+from agent_route_state import request_fingerprint
+
+
+_RUNTIME_SESSION_ID = "workflow-dispatch-cli-session"
 
 
 def _worker(worker_id: str, scope: list[str], **overrides: object) -> dict[str, object]:
@@ -67,6 +71,16 @@ class _IsolationDerivationTestCase(unittest.TestCase):
         )
 
     def _dispatch(self, project: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+        envelope = {
+            "schema_version": 1,
+            "request_fingerprint": request_fingerprint({"request": self._REQUEST}),
+            "runtime_session_id": _RUNTIME_SESSION_ID,
+            "mode": "work",
+            "intent": "dispatch",
+            "target_summary": "the workflow dispatch test target",
+            "requested_effects": ["local_write"],
+            "ambiguity": "resolved",
+        }
         return subprocess.run(
             [
                 sys.executable,
@@ -79,6 +93,10 @@ class _IsolationDerivationTestCase(unittest.TestCase):
                 str(project),
                 "--format",
                 "json",
+                "--intent-envelope",
+                json.dumps(envelope),
+                "--runtime-session-id",
+                _RUNTIME_SESSION_ID,
                 *extra,
             ],
             check=False,

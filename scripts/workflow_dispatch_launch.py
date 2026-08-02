@@ -64,6 +64,7 @@ def execute_dispatch_manifest(
         str(manifest["work_kind"]),
         prepared,
         non_authoring=str(manifest.get("authoring_policy", "")).startswith("read-only"),
+        continuation_scope=str(manifest.get("continuation_scope", "")),
     )
     argv = codex_argv(
         Path(str(manifest["project"])), profile, str(manifest["sandbox_mode"]), prompt

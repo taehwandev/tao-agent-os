@@ -1,4 +1,4 @@
-"""Regex patterns used by workflow request classification."""
+"""Patterns for question handling and explicit Grill-Me requests only."""
 
 from __future__ import annotations
 
@@ -6,235 +6,53 @@ from __future__ import annotations
 DIRECT_QUESTION_PATTERNS = (
     r"\?",
     r"\b(what|when|where|why|how|which|who|should|do i|does|is|are|can i)\b",
-    "\uc5b8\uc81c",
-    "\ubb34\uc5c7",
-    "\ubb50",
-    "\uc5b4\ub5bb\uac8c",
-    "\uc65c",
-    "\uc5b4\ub514",
-    "\uc5b4\ub290",
-    "\ub204\uac00",
-    "\uc778\uac00",
-    "\ub9de\uc544",
-    "\uac70\uc57c",
-    "\uac74\uac00",
-    "\ub098\uc694",
-    "\ud569\ub2c8\uae4c",
-    "\ud560\uae4c",
+    "언제", "무엇", "뭐", "어떻게", "왜", "어디", "어느", "누가",
+    "인가", "맞아", "거야", "건가", "나요", "합니까", "할까",
 )
+
 QUESTION_ACTION_PATTERNS = (
     r"\b(can you|could you|would you|please|go ahead and)\b",
-    "\ud574\uc918",
-    "\ud574\uc8fc\uc138\uc694",
-    "\ud574\uc904\ub798",
-    "\ubc14\uafd4\uc918",
-    "\uace0\uccd0\uc918",
-    "\uc218\uc815\ud574\uc918",
-    "\uc801\uc6a9\ud574\uc918",
-    "\ucd94\uac00\ud574\uc918",
-    "\uba85\uc2dc\ud574\uc918",
-    "\ub123\uc5b4\uc918",
-    "\ub2f4\uc544\uc918",
-    "\uc791\uc131\ud558\uc790",
-    r"\uc791\uc131\s*\ub2e4\uc2dc\s*\ud558\uc790",
-    r"\ub2e4\uc2dc\s*(\uc791\uc131|\uc4f0|\uc815\ub9ac)\ud558\uc790",
-    "\uc815\ub9ac\ud558\uc790",
-    "\uc801\uc6a9",
-    "\ub2e4\uc2dc \uc801\uc6a9",
-    "\ucee4\ubc0b\ud574\uc918",
-    "\ud478\uc26c\ud574\uc918",
-    "\uc2e4\ud589\ud574\uc918",
-    "\ub9cc\ub4e4\uc5b4\uc918",
-    "\uad6c\uc131\ud574\uc918",
-    r"(\ud574\ubcf4\uc790|\uc9c4\ud589\ud574\uc918|\ud30c\uc545\ud574\uc918|\ud30c\uc545\uc880)",
+    "해줘", "해주세요", "해줄래", "바꿔줘", "고쳐줘", "수정해줘",
+    "적용해줘", "추가해줘", "명시해줘", "넣어줘", "담아줘", "작성하자",
+    r"작성\s*다시\s*하자", r"다시\s*(작성|쓰|정리)하자", "정리하자",
+    "적용", "다시 적용", "커밋해줘", "푸쉬해줘", "실행해줘", "만들어줘",
+    "구성해줘", r"(해보자|진행해줘|파악해줘|파악좀)",
 )
-PRIOR_COMPLETION_REFERENCE_PATTERNS = (
-    r"\b(?:previously|earlier|just)\s+(?:completed|finished|reported|delivered)"
-    r"\s+(?:result|work|change|implementation|answer|output)\b",
-    r"\b(?:result|work|change|implementation|answer|output)\s+"
-    r"(?:you|we|the\s+agent)\s+(?:just\s+)?"
-    r"(?:completed|finished|reported|delivered)\b",
-    r"\b(?:completed|finished|reported|delivered)\s+"
-    r"(?:result|work|change|implementation|answer|output)\b",
-    r"(?:방금|아까|이전(?:에)?|저번(?:에)?|지난번(?:에)?)\s*"
-    r"(?:완료한|완료했던|끝낸|끝냈던|마친|마쳤던)\s*"
-    r"(?:작업|결과|수정|구현|답변)",
-    r"(?:완료한|완료했던|끝낸|끝냈던|마친|마쳤던)\s*"
-    r"(?:작업|결과|수정|구현|답변)",
-)
-COMPLETION_FAILURE_PATTERNS = (
-    r"\b(?:wrong|incorrect|mistake|broken|failed|incomplete|missing|omitted)\b",
-    r"(?:잘못|틀렸|실수|오류|깨졌|빠졌|누락|미완성)",
-)
-CORRECTION_ACTION_PATTERNS = (
-    r"\b(?:fix|correct|redo|revise|repair|rework)\b",
-    r"(?:고쳐|수정|바로잡|재작업|다시\s*(?:해|하|고쳐|수정|작성|구현))",
-)
+
 IMPERATIVE_CORRECTION_ACTION_PATTERNS = (
     r"(?:^|[.!?;,]\s*)(?:please\s+|just\s+)?"
     r"(?:fix|correct|redo|revise|repair|rework)\b",
 )
+
 _CORRECTION_VERB = r"(?:fix|correct|redo|revise|repair|rework|rewrite|refactor)"
 _CORRECTION_META_NOUN = r"(?:behavior|word|term|label|concept|name|phrase)"
-# A correction verb opening a sentence is an instruction only when a target
-# follows it. These rules describe the two grammars where it is instead the
-# sentence's subject, so near-identical phrasings are covered by structure
-# rather than by listing example sentences:
-#
-#   1. the verb heads a noun phrase that a copula or a naming verb follows
-#      ("Fix is the wrong word", "Correct behavior means what",
-#      "Revise, in this context, refers to which stage")
-#   2. two correction verbs are coordinated as terms being compared
-#      ("Repair or refactor: which one", "Fix and rework are interchangeable")
-#   3. the verb is quoted as a term and a separator hands over to an actual
-#      question about it ("Fix: what does this mean?", "Correct? Is that the
-#      right term here?"). The interrogative opener and the closing question
-#      mark are both load-bearing: without them the same span matched ordinary
-#      bug reports that merely name a label or a term ("Fix: the label is
-#      wrong on the submit button"), and answering those instead of routing
-#      them as work is the opposite failure.
-#
-# A real request keeps a determiner-led object between the verb and any copula
-# ("Fix the test that is failing"). Metalinguistic subjects instead allow only
-# a closed semantic noun or an ``as``/``in`` modifier before the naming verb.
-# Form 3 needs no such gap rule: the separator already ends the verb phrase, so
-# an imperative cannot reach across it, and the question that follows still has
-# to be about naming rather than about work.
-# Naming verbs carry their gloss form too ("Fix, meaning what exactly"), so the
-# -ing shape is generated here rather than spelled out per verb; listing one of
-# them by hand is what left the others behind.
 _CORRECTION_NAMING_VERB = (
-    r"(?:is|are|was|were|"
-    r"mean(?:s|ing)?|denot(?:es?|ing)|signif(?:ies|ying)|impl(?:ies|ying)|"
-    r"refer(?:s|ring)?\s+to|stand(?:s|ing)?\s+for|sound(?:s|ing)?|"
-    r"read(?:s|ing)?)"
+    r"(?:is|are|was|were|mean(?:s|ing)?|denot(?:es?|ing)|signif(?:ies|ying)|"
+    r"impl(?:ies|ying)|refer(?:s|ring)?\s+to|stand(?:s|ing)?\s+for|"
+    r"sound(?:s|ing)?|read(?:s|ing)?)"
 )
+
 CORRECTION_WORD_SENSE_QUESTION_PATTERNS = (
     r"^correct\s+me\s+if\s+i(?:(?:'|’)m|\s+am)\s+wrong\b",
     r"^correct\s+or\s+incorrect\b",
-    # The comma before the naming verb may be paired, as in an appositive
-    # ("Revise, in this context, refers to"), or single, as in a gloss
-    # ("Fix, meaning what exactly"). Requiring the pair dropped the gloss form.
     r"^" + _CORRECTION_VERB + r"\b"
     r"(?:\s+" + _CORRECTION_META_NOUN + r")?"
     r"(?:\s*,[^,]{0,40},|\s+(?:as|in)\b[^,?!]{0,40})?"
     r"\s*,?\s+" + _CORRECTION_NAMING_VERB + r"\b",
-    # A modifier can hand over to a complete interrogative clause before the
-    # naming verb ("Fix, as used here, what does it mean?"). Requiring the
-    # naming verb immediately after the modifier mistook the exact document
-    # path later in the question for an implementation target. Keep the
-    # question mark, an anaphor back to the correction term, and a naming verb
-    # mandatory so an imperative such as "Fix, as used here, the incorrect
-    # label" or "Fix, in this file, what is broken?" remains work.
     r"^" + _CORRECTION_VERB + r"\b"
     r"(?:\s+" + _CORRECTION_META_NOUN + r")?"
     r"\s*,?\s*(?:as|in)\b[^,?!]{0,40},\s*"
     r"(?:what|which|how)\b[^?]{0,40}?\b"
-    r"(?:it|that|this|the\s+(?:behavior|word|term|label|concept|name|phrase))"
-    r"\s+"
+    r"(?:it|that|this|the\s+(?:behavior|word|term|label|concept|name|phrase))\s+"
     + _CORRECTION_NAMING_VERB + r"\b[^?]*\?",
     r"^" + _CORRECTION_VERB + r"\s*(?:/|and|or|vs\.?|versus)\s*"
     + _CORRECTION_VERB + r"\b",
     r"^" + _CORRECTION_VERB + r"\s*[:;?!—–-]+\s*"
     r"(?:what|which|how|why|when|is|are|was|were|does|do|did|should|would|can)\b"
-    r"[^.]{0,60}?"
-    r"(?:\b" + _CORRECTION_NAMING_VERB + r"\b|\b" + _CORRECTION_META_NOUN + r"\b)"
-    r"[^.]*\?",
+    r"[^.]{0,60}?(?:\b" + _CORRECTION_NAMING_VERB + r"\b|\b"
+    + _CORRECTION_META_NOUN + r"\b)[^.]*\?",
 )
-EXACT_PATTERNS = (
-    r"`[^`]+`",
-    r"(?:^|\s)(?:~/|\.{1,2}/|/)[A-Za-z0-9_./-]+",
-    r"\b[\w./-]+\.(kt|swift|tsx|ts|jsx|js|py|go|rs|java|md|json|yml|yaml|toml)\b",
-    r":\d+\b",
-    r"\b(error|exception|traceback|stack trace|compiler|lint|test failed|failing test)\b",
-    r"\b(nullpointer|typeerror|referenceerror|syntaxerror|segmentation fault)\b",
-)
-SCOPED_PATTERNS = (
-    r"\b[A-Z][A-Za-z0-9]*(Screen|View|ViewModel|Controller|Route|Page|Component|Service|Repository|UseCase)",
-    r"\b(home|settings|profile|checkout|billing|invite|member|login|signup)\b.*\b(button|form|screen|page|modal|dialog|tab)\b",
-)
-INSPECTION_PATTERNS = (
-    r"\b(audit|review|inspect|check|verify|status|summarize|report)\b",
-    "\uc0c1\ud0dc",
-    "\uc810\uac80",
-    "\uac80\ud1a0",
-    "\ud655\uc778",
-    "\uccb4\ud06c",
-    "\ud30c\uc545",
-    "\uc815\ub9ac",
-)
-REFACTOR_ACTION_PATTERNS = (
-    r"\b(refactor|cleanup|clean up|clean-up|simplify)\b",
-    r"\bcode\b.*\b(clean|cleanup|simplify)\b",
-    "\ucf54\ub4dc.*\uc815\ub9ac",
-    "\ub9ac\ud329\ud130",
-    "\ub2e8\uc21c\ud654",
-)
-REVIEW_ACTION_PATTERNS = (
-    r"\b(review|inspect|check|verify)\b.*\b(diff|changes?|patch|working tree|worktree)\b",
-    r"\b(diff|changes?|patch|working tree|worktree)\b.*\b(review|inspect|check|verify)\b",
-    "\ubcc0\uacbd\uc0ac\ud56d.*(\uac80\ud1a0|\ud655\uc778|\uccb4\ud06c)",
-    "\uc791\uc5c5.*(\uac80\ud1a0|\ud655\uc778|\uccb4\ud06c)",
-)
-RELEASE_ACTION_PATTERNS = (
-    r"\b(deploy|deployment|release|publish|ship|tag|push)\b",
-    r"\bgithub release\b",
-    r"\bappcast\b",
-    "\ubc30\ud3ec",
-    "\ub9b4\ub9ac\uc2a4",
-    "\ud478\uc26c",
-    "\ud0dc\uadf8",
-)
-TEST_ACTION_PATTERNS = (
-    r"\b(run|execute)\s+(tests?|checks?)\b",
-    r"\bverification\s+only\b",
-    r"\bverify\b.*\b(tests?|checks?)\b",
-    "\ud14c\uc2a4\ud2b8.*(\uc2e4\ud589|\uac80\uc99d|\ud655\uc778)",
-    "\uac80\uc99d\ub9cc",
-)
-WORKFLOW_SETUP_ACTION_PATTERNS = (
-    r"\b(natural language|semantic)\b.*\b(search|routing|retrieval|docs?|documents?|skills?)\b",
-    r"\b(doc routing|document routing|doc-route|route docs|required docs)\b",
-    r"\b(hook|hooks?)\b.*\b(docs?|documents?|search|read|routing)\b",
-    r"\b(planning|requirements?|acceptance criteria)\b.*\b(docs?|documentation)\b.*\b(missing|omitted|skipped|forgotten|enforce|gate|guard)\b",
-    r"\b(docs?|documentation)\b.*\b(missing|omitted|skipped|forgotten|enforce|gate|guard)\b.*\b(planning|requirements?|acceptance criteria)\b",
-    r"(\uc790\uc5f0\uc5b4|\uc758\ubbf8).*(\uac80\uc0c9|\ubb38\uc11c|\ub77c\uc6b0\ud305)",
-    r"(\ubb38\uc11c|\uc2a4\ud0ac).*(\uac80\uc0c9|\ub77c\uc6b0\ud305|\ubd88\ub7ec|\uc77d)",
-    r"(\ud6c5|hook).*(\ubb38\uc11c|\uac80\uc0c9|\uc77d|\ub77c\uc6b0\ud305)",
-    r"(\uae30\ud68d|\uc694\uad6c\uc0ac\ud56d|\uc694\uac74|\uc218\uc6a9\s*\uae30\uc900).*(\ubb38\uc11c).*(\ube60\uc9c0|\ub204\ub77d|\uc0dd\ub7b5|\ub9c9|\uac15\uc81c)",
-    r"(\ubb38\uc11c).*(\ube60\uc9c0|\ub204\ub77d|\uc0dd\ub7b5|\ub9c9|\uac15\uc81c).*(\uae30\ud68d|\uc694\uad6c\uc0ac\ud56d|\uc694\uac74|\uc218\uc6a9\s*\uae30\uc900)",
-)
-UI_FEATURE_ACTION_PATTERNS = (
-    r"\b(screen|screens|ui|layout|list|lists|favorite|favorites|navigation|tab)\b.*\b(build|create|implement|compose|design|add|make)\b",
-    r"\b(build|create|implement|compose|design|add|make)\b.*\b(screen|screens|ui|layout|list|lists|favorite|favorites|navigation|tab)\b",
-    r"\b(android|ios|web|app)\b.*\b(screen|screens|ui|layout|list|lists|favorite|favorites|navigation|tab)\b",
-    "(\uc548\ub4dc\ub85c\uc774\ub4dc|android).*(\ud654\uba74|\ubaa9\ub85d|\ub9ac\uc2a4\ud2b8|\uc990\uaca8\ucc3e\uae30|\ud0ed|\ub124\ube44|\ub0b4\ube44)",
-    "(\ud654\uba74|\ubaa9\ub85d|\ub9ac\uc2a4\ud2b8|\uc990\uaca8\ucc3e\uae30|\ud0ed|\ub124\ube44|\ub0b4\ube44).*(\uad6c\uc131|\uad6c\ud604|\ub9cc\ub4e4|\uc791\uc131|\ucd94\uac00|\uc9dc\uc918)",
-    "(\uccab|1|one).*\ud654\uba74.*(\ub450|2|two).*\ud654\uba74",
-    "(compose|\ucef4\ud3ec\uc988).*(screen|ui|\ud654\uba74|\uc791\uc131|\uad6c\uc131|\uad6c\ud604)",
-)
-BROAD_PATTERNS = (
-    r"\b(build|implement|design|create|add|plan)\b.*\b(feature|flow|system|architecture|prd|ard|product)\b",
-    r"\b(auth|rbac|permission|billing|entitlement|invite|tenant|migration|release|deployment)\b",
-    r"(\uc571|\uae30\ub2a5|\ud654\uba74|\uc81c\ud488|\ud50c\ub85c\uc6b0|\uc11c\ube44\uc2a4).{0,10}(\ub9cc\ub4e4|\ub9cc\ub4dc|\uad6c\ud604|\uc124\uacc4|\ucd94\uac00|\uc791\uc5c5|\uc9c4\ud589)|prd|ard|\uc694\uad6c\uc0ac\ud56d|\uc544\ud0a4\ud14d\ucc98",
-)
-RISKY_PATTERNS = (
-    r"\b(delete|drop|destroy|migrate|deploy|release|publish|payment|billing|secret|token|credential|permission|security|tenant)\b",
-)
-VAGUE_PATTERNS = (
-    r"\b(fix|improve|clean up|make better|change|update|adjust|modify)\b",
-    r"\b(rewrite|rework|revise|redraft|rephrase|polish|tighten)\b",
-    r"\b(button|home|screen|ui|layout|style)\b",
-    r"\ub2e4\uc2dc\s*(\uc791\uc131|\uc4f0|\uc815\ub9ac)",
-    r"\uc791\uc131\s*\ub2e4\uc2dc",
-    "\uc7ac\uc791\uc131",
-    "\ubb38\uccb4",
-    "\ub9d0\ud22c",
-    "\uc5b4\ud22c",
-    "\uc2a4\ud0c0\uc77c",
-    "\ub0b4 \uc2a4\ud0c0\uc77c",
-    "\uc874\ub300",
-)
+
 GRILL_ME_REQUEST_PATTERNS = (
     r"\bgrill me\b",
     r"\b(run|use|invoke|start|do)\s+(the\s+)?grill[- ]?me\b",
@@ -242,7 +60,7 @@ GRILL_ME_REQUEST_PATTERNS = (
     r"\bask me questions\b",
     r"\bhelp define requirements\b",
     r"\bquestion drill\b",
-    r"\uadf8\ub9b4\ubbf8\s*(\ud574\uc918|\ud574\uc8fc\uc138\uc694|\ud574|\ud558\uc790|\ub3cc\ub824|\uc2e4\ud589|\uc368|\uc9c8\ubb38)",
+    r"그릴미\s*(해줘|해주세요|해|하자|돌려|실행|써|질문)",
 )
 
 DRILL_PHRASES = GRILL_ME_REQUEST_PATTERNS

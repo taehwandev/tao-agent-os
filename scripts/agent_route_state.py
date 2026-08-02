@@ -36,6 +36,7 @@ def request_fingerprint(request_intake: Mapping[str, Any] | None) -> str:
     intake = request_intake or {}
     stable = {
         "request": str(intake.get("request") or ""),
+        "continuation_scope": str(intake.get("continuation_scope") or ""),
         "request_classified": bool(intake.get("request_classified")),
         "classification_evidence": str(intake.get("classification_evidence") or ""),
     }
