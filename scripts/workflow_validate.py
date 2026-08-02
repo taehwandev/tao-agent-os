@@ -139,23 +139,7 @@ def validate_route_contracts() -> list[str]:
         if hook_required.get("finish") is not True:
             failures.append(f"{command}: finish hook must be required")
         if command in RETROSPECTIVE_CHECK_COMMANDS:
-            for hook_name in (
-                SKILL_FEEDBACK_HOOK,
-                SKILL_CURATE_HOOK,
-                SKILL_REVIEW_HOOK,
-                SKILL_MAINTENANCE_HOOK,
-            ):
-                if hook_required.get(hook_name) is not False:
-                    failures.append(f"{command}: {hook_name} hook must be optional")
-            feedback_policy = route.get("skill_feedback") or {}
-            if feedback_policy.get("enabled") is not True:
-                failures.append(f"{command}: retrospective skill feedback must be enabled")
-            if feedback_policy.get("evaluation_required") is not True:
-                failures.append(f"{command}: retrospective evaluation must be required")
-            if feedback_policy.get("evaluation_gate") != RETROSPECTIVE_CHECK_GATE:
-                failures.append(f"{command}: retrospective evaluation gate is invalid")
-            if feedback_policy.get("blocking") is not False:
-                failures.append(f"{command}: skill observation follow-up must be non-blocking")
+            failures.extend(_retrospective_policy_failures(command, route, hook_required))
         expected_review_required = command in REVIEW_HOOK_REQUIRED_COMMANDS
         if hook_required.get("review") is not expected_review_required:
             failures.append(
@@ -191,6 +175,106 @@ def validate_route_contracts() -> list[str]:
                 failures.append(f"{command}: initial ledger evidence for `{gate}` must be empty")
 
     return failures
+
+
+def _retrospective_policy_failures(
+    command: str,
+    route: dict[str, Any],
+    hook_required: dict[Any, Any],
+) -> list[str]:
+    """Check the retrospective hooks and the skill follow-up contract."""
+    failures: list[str] = []
+    for hook_name in (
+        SKILL_FEEDBACK_HOOK,
+        SKILL_CURATE_HOOK,
+        SKILL_REVIEW_HOOK,
+        SKILL_MAINTENANCE_HOOK,
+    ):
+        if hook_required.get(hook_name) is not False:
+            failures.append(f"{command}: {hook_name} hook must be optional")
+    feedback_policy = route.get("skill_feedback") or {}
+    if feedback_policy.get("enabled") is not True:
+        failures.append(f"{command}: retrospective skill feedback must be enabled")
+    if feedback_policy.get("evaluation_required") is not True:
+        failures.append(f"{command}: retrospective evaluation must be required")
+    if feedback_policy.get("evaluation_gate") != RETROSPECTIVE_CHECK_GATE:
+        failures.append(f"{command}: retrospective evaluation gate is invalid")
+    if feedback_policy.get("blocking") is not False:
+        failures.append(f"{command}: skill observation follow-up must be non-blocking")
+    if feedback_policy.get("threshold_followup_required") is not True:
+        failures.append(
+            f"{command}: current threshold candidate must require explicit follow-up"
+        )
+    failures.extend(_threshold_followup_contradictions(command, route, feedback_policy))
+    return failures
+
+
+# Phrases that assert skill follow-up can never hold finish. Each is true only
+# below the recurrence threshold, so a route that also requires threshold
+# follow-up ships both halves of a contradiction. Checking the boolean alone
+# missed this: the flag flipped while the prose telling the agent to ignore it
+# stayed in the same route output.
+_UNCONDITIONAL_NON_BLOCKING_PHRASES = (
+    "must not change finish status",
+    "never changes finish",
+    "never changes a successful finish",
+    "does not change finish status",
+)
+# A non-blocking claim is only true below the recurrence threshold, so these are
+# the phrases that scope it there. Merely naming the threshold is not enough:
+# "at the threshold, review must not change finish status" names it while
+# asserting the exact contradiction, so the marker has to carry the direction.
+_BELOW_THRESHOLD_SCOPE_MARKERS = (
+    "first observation",
+    "first skill observation",
+    "below the threshold",
+    "below the recurrence threshold",
+)
+
+
+def _threshold_followup_contradictions(
+    command: str,
+    route: dict[str, Any],
+    feedback_policy: dict[str, Any],
+) -> list[str]:
+    """Reject route prose that contradicts the threshold follow-up contract."""
+
+    if feedback_policy.get("threshold_followup_required") is not True:
+        return []
+    failures: list[str] = []
+    for location, text in _route_prose(route):
+        lowered = text.lower()
+        if any(marker in lowered for marker in _BELOW_THRESHOLD_SCOPE_MARKERS):
+            continue
+        for phrase in _UNCONDITIONAL_NON_BLOCKING_PHRASES:
+            if phrase in lowered:
+                failures.append(
+                    f"{command}: {location} claims skill follow-up {phrase} without "
+                    "scoping the claim below the recurrence threshold, which "
+                    "contradicts the required threshold follow-up"
+                )
+                break
+    return failures
+
+
+def _route_prose(route: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return every agent-facing route sentence with a label for its location.
+
+    Checking only phase constraints left the same claim free to reach the agent
+    through phase tasks or the parallel-execution notes, which the route renders
+    just as literally.
+    """
+    plan = route.get("parallel_execution") or {}
+    prose: list[tuple[str, str]] = [
+        ("parallel execution notes", str(note)) for note in plan.get("notes") or ()
+    ]
+    for phase in plan.get("phases") or ():
+        if not isinstance(phase, dict):
+            continue
+        for field in ("constraints", "tasks"):
+            for item in phase.get(field) or ():
+                prose.append((f"phase `{phase.get('id')}` {field}", str(item)))
+    return prose
 
 
 def validate() -> int:

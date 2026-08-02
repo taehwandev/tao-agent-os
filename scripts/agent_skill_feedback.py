@@ -32,7 +32,12 @@ def record_skill_feedback(
     skill_id: str,
     signal: str,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Record an observation, never an agent-approved patch candidate."""
+    """Record an observation and immediately run deterministic curation.
+
+    Curation can expose that the current occurrence crossed the recurrence
+    threshold, but it never chooses a review outcome or edits canonical skill
+    guidance. Those decisions remain explicit follow-up work.
+    """
 
     normalized_outcome = outcome.strip().lower()
     if normalized_outcome == "no_change":
@@ -73,18 +78,27 @@ def record_skill_feedback(
         signal=normalized_signal,
     )
     if result.get("idempotent"):
-        return result, [
+        details = [
             "successful-task skill observation replay was deduplicated",
             "task completion is unchanged",
         ]
-    if not result.get("created"):
+    elif not result.get("created"):
         reason = str(result.get("reason") or "not_recorded")
         return result, [f"skill observation skipped: {reason}; task completion is unchanged"]
+    else:
+        details = [
+            "successful-task skill observation recorded",
+            f"observation status: {result.get('status', 'observed')}",
+        ]
 
-    details = [
-        "successful-task skill observation recorded",
-        f"observation status: {result.get('status', 'observed')}",
-    ]
+    curation, curation_details = record_skill_curation()
+    result["curation"] = curation
+    details.extend(curation_details)
+    candidate = str(result.get("candidate_id") or "")
+    if candidate and candidate in set(curation.get("queued") or []):
+        details.append(
+            f"current skill candidate requires bounded review before finish: {candidate}"
+        )
     return result, details
 
 

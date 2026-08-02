@@ -45,7 +45,12 @@ from agent_repair_ledger import (
     record_failure_checkpoints,
 )
 from agent_route_state import request_fingerprint, route_fingerprint
-from agent_run_registry import register_run, registry_path
+from agent_run_registry import (
+    ACTIVE_RUN_STATES,
+    register_run,
+    registry_path,
+    transition_run,
+)
 
 GUIDANCE = "guidance.md"
 RUN_ID = "0123456789abcdef0123456789abcdef"
@@ -416,6 +421,84 @@ class DispatchTests(unittest.TestCase):
                 agent_hook.main()
 
             self.assertEqual(["completed"], states)
+
+    def _finish_state(self, run: HookRun, returncode: int) -> str:
+        with (
+            patch.object(sys, "argv", ["agent-hook.py", "finish", *self._common(run)]),
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(
+                agent_hook,
+                "run_script_main",
+                return_value={"returncode": returncode, "stdout": "", "stderr": ""},
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
+            agent_hook.main()
+        payload = json.loads(registry_path(run.project).read_text(encoding="utf-8"))
+        return next(item["state"] for item in payload["runs"] if item["run_id"] == run.run_id)
+
+    def test_pending_closeout_keeps_the_run_claim_active(self) -> None:
+        """Owed closeout work is not a failed run.
+
+        Retiring the claim here dropped the run out of the active states, so
+        session evidence stopped resolving and the edit gate refused the very
+        skill-document writes the closeout asks for.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+
+            self.assertIn(self._finish_state(run, 3), ACTIVE_RUN_STATES)
+
+    def test_pending_closeout_revives_a_run_an_earlier_failure_retired(self) -> None:
+        """The real sequence reaches closeout through an already-failed run.
+
+        Finish fails on a missing gate, the agent records that gate, and the
+        retry returns pending closeout. Only holding the current state left the
+        run failed exactly when the closeout needs to edit, while the same
+        result tells the agent not to run repair-verify.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            self.assertEqual("failed", self._finish_state(run, 1))
+
+            self.assertIn(self._finish_state(run, 3), ACTIVE_RUN_STATES)
+
+    def test_pending_closeout_never_revives_a_settled_run(self) -> None:
+        """A run that already reported its outcome must stay reported.
+
+        The revive went through the general transition, which accepts any prior
+        state, so replaying a pending-closeout finish on a completed run put it
+        back on the shared evidence path as an active run.
+        """
+
+        for settled in ("completed", "cancelled"):
+            with self.subTest(settled=settled), tempfile.TemporaryDirectory() as directory:
+                run = HookRun(directory)
+                transition_run(run.project, run.evidence, settled, run_id=run.run_id)
+
+                self.assertEqual(settled, self._finish_state(run, 3))
+
+    def test_pending_closeout_refuses_a_run_owned_by_another_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            payload = json.loads(registry_path(run.project).read_text(encoding="utf-8"))
+            for record in payload["runs"]:
+                if record["run_id"] == run.run_id:
+                    record["state"] = "failed"
+                    record["owner"] = {"pid": 999999, "start_token": "other-session"}
+            registry_path(run.project).write_text(json.dumps(payload), encoding="utf-8")
+
+            self.assertEqual("failed", self._finish_state(run, 3))
+
+    def test_a_genuinely_failed_finish_still_retires_the_run(self) -> None:
+        """Control: the pending-closeout branch must not spare every failure."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+
+            self.assertEqual("failed", self._finish_state(run, 1))
 
     def test_successful_finish_leaves_no_cached_unfinished_checkpoint(self) -> None:
         """The pre-fix control leaves ``first_unfinished`` equal to ``finish``."""

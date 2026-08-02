@@ -119,6 +119,7 @@ from workflow_spill import spill_tool_label, validate_spill_label_contracts
 from workflow import build_parser, print_dispatch
 from workflow_validate import (
     STRICT_CARD_REQUIRED_HEADINGS,
+    _threshold_followup_contradictions,
     markdown_files_to_validate,
     removed_cli_option_failures,
 )
@@ -523,11 +524,79 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertTrue(route["skill_feedback"]["evaluation_required"])
         self.assertEqual(RETROSPECTIVE_CHECK_GATE, route["skill_feedback"]["evaluation_gate"])
         self.assertFalse(route["skill_feedback"]["blocking"])
+        self.assertTrue(route["skill_feedback"]["threshold_followup_required"])
         feedback_hooks = [hook for hook in route["hooks"] if hook["hook"] == SKILL_FEEDBACK_HOOK]
         self.assertEqual(1, len(feedback_hooks))
         self.assertFalse(feedback_hooks[0]["required"])
         hook_names = [hook["hook"] for hook in route["hooks"]]
         self.assertLess(hook_names.index(SKILL_FEEDBACK_HOOK), hook_names.index("finish"))
+
+    def _contradictions(
+        self, constraint: str, *, required: bool = True, field: str = "constraints"
+    ) -> list[str]:
+        return _threshold_followup_contradictions(
+            "task",
+            {"parallel_execution": {"phases": [{"id": "closeout", field: [constraint]}]}},
+            {"threshold_followup_required": required},
+        )
+
+    def test_a_blanket_non_blocking_claim_contradicts_the_threshold_contract(self) -> None:
+        """The boolean alone let the route keep printing the opposite instruction."""
+
+        failures = self._contradictions("skill review must not change finish status")
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("closeout", failures[0])
+
+    def test_a_claim_scoped_to_a_first_observation_is_allowed(self) -> None:
+        """Below the recurrence threshold the non-blocking claim is true."""
+
+        self.assertEqual(
+            [],
+            self._contradictions("storing a first observation must not change finish status"),
+        )
+
+    def test_naming_the_threshold_does_not_excuse_an_at_threshold_claim(self) -> None:
+        """Exempting any sentence containing "threshold" passed the exact opposite."""
+
+        for constraint in (
+            "at the threshold, skill review must not change finish status",
+            "even once the recurrence threshold is reached, review must not change finish status",
+            "skill maintenance never changes a successful finish, threshold or not",
+        ):
+            with self.subTest(constraint=constraint):
+                self.assertNotEqual([], self._contradictions(constraint))
+
+    def test_the_claim_is_caught_in_phase_tasks_and_in_notes(self) -> None:
+        """Both render into the route as literally as a constraint does."""
+
+        claim = "skill review must not change finish status"
+        self.assertNotEqual([], self._contradictions(claim, field="tasks"))
+        self.assertNotEqual(
+            [],
+            _threshold_followup_contradictions(
+                "task",
+                {"parallel_execution": {"phases": [], "notes": [claim]}},
+                {"threshold_followup_required": True},
+            ),
+        )
+
+    def test_routes_without_the_follow_up_contract_are_not_checked(self) -> None:
+        self.assertEqual(
+            [],
+            self._contradictions("skill review must not change finish status", required=False),
+        )
+
+    def test_every_shipped_route_states_the_contract_consistently(self) -> None:
+        for command in COMMANDS:
+            route = resolve_docs(command, None, [], request_classified=True)
+            with self.subTest(command=command):
+                self.assertEqual(
+                    [],
+                    _threshold_followup_contradictions(
+                        command, route, route.get("skill_feedback") or {}
+                    ),
+                )
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ not share a trigger, completion effect, or automation budget.
 | A required hook, gate, or finish check fails | Failure repair | Blocking | `failure-repair.md` |
 | The user explicitly reports that a previously completed result was wrong and asks to correct that same result | Failure repair | Blocking | `failure-repair.md` |
 | Any workflow reaches successful closeout | Retrospective check | Required before finish | `skill-feedback.md` |
-| The check reveals a reusable gap in a skill actually used | Skill observation | Non-blocking | `skill-feedback.md` |
+| The check reveals a reusable gap in a skill actually used | Skill observation | Non-blocking until the current occurrence reaches the review threshold | `skill-feedback.md` |
 
 Failure repair protects the current task. It diagnoses the failed checkpoint,
 improves a durable enforcement surface, verifies the repair, and resumes once.
@@ -30,9 +30,12 @@ check is required so a route cannot finish without making that decision. Skill
 learning then improves future tasks through separate stages: observation,
 deterministic curation, bounded review, staged patch, and later canonical
 maintenance. Successful work emits at most one content-free observation tied
-to a skill actually used. It does not create or edit guidance. Missing storage,
-token budget, reviewer capacity, or maintenance capacity defers the side
-channel and never changes a successful finish result.
+to a skill actually used. It does not create or edit guidance. Missing storage
+may defer a first occurrence without changing the task result. Once the current
+occurrence makes a candidate review-ready, bounded review and any staged
+verified maintenance must reach a terminal result before successful finish.
+Capacity limits may pause and resume that closeout; they no longer permit the
+agent to report success while its own repeated candidate is abandoned.
 
 ## Ordering
 
@@ -56,13 +59,19 @@ channel and never changes a successful finish result.
 5. If the hook created or idempotently matched the observation, replace the
    gate with `observation: recorded`; otherwise keep `deferred`.
 6. Run finish. Missing or invalid retrospective-check evidence fails finish;
-   missing observation storage does not.
+   missing storage for a first passive observation does not. Finish derives the
+   current run's opaque occurrence key and refuses success when that occurrence
+   belongs to a threshold-reached candidate still awaiting curation, review, or
+   staged maintenance.
 7. Let a deterministic curator deduplicate observations by opaque occurrence
    key and queue review only after two distinct observations share the exact
    `skill_id + signal` identity.
-8. Let a separate bounded reviewer choose `no_change` or `staged_patch`.
-9. Apply a staged patch to canonical skill files only in a later bounded
-   maintenance task that satisfies verification and approval policy.
+8. Let a separate bounded reviewer choose `no_change` or `staged_patch`. When
+   the current run is one of the threshold occurrences, this review is required
+   closeout work rather than an indefinitely optional queue item.
+9. Apply or explicitly reject a staged patch only in a bounded maintenance task
+   that satisfies verification and approval policy. A hook still cannot author
+   or mutate canonical guidance automatically.
 
 ## User-Correction Boundary
 
@@ -79,9 +88,13 @@ Words such as `previous`, `last`, `just`, `work`, `change`, or `output` are not
 independent evidence that Tao completed the referenced result. The correction
 trigger requires one phrase that explicitly binds a completion action to the
 result, plus the failure statement and correction action.
-For a terse runtime follow-up, the runtime adapter must pass a context-complete
-request that preserves the user's actual correction; Tao must not guess an
-earlier run from whichever project run happens to be newest.
+For a terse runtime follow-up, the runtime adapter must keep the user's actual
+correction verbatim in `--request` and pass the already-established target in
+the separate bounded `--continuation-scope`. Tao must not concatenate prior
+conversation prose into the current request or guess an earlier run from
+whichever project run happens to be newest. Scope words provide target identity
+only; the current request still has to establish the correction action and any
+failure claim.
 
 Once that trigger is established, work routes that could bypass repair fail
 closed. `triage`, `ambiguity`, and read-only `analysis` remain available so an
@@ -92,8 +105,9 @@ not require pretending the correction is already understood.
 
 - Required gates and failure repair remain fail-closed.
 - The `retrospective check` is required finish evidence on every route.
-- Skill observation is a best-effort side channel, not a required hook and not
-  a reason to fail an otherwise completed task.
+- Skill observation remains a best-effort side channel before recurrence. The
+  observation hook is not required, but a stored current occurrence that
+  reaches the deterministic threshold creates a required closeout follow-up.
 - Observation hooks only append allowlisted content-free facts; they never
   decide recurrence, queue review directly, or edit canonical guidance.
 - Curation is deterministic over structured identities and distinct opaque
@@ -113,8 +127,9 @@ not require pretending the correction is already understood.
   staged, and completed records. Terminal pruning also removes the matching
   passive observations so completed decisions cannot be re-queued.
 - The reviewer is a separate bounded step and emits only `no_change` or
-  `staged_patch`. Reviewer or token unavailability defers review without
-  blocking ordinary work.
+  `staged_patch`. Reviewer or token unavailability may pause and resume the
+  current closeout, but cannot convert an unresolved threshold candidate into
+  a successful finish. Unrelated historical candidates remain non-blocking.
 - A staged patch is not canonical guidance. Canonical writes happen only in a
   later bounded maintenance task with required verification and the applicable
   approval policy.
@@ -125,7 +140,9 @@ not require pretending the correction is already understood.
   `.agents/shared/llm-skills/<skill>/**` and
   `.agents/local/skills/<skill>/**`. Adapter paths such as `.codex/skills` and
   `.claude/skills`, and vendored runtime copies, are not maintenance targets.
-- No successful-task stage may automatically mutate a canonical skill.
+- No successful-task hook may automatically mutate a canonical skill. The
+  active agent authors an approved staged change and the maintenance recorder
+  accepts it only after live verification.
 - Prefer a focused test, validator, or clearer decision rule over an
   ever-growing list of natural-language exceptions.
 

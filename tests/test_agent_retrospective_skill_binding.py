@@ -94,8 +94,53 @@ class RetrospectiveSkillBindingTests(unittest.TestCase):
                 )
 
             self.assertTrue(accepted["created"])
+            self.assertEqual(1, accepted["curation"]["scanned"])
+            self.assertEqual(0, accepted["curation"]["ready_count"])
             self.assertEqual("unknown_canonical_skill", rejected["reason"])
             self.assertEqual("unknown_feedback_signal", unstable["reason"])
+
+    def test_second_bound_observation_is_curated_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            record_observation(
+                state,
+                occurrence_id="first-run",
+                skill_id="retrospective_learning",
+                signal="weak_verification",
+            )
+
+            with (
+                patch("agent_skill_feedback.state_home", return_value=state),
+                patch(
+                    "agent_skill_feedback.canonical_skill_ids",
+                    return_value={"retrospective_learning"},
+                ),
+                patch(
+                    "agent_skill_feedback._retrospective_fields",
+                    return_value={
+                        "skills_checked": "retrospective-learning",
+                        "outcome": "reusable_gap",
+                        "observation": "recorded",
+                    },
+                ),
+                patch("agent_skill_feedback._occurrence_id", return_value="second-run"),
+            ):
+                result, details = record_skill_feedback(
+                    project=root,
+                    rules=root,
+                    evidence_path=root / ".tao" / "preflight.json",
+                    outcome="observed",
+                    skill_id="retrospective-learning",
+                    signal="weak_verification",
+                )
+
+            candidate = result["candidate_id"]
+            self.assertEqual([candidate], result["curation"]["queued"])
+            self.assertTrue(
+                (state / "skill-learning" / "review-queue" / f"{candidate}.json").is_file()
+            )
+            self.assertTrue(any(candidate in detail for detail in details))
 
     def test_recorded_gate_requires_current_matching_observation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
