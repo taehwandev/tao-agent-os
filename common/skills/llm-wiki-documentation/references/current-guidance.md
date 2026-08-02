@@ -130,6 +130,55 @@ page's purpose.
   data, or private incident details into wiki pages.
 - Do not present guesses as established behavior. Label inferred or unverified
   content.
+- Tracked, team-shared docs must never treat personal absolute paths, per-user
+  tool install locations, locally selected runtime versions, concrete hook
+  command strings, permission grants, or evidence file locations as shared
+  contracts. Those configured values belong only in that user's environment.
+- Before writing an improvement down, classify its owner. Per-user runtime
+  configuration — local installs, paths, selected versions, hook wiring, and
+  permission state — is fixed in the user's environment and must not spawn a
+  synchronized tracked-doc copy.
+- Provider-neutral, team-shared runtime protocols remain tracked source. Hook
+  lifecycle contracts, validator behavior, evidence schema semantics, safe
+  path shapes, and cross-runtime invariants belong in their canonical shared
+  code or owner document. Document them with placeholders and portable rules,
+  never by copying one user's concrete configuration.
+- Team product, code, or workflow policy goes only to the exact shared owner
+  doc. A runtime adapter may link to that owner and document only its genuine
+  provider-specific delta.
+- When a shared doc must point at externally owned guidance, keep a thin
+  pointer to the canonical owner plus the repo-specific application delta,
+  never a synced copy.
+- Verification of doc changes includes checking that tracked shared docs gained
+  no personal paths, locally selected runtime-version contracts, concrete hook
+  wiring, or duplicated runtime rules, while still preserving shared protocol
+  and validator contracts in their canonical owner.
+
+## Per-Module Documentation Catalog
+
+For a large multi-module repo, route module-scoped reading through one
+canonical catalog instead of per-module routing files:
+
+- Keep exactly one table with one row per module. Columns: module identity
+  summary, always-required docs, situational reference docs, and a
+  key-invariants digest that points at the rule's source-of-truth doc.
+- Agents identify the touched module from the code or build path and read only
+  that module's row plus its listed docs. Reading the repo root instructions
+  does not mean reading everything; loading the whole table as context defeats
+  the pattern's cost control.
+- Required-vs-reference criterion: required docs are the ones defining the
+  module's dependency direction and layer boundary — rules whose violation
+  still compiles but silently breaks architecture — so they are read on every
+  touch regardless of task. Reference docs are keyed to task nature (UI,
+  testing, error handling) and may be skipped otherwise. Task-nature docs are
+  added on top of the module baseline, never substituted for it.
+- Adding a module means adding one row, never a per-module routing file.
+- The catalog lives in exactly one file; other entrypoints link to it instead
+  of copying it.
+- If a touched module has no row, stop and update the catalog first instead of
+  guessing its docs.
+- Row invariants are digests only; the linked rule doc stays the source of
+  truth.
 
 ## Language
 

@@ -59,6 +59,15 @@ Choose a repository `api` plus implementation pair when:
 Do not create `api` modules that contain only one unused interface and no caller
 that benefits from avoiding the implementation dependency.
 
+Start the data layer coarse: one data `api` plus implementation pair for the
+repo, partitioned inside by capability packages (resource, storage, backend
+capability) before any module split. Do not split data modules to mirror
+screen or feature names. Split a separate data module only when multiple
+feature callers need the capability independently, a heavy SDK, database, or
+cache dependency needs isolation, a flavor or dev/prod implementation swap is
+realistic, build or test isolation is required, or ownership genuinely
+separates.
+
 Choose an `assertions` module or source set when:
 
 - two or more test boundaries need the same fake, fixture, recording helper, or

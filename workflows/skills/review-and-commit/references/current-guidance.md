@@ -74,6 +74,24 @@ requires human judgment beyond the hook: auth, permissions, data loss,
 migrations, billing, release, deployment, public API compatibility, or broad
 architecture changes.
 
+## Remote Review Publication
+
+When publishing review findings as comments on a hosted PR or review system:
+
+1. Draft every comment locally first: one top-level summary plus per-finding
+   comments, each carrying severity, the file and new-side line anchor, and
+   the cited rule-source path. A finding without evidence does not enter the
+   draft.
+2. Show the full draft to the user and gate on explicit approval with these
+   options: approve all, edit specific items, exclude specific items by
+   number, or cancel. Never post without explicit approval; do not infer
+   approval from silence or from earlier consent to review.
+3. Post idempotently: skip a comment whose equivalent body already exists on
+   the review. On partial posting failure, retry only the failed items and
+   never re-post succeeded ones.
+4. Count a post as successful only when the API returns a created-comment id,
+   not merely a zero exit code. Report posted, skipped, and excluded counts.
+
 ## Verification
 
 Before handoff or commit, confirm:

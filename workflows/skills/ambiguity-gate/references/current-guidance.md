@@ -88,6 +88,9 @@ Stop and ask when any of these are unclear:
 - Prefer concrete choices when the ambiguity is about direction, taste, voice,
   genre, scope, or architecture. Name the consequence of each option instead of
   asking the maintainer to invent the frame.
+- When several blockers are open, map the dependencies among them and ask in
+  dependency order so upstream decisions are settled before the questions that
+  depend on them.
 - Do not ask preference questions already settled by repo docs, product docs, architecture docs, existing UI, or platform constraints.
 - Ask one Grill-Me question at a time with its recommended answer when the
   runtime supports that interaction pattern. Do not proceed into PRD, ARD, or
@@ -111,7 +114,12 @@ Safe assumptions:
 When request classification requires Grill-Me, the matching route gate evidence
 must name the Grill-Me protocol or `/grilling` session and its output. Record
 that evidence through `gate` or `gate-batch`; invalid manual-question-only
-evidence is rejected there instead of being deferred to finish.
+evidence is rejected there instead of being deferred to finish. That evidence
+must name the actual Grill-Me questions shown to the user and the resolved
+outcome; a generic completion phrase such as "questions completed" is not
+valid evidence. Likewise, `source docs` gate evidence must record that the
+entire route-pinned `required_docs` manifest was read directly — listing only
+some of its documents is a failed checkpoint.
 
 ## Assumptions
 
@@ -134,6 +142,22 @@ After blockers are resolved:
 - write behavior scenarios in `Given / When / Then` form
 - include success, empty, loading, unavailable, permission-denied, and failure states when relevant
 - tie scenarios to acceptance criteria and verification
+
+Close a clarification session with a fixed summary shape before any work
+continues:
+
+```text
+Confirmed decisions:
+- ...
+Scope and non-goals:
+- ...
+Acceptance criteria:
+- ...
+Edge cases:
+- ...
+Dependencies and constraints:
+- ...
+```
 
 Do not leave unresolved blockers as open questions. Open questions are allowed only for non-blocking future follow-up.
 

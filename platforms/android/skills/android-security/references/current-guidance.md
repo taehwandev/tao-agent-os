@@ -79,6 +79,22 @@ or bound-service caller validation, also use
 - Do not let arbitrary server content enable a JavaScript bridge. Bind bridges
   only for trusted origins and keep bridge methods typed, minimal, and free of
   secrets, tokens, raw files, and direct navigation execution.
+- Gate feature-dependent platform APIs on the explicit support check — a
+  feature-availability API or OS version check — before calling them.
+  Unsupported paths must degrade explicitly and observably: disable the
+  capability and leave a diagnostic, never silently skip, and never auto-fall
+  back to a known-unsafe legacy API (such as a raw JavaScript interface when a
+  typed message-listener API is unsupported). Do not leave capability or
+  API-level lint warnings bare; resolve them with a support gate, or when an
+  invariant guarantees safety, isolate that logic in a helper and document the
+  reason in a one-line comment next to a narrow suppression.
+- Use a dedicated shared HTTP client for transfers against foreign domains —
+  presigned URLs, CDNs, or any host that is not the app backend. Do not reuse
+  the app-backend client: its auth, refresh, and availability interceptors
+  leak app tokens to third-party domains and misinterpret file responses as
+  backend states. Qualify one client per purpose, and never construct a new
+  client per call site — each instance gets its own connection pool and
+  threads, and timeout policy drifts.
 - Prefer platform photo picker and scoped storage over broad file permissions.
 - Keep cleartext traffic disabled unless the repo documents an accepted debug-only exception.
 
@@ -105,5 +121,6 @@ or bound-service caller validation, also use
 Cover permission denied, revoked permission, malicious or malformed deep link,
 nested intent redirection, `onNewIntent` warm-entry validation, mutable
 `PendingIntent` target behavior, provider query constraints, exported service
-caller rejection, process recreation after auth state change, and release-build
-configuration when applicable.
+caller rejection, process recreation after auth state change, safe degradation
+of capability-gated APIs on unsupported providers or OS versions, and
+release-build configuration when applicable.

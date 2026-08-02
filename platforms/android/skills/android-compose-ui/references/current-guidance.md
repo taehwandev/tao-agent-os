@@ -243,6 +243,12 @@ contracts are visible in the function signature:
 - Avoid reading `ViewModel`, DI, `LocalContext`, `LocalActivity`, `NavController`,
   or service locators below the route/holder boundary. If a platform value is
   required by a leaf, pass a plain value or callback instead.
+- Stay on the current technical surface. Inside Compose code, use Compose
+  idioms for strings, dimensions, state, and effects (`stringResource`,
+  `remember`, `LaunchedEffect`). Do not pull View-era helpers like
+  `Context.getString()` into Compose code as a bypass; they belong only to
+  screens the legacy surface still owns. Growing legacy bypasses in
+  new-surface work is a review stop signal.
 - Use `remember` for UI-local objects, expensive calculations, gesture or
   animation state, and stable wrappers. Do not wrap every expression in
   `remember`; cheap derived values can be recomputed.
@@ -439,6 +445,18 @@ When a screen still recomposes too broadly, inspect first instead of guessing:
 - Check whether the component API forces unstable product objects into a shared
   primitive.
 
+Triage recomposition spikes on unchanged lazy items in this order:
+
+1. Cross-phase back-writes: state written from a layout or draw result (a
+   value captured via `onSizeChanged`, read in a sibling's composition)
+   re-runs rows whose inputs never changed.
+2. Cross-row measurement reads, before assuming parameter stability.
+3. Per-frame growth during scroll or animation means a deferred-read
+   violation: a high-frequency value read in composition instead of a
+   layout/draw or provider lambda.
+4. Only when skipping genuinely fails, diagnose parameter stability with
+   compiler reports, one transition at a time, remeasuring after each fix.
+
 ## Advanced Stability Options
 
 Use compiler and Gradle-level stability tools only after diagnosing a real
@@ -484,31 +502,10 @@ them when they isolate a real product rule, side effect, or test boundary.
 
 ## Edge-To-Edge And IME Insets
 
-Compose screens should handle edge-to-edge and keyboard overlap explicitly:
-
-- Call `enableEdgeToEdge()` from the owning `Activity.onCreate()` before
-  `setContent` when the app should draw behind system bars. Treat this as the
-  default path for modern fullscreen/edge-to-edge Compose screens, especially
-  for apps targeting Android 15/API 35 or higher.
-- Do not confuse edge-to-edge with immersive mode. `enableEdgeToEdge()` lets
-  content draw behind transparent or translucent system bars; hiding system bars
-  is a separate immersive-mode decision.
-- Configure the Activity with `android:windowSoftInputMode="adjustResize"` when
-  the screen needs IME insets so Compose can resize or pad content as the
-  software keyboard appears and disappears.
-- Use `Modifier.imePadding()` on the screen container, scroll container, or
-  bottom action area that must move above the software keyboard. Do not rely on
-  fixed `Dp` keyboard spacers or legacy `adjustResize` behavior alone.
-- Prefer Compose inset modifiers such as `safeDrawingPadding`,
-  `windowInsetsPadding`, `windowInsetsBottomHeight`, and `imePadding` over
-  hand-rolled system bar or keyboard measurements. Avoid double-applying insets
-  across parent and child layouts.
-- For `LazyColumn` or other scrolling forms, verify the focused text field and
-  bottom actions remain visible while the IME opens. Use inset-sized bottom
-  spacers when needed instead of only `contentPadding`.
-- Keep tappable controls and gesture targets out of unsafe system gesture areas
-  unless the product intentionally owns that interaction and verifies it on
-  gesture navigation and 3-button navigation.
+Edge-to-edge ownership, legacy window-API deletion, IME insets, and gesture
+areas are owned by [`edge-to-edge-insets.md`](edge-to-edge-insets.md). Read it
+when a screen draws behind system bars, handles keyboard overlap, or migrates
+legacy system-bar configuration.
 
 ## Wear Compose Material 3
 

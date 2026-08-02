@@ -144,6 +144,14 @@ conflicts between unrelated changes.
 - **When no mirror file exists yet, create one.** Do not append a new test to
   the nearest large file just because it already has related-looking tests.
   If `tests/test_<module>.py` does not exist, create it.
+- **Tests move with the class.** When a class moves to another module or
+  package, its test files and their fakes/fixtures migrate in the same change.
+  A test left behind still compiles, so it hides the broken boundary while
+  forcing the class to keep test-only public API -- thin public delegations to
+  internal collaborators kept alive only so the old test can reach them. On
+  migration, give internal collaborators their own same-module tests, delete
+  the test-only public delegations, and verify the move with pre/post
+  scenario-count parity from the test report.
 - **Size budget: about 3x the production file limit.** A test file's file-size
   ceiling is three times the production source-file limit (currently 500
   lines, so ~1,500 lines for tests) -- wide enough for setup/fixtures/one

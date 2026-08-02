@@ -39,6 +39,39 @@ Use only the states the feature needs, but make them typed. Avoid combinations
 such as `isLoading`, `error`, `data`, `isEmpty`, and `isOffline` that can produce
 contradictory states.
 
+## Finite-Mode Decision Table
+
+When a screen or flow has a finite set of input modes, such as create versus
+edit or distinct entry variants, fill a decision table before implementing,
+one row per mode:
+
+```text
+mode | precondition before I/O | which I/O to call | state merged on success | failure behavior
+```
+
+Rules:
+
+- Each table row appears as one direct branch on the mode (`when`, `switch`,
+  or pattern match) in the current owner. Never re-encode a finite mode as
+  combinations of booleans or nullable flags such as `shouldLoadX` or
+  `isNotY`.
+- Preconditions knowable before I/O, such as launch arguments or current
+  state, are checked before the first network or database call.
+- When caller input and a server response are both needed, merge them in a
+  single state change inside the success branch.
+- When per-mode response contracts differ, parse each response separately and
+  then merge into the common state. Do not hide the difference behind one
+  generic response type widened with nullable fields.
+- The initialization owner settles success or failure. Submit and retry paths
+  must never silently re-run a failed initialization as compensation.
+- Do not add guards stronger than the confirmed contract: arbitrary `> 0`
+  checks, blank substitution, or invented defaults.
+
+Verification: the decision-table row count equals the meaningful branch count
+in code; tests directly prove each branch's I/O call count and final merged
+state; a test proves submit/retry after a failed initialization branch does
+not re-trigger initialization.
+
 ## Effects
 
 One-off effects are not persistent state.

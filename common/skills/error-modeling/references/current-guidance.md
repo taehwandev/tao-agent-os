@@ -116,6 +116,12 @@ condition.
 - If an error is intentionally ignored, keep the scope narrow and document why it
   cannot affect correctness, data integrity, security, billing, permissions, or
   user-visible completion.
+- Global-policy failures have one global owner. Session expiry (401),
+  maintenance mode, and auth refresh belong to the existing global handler such
+  as an interceptor, authenticator, or app-level block state. Screens must not
+  add per-screen branches for these failures or route them through local
+  notices. Review checks that new error handling does not bypass the global
+  owner.
 
 ## UI Failure States
 
@@ -133,6 +139,25 @@ silent best-effort fallback
 
 Silent fallback is acceptable only when the feature still satisfies the user goal
 and diagnostics exist for unexpected failure.
+
+## Success-Status Payload Violations
+
+A success-status response with a missing required field, a required field that
+is null, a type mismatch, or an unknown enum value is a contract violation, not
+a success. Do not paper it over with silent defaults:
+
+- Normalize it into the typed boundary failure and preserve the cause.
+- Choose a fallback that matches the screen goal: keep existing content, show a
+  default empty/error state, or offer a retry notice. User-facing copy is
+  feature copy, never the low-level exception message.
+- A fallback must not let dependent actions proceed on missing or invalid
+  required data. Disable the action or enter an explicit blocked state instead
+  of letting a submit or navigation run against defaults.
+- Emit deduplicated diagnostics for repeated violations on the same
+  endpoint/field, using a safe field allowlist: endpoint or API identifier, DTO
+  name, field path, reason, status code, request/correlation id, cause class,
+  and app version. Never include the raw body, tokens, cookies, headers, or
+  full user input.
 
 ## Server-Driven Presentation Hints
 

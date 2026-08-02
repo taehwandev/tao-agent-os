@@ -123,6 +123,21 @@ If no useful test exists:
 - do not replace a missing high-risk test with a weaker assertion merely to make
   the check pass
 
+## User-Executed Verification
+
+When policy or the environment forbids the agent from running a check itself —
+a fragile local toolchain, user-owned execution, or restricted commands — the
+user is the executor and the user's report is the verification evidence:
+
+- Hand the user the exact command or commands to run, plus the expected pass
+  and fail signals.
+- Wait for the reported result. Only the user-reported PASS or FAIL counts as
+  gate evidence.
+- Route a reported FAIL back into the fix loop like any other failed check.
+- If the user declines or defers, the completion report must state the check as
+  `unverified (not run by user)`. Never mark work verified on an unexecuted
+  check, and never fabricate or imply that the check ran.
+
 ## When Commands Fail
 
 Use `common/skills/tool-failure-recovery/SKILL.md`. A failed command is evidence, not a

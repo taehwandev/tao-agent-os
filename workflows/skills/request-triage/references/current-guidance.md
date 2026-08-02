@@ -37,6 +37,11 @@ of these rules.
 5. If `direct-question`, answer before workflow routing, editing, or
    project-specific commands. Stop unless a separate actionable request remains.
 6. If `clear-exact`, inspect the named target and avoid broad route loading.
+   When restating exact review feedback for a follow-up route, preserve the
+   concrete file path, error, or backticked symbol that makes the scope exact.
+   Do not append broad PRD, architecture, or product language unless that wider
+   work is genuinely part of the correction; a broader restatement must not
+   turn a small regression fix into product discovery.
 7. If an inspection verb such as `check`, `review`, `확인`, or `검토` has no
    named target, treat it as `vague-action` and ask what to inspect.
 8. If `clear-scoped`, run the smallest matching workflow route.

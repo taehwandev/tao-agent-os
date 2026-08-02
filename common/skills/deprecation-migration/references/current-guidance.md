@@ -77,6 +77,32 @@ change, after references and callers are gone and the removal has explicit
 approval. Do not combine replacement, caller cutover, and legacy deletion into
 one unverified diff.
 
+For UI-bearing copy-first migrations, the allowed visual change count is
+exactly zero. Design-system unification, code modernization, new-module
+dependency constraints, and structural preference are not grounds for visual
+change. Only an explicit user request or an approval item in the linked
+design/spec document upgrades the work to an approved redesign, and each
+approved visual difference must be itemized before implementation.
+
+Copy-first allows only mechanical differences:
+
+- package, import, visibility, and resource-namespace changes
+- module dependency, DI, route, manifest, and intent/result wiring
+- type adapters needed to compile in the new owner, with rendered values and
+  interactions preserved
+- resource id or location moves with user-visible values preserved
+
+Without redesign approval, do not change: render tree, component types,
+layout, size, spacing, shape, color, elevation, or fonts; user-visible copy,
+icons, ordering, or button placement; per-state UI such as loading, empty,
+error, disabled, pagination, dialogs, and sheets; gestures, scroll, focus,
+back behavior, or accessibility semantics.
+
+After copying, classify every changed line as mechanical or approved visual.
+Any unclassifiable UI difference is an equivalence failure that blocks caller
+cutover. Do not switch a caller while the visual change count is nonzero or
+the approval basis is empty.
+
 ## Workspace Root Relocation
 
 Treat a developer workspace root rename as a coordinated migration across all
