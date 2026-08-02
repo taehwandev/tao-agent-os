@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from agent_execution_capsule_state import atomic_write_json, read_json_object
 from agent_route_state import request_fingerprint, route_fingerprint
@@ -29,6 +30,17 @@ ACTIVE_RUN_STATES = frozenset({"running", "paused", "resuming"})
 RUN_STATES = frozenset(
     {*ACTIVE_RUN_STATES, "failed", "completed", "cancelled", "reconcile_required"}
 )
+# States whose owner may still append gate evidence. Recovery happens after a
+# run stops being active: a failed finish must be answered by recording the
+# gates it named, and a repair cycle parks the run at reconcile_required for
+# the same reason. A settled run must not gain new evidence, so completed and
+# cancelled are excluded.
+LEDGER_WRITABLE_RUN_STATES = frozenset(
+    {*ACTIVE_RUN_STATES, "failed", "reconcile_required"}
+)
+# The registry's shared stale window, repeated here as a name so the owner-less
+# compatibility path is bounded by the same number the sweep uses.
+DEFAULT_STALE_AFTER_SECONDS = 3600
 MAX_RUNS = 100
 
 
@@ -153,6 +165,181 @@ def active_runs(project: Path) -> list[dict[str, Any]]:
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
         return [run for run in payload["runs"] if run.get("state") in ACTIVE_RUN_STATES]
+
+
+def active_run_bindings(project: Path) -> dict[str, dict[str, Any]]:
+    """Return the latest active run for each content-free evidence key.
+
+    Runtime evidence discovery may inspect several candidate files, but it must
+    not reopen and rescan the registry once per candidate.  Build the exact
+    latest-binding view under the registry lock once instead.  A newer terminal
+    record suppresses an older active record for the same evidence path, which
+    preserves ``latest_run_id`` semantics without exposing or persisting paths.
+    """
+
+    path = registry_path(project)
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        latest: dict[str, dict[str, Any]] = {}
+        legacy_default = project.resolve() / ".tao" / "preflight.json"
+        legacy_key = _evidence_key(project, legacy_default)
+        for run in payload["runs"]:
+            key = str(run.get("evidence_key") or "")
+            if not key and run.get("evidence_name") == legacy_default.name:
+                key = legacy_key
+            if key:
+                latest[key] = run
+        return {
+            key: run
+            for key, run in latest.items()
+            if run.get("state") in ACTIVE_RUN_STATES
+        }
+
+
+def evidence_binding_key(project: Path, evidence_path: Path) -> str:
+    """Return the content-free registry key for one evidence candidate."""
+
+    return _evidence_key(project, evidence_path)
+
+
+def ledger_writable_run_claim_is_owned(
+    project: Path,
+    evidence_path: Path,
+    run_id: str,
+    *,
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> bool:
+    """Return whether the caller still owns an evidence claim it may append to.
+
+    A preflight hash proves which bytes a ledger entry describes; it does not
+    prove which live session may append the entry. When process-owner evidence
+    exists, require the same launcher-anchored owner that won start's claim.
+
+    Legacy or non-POSIX runs record no owner, and for them the only identity
+    left is recency, so their compatibility path is bounded by the registry's
+    shared stale window. That bound has to be applied, not merely described:
+    admitting every owner-less run let a run silent for hours keep accepting
+    ledger writes, which is the same unbounded hold the sweep exists to end. A
+    run whose timestamp is missing or unparsable offers no recency evidence
+    either, so it is treated as stale rather than trusted.
+
+    Ownership, not liveness, is what this decides, so the writable set is wider
+    than the active set. A failing finish transitions the run to ``failed`` and
+    a repair cycle parks it at ``reconcile_required``, yet both states exist
+    precisely so the owner can record the missing gate facts and rerun finish.
+    Requiring an active state closed that door and left the documented recovery
+    unreachable. ``completed`` and ``cancelled`` stay closed because a settled
+    run must not gain new evidence.
+    """
+
+    path = registry_path(project)
+    current_owner = process_owner()
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        return _ledger_writable_run_claim_is_owned_locked(
+            payload,
+            project,
+            evidence_path,
+            run_id,
+            current_owner=current_owner,
+            stale_after_seconds=stale_after_seconds,
+        )
+
+
+@contextmanager
+def ledger_writable_run_claim_transaction(
+    project: Path,
+    evidence_path: Path,
+    run_id: str,
+    ledger_path: Path,
+    *,
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> Iterator[bool]:
+    """Hold one claim decision stable through its ledger mutation.
+
+    The global lock order for claimed gate evidence is:
+
+    1. project state lock,
+    2. run-registry file lock,
+    3. gate-ledger file lock.
+
+    Every registry mutation already uses the first two locks in that order.
+    Taking the ledger lock last makes the ownership decision and the ledger
+    write one transaction: a transition cannot settle or replace the run after
+    validation but before its evidence bytes are durable. Registry-free ledger
+    callers retain their ledger-only compatibility path in the caller.
+    """
+
+    path = registry_path(project)
+    current_owner = process_owner()
+    with project_state_lock(project), state_lock(path), state_lock(ledger_path):
+        payload = _read_registry(path)
+        matches = [
+            run
+            for run in payload["runs"]
+            if _matches_evidence(run, project, evidence_path)
+        ]
+        selected_run_id = run_id or (
+            str(matches[-1].get("run_id") or "") if matches else ""
+        )
+        yield _ledger_writable_run_claim_is_owned_locked(
+            payload,
+            project,
+            evidence_path,
+            selected_run_id,
+            current_owner=current_owner,
+            stale_after_seconds=stale_after_seconds,
+        )
+
+
+def _ledger_writable_run_claim_is_owned_locked(
+    payload: dict[str, Any],
+    project: Path,
+    evidence_path: Path,
+    run_id: str,
+    *,
+    current_owner: dict[str, Any] | None,
+    stale_after_seconds: int,
+) -> bool:
+    """Validate one ledger claim while the caller holds the registry lock."""
+
+    matches = [
+        run
+        for run in payload["runs"]
+        if _matches_evidence(run, project, evidence_path)
+    ]
+    if not matches:
+        return False
+    target = matches[-1]
+    if (
+        target.get("run_id") != run_id
+        or target.get("state") not in LEDGER_WRITABLE_RUN_STATES
+    ):
+        return False
+    recorded_owner = target.get("owner")
+    if not isinstance(recorded_owner, dict) or not recorded_owner:
+        return not _claim_recency_expired(
+            target, stale_after_seconds=stale_after_seconds
+        )
+    return bool(current_owner) and recorded_owner == current_owner
+
+
+def _claim_recency_expired(
+    run: dict[str, Any],
+    *,
+    stale_after_seconds: int,
+) -> bool:
+    """Return whether an owner-less claim has outlived its compatibility window."""
+
+    try:
+        updated = datetime.fromisoformat(str(run.get("updated_at")))
+    except (TypeError, ValueError):
+        return True
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    return updated < datetime.now(timezone.utc) - timedelta(
+        seconds=stale_after_seconds
+    )
 
 
 def latest_run_id(project: Path, evidence_path: Path) -> str | None:
