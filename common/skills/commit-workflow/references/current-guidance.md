@@ -26,9 +26,11 @@ a second implementation lifecycle:
   finds a concrete surface-specific concern;
 - reuse current review, test, and safety evidence only while it is bound to the
   unchanged staged or worktree state it covered;
-- run one start, one lightweight review, the staged-diff/readiness checks, and
-  one read-only finish; do not rerun the full implementation route or full test
-  suite solely because the user asked to commit; and
+- run one start, inspect the unstaged scope for obvious blockers, stage the
+  exact commit unit, run one lightweight review against that final staged
+  state, complete the staged-diff/readiness checks, and run one read-only
+  finish; do not rerun the full implementation route or full test suite solely
+  because the user asked to commit; and
 - if the diff needs a fix, its verification is stale, or a high-risk surface is
   unresolved, stop the commit route and open the matching work route. Do not
   hide implementation inside commit preparation.
@@ -69,8 +71,10 @@ to rollback or forward-fix.
 ## Before Commit
 
 - Check repo-local commit rules first.
-- Run the lightweight code review first. If it finds an issue, stop before
-  staging or committing and report the concrete fixes needed.
+- Inspect the working-tree diff for obvious scope, secret, generated-file, and
+  ownership blockers before staging. Then stage only the intended commit unit
+  and run the Review Hook against that final staged state. If it finds an
+  issue, stop before committing and report the concrete fixes needed.
 - Check repo-local branch, push, PR, or tag rules only when that action is in
   scope.
 - Inspect the final diff, not memory of the work.
@@ -117,6 +121,9 @@ readiness evidence are known.
 - Keep user-owned unrelated changes out of the commit unless the user explicitly
   asked to include them.
 - Review staged diff, not only working tree diff.
+- Treat staging as part of the Review Hook attestation boundary. Run the hook
+  after the staged set is final; any later stage, unstage, or restage invalidates
+  that attestation and requires a new review before finish.
 - If generated files or lockfiles are included, explain the source command or
   reason they changed.
 - If the commit crosses public contracts, migrations, release config, signing,

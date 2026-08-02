@@ -97,10 +97,15 @@ instead of inventing a one-off style.
   associated type, or long generic shape. Still use a real Swift type when the
   code needs identity, invariants, access-controlled storage, validation, or
   security-sensitive separation.
-- Never write a fully qualified name inline in the code body to avoid adding
-  an import. Add the import and use the short name. On a simple-name collision
-  use an alias import, not an inline qualified name. An edit tool that failed
-  to modify the import block is not an exemption — fix the imports.
+- In Kotlin source, prefer imports and short names over scattering fully
+  qualified names through the code body. On a simple-name collision, use
+  Kotlin's renaming import (`import package.Type as LocalType`) when the alias
+  makes the distinction clear. An edit tool that failed to modify the import
+  block is not an exemption — fix the Kotlin imports.
+- Do not generalize Kotlin alias imports into a cross-language rule. Languages
+  without import aliases must follow their own idioms; for example, Java may
+  need one colliding symbol to remain qualified. Repo-local formatter, linter,
+  compiler, and language conventions remain authoritative.
 - In adapters, decorators, and facades, name the wrapped or delegated
   dependency after the role of the wrapped type, never after the wrapping
   relationship. Do not name the field or parameter `real`, `impl`, `delegate`,

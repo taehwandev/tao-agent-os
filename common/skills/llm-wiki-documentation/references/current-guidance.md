@@ -130,20 +130,29 @@ page's purpose.
   data, or private incident details into wiki pages.
 - Do not present guesses as established behavior. Label inferred or unverified
   content.
-- Tracked, team-shared docs must never reference personal absolute paths,
-  per-user tool install locations, runtime versions, hook command strings, or
-  evidence file paths as if they were shared contracts. Per-user runtime
-  details belong in that user's own environment.
-- Before writing an improvement down, classify its owner. Per-user runtime or
-  environment behavior — hooks, validators, evidence schemas and paths,
-  installs, permissions — is fixed only in the user's runtime and must not
-  spawn a paired tracked-doc copy. Team product, code, or workflow policy goes
-  only to the exact shared owner doc.
+- Tracked, team-shared docs must never treat personal absolute paths, per-user
+  tool install locations, locally selected runtime versions, concrete hook
+  command strings, permission grants, or evidence file locations as shared
+  contracts. Those configured values belong only in that user's environment.
+- Before writing an improvement down, classify its owner. Per-user runtime
+  configuration — local installs, paths, selected versions, hook wiring, and
+  permission state — is fixed in the user's environment and must not spawn a
+  synchronized tracked-doc copy.
+- Provider-neutral, team-shared runtime protocols remain tracked source. Hook
+  lifecycle contracts, validator behavior, evidence schema semantics, safe
+  path shapes, and cross-runtime invariants belong in their canonical shared
+  code or owner document. Document them with placeholders and portable rules,
+  never by copying one user's concrete configuration.
+- Team product, code, or workflow policy goes only to the exact shared owner
+  doc. A runtime adapter may link to that owner and document only its genuine
+  provider-specific delta.
 - When a shared doc must point at externally owned guidance, keep a thin
   pointer to the canonical owner plus the repo-specific application delta,
   never a synced copy.
 - Verification of doc changes includes checking that tracked shared docs gained
-  no personal paths, runtime-version contracts, or duplicated runtime rules.
+  no personal paths, locally selected runtime-version contracts, concrete hook
+  wiring, or duplicated runtime rules, while still preserving shared protocol
+  and validator contracts in their canonical owner.
 
 ## Per-Module Documentation Catalog
 

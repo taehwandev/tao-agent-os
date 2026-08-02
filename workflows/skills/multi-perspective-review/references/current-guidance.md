@@ -162,10 +162,21 @@ of averaging it away.
 ## Read-Only Reviewer Contract
 
 A delegated reviewer without write scope must not: create, modify, or delete
-files; author patches; run commands; run formatters; install dependencies; or
-commit. It must not report in an "I fixed it" voice. Allowed actions: read the
-diff and related files, identify risk points, write structured findings, and
-suggest a fix direction.
+files; author patches; run formatters or fixers; install dependencies; create
+build artifacts or caches; mutate external state; stage; or commit. It must not
+report in an "I fixed it" voice.
+
+It may run bounded non-mutating diagnostics whose contract is to read existing
+state and emit findings, such as `git status`, `git diff`, `git show`, `rg`, and
+file inspection. A test, linter, build, package-manager command, or unfamiliar
+script needs separate execution scope unless the orchestrator has established
+that it will not write files, caches, generated output, or external state. When
+side effects are unknown, the reviewer returns the proposed command to the
+orchestrator instead of running it.
+
+Allowed outputs are structured findings and suggested fix directions. The
+reviewer does not acquire mutation authority merely because a diagnostic found
+a valid issue.
 
 A delegated-reviewer prompt includes, in order:
 
