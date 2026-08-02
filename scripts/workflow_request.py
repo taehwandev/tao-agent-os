@@ -10,6 +10,7 @@ from workflow_common import ANSWER_ONLY_CLARITY, QUESTION_ROUTE_COMMANDS, unique
 from workflow_request_patterns import (
     BROAD_PATTERNS,
     COMPLETION_FAILURE_PATTERNS,
+    CORRECTION_WORD_SENSE_QUESTION_PATTERNS,
     CORRECTION_ACTION_PATTERNS,
     DIRECT_QUESTION_PATTERNS,
     GRILL_ME_REQUEST_PATTERNS,
@@ -229,6 +230,25 @@ COMMIT_NEGATION_PATTERNS = (
     r"(?:term|word|noun|concept)\b",
     r"\b(?:before|prior to)\s+commit(?:ting|s)?\b",
 )
+KOREAN_RELEASE_KEYWORDS = r"(?:배포|릴리스|릴리즈|푸시|푸쉬|태그)"
+KOREAN_RELEASE_AFFIRMATIVE_ACTION_PATTERNS = (
+    # A finite release verb is positive evidence even when a different release
+    # substep is negated in the same request. Negative forms end in ``지`` and
+    # cannot satisfy these affirmative endings. A conditional ``면`` is not an
+    # action request: the following clause may prohibit the release entirely.
+    r"(?:배포|릴리스|릴리즈|푸시|푸쉬)(?:하)?"
+    r"(?:고|자|라|세요|겠습니다|겠(?:다|습니다)?|도록|기|"
+    r"해(?:줘|주세요|라|서|도)?|해주세요)",
+    # A release object may use a separate action head: ``릴리스를 진행해줘``
+    # or ``태그를 만들어줘``. Keep the gap bounded and require a finite
+    # affirmative ending so review-only nouns and prohibited actions do not
+    # become release work.
+    KOREAN_RELEASE_KEYWORDS
+    + r"(?:은|는|이|가|을|를|도)?[^.!?\n]{0,12}?"
+    r"(?:배포|진행|실행|시작|올리|게시|발행|공개|출시|생성|만들|찍)"
+    r"(?:하)?(?:고|자|라|세요|겠습니다|겠(?:다|습니다)?|도록|기|"
+    r"해(?:줘|주세요|라|서|도)?|어(?:줘|주세요|라|서)?|아(?:줘|주세요|라|서)?)",
+)
 MUTATION_ACTION_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|does not|doesn't|never|won't|will not|should not|"
     r"shouldn't|must not|mustn't|cannot|can't)\s+(?:\w+\s+){0,2}"
@@ -237,8 +257,67 @@ MUTATION_ACTION_NEGATION_PATTERNS = (
     r"(?:\s*(?:/|,|·|\band\b)\s*"
     r"(?:commit|push|merge|release|deploy|publish|tag))*"
     r"(?:은|는|을|를)?\s*"
-    r"(?:하지\s*(?:않|마)|안\s*(?:하|해|함|한다|합니다)|"
+    r"(?:하지(?:는)?\s*(?:않|마|말)|안\s*(?:하|해|함|한다|합니다)|"
     r"(?:하면|해서는)\s*안|금지)",
+    # Korean negation is post-positional, so match the release keyword followed
+    # by a negator instead of listing which verb may sit between them. The gap
+    # is bounded by the sentence rather than by a short character count: a
+    # release noun often carries a qualifier and an adverb before the verb
+    # ("배포 계획은 당분간 진행하지 말고"), and a count tuned to the shortest
+    # examples simply missed the longer ones. Explicit affirmative Korean
+    # release action is checked first, so a negated substep cannot hide a later
+    # positive action such as "릴리스 노트를 만들지 말고 ... 배포해줘".
+    # Cancel and postpone verbs are matched by stem so their inflections come
+    # for free ("미루고", "미뤄 두고"); listing surface forms is what let
+    # 미뤄 and 철회 slip through. ``넘기`` is deliberately excluded here: it
+    # can be a real release transition and is handled by the temporal-deferral
+    # rule below instead.
+    KOREAN_RELEASE_KEYWORDS
+    + r"(?:\s*(?:/|,|·|및|와|과|하고)\s*"
+    + KOREAN_RELEASE_KEYWORDS
+    + r")*"
+    r"(?:은|는|을|를|도)?"
+    r"[^.!?\n]{0,24}?"
+    r"(?:지(?:는)?\s*(?:않|마|말)|"
+    r"안\s*(?:하|해|함|한다|합니다)|"
+    r"(?:하면|해서는)\s*안|"
+    r"제외|생략|빼고|말고|금지|"
+    r"보류|중단|중지|연기|유예|철회|취소|무산|접어두|미(?:루|뤄))"
+    # A cancel/postpone noun that ``없이`` immediately follows is itself
+    # negated, which makes the clause positive about the release ("배포 중단
+    # 없이 ... 올려라" asks for an uninterrupted deploy, not for none).
+    r"(?!\s*없)",
+    # ``넘기`` means postponement only when a release topic is handed to a
+    # temporal planning slot. Object-marked or destination-specific transitions
+    # such as staging -> production, next environment, or approval stage are
+    # affirmative release work and must not be suppressed by this rule.
+    KOREAN_RELEASE_KEYWORDS
+    + r"(?:\s*(?:/|,|·|및|와|과|하고)\s*"
+    + KOREAN_RELEASE_KEYWORDS
+    + r")*"
+    r"(?:은|는|도|을|를)\s*"
+    r"(?:(?:다음으로)|"
+    r"(?:다음\s*(?:스프린트|일정|기회|회차|번|주기|마일스톤)(?:으?로)?)|"
+    r"(?:(?:나중|추후)(?:으?로)?))\s*넘기",
+    # ``없이`` negates the noun immediately to its left, so it may only be read
+    # as a release prohibition when it sits on the release keyword itself.
+    # Inside the bounded gap above it also matched a positive qualifier about
+    # something else ("릴리스 노트 누락 없이 태그를 배포", "배포 중단 없이
+    # ... 올려라"), which stripped release routing from real release requests.
+    KOREAN_RELEASE_KEYWORDS
+    + r"(?:\s*(?:/|,|·|및|와|과|하고)\s*"
+    + KOREAN_RELEASE_KEYWORDS
+    + r")*"
+    r"(?:은|는|을|를|도)?\s*(?:없이|없는|없어야)",
+    # Deferral reads as prohibition only when the release keyword is the topic
+    # being postponed. Without the topic marker the same adverb can follow an
+    # affirmative release ("배포하고 나중에 검증해줘"), so it must not be
+    # folded into the bounded gap above.
+    KOREAN_RELEASE_KEYWORDS
+    + r"(?:\s*(?:/|,|·|및|와|과|하고)\s*"
+    + KOREAN_RELEASE_KEYWORDS
+    + r")*"
+    r"(?:은|는|도)\s*(?:나중에|추후에?|이따가?|다음에)",
 )
 COMMIT_RELEASE_SUBSTEP_PATTERNS = (
     r"\b(first|before|current|pending|staged|working tree|worktree|warning cleanup)\b",
@@ -289,6 +368,27 @@ RELEASE_SCOPE_SIGNAL_PATTERNS = (
         "\ube4c\ub4dc",
         "\ub864\ubc31",
     ),
+)
+# A production promotion is release scope only when all three independent
+# signals are present: an exact version, a directional staging-to-production
+# transition, and an affirmative transition action. Keeping the pieces
+# conjunctive prevents a bare environment mention from becoming release work.
+_RELEASE_VERSION_TOKEN_PATTERN = (
+    r"(?<![A-Za-z0-9_.-])(?:v)?\d{2,4}\.\d{1,2}\.\d+"
+    r"(?:[-+][A-Za-z0-9.-]+)?(?=$|[^A-Za-z0-9_.-])"
+)
+_PRODUCTION_PROMOTION_DIRECTION_PATTERNS = (
+    r"\b(?:staging|stage)\b[^.!?\n]{0,40}?\b(?:to|into)\s+(?:production|prod)\b",
+    r"(?:스테이징|staging)(?:에서|으로부터)"
+    r"[^.!?\n]{0,40}?(?:프로덕션|production)(?:으로|에|까지)",
+)
+_PRODUCTION_PROMOTION_AFFIRMATIVE_ACTION_PATTERNS = (
+    r"(?:^|[.!?;]\s*)(?:please\s+)?(?:promote|move|transition)\s+"
+    r"(?:the\s+)?(?:version\s+)?"
+    + _RELEASE_VERSION_TOKEN_PATTERN,
+    r"(?:넘기|승격하|이관하|전환하)"
+    r"(?:고|자|라|세요|겠습니다|게|"
+    r"해(?:줘|주세요|라|서)?|어(?:줘|주세요|라|서)?|아(?:줘|주세요|라|서)?)",
 )
 
 MODEL_TIER_BY_EFFORT = {
@@ -476,7 +576,13 @@ def requires_code_authoring(request: str) -> bool:
 
 def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
     has_exact = _matches(EXACT_PATTERNS, normalized, re.IGNORECASE)
-    has_scoped = _matches(SCOPED_PATTERNS, normalized)
+    has_release_action = _has_release_action(normalized)
+    has_versioned_production_promotion = _has_versioned_production_promotion(
+        normalized
+    )
+    has_scoped = _matches(SCOPED_PATTERNS, normalized) or (
+        has_release_action and has_versioned_production_promotion
+    )
     has_broad = _matches(BROAD_PATTERNS, lowered)
     has_risky = _matches(RISKY_PATTERNS, lowered)
     has_vague = _matches(VAGUE_PATTERNS, lowered)
@@ -487,19 +593,34 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
     has_workflow_setup_action = _matches(WORKFLOW_SETUP_ACTION_PATTERNS, lowered)
     has_ui_feature_action = _matches(UI_FEATURE_ACTION_PATTERNS, lowered)
     has_commit_action = _has_commit_action(normalized)
-    has_release_action = _has_release_action(normalized)
     release_scope_signal_count = _release_scope_signal_count(normalized)
-    has_release_scope = release_scope_signal_count >= 2
+    has_release_scope = (
+        release_scope_signal_count >= 2
+        or (
+            release_scope_signal_count >= 1
+            and _matches(KOREAN_RELEASE_AFFIRMATIVE_ACTION_PATTERNS, normalized)
+        )
+        or (has_release_action and has_versioned_production_promotion)
+    )
     commit_release_substep = has_commit_action and (
         not has_release_action or _matches(COMMIT_RELEASE_SUBSTEP_PATTERNS, normalized, re.IGNORECASE)
     )
     inspection_lacks_target = has_inspection and _inspection_lacks_target(lowered)
     has_direct_question = _matches(DIRECT_QUESTION_PATTERNS, lowered)
-    asks_agent_action = _matches(QUESTION_ACTION_PATTERNS, lowered) or _matches(
+    has_imperative_correction = _matches(
         IMPERATIVE_CORRECTION_ACTION_PATTERNS,
         lowered,
         re.IGNORECASE,
     )
+    correction_word_sense_question = has_direct_question and _matches(
+        CORRECTION_WORD_SENSE_QUESTION_PATTERNS,
+        lowered,
+        re.IGNORECASE,
+    )
+    asks_agent_action = _matches(
+        QUESTION_ACTION_PATTERNS,
+        lowered,
+    ) or (has_imperative_correction and not correction_word_sense_question)
     short_without_target = len(normalized.split()) <= 8 and not (has_exact or has_scoped)
     asks_drill = _matches(GRILL_ME_REQUEST_PATTERNS, lowered)
     has_user_correction = _has_user_confirmed_correction(lowered)
@@ -743,6 +864,8 @@ def _has_commit_action(text: str) -> bool:
 
 
 def _has_release_action(text: str) -> bool:
+    if _matches(KOREAN_RELEASE_AFFIRMATIVE_ACTION_PATTERNS, text):
+        return True
     return _matches(RELEASE_ACTION_PATTERNS, text, re.IGNORECASE) and not _matches(
         MUTATION_ACTION_NEGATION_PATTERNS,
         text,
@@ -752,6 +875,22 @@ def _has_release_action(text: str) -> bool:
 
 def _release_scope_signal_count(text: str) -> int:
     return sum(1 for patterns in RELEASE_SCOPE_SIGNAL_PATTERNS if _matches(patterns, text, re.IGNORECASE))
+
+
+def _has_versioned_production_promotion(text: str) -> bool:
+    return (
+        bool(re.search(_RELEASE_VERSION_TOKEN_PATTERN, text, re.IGNORECASE))
+        and _matches(
+            _PRODUCTION_PROMOTION_DIRECTION_PATTERNS,
+            text,
+            re.IGNORECASE,
+        )
+        and _matches(
+            _PRODUCTION_PROMOTION_AFFIRMATIVE_ACTION_PATTERNS,
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _commit_risk_blocks(text: str) -> bool:

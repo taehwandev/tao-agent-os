@@ -534,6 +534,100 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
                 self.assertIsNone(route_block_reason("retrospective", classification))
                 self.assertIsNotNone(route_block_reason("bugfix", classification))
 
+    def test_correction_word_sense_questions_remain_answer_first(self) -> None:
+        questions = (
+            "Correct me if I'm wrong: does the finish hook run before commit?",
+            "Correct me if I'm wrong, does the finish hook run before commit?",
+            "Correct me if I am wrong: does the finish hook run before commit?",
+            "Correct me if I'm wrong — does the finish hook run before commit?",
+            "Correct or incorrect: is the review hook required for every route?",
+            "Correct or incorrect — is the review hook required for every route?",
+            "Revise vs rewrite - which word does the retrospective SKILL.md use?",
+            "Repair means what in the failure-repair doc?",
+            "Fix means the same as repair here, right?",
+            "Repair or rework: which term does the doc recommend?",
+            "Fix is the wrong word here, isn't it?",
+            "Correct behavior means what exactly in this gate?",
+            "Revise, in this context, refers to which stage?",
+            "Fix or repair - is there a difference in the SKILL.md?",
+            # The exclusion is grammatical, not a list of phrasings: a copula
+            # or naming verb after the opening verb's noun phrase, or two
+            # correction verbs coordinated as compared terms. Wordings never
+            # reported as defects must be covered by the same two rules.
+            "Repair or refactor: which should the SKILL.md recommend?",
+            "Repair and rework: are they interchangeable?",
+            "Fix is wrong as a label here, isn't it?",
+            "Correct is ambiguous here, isn't it?",
+            "Fix, as a term, is overloaded in this doc, right?",
+            "Rework denotes what in the failure-repair doc?",
+            # A separator ends the verb phrase, so an imperative cannot reach
+            # across it and the question that follows is about naming.
+            "Fix: what does this mean?",
+            "Repair — what does that mean?",
+            "Correct? Is that the right term here?",
+            "Revise: what does that refer to?",
+            "Rework; what does this denote?",
+            "Redo - is that the right word here?",
+            # A gloss uses a single comma and the -ing form of the naming
+            # verb; the shape is generated, so every naming verb has it.
+            "Fix, meaning what exactly in this context?",
+            "Repair, denoting what in the doc?",
+            "Rework, implying what here?",
+            "Redo, signifying what in this gate?",
+            "Correct, referring to what exactly?",
+            # A modifier can introduce a full interrogative clause before the
+            # naming verb. The correction word remains the subject; the path
+            # only identifies the document whose terminology is being asked
+            # about and must not turn the question into implementation work.
+            "Fix, as used here, what does it mean in workflows/skills/retrospective-learning/SKILL.md?",
+            "Repair, in this guide, what does that mean in workflows/skills/retrospective-learning/SKILL.md?",
+            "Correct, in this context, which behavior does it refer to in scripts/workflow_request.py?",
+        )
+
+        # A separator followed by a statement is a bug report, not a term
+        # question, even when it names a label, term or word.
+        separator_bug_reports = (
+            "Fix: the term mapping is broken in scripts/workflow_route.py",
+            "Revise: this word is duplicated in index.md",
+        )
+        for request in separator_bug_reports:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertEqual("work", classification["response_mode"])
+
+        questions = questions + (
+            "Rewrite stands for what in this context?",
+            "Redo sounds wrong for this gate, doesn't it?",
+            "Fix as a label is misleading here, right?",
+            "Repair / refactor: which term should the guide use?",
+            "Correct as used here refers to which behavior?",
+        )
+
+        for request in questions:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertEqual("none", classification["recommended_route"])
+                self.assertEqual("answer_first", classification["response_mode"])
+                self.assertFalse(classification["grill_me"])
+
+        action_requests = (
+            "Fix the typo in AGENTS.md line 12.",
+            "Correct the bug in scripts/foo.py.",
+            "Repair the parser implementation in src/parser.py.",
+            "Fix, as used here, the incorrect label in scripts/workflow_request.py.",
+            "Correct, in this context, the behavior in scripts/workflow_request.py.",
+            "Fix, in this file, what is broken in scripts/workflow_request.py?",
+            "Correct, in this context, which behavior is broken in scripts/workflow_request.py?",
+        )
+        for request in action_requests:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertEqual("work", classification["response_mode"])
+                self.assertNotEqual("none", classification["recommended_route"])
+
     def test_ordinary_bugfix_language_does_not_claim_a_completed_agent_result(self) -> None:
         exact_bugfixes = (
             "just fix the incorrect output in src/parser.py",
@@ -593,6 +687,129 @@ class WorkflowRequestRoutingTests(unittest.TestCase):
             classification["recommended_route"],
             {"commit", "release"},
         )
+
+    def test_korean_release_prohibition_does_not_become_release_work(self) -> None:
+        prohibited_requests = (
+            "배포하지 마세요. 버전 태그와 릴리스 노트만 검토해줘",
+            "푸쉬하지 말고 버전 태그와 릴리스 노트만 검토해줘",
+            "태그는 만들지 말고 버전 릴리스 노트와 배포 순서만 검토해줘",
+            "배포는 건드리지 말고 버전 태그와 릴리스 노트만 검토해줘",
+            "배포를 진행하지 마세요. 버전 태그와 릴리스 노트만 검토해줘",
+            "릴리스를 만들지 마세요. 버전 태그와 릴리스 노트만 검토해줘",
+            "배포하지는 마세요. 버전 태그와 릴리스 노트만 검토해줘",
+            # Negation is recognized by post-positional form, not by listing
+            # verbs, so a nominal negator and a topic-marked action noun before
+            # the verb stem must be covered by the same rule.
+            "배포 없이 버전 태그와 릴리스 노트만 검토해줘",
+            "배포는 제외하고 버전 태그와 릴리스 노트만 검토해줘",
+            "태그 생성은 하지 말고 버전 릴리스 노트와 배포 순서만 검토해줘",
+            "릴리스 태그는 절대 찍지 마. 버전 노트와 배포 순서만 검토해줘",
+            "배포는 생략하고 버전 태그와 릴리스 노트만 검토해줘",
+            "태그는 빼고 버전 릴리스 노트와 배포 순서만 검토해줘",
+            "릴리즈는 중단하고 버전 태그와 배포 노트만 검토해줘",
+            # A qualifier and an adverb may sit between the keyword and the
+            # negator, and cancel/postpone verbs are matched by stem so their
+            # inflections are covered without listing surface forms.
+            "배포 계획은 당분간 진행하지 말고 버전 태그와 릴리스 노트만 검토해줘",
+            "배포는 미뤄 두고 버전 태그와 릴리스 노트만 검토해줘",
+            "배포 예정은 철회하고 버전 태그와 릴리스 노트만 검토해줘",
+            "릴리스 작업은 일단 연기하고 버전 태그와 배포 노트만 검토해줘",
+            "배포 일정은 전면 취소하고 버전 태그와 릴리스 노트만 검토해줘",
+            # 없이 negates the noun on its left, so it prohibits only when it
+            # sits on the release keyword itself.
+            "릴리스 없이 버전 태그만 검토해줘",
+            # Handing the release topic to an explicitly temporal planning slot
+            # is deferral; destination-specific transitions remain release work.
+            "릴리스는 다음으로 넘기고 버전 태그와 배포 노트만 검토해줘",
+            "배포는 다음 스프린트로 넘기고 버전 태그만 검토해줘",
+            "배포를 다음 스프린트로 넘기고 버전 태그만 검토해줘",
+            "배포 계획은 취소하고 버전 태그와 릴리스 노트만 검토해줘",
+            "릴리스 작업은 접어두고 버전 태그만 검토해줘",
+            "배포는 나중에 하고 지금은 버전 태그와 릴리스 노트만 검토해줘",
+            "배포는 추후에 하고 버전 태그와 릴리스 노트만 검토해줘",
+            # Conditional endings and object-marked nominal actions are still
+            # prohibitions. They must not be consumed as affirmative release
+            # evidence merely because ``면`` or an inner case marker appears.
+            "배포하면 안 됩니다. 버전 태그만 검토해줘",
+            "배포를 진행하면 안 돼. 버전 태그와 릴리스 노트만 검토해줘",
+            "릴리스 작업을 보류하고 버전 태그만 검토해줘",
+            "배포 계획을 취소하고 버전 태그만 검토해줘",
+        )
+
+        for request in prohibited_requests:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertNotIn(
+                    classification["recommended_route"],
+                    {"commit", "release"},
+                )
+
+        legitimate_releases = (
+            "버전 v26.07.4 태그를 배포하고 검증해줘",
+            "배포가 실패하지 않게 버전 태그와 릴리스를 진행해줘",
+            "릴리스 노트를 만들지 말고 버전 태그를 배포해줘",
+            # The negation must stay attached to the release keyword: a
+            # deferral adverb after an affirmative release is not a
+            # prohibition, and neither is one under a different topic.
+            "태그 만들고 배포하고 나중에 검증해줘",
+            "v26.08.1 태그를 배포하고 나중에 릴리스 노트를 정리해줘",
+            # 없이 used as a positive qualifier about something else, and a
+            # cancel noun that 없이 itself negates, both leave the release
+            # intact.
+            "릴리스 노트 누락 없이 태그를 배포하고 검증해줘",
+            "배포 중단 없이 릴리스 태그를 배포하고 검증해줘",
+            "릴리스 노트는 생략하고 버전 태그를 배포해줘",
+            "태그 생성 없이 릴리스를 배포해줘",
+            # 넘기 can be a real state transition rather than a postponement.
+            # Object-marked and destination-specific release work must retain
+            # the release route while the topic-marked temporal deferrals above
+            # remain prohibited.
+            "v26.08.1 태그의 배포를 스테이징에서 프로덕션으로 넘기고 검증해줘",
+            "v26.08.1 배포를 다음 환경으로 넘기고 검증해줘",
+            "v26.08.1 배포 파이프라인을 다음 단계로 넘기고 검증해줘",
+            "v26.08.1 릴리스 후보를 승인 단계로 넘기고 검증해줘",
+            "v26.08.1 배포는 스테이징에서 프로덕션으로 넘기고 검증해줘",
+            "v26.08.1 릴리스 후보는 승인 단계로 넘기고 검증해줘",
+        )
+        for request in legitimate_releases:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertEqual(
+                    "release",
+                    classification["recommended_route"],
+                )
+
+    def test_versioned_staging_to_production_promotion_routes_release(self) -> None:
+        promotions = (
+            "v26.08.1을 staging에서 production으로 넘기고 배포해줘",
+            "v26.08.1을 스테이징에서 프로덕션으로 승격하고 배포해줘",
+            "Promote v26.08.1 from staging to production and deploy it.",
+            "Move v26.08.1 from staging to production and deploy it.",
+            "Transition v26.08.1 from staging to production and deploy it.",
+        )
+        for request in promotions:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertEqual("release", classification["recommended_route"])
+
+        controls = (
+            "staging과 production 환경 차이를 검토해줘",
+            "v26.08.1 staging 배포 계획을 검토해줘",
+            "v26.08.1은 staging에서 production으로 배포하지 마",
+            "v26.08.1 배포는 다음 스프린트로 넘기고 staging과 production만 검토해줘",
+            "Transition plan for v26.08.1 from staging to production; review the deploy checklist.",
+            "Promote plan for v26.08.1 from staging to production; review the deploy checklist.",
+            "Move plan for v26.08.1 from staging to production; review the deploy checklist.",
+            "Compare transition options for v26.08.1 from staging to production and review the deploy checklist.",
+        )
+        for request in controls:
+            with self.subTest(request=request):
+                classification = classify_request(request)
+
+                self.assertNotEqual("release", classification["recommended_route"])
 
     def test_planning_change_doc_omission_request_routes_to_workflow_setup(self) -> None:
         classification = classify_request("기획변경 때 문서 정리가 누락되는 걸 막아줘")
