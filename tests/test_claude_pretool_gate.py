@@ -94,6 +94,39 @@ def _write_preflight(project: Path, session_id: str | None = None) -> None:
     )
 
 
+def _write_custom_preflight(
+    project: Path,
+    session_id: str,
+    relative_path: str = "preflight-hotfix.json",
+) -> Path:
+    """Write an explicit project-local evidence path accepted by ``start``."""
+    session = {"runtime": "claude", "session_id": session_id}
+    route = {"command": "task", "gates": ["finish"], "required_docs": []}
+    intake = {"request": "test request", "request_classified": False}
+    evidence = project / ".tao" / relative_path
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    register_run(project, evidence, route, intake)
+    evidence.write_text(
+        json.dumps(
+            {
+                "project": str(project),
+                "rules": str(project),
+                "route": route,
+                "request_intake": intake,
+                "runtime_session": session,
+                "execution_snapshot": {
+                    "schema_version": PREFLIGHT_SNAPSHOT_SCHEMA_VERSION,
+                    "route_fingerprint": route_fingerprint(route),
+                    "request_fingerprint": request_fingerprint(intake),
+                    "required_docs": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return evidence
+
+
 def _age_preflight(
     project: Path, seconds: float, session_id: str | None = None
 ) -> None:
@@ -167,6 +200,152 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertEqual("", out)
                     self.assertIsNone(post)
+
+    def test_project_local_custom_preflight_allows_its_exact_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_custom_preflight(project, "custom-session")
+
+            with patch.object(
+                gate.ClaudeContinuationAdapter,
+                "pre_mutation",
+                side_effect=AssertionError("custom evidence has no continuation packet"),
+            ):
+                code, out = _decide(
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(project),
+                        "session_id": "custom-session",
+                        "tool_input": {"file_path": str(project / "note.md")},
+                    }
+                )
+
+            self.assertEqual(0, code)
+            self.assertEqual("", out)
+
+    def test_nested_project_local_preflight_allows_its_exact_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_custom_preflight(
+                project,
+                "nested-session",
+                "custom/preflight-hotfix.json",
+            )
+
+            with patch.object(
+                gate.ClaudeContinuationAdapter,
+                "pre_mutation",
+                side_effect=AssertionError(
+                    "nested custom evidence has no continuation packet"
+                ),
+            ):
+                code, out = _decide(
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(project),
+                        "session_id": "nested-session",
+                        "tool_input": {"file_path": str(project / "note.md")},
+                    }
+                )
+
+            self.assertEqual(0, code)
+            self.assertEqual("", out)
+
+    def test_parent_and_isolated_worker_same_session_each_open_their_gate(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            session_id = "shared-session"
+            parent = _write_custom_preflight(
+                project,
+                session_id,
+                "custom/preflight-parent.json",
+            )
+            worker = _write_custom_preflight(
+                project,
+                session_id,
+                "workers/0123456789abcdef/preflight.json",
+            )
+            payload = {
+                "tool_name": "Write",
+                "cwd": str(project),
+                "session_id": session_id,
+                "tool_input": {"file_path": str(project / "note.md")},
+            }
+
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(
+                    parent.resolve(),
+                    gate.session_evidence(project, session_id),
+                )
+                code, out = _decide(payload)
+                self.assertEqual((0, ""), (code, out))
+            with patch.dict(
+                os.environ,
+                {"TAO_WORKER_EVIDENCE": str(worker)},
+                clear=True,
+            ):
+                self.assertEqual(
+                    worker.resolve(),
+                    gate.session_evidence(project, session_id),
+                )
+                code, out = _decide(payload)
+                self.assertEqual((0, ""), (code, out))
+
+    def test_invalid_worker_hint_denies_without_reusing_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            session_id = "shared-session"
+            _write_custom_preflight(project, session_id)
+            invalid = (
+                project / ".tao" / "workers" / "too" / "deep" / "preflight.json"
+            )
+
+            with patch.dict(
+                os.environ,
+                {"TAO_WORKER_EVIDENCE": str(invalid)},
+                clear=True,
+            ):
+                code, out = _decide(
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(project),
+                        "session_id": session_id,
+                        "tool_input": {"file_path": str(project / "note.md")},
+                    }
+                )
+
+            self.assertEqual(0, code)
+            self.assertEqual(
+                "deny",
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
+
+    def test_claim_disappearing_before_mutation_is_denied(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            evidence = _write_custom_preflight(project, "custom-session")
+
+            with patch.object(
+                gate,
+                "session_evidence",
+                side_effect=(evidence, None, None),
+            ):
+                code, out = _decide(
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(project),
+                        "session_id": "custom-session",
+                        "tool_input": {"file_path": str(project / "note.md")},
+                    }
+                )
+
+            self.assertEqual(0, code)
+            self.assertEqual(
+                "deny",
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
 
     def test_preflight_from_another_session_does_not_open_the_gate(self) -> None:
         # Regression: preflight.json is shared across runtimes and outlives a
@@ -273,7 +452,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             payload = {"tool_name": "Write", "cwd": str(project), "session_id": "s1"}
 
             _, missing = _decide(payload)
-            self.assertIn("No exact run-local preflight evidence", _reason(missing))
+            self.assertIn("No exact registered preflight evidence", _reason(missing))
 
             _write_preflight(project)
             _, unstamped = _decide(payload)

@@ -19,6 +19,7 @@ from agent_finish_check_steps import (
     check_read_only_execution,
     check_request_intake,
     check_required_gates,
+    enforce_review_hook_attestation,
     read_preflight,
     resolve_paths,
     route_gate_capsule_binding_failures,
@@ -35,6 +36,7 @@ from agent_gate_evidence import (
     merge_gate_evidence_from_ledger,
 )
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
+from agent_review_attestation import REVIEW_HOOK_GATE
 
 
 def build_parser(tao_root: Path) -> argparse.ArgumentParser:
@@ -247,6 +249,58 @@ def effective_read_only(
     )
 
 
+def _validated_gate_evidence(
+    *,
+    route: dict[str, Any],
+    project: Path,
+    rules: Path,
+    evidence_path: Path,
+    failures: list[str],
+) -> tuple[dict[str, str], dict[str, Any]]:
+    gate_evidence, ledger = merge_gate_evidence_from_ledger(
+        route=route,
+        evidence_path=evidence_path,
+    )
+    failures.extend(incomplete_gate_evidence_failures(ledger))
+    enforce_review_hook_attestation(
+        route=route,
+        project=project,
+        rules=rules,
+        evidence_path=evidence_path,
+        gate_evidence=gate_evidence,
+        gate_evidence_ledger=ledger,
+        failures=failures,
+    )
+    return gate_evidence, ledger
+
+
+def _revalidate_review_attestation_after_final_checks(
+    route: dict[str, Any],
+    project: Path,
+    rules: Path,
+    evidence_path: Path,
+    gate_evidence: dict[str, str],
+    gate_evidence_ledger: dict[str, Any],
+    missed_gates: list[str],
+    failures: list[str],
+) -> None:
+    """Close drift between the initial gate merge and the final checks."""
+
+    if REVIEW_HOOK_GATE not in gate_evidence:
+        return
+    enforce_review_hook_attestation(
+        route=route,
+        project=project,
+        rules=rules,
+        evidence_path=evidence_path,
+        gate_evidence=gate_evidence,
+        gate_evidence_ledger=gate_evidence_ledger,
+        failures=failures,
+    )
+    if REVIEW_HOOK_GATE not in gate_evidence:
+        missed_gates.append(REVIEW_HOOK_GATE)
+
+
 def main() -> int:
     tao_root = Path(__file__).resolve().parents[1]
     args = build_parser(tao_root).parse_args()
@@ -259,11 +313,13 @@ def main() -> int:
     preflight = read_preflight(evidence_path, failures)
     route = preflight.get("route") or {}
     delegation_plan = read_delegation_plan(project)
-    gate_evidence, gate_evidence_ledger = merge_gate_evidence_from_ledger(
+    gate_evidence, gate_evidence_ledger = _validated_gate_evidence(
         route=route,
+        project=project,
+        rules=rules,
         evidence_path=evidence_path,
+        failures=failures,
     )
-    failures.extend(incomplete_gate_evidence_failures(gate_evidence_ledger))
     gate_signals: list[dict[str, str]] = []
     required_gates, missed_gates, gate_policy_failures = check_required_gates(
         route,
@@ -310,6 +366,10 @@ def main() -> int:
         gate_signals,
         failures,
         read_only=read_only,
+    )
+    _revalidate_review_attestation_after_final_checks(
+        route, project, rules, evidence_path, gate_evidence,
+        gate_evidence_ledger, missed_gates, failures,
     )
     retrospective_required, retrospective_lesson = process_failure_learning(
         preflight=preflight,

@@ -618,8 +618,17 @@ The Claude adapter uses the common read-only active-session resolver. A start
 without explicit evidence allocates one
 `.tao/runs/<opaque-run-id>/preflight.json` path and every later hook resolves
 that same path only when runtime name, session id, registry evidence key, and
-resume generation agree. It never scans for the newest file. `SessionStart`
-calls the common resume transaction and injects work prose only for `ready`;
+resume generation agree. An isolated worker resolves only the exact
+launcher-issued `TAO_WORKER_EVIDENCE` path and never falls back to parent
+evidence. A caller without that binding traverses the worker subtree only to
+account for active worker registry keys, excludes its files from parent
+matching, and requires exactly one parent-scope match, so a legitimate parent
+and worker do not turn each other into ambiguity. Multiple parent-scope matches fail closed,
+and a malformed, foreign, or unregistered worker binding fails without parent
+fallback. Discovery takes one registry snapshot and one bounded state-tree
+traversal with explicit parent/worker scope classification; it never scans once
+per active run or selects the newest file. `SessionStart` calls the common
+resume transaction and injects work prose only for `ready`;
 drift and owner refusals render no saved work. `PreToolUse` brackets
 `Edit|Write|MultiEdit|NotebookEdit` before execution, and `PostToolUse` plus
 `PostToolUseFailure` close the same mutation after the tool outcome.
@@ -686,7 +695,11 @@ non-negotiable, because they are the reason this feature exists:
   without rendering packet prose.
 - **Claude isolated evidence.** Bind a resumed session to a run-local preflight
   path and prove the edit gate accepts only that exact session/path/generation;
-  using the old `.tao/preflight.json` must not unlock it.
+  using the old `.tao/preflight.json` must not unlock it. Bind a parent and
+  isolated worker to the same runtime session and prove each resolves only in
+  its launcher-owned scope; a malformed or foreign worker hint must fail without
+  parent fallback, while two parent-scope matches remain refused. Instrument
+  parent discovery so the registry and candidate tree are each traversed once.
 - **Read-only discovery.** `--list`, including drift and liveness inspection,
   leaves registry, packet, ledger, and worktree bytes unchanged.
 

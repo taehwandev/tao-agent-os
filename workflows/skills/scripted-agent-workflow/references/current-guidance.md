@@ -658,12 +658,51 @@ validates completion. Removed inline input receives a migration error directing
 the caller to `gate` or `gate-batch` first.
 
 The `start` and `review` hooks record their own successful gate evidence in the
-ledger. For gates that only the active agent can prove, batch
+ledger. `review hook` is a hook-owned gate: generic `gate` and `gate-batch`
+input must reject it regardless of the caller-supplied `source` value. The
+review command additionally writes an atomic run-local review attestation bound
+to the current run id, preflight hash, route fingerprint, complete worktree
+fingerprint, exact review pathspec, and changed-path count. Finish must validate
+that attestation and its ledger binding before accepting `review hook`; a
+missing, copied, stale, or scope-mismatched attestation makes the gate missing.
+Finish must revalidate the attestation after all final checks and immediately
+before it reports completion. Its earlier validation only establishes that the
+final checks may start; bytes changed while those checks run must fail closed.
+This does not prohibit a legitimate pathspec review of an explicitly owned
+slice—the exact scope is attested and may not later be widened by prose.
+For gates that only the active agent can prove, batch
 structured records instead of spawning one shell process per gate:
 
 ```text
 python3 <TAO_ROOT>/scripts/agent-hook.py gate-batch --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --gate-record '[{"gate":"cycle contract","fields":{"cycle_type":"workflow_setup","input_scope":"<safe-source-scope>","allowed_changes":"<safe-scope>","forbidden_changes":"<safe-boundary>","acceptance_criteria":"<safe-criteria>","verification":"<check>","stop_condition":"<condition>","checkpoint":"<handoff-or-next-cycle>"}},{"gate":"agentic run state","fields":{"state":"scoped","transition":"scoped -> acting","evidence":"<gate-or-command>","checkpoint":"<resume-or-handoff>","blockers":"<none-or-current-blocker>"}},{"gate":"boundary plan","fields":{"scope":"<owned-scope>","verification":"<nearest-check>"}}]'
 ```
+
+Every mutating ledger path revalidates the run claim the registry holds for the
+evidence file being written. Registry claim validation and ledger mutation must
+share one atomic transaction. The global lock order is
+`project-state -> run-registry -> gate-ledger`; all append, reset, resync, and
+capsule-bind paths use
+that same order. A second unlocked claim check narrows a race but is not atomic
+evidence that the claim still exists when the ledger changes. The project is
+derived from that file's own `.tao`
+root, never from a preflight field, so a caller cannot redirect the check at a
+registry that holds no claim. Writability is wider than liveness: a run that a
+failed finish left `failed`, or that a repair cycle parked at
+`reconcile_required`, stays writable precisely so its owner can record the
+missing gate facts and rerun finish, while `completed` and `cancelled` are
+closed because a settled run must not gain new evidence. When launcher-anchored
+owner evidence exists, only that same process owner may append, reset, resync,
+or capsule-bind the ledger; another live session is refused before it can
+replace a later `FAIL` with its own `SUCCESS`. A run recording no owner keeps
+its compatibility path only inside the registry's shared stale window, since
+recency is the sole identity left. New top-level starts without an explicit
+evidence path allocate a
+run-local `.tao/runs/<opaque>/preflight.json` even when the runtime exposes no
+session id, so independent ledgers are physically separated by default.
+An ownership or worker-boundary refusal happens before ledger mutation. The
+`gate` and `gate-batch` hooks report it as `fix_invocation_and_rerun`; no
+checkpoint failed, so the caller must correct its evidence or run ownership and
+must not enter `repair-verify` for that rejection.
 
 Use this ledger to capture what happened, not to craft magic validator prose.
 Finish rejects a required ledger record whose capsule fingerprint does not
@@ -677,9 +716,9 @@ the recovery is to complete or record the missing gate fact, not to add a vague
 sentence. Use `agent-hook.py gate` for a single immediate gate and
 `agent-hook.py gate-batch` for a bounded set. Keep the evidence machine-clear
 instead of relying on equivalent prose or alternate key spellings. Use the
-Graphify readiness anchors exactly as `cli=`,
-`skill doc=`, `runtime links=`, `git ownership=`, `project integration=`,
-`target graph=`, and `query smoke=`, with every value exactly `success`; keep
+Graphify readiness fields exactly as `cli`, `skill_doc`, `runtime_links`,
+`runtime_ownership`, `project_integration`, `graph`, and `query_smoke`, with
+every value exactly `success`; keep
 descriptive facts in separate gate evidence rather than keyword-parsing the
 status. For `source docs`, say which
 source-of-truth class was searched and opened before implementation and how it

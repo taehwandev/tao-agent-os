@@ -6,13 +6,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 
+import claude_continuation_hook
 from claude_continuation_hook import ClaudeContinuationAdapter
-from agent_run_registry import registry_path
+from agent_run_registry import register_run, registry_path
 from agent_runtime_session import resolve_runtime_evidence
 from support.claude_continuation_setup import (
     CONTINUATION_ALIAS,
@@ -55,6 +57,47 @@ def _kill_owner(fixture: RuntimeFixture) -> None:
 
 
 class ClaudeMutationAdapterTests(unittest.TestCase):
+    def test_custom_evidence_post_hook_skips_unreachable_continuation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            target = project / "src" / "module.py"
+            target.parent.mkdir(parents=True)
+            target.write_text("value = 1\n", encoding="utf-8")
+            evidence = project / ".tao" / "custom" / "preflight-hotfix.json"
+            evidence.parent.mkdir(parents=True)
+            route = {"command": "task", "gates": [], "required_docs": []}
+            intake = {"request": "custom evidence test"}
+            register_run(project, evidence, route, intake)
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "runtime_session": {
+                            "runtime": "claude",
+                            "session_id": "custom-session",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Write",
+                "cwd": str(project),
+                "session_id": "custom-session",
+                "tool_input": {"file_path": str(target)},
+            }
+
+            with patch.object(
+                claude_continuation_hook,
+                "_checkpoint",
+                side_effect=AssertionError(
+                    "custom evidence cannot own a continuation packet"
+                ),
+            ):
+                post = ClaudeContinuationAdapter.post_mutation(payload)
+
+            self.assertIsNone(post)
+
     def test_successful_file_tool_is_bracketed_and_records_actual_changed_scope(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = RuntimeFixture(directory)

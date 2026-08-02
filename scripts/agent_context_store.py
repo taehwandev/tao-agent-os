@@ -39,6 +39,20 @@ def context_snapshot_failures_are_replaceable(failures: list[str]) -> bool:
     )
 
 
+def context_snapshot_failures_are_required_doc_drift(failures: list[str]) -> bool:
+    """Return whether every failure proves changed required-document bytes.
+
+    Route or request replacement may legitimately start unrelated work and
+    must never carry an earlier repair budget forward.  Only size/hash drift
+    keeps the prior task identity intact strongly enough for that rebind.
+    """
+
+    return bool(failures) and all(
+        failure.startswith(_REPLACEABLE_REQUIRED_DOC_FAILURE_PREFIXES)
+        for failure in failures
+    )
+
+
 def refresh_context_snapshot(
     project: Path,
     rules: Path,

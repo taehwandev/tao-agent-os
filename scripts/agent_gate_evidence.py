@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from agent_execution_capsule_state import (
     atomic_write_json,
@@ -29,12 +30,21 @@ from agent_repair_ledger import (
     register_repair_attempt,
     repair_checkpoint_path_for_preflight,
 )
+from agent_run_registry import (
+    latest_run_id,
+    ledger_writable_run_claim_transaction,
+    registry_path,
+)
 from agent_state_lock import state_lock
 
 
 GATE_EVIDENCE_FILENAME = "gate-evidence.json"
 SCHEMA_VERSION = 1
 CAPSULE_BINDING_FIELD = "execution_capsule_binding"
+
+
+class GateEvidenceAccessError(PermissionError):
+    """A logical caller/evidence boundary rejected mutation before a gate ran."""
 
 
 FIELD_REQUIREMENTS: dict[str, tuple[str, ...]] = {
@@ -140,9 +150,7 @@ def read_gate_evidence_ledger(path: Path) -> dict[str, Any]:
 
 
 def reset_gate_evidence_ledger(evidence_path: Path, preflight: dict[str, Any]) -> dict[str, Any]:
-    _enforce_worker_evidence_boundary(evidence_path)
-    path = gate_evidence_path_for_preflight(evidence_path)
-    with state_lock(path):
+    with _ledger_mutation_transaction(evidence_path, preflight) as path:
         ledger = _new_ledger(evidence_path, preflight)
         _write_gate_evidence_ledger(path, ledger)
     return ledger
@@ -182,9 +190,7 @@ def record_many_gate_evidence(
 ) -> list[dict[str, Any]]:
     if not records:
         return []
-    _enforce_worker_evidence_boundary(evidence_path)
-    path = gate_evidence_path_for_preflight(evidence_path)
-    with state_lock(path):
+    with _ledger_mutation_transaction(evidence_path, preflight) as path:
         ledger = read_gate_evidence_ledger(path)
         if not _ledger_matches_preflight(ledger, evidence_path, preflight):
             ledger = _new_ledger(evidence_path, preflight)
@@ -239,13 +245,11 @@ def bind_gate_evidence_to_capsule(
     document-reading command part of the lifecycle.
     """
 
-    _enforce_worker_evidence_boundary(evidence_path)
-    binding = _capsule_binding_for_preflight(evidence_path, preflight)
-    if not binding:
-        return 0
-    path = gate_evidence_path_for_preflight(evidence_path)
     changed = 0
-    with state_lock(path):
+    with _ledger_mutation_transaction(evidence_path, preflight) as path:
+        binding = _capsule_binding_for_preflight(evidence_path, preflight)
+        if not binding:
+            return 0
         ledger = read_gate_evidence_ledger(path)
         if not _ledger_matches_preflight(ledger, evidence_path, preflight):
             return 0
@@ -288,9 +292,7 @@ def resync_gate_evidence_ledger(evidence_path: Path, preflight: dict[str, Any]) 
     route/request identity did not actually change.
     """
 
-    _enforce_worker_evidence_boundary(evidence_path)
-    path = gate_evidence_path_for_preflight(evidence_path)
-    with state_lock(path):
+    with _ledger_mutation_transaction(evidence_path, preflight) as path:
         ledger = read_gate_evidence_ledger(path)
         if not ledger or ledger.get("invalid_json"):
             return
@@ -305,10 +307,103 @@ def resync_gate_evidence_ledger(evidence_path: Path, preflight: dict[str, Any]) 
 
 def _enforce_worker_evidence_boundary(evidence_path: Path) -> None:
     if os.environ.get("TAO_PARENT_EVIDENCE_READONLY") == "1":
-        raise PermissionError("reusable worker capsule cannot write parent gate evidence")
+        raise GateEvidenceAccessError(
+            "reusable worker capsule cannot write parent gate evidence"
+        )
     expected = os.environ.get("TAO_WORKER_EVIDENCE")
     if expected and evidence_path.resolve() != Path(expected).expanduser().resolve():
-        raise PermissionError("worker may write only its launcher-issued gate evidence")
+        raise GateEvidenceAccessError(
+            "worker may write only its launcher-issued gate evidence"
+        )
+
+
+def _claim_project(evidence_path: Path) -> Path | None:
+    """Locate the one ancestor registry that actually claims this evidence.
+
+    Which registry answers "may this caller write here" has to be decided by
+    the file about to be written, never by the preflight. Reading the project
+    out of the preflight let a caller repoint that field at an unrelated
+    directory: the guard then consulted a registry holding no claim, waved the
+    write through, and the write still landed on the real evidence path. The
+    same forged value also drove the registry's state lock into creating
+    directories under a caller-supplied path.
+
+    Directory shape is only candidate discovery, never ownership proof. Picking
+    the nearest or outermost ``.tao`` is ambiguous when state roots are nested,
+    and picking the nearest ancestor that merely *has* a state root lets an
+    unrelated intermediate directory hide the registry with the real claim.
+    Inspect only existing ancestor registries and keep the one whose opaque
+    evidence binding actually matches this path. Multiple matching registries
+    are an ownership ambiguity and fail closed instead of selecting by path
+    order. No matching registry means this is a registry-free caller.
+    """
+
+    try:
+        resolved = evidence_path.resolve()
+    except OSError:
+        return None
+    matches: list[Path] = []
+    for parent in resolved.parents:
+        try:
+            if not registry_path(parent).is_file():
+                continue
+        except OSError:
+            continue
+        if latest_run_id(parent, resolved):
+            matches.append(parent)
+    if len(matches) > 1:
+        raise GateEvidenceAccessError(
+            "gate evidence write rejected: multiple ancestor registries claim "
+            "this evidence path; ownership is ambiguous"
+        )
+    return matches[0] if matches else None
+
+
+@contextmanager
+def _ledger_mutation_transaction(
+    evidence_path: Path,
+    preflight: dict[str, Any],
+) -> Iterator[Path]:
+    """Serialize claim validation and one gate-ledger mutation.
+
+    Claimed evidence uses the system-wide project-state -> run-registry ->
+    gate-ledger lock order implemented by
+    ``ledger_writable_run_claim_transaction``. Keeping all four mutation paths
+    here -- append, reset, resync, and capsule bind -- prevents any one of them
+    from reopening the check-before-lock race. Evidence with no registry claim
+    preserves the legacy ledger-only transaction.
+    """
+
+    _enforce_worker_evidence_boundary(evidence_path)
+    path = gate_evidence_path_for_preflight(evidence_path)
+
+    # The registry, not the preflight, decides whether a claim exists. The
+    # preflight is the same caller-supplied file this guard protects, so
+    # reading the answer out of it let one dropped field switch the guard off
+    # and a foreign owner replace a recorded FAIL with SUCCESS. Where the
+    # registry holds no claim for this evidence path there is nothing to
+    # violate, which keeps registry-free callers working.
+    project = _claim_project(evidence_path)
+    if project is None:
+        with state_lock(path):
+            yield path
+        return
+    run_id = str(preflight.get("agent_run_id") or "").strip()
+    with ledger_writable_run_claim_transaction(
+        project,
+        evidence_path,
+        run_id,
+        path,
+    ) as writable:
+        if not writable:
+            raise GateEvidenceAccessError(
+                "gate evidence write rejected: this run claim is not writable by the "
+                "caller; either another live session owns it, the claim changed, or "
+                "the run is already settled. A failed or reconcile_required run "
+                "stays writable so its owner can record the missing gates and rerun "
+                "finish."
+            )
+        yield path
 
 
 def merge_gate_evidence_from_ledger(
@@ -327,6 +422,7 @@ def merge_gate_evidence_from_ledger(
         "missing_fields": {},
         "sources": {},
         "capsule_bindings": {},
+        "entry_fields": {},
     }
     if not ledger:
         return {}, diagnostics
@@ -357,6 +453,7 @@ def merge_gate_evidence_from_ledger(
             }
             diagnostics["sources"].pop(gate, None)
             diagnostics["capsule_bindings"].pop(gate, None)
+            diagnostics["entry_fields"].pop(gate, None)
             diagnostics["missing_fields"].pop(gate, None)
             diagnostics["invalid_statuses"].pop(gate, None)
             continue
@@ -367,6 +464,7 @@ def merge_gate_evidence_from_ledger(
             diagnostics["failed_gates"].pop(gate, None)
             diagnostics["sources"].pop(gate, None)
             diagnostics["capsule_bindings"].pop(gate, None)
+            diagnostics["entry_fields"].pop(gate, None)
             diagnostics["missing_fields"].pop(gate, None)
             diagnostics["invalid_statuses"][gate] = status or "<missing>"
             continue
@@ -377,6 +475,7 @@ def merge_gate_evidence_from_ledger(
         diagnostics["failed_gates"].pop(gate, None)
         diagnostics["sources"].pop(gate, None)
         diagnostics["capsule_bindings"].pop(gate, None)
+        diagnostics["entry_fields"].pop(gate, None)
         diagnostics["missing_fields"].pop(gate, None)
         diagnostics["invalid_statuses"].pop(gate, None)
         evidence, missing = synthesize_gate_evidence(
@@ -390,7 +489,9 @@ def merge_gate_evidence_from_ledger(
         if evidence:
             merged[gate] = evidence
             diagnostics["sources"][gate] = str(entry.get("source") or "ledger")
-            binding = _string_fields(entry.get("fields") or {}).get(CAPSULE_BINDING_FIELD)
+            entry_fields = _string_fields(entry.get("fields") or {})
+            diagnostics["entry_fields"][gate] = entry_fields
+            binding = entry_fields.get(CAPSULE_BINDING_FIELD)
             if binding:
                 diagnostics["capsule_bindings"][gate] = binding
             else:

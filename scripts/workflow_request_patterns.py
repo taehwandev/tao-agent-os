@@ -74,6 +74,73 @@ IMPERATIVE_CORRECTION_ACTION_PATTERNS = (
     r"(?:^|[.!?;,]\s*)(?:please\s+|just\s+)?"
     r"(?:fix|correct|redo|revise|repair|rework)\b",
 )
+_CORRECTION_VERB = r"(?:fix|correct|redo|revise|repair|rework|rewrite|refactor)"
+_CORRECTION_META_NOUN = r"(?:behavior|word|term|label|concept|name|phrase)"
+# A correction verb opening a sentence is an instruction only when a target
+# follows it. These rules describe the two grammars where it is instead the
+# sentence's subject, so near-identical phrasings are covered by structure
+# rather than by listing example sentences:
+#
+#   1. the verb heads a noun phrase that a copula or a naming verb follows
+#      ("Fix is the wrong word", "Correct behavior means what",
+#      "Revise, in this context, refers to which stage")
+#   2. two correction verbs are coordinated as terms being compared
+#      ("Repair or refactor: which one", "Fix and rework are interchangeable")
+#   3. the verb is quoted as a term and a separator hands over to an actual
+#      question about it ("Fix: what does this mean?", "Correct? Is that the
+#      right term here?"). The interrogative opener and the closing question
+#      mark are both load-bearing: without them the same span matched ordinary
+#      bug reports that merely name a label or a term ("Fix: the label is
+#      wrong on the submit button"), and answering those instead of routing
+#      them as work is the opposite failure.
+#
+# A real request keeps a determiner-led object between the verb and any copula
+# ("Fix the test that is failing"). Metalinguistic subjects instead allow only
+# a closed semantic noun or an ``as``/``in`` modifier before the naming verb.
+# Form 3 needs no such gap rule: the separator already ends the verb phrase, so
+# an imperative cannot reach across it, and the question that follows still has
+# to be about naming rather than about work.
+# Naming verbs carry their gloss form too ("Fix, meaning what exactly"), so the
+# -ing shape is generated here rather than spelled out per verb; listing one of
+# them by hand is what left the others behind.
+_CORRECTION_NAMING_VERB = (
+    r"(?:is|are|was|were|"
+    r"mean(?:s|ing)?|denot(?:es?|ing)|signif(?:ies|ying)|impl(?:ies|ying)|"
+    r"refer(?:s|ring)?\s+to|stand(?:s|ing)?\s+for|sound(?:s|ing)?|"
+    r"read(?:s|ing)?)"
+)
+CORRECTION_WORD_SENSE_QUESTION_PATTERNS = (
+    r"^correct\s+me\s+if\s+i(?:(?:'|’)m|\s+am)\s+wrong\b",
+    r"^correct\s+or\s+incorrect\b",
+    # The comma before the naming verb may be paired, as in an appositive
+    # ("Revise, in this context, refers to"), or single, as in a gloss
+    # ("Fix, meaning what exactly"). Requiring the pair dropped the gloss form.
+    r"^" + _CORRECTION_VERB + r"\b"
+    r"(?:\s+" + _CORRECTION_META_NOUN + r")?"
+    r"(?:\s*,[^,]{0,40},|\s+(?:as|in)\b[^,?!]{0,40})?"
+    r"\s*,?\s+" + _CORRECTION_NAMING_VERB + r"\b",
+    # A modifier can hand over to a complete interrogative clause before the
+    # naming verb ("Fix, as used here, what does it mean?"). Requiring the
+    # naming verb immediately after the modifier mistook the exact document
+    # path later in the question for an implementation target. Keep the
+    # question mark, an anaphor back to the correction term, and a naming verb
+    # mandatory so an imperative such as "Fix, as used here, the incorrect
+    # label" or "Fix, in this file, what is broken?" remains work.
+    r"^" + _CORRECTION_VERB + r"\b"
+    r"(?:\s+" + _CORRECTION_META_NOUN + r")?"
+    r"\s*,?\s*(?:as|in)\b[^,?!]{0,40},\s*"
+    r"(?:what|which|how)\b[^?]{0,40}?\b"
+    r"(?:it|that|this|the\s+(?:behavior|word|term|label|concept|name|phrase))"
+    r"\s+"
+    + _CORRECTION_NAMING_VERB + r"\b[^?]*\?",
+    r"^" + _CORRECTION_VERB + r"\s*(?:/|and|or|vs\.?|versus)\s*"
+    + _CORRECTION_VERB + r"\b",
+    r"^" + _CORRECTION_VERB + r"\s*[:;?!—–-]+\s*"
+    r"(?:what|which|how|why|when|is|are|was|were|does|do|did|should|would|can)\b"
+    r"[^.]{0,60}?"
+    r"(?:\b" + _CORRECTION_NAMING_VERB + r"\b|\b" + _CORRECTION_META_NOUN + r"\b)"
+    r"[^.]*\?",
+)
 EXACT_PATTERNS = (
     r"`[^`]+`",
     r"(?:^|\s)(?:~/|\.{1,2}/|/)[A-Za-z0-9_./-]+",

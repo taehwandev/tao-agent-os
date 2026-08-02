@@ -6,7 +6,7 @@ route identity, and state-lock helpers.
 Forbidden imports: finish/review hook orchestration, skill-feedback processing,
 workflow routing, or project-specific policy.
 Callers/tests: finish and review failure reporters plus hook repair validation;
-focused regression coverage lives in ``tests/test_workflow_routing.py``.
+focused regression coverage lives in ``tests/test_agent_repair_ledger_cycle.py``.
 Verification: run the checkpoint-signature, bounded-attempt, concurrency, and
 finish-reporting regression tests before broader workflow validation.
 """
@@ -19,11 +19,18 @@ from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json, read_json_object
-from agent_route_state import preflight_evidence_sha256, route_fingerprint
+from agent_route_state import (
+    preflight_evidence_sha256,
+    request_fingerprint,
+    route_fingerprint,
+)
 from agent_state_lock import state_lock
 
 
 SCHEMA_VERSION = 1
+REBOUND = "rebound"
+NOT_APPLICABLE = "not_applicable"
+CONFLICT = "conflict"
 
 
 def failure_signature(failures: list[str]) -> str:
@@ -34,6 +41,103 @@ def repair_checkpoint_path_for_preflight(evidence_path: Path) -> Path:
     if evidence_path.name == "preflight.json":
         return evidence_path.parent / "repair-checkpoints.json"
     return evidence_path.parent / f"{evidence_path.stem}-repair-checkpoints.json"
+
+
+def capture_failure_checkpoint_binding(evidence_path: Path) -> dict[str, str]:
+    """Capture a content-free binding before start replaces preflight bytes.
+
+    The repair ledger itself deliberately stores no request content.  This
+    in-memory receipt adds only the old request fingerprint so a later
+    required-document refresh cannot accidentally transfer a failed checkpoint
+    to another task that happens to use the same route.
+    """
+
+    path = repair_checkpoint_path_for_preflight(evidence_path)
+    with state_lock(path):
+        payload = read_json_object(path)
+        preflight = read_json_object(evidence_path)
+        if (
+            not payload
+            or payload.get("invalid_json")
+            or payload.get("schema_version") != SCHEMA_VERSION
+            or not isinstance(payload.get("failed_checkpoints"), list)
+            or not payload.get("failed_checkpoints")
+            or not preflight
+            or preflight.get("invalid_json")
+            or not _same_evidence_path(payload.get("preflight_evidence"), evidence_path)
+        ):
+            return {}
+        try:
+            evidence_sha256 = preflight_evidence_sha256(evidence_path)
+        except OSError:
+            return {}
+        current_route_fingerprint = route_fingerprint(preflight.get("route") or {})
+        if (
+            payload.get("preflight_evidence_sha256") != evidence_sha256
+            or payload.get("route_fingerprint") != current_route_fingerprint
+        ):
+            return {}
+        return {
+            "preflight_evidence_sha256": evidence_sha256,
+            "route_fingerprint": current_route_fingerprint,
+            "request_fingerprint": request_fingerprint(
+                preflight.get("request_intake") or {}
+            ),
+        }
+
+
+def rebind_failure_checkpoints_after_required_doc_refresh(
+    *,
+    evidence_path: Path,
+    preflight: dict[str, Any],
+    prior_binding: dict[str, str],
+    required_doc_drift: bool,
+) -> str:
+    """Rebind one valid repair ledger after same-task required-doc drift.
+
+    Returning ``conflict`` is intentionally distinct from a non-applicable
+    binding: once the exact same task proved required-doc drift, losing or
+    replacing its captured failure ledger must stop start rather than silently
+    granting a fresh repair budget.
+    """
+
+    if not required_doc_drift or not prior_binding:
+        return NOT_APPLICABLE
+    _enforce_worker_evidence_boundary(evidence_path)
+    current_route_fingerprint = route_fingerprint(preflight.get("route") or {})
+    current_request_fingerprint = request_fingerprint(
+        preflight.get("request_intake") or {}
+    )
+    if (
+        prior_binding.get("route_fingerprint") != current_route_fingerprint
+        or prior_binding.get("request_fingerprint") != current_request_fingerprint
+    ):
+        return NOT_APPLICABLE
+
+    path = repair_checkpoint_path_for_preflight(evidence_path)
+    with state_lock(path):
+        payload = read_json_object(path)
+        if (
+            not payload
+            or payload.get("invalid_json")
+            or payload.get("schema_version") != SCHEMA_VERSION
+            or not isinstance(payload.get("failed_checkpoints"), list)
+            or not payload.get("failed_checkpoints")
+            or not _same_evidence_path(payload.get("preflight_evidence"), evidence_path)
+            or payload.get("preflight_evidence_sha256")
+            != prior_binding.get("preflight_evidence_sha256")
+            or payload.get("route_fingerprint") != current_route_fingerprint
+        ):
+            return CONFLICT
+        try:
+            payload["preflight_evidence_sha256"] = preflight_evidence_sha256(
+                evidence_path
+            )
+        except OSError:
+            return CONFLICT
+        payload["rebound_at"] = datetime.now(timezone.utc).isoformat()
+        atomic_write_json(path, payload)
+    return REBOUND
 
 
 def record_failure_checkpoints(

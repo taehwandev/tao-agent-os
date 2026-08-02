@@ -53,6 +53,8 @@ from agent_preflight_runtime import (
     _claude_spill_warnings,
 )
 from agent_review_hook import (
+    record_review_failure,
+    record_review_gate,
     record_review_prerequisite_readiness,
     review_hook,
     review_vibeguard_command,
@@ -294,6 +296,91 @@ class ReviewHookTests(unittest.TestCase):
             self.assertEqual([], checks["review_prerequisite_missing"])
             self.assertEqual([], failures)
 
+    def test_review_hook_ignores_failed_post_review_gate_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            preflight = {
+                "route": {
+                    "command": "review",
+                    "gates": [
+                        "source docs",
+                        "review hook",
+                        "retrospective check",
+                        "commit readiness",
+                    ],
+                },
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence_path, preflight)
+            record_gate_evidence(
+                evidence_path=evidence_path,
+                preflight=preflight,
+                gate="source docs",
+                evidence="required docs were read",
+                fields={
+                    "required_docs": "AGENTS.md",
+                    "source": "project instructions",
+                    "takeaway": "apply the project workflow",
+                },
+            )
+            for gate in ("retrospective check", "commit readiness"):
+                record_gate_evidence(
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                    gate=gate,
+                    evidence=f"{gate} failed before repair",
+                    status="FAIL",
+                )
+            args = SimpleNamespace(project=project, evidence=evidence_path)
+            checks: dict[str, object] = {}
+            failures: list[str] = []
+
+            record_review_prerequisite_readiness(args, checks, failures)
+
+            self.assertEqual(["source docs"], checks["review_prerequisite_gates"])
+            self.assertEqual([], checks["review_prerequisite_missing"])
+            self.assertEqual([], failures)
+
+    def test_failed_review_invalidates_an_earlier_successful_review_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            preflight = {
+                "route": {
+                    "command": "review",
+                    "gates": ["review hook"],
+                },
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence_path, preflight)
+            record_gate_evidence(
+                evidence_path=evidence_path,
+                preflight=preflight,
+                gate="review hook",
+                evidence="earlier review hook completed successfully",
+                status="SUCCESS",
+                source="review",
+            )
+
+            record_review_failure(
+                SimpleNamespace(project=project, evidence=evidence_path),
+                ["review outcome reports unresolved findings"],
+            )
+            evidence, diagnostics = merge_gate_evidence_from_ledger(
+                route=preflight["route"],
+                evidence_path=evidence_path,
+            )
+
+            self.assertNotIn("review hook", evidence)
+            self.assertIn("review hook", diagnostics["failed_gates"])
+            self.assertEqual(
+                "review",
+                diagnostics["failed_gates"]["review hook"]["source"],
+            )
+
     def test_review_hook_detects_mutation_outside_pathspec(self) -> None:
         full_statuses = [
             " M outside.py\n",
@@ -434,6 +521,7 @@ class ReviewHookTests(unittest.TestCase):
         # not crash the hook before it can report anything.
         with (
             patch("agent_review_hook.record_review_failure"),
+            patch("agent_review_hook.record_review_gate"),
             patch("agent_review_hook.record_review_prerequisite_readiness"),
         ):
             review_hook(
@@ -468,6 +556,22 @@ class ReviewHookTests(unittest.TestCase):
                     checkpoint="review",
                 )
             )
+
+    def test_review_success_cannot_skip_an_unreadable_attestation_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            missing_evidence = project / ".tao" / "missing-preflight.json"
+            args = SimpleNamespace(
+                project=project,
+                rules=project,
+                evidence=missing_evidence,
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "requires readable preflight evidence",
+            ):
+                record_review_gate(args, {})
 
     def test_review_hook_preserves_workflow_validate_diagnostic(self) -> None:
         detail = workflow_validate_failure_detail({

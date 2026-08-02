@@ -23,9 +23,16 @@ from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_execution_capsule_state import atomic_write_json
 from agent_gate_evidence import resync_gate_evidence_ledger
 from agent_run_owner import process_owner
-from agent_run_registry import active_runs, latest_run_id
+from agent_run_registry import (
+    active_run_bindings,
+    active_runs,
+    evidence_binding_key,
+    latest_run_id,
+)
+from agent_worker_evidence import is_isolated_worker_evidence
 
 SESSION_ENV_VARS = (("claude", "CLAUDE_CODE_SESSION_ID"),)
+WORKER_EVIDENCE_ENV = "TAO_WORKER_EVIDENCE"
 RUN_ID_LENGTH = 32
 
 
@@ -48,6 +55,28 @@ def recorded_session_id(payload: object) -> str:
     return recorded if isinstance(recorded, str) else ""
 
 
+def is_run_local_continuation_evidence(
+    project: Path, evidence: Path | None
+) -> bool:
+    """Return whether an evidence file can own a run-local continuation packet."""
+
+    if evidence is None:
+        return False
+    try:
+        relative = evidence.resolve().relative_to(
+            project.resolve() / ".tao" / "runs"
+        )
+    except (OSError, ValueError):
+        return False
+    parts = relative.parts
+    return (
+        len(parts) == 2
+        and len(parts[0]) == RUN_ID_LENGTH
+        and all(character in "0123456789abcdef" for character in parts[0])
+        and bool(parts[1])
+    )
+
+
 def resolve_runtime_evidence(
     project: Path,
     session: dict[str, str] | None = None,
@@ -55,33 +84,69 @@ def resolve_runtime_evidence(
     """Resolve one exact active run from its runtime session binding.
 
     The registry intentionally stores no local path.  Continuation-capable runs
-    use their opaque run id as the directory name, so the only candidate path
-    is deterministic and is verified against the registry evidence key.  No
-    timestamp ordering or newest-file scan participates in the decision.
+    use their opaque run id as the directory name.  Other project-local evidence
+    is discovered only by the registry's safe basename below ``.tao`` and then
+    verified against the exact registry evidence key.  No timestamp ordering or
+    newest-file selection participates in the decision.  The launcher-issued
+    worker evidence path narrows an isolated worker to its own claim.  Without
+    that binding, worker evidence is outside the parent session's candidate
+    scope.
     """
 
+    project = project.resolve()
     identity = session or runtime_session()
     runtime = str(identity.get("runtime") or "")
     session_id = str(identity.get("session_id") or "")
     if not runtime or not session_id:
         return None
+    bindings = active_run_bindings(project)
+    if not bindings:
+        return None
+    worker_scope, worker_evidence = _worker_evidence_scope(project)
+    if worker_scope:
+        if worker_evidence is None:
+            return None
+        candidates: tuple[Path, ...] = (worker_evidence,)
+        out_of_scope: tuple[Path, ...] = ()
+        complete = True
+    else:
+        evidence_names = {
+            str(run.get("evidence_name") or "")
+            for run in bindings.values()
+            if _safe_evidence_name(run)
+        }
+        candidates, out_of_scope, complete = _runtime_evidence_candidates(
+            project, evidence_names
+        )
     matches: list[Path] = []
-    for run in active_runs(project):
-        candidate = _run_evidence_candidate(project, run)
-        if candidate is None or latest_run_id(project, candidate) != run.get("run_id"):
+    resolved_keys: set[str] = set()
+    for candidate in candidates:
+        key = evidence_binding_key(project, candidate)
+        run = bindings.get(key)
+        if run is None:
             continue
-        payload = _read_object(candidate)
-        bound = payload.get("runtime_session")
-        if not isinstance(bound, dict):
-            continue
-        generation = int(run.get("resume_generation") or 0)
-        bound_generation = bound.get("resume_generation", 0)
-        if (
-            bound.get("runtime") == runtime
-            and bound.get("session_id") == session_id
-            and bound_generation == generation
+        resolved_keys.add(key)
+        if not _session_binding_matches(
+            candidate, run, runtime=runtime, session_id=session_id
         ):
-            matches.append(candidate)
+            continue
+        matches.append(candidate)
+    # Isolated worker evidence is deliberately outside the parent's candidate
+    # scope, but its claim is still accounted for here. Otherwise an active
+    # worker binding could never be resolved, and the completeness rule below
+    # would deny the parent for every incomplete scan.
+    resolved_keys.update(
+        key
+        for key in (evidence_binding_key(project, path) for path in out_of_scope)
+        if key in bindings
+    )
+    # A file the scan missed can only add a match through an active binding
+    # key. Once every active key already has its file, no unseen file can
+    # change the decision; until then an incomplete scan must fail closed so a
+    # skipped subtree cannot hide the second claim the single-match rule exists
+    # to catch.
+    if not complete and resolved_keys != set(bindings):
+        return None
     return matches[0] if len(matches) == 1 else None
 
 
@@ -145,15 +210,120 @@ def bind_resumed_runtime_session(
 def _run_evidence_candidate(project: Path, run: dict[str, Any]) -> Path | None:
     run_id = str(run.get("run_id") or "")
     name = str(run.get("evidence_name") or "")
-    if (
-        len(run_id) != RUN_ID_LENGTH
-        or any(character not in "0123456789abcdef" for character in run_id)
-        or not name
-        or Path(name).name != name
-    ):
+    if not name or Path(name).name != name:
         return None
     candidate = project.resolve() / ".tao" / "runs" / run_id / name
-    return candidate if candidate.is_file() else None
+    return (
+        candidate
+        if candidate.is_file()
+        and is_run_local_continuation_evidence(project, candidate)
+        else None
+    )
+
+
+def _worker_evidence_scope(project: Path) -> tuple[bool, Path | None]:
+    raw = os.environ.get(WORKER_EVIDENCE_ENV, "").strip()
+    if not raw:
+        return False, None
+    candidate = Path(raw).expanduser().absolute()
+    if not is_isolated_worker_evidence(project, candidate):
+        return True, None
+    return True, candidate.resolve()
+
+
+def _safe_evidence_name(run: dict[str, Any]) -> bool:
+    name = str(run.get("evidence_name") or "")
+    return bool(name) and Path(name).name == name
+
+
+def _within_worker_root(filename: object, worker_root: Path) -> bool:
+    """Return whether a walk error came from the isolated worker subtree."""
+
+    if not isinstance(filename, (str, bytes, os.PathLike)):
+        return False
+    try:
+        path = Path(os.fsdecode(filename))
+    except (TypeError, ValueError, UnicodeDecodeError):
+        return False
+    return path == worker_root or worker_root in path.parents
+
+
+def _runtime_evidence_candidates(
+    project: Path, evidence_names: set[str]
+) -> tuple[tuple[Path, ...], tuple[Path, ...], bool]:
+    """Enumerate the parent session's evidence files once.
+
+    Returns the in-scope candidates, the isolated-worker files that were found
+    but stay out of the parent's scope, and whether the enumeration saw every
+    place a parent candidate could be. Worker files are reported rather than
+    skipped because the caller still has to account for their registry claim;
+    dropping them made an active worker binding permanently unresolvable.
+
+    ``.tao`` also holds unrelated run, worker and worktree state that a
+    concurrent run creates and removes, so one unreadable or vanishing
+    directory must skip that subtree rather than discard the scan -- aborting
+    denied every edit over state the decision never depended on. Completeness
+    is reported instead of assumed so the caller can still fail closed when a
+    file the scan could not see might have changed the decision. An error
+    inside the worker root never counts against it: nothing there can become a
+    parent candidate, so an unreadable worker directory is not a reason to deny
+    the parent session.
+    """
+
+    if not evidence_names:
+        return (), (), True
+    candidates: list[Path] = []
+    worker_scoped: list[Path] = []
+    complete = True
+    project_state = project.resolve() / ".tao"
+    worker_root = project_state / "workers"
+
+    def note_error(error: OSError) -> None:
+        nonlocal complete
+        if not _within_worker_root(error.filename, worker_root):
+            complete = False
+
+    for root, directories, filenames in os.walk(
+        project_state, topdown=True, onerror=note_error, followlinks=False
+    ):
+        current = Path(root)
+        directories[:] = sorted(directories)
+        inside_worker_root = current == worker_root or worker_root in current.parents
+        for filename in sorted(filenames):
+            if filename not in evidence_names:
+                continue
+            candidate = current / filename
+            try:
+                if not candidate.is_file() or candidate.is_symlink():
+                    continue
+                resolved = candidate.resolve()
+            except OSError:
+                complete = False
+                continue
+            if inside_worker_root:
+                worker_scoped.append(resolved)
+            else:
+                candidates.append(resolved)
+    return tuple(candidates), tuple(worker_scoped), complete
+
+
+def _session_binding_matches(
+    candidate: Path,
+    run: dict[str, Any],
+    *,
+    runtime: str,
+    session_id: str,
+) -> bool:
+    payload = _read_object(candidate)
+    bound = payload.get("runtime_session")
+    if not isinstance(bound, dict):
+        return False
+    return (
+        bound.get("runtime") == runtime
+        and bound.get("session_id") == session_id
+        and bound.get("resume_generation", 0)
+        == int(run.get("resume_generation") or 0)
+    )
 
 
 def _read_object(path: Path) -> dict[str, Any]:

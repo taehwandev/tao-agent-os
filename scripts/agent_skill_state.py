@@ -149,7 +149,6 @@ def candidate_occurrence_count(root: Path, candidate: str) -> int:
             and CANDIDATE_ID_RE.fullmatch(occurrence_key)
         ):
             continue
-        skill_id = str(payload.get("skill_id") or "")
         normalized = {
             **payload,
             "candidate_id": candidate,

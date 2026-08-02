@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 import uuid
 from argparse import Namespace
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,13 +20,32 @@ from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
 from agent_hook_gate_records import preflight_evidence_path
 from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import register_run, registry_path
+import agent_runtime_session
 from agent_runtime_session import (
     bind_resumed_runtime_session,
+    is_run_local_continuation_evidence,
     resolve_runtime_evidence,
 )
 
 ROUTE = {"command": "task", "gates": ["finish"], "required_docs": []}
 INTAKE = {"request": "runtime fixture request", "request_classified": False}
+
+
+@contextmanager
+def unreadable_directory(test: unittest.TestCase, path: Path):
+    """Make one directory refuse enumeration for the body of the test."""
+
+    os.chmod(path, 0o000)
+    try:
+        try:
+            os.listdir(path)
+        except OSError:
+            pass
+        else:
+            test.skipTest("this filesystem still enumerates a 0o000 directory")
+        yield
+    finally:
+        os.chmod(path, 0o755)
 
 
 class RuntimeFixture:
@@ -80,6 +101,346 @@ class RuntimeFixture:
 
 
 class RuntimeEvidenceTests(unittest.TestCase):
+    def test_run_local_continuation_eligibility_rejects_custom_and_spoofed_paths(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            custom = fixture.project / ".tao" / "preflight-hotfix.json"
+            custom.write_text("{}", encoding="utf-8")
+            spoofed = (
+                fixture.project
+                / ".tao"
+                / "runs"
+                / "not-an-opaque-run"
+                / "preflight.json"
+            )
+            spoofed.parent.mkdir(parents=True)
+            spoofed.write_text("{}", encoding="utf-8")
+
+            self.assertTrue(
+                is_run_local_continuation_evidence(
+                    fixture.project, fixture.evidence
+                )
+            )
+            self.assertFalse(
+                is_run_local_continuation_evidence(fixture.project, custom)
+            )
+            self.assertFalse(
+                is_run_local_continuation_evidence(fixture.project, spoofed)
+            )
+
+    def test_exact_session_resolves_project_local_custom_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            evidence = project / ".tao" / "preflight-hotfix.json"
+            evidence.parent.mkdir()
+            register_run(project, evidence, ROUTE, INTAKE)
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "runtime_session": {
+                            "runtime": "claude",
+                            "session_id": "custom-session",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            resolved = resolve_runtime_evidence(
+                project,
+                {"runtime": "claude", "session_id": "custom-session"},
+            )
+
+            self.assertIsNotNone(resolved)
+            assert resolved is not None
+            self.assertEqual(evidence.resolve(), resolved.resolve())
+            self.assertIsNone(
+                resolve_runtime_evidence(
+                    project,
+                    {"runtime": "claude", "session_id": "other-session"},
+                )
+            )
+
+            registry = registry_path(project)
+            state = json.loads(registry.read_text(encoding="utf-8"))
+            state["runs"][0]["resume_generation"] = 1
+            registry.write_text(json.dumps(state), encoding="utf-8")
+            self.assertIsNone(
+                resolve_runtime_evidence(
+                    project,
+                    {"runtime": "claude", "session_id": "custom-session"},
+                )
+            )
+
+    def test_nested_project_local_candidate_uses_exact_registry_evidence_key(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            registered = project / ".tao" / "nested" / "preflight-hotfix.json"
+            registered.parent.mkdir(parents=True)
+            register_run(project, registered, ROUTE, INTAKE)
+            payload = {
+                "runtime_session": {
+                    "runtime": "claude",
+                    "session_id": "custom-session",
+                }
+            }
+            registered.write_text(json.dumps(payload), encoding="utf-8")
+            forged = project / ".tao" / registered.name
+            forged.write_text(json.dumps(payload), encoding="utf-8")
+
+            resolved = resolve_runtime_evidence(
+                project,
+                {"runtime": "claude", "session_id": "custom-session"},
+            )
+
+            self.assertIsNotNone(resolved)
+            assert resolved is not None
+            self.assertEqual(registered.resolve(), resolved.resolve())
+
+    def test_multiple_exact_custom_session_bindings_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            payload = {
+                "runtime_session": {
+                    "runtime": "claude",
+                    "session_id": "ambiguous-session",
+                }
+            }
+            for name in ("preflight-one.json", "preflight-two.json"):
+                evidence = project / ".tao" / name
+                evidence.parent.mkdir(exist_ok=True)
+                register_run(project, evidence, ROUTE, INTAKE)
+                evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+            self.assertIsNone(
+                resolve_runtime_evidence(
+                    project,
+                    {"runtime": "claude", "session_id": "ambiguous-session"},
+                )
+            )
+
+    def test_unreadable_unrelated_state_skips_only_that_subtree(self) -> None:
+        # Given a session whose only active binding is readable, when unrelated
+        # concurrent-run state under `.tao` cannot be enumerated, the session
+        # still resolves its own evidence instead of losing every edit to state
+        # the decision never depended on.
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            session = {"runtime": "claude", "session_id": "walk-session"}
+            evidence = project / ".tao" / "preflight-parent.json"
+            evidence.parent.mkdir()
+            register_run(project, evidence, ROUTE, INTAKE)
+            evidence.write_text(
+                json.dumps({"runtime_session": session}), encoding="utf-8"
+            )
+            unrelated = project / ".tao" / "worktrees" / "stale"
+            unrelated.mkdir(parents=True)
+
+            with unreadable_directory(self, unrelated):
+                self.assertEqual(
+                    evidence.resolve(),
+                    resolve_runtime_evidence(project, session),
+                )
+
+    def test_unreadable_state_hiding_a_second_binding_fails_closed(self) -> None:
+        # Negative control for the case above: when the subtree the scan had to
+        # skip is the one holding a second active binding for the same session,
+        # the single-match rule must still refuse rather than resolve the one
+        # claim that happened to stay visible.
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            session = {"runtime": "claude", "session_id": "walk-session"}
+            payload = json.dumps({"runtime_session": session})
+            visible = project / ".tao" / "preflight-one.json"
+            visible.parent.mkdir()
+            hidden_root = project / ".tao" / "hidden"
+            hidden_root.mkdir()
+            hidden = hidden_root / "preflight-two.json"
+            for evidence in (visible, hidden):
+                register_run(project, evidence, ROUTE, INTAKE)
+                evidence.write_text(payload, encoding="utf-8")
+
+            with unreadable_directory(self, hidden_root):
+                self.assertIsNone(resolve_runtime_evidence(project, session))
+
+    def test_active_worker_claim_does_not_deny_the_parent_on_an_incomplete_scan(
+        self,
+    ) -> None:
+        # Worker evidence is out of the parent's candidate scope but its
+        # registry claim still exists. If it were simply dropped, no scan could
+        # ever account for that key, so every unreadable subtree would deny an
+        # otherwise healthy parent session.
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            session = {"runtime": "claude", "session_id": "walk-session"}
+            payload = json.dumps({"runtime_session": session})
+            parent = project / ".tao" / "preflight-parent.json"
+            worker = (
+                project / ".tao" / "workers" / "0123456789abcdef" / "preflight.json"
+            )
+            for evidence in (parent, worker):
+                evidence.parent.mkdir(parents=True, exist_ok=True)
+                register_run(project, evidence, ROUTE, INTAKE)
+                evidence.write_text(payload, encoding="utf-8")
+            unrelated = project / ".tao" / "worktrees" / "stale"
+            unrelated.mkdir(parents=True)
+
+            with patch.dict(os.environ, {}, clear=True):
+                with unreadable_directory(self, unrelated):
+                    self.assertEqual(
+                        parent.resolve(),
+                        resolve_runtime_evidence(project, session),
+                    )
+
+    def test_unreadable_worker_root_does_not_deny_the_parent(self) -> None:
+        # The worker root is enumerated only to account for a worker's registry
+        # claim; no file under it can ever become a parent candidate. An error
+        # reading it therefore says nothing about the parent's decision and
+        # must not make the scan count as incomplete.
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            session = {"runtime": "claude", "session_id": "walk-session"}
+            payload = json.dumps({"runtime_session": session})
+            parent = project / ".tao" / "preflight-parent.json"
+            worker = (
+                project / ".tao" / "workers" / "0123456789abcdef" / "preflight.json"
+            )
+            for evidence in (parent, worker):
+                evidence.parent.mkdir(parents=True, exist_ok=True)
+                register_run(project, evidence, ROUTE, INTAKE)
+                evidence.write_text(payload, encoding="utf-8")
+
+            with patch.dict(os.environ, {}, clear=True):
+                with unreadable_directory(self, project / ".tao" / "workers"):
+                    self.assertEqual(
+                        parent.resolve(),
+                        resolve_runtime_evidence(project, session),
+                    )
+
+    def test_parent_and_isolated_worker_resolve_inside_their_own_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            session = {
+                "runtime": "claude",
+                "session_id": "shared-session",
+            }
+            parent = project / ".tao" / "custom" / "preflight-parent.json"
+            worker = (
+                project
+                / ".tao"
+                / "workers"
+                / "0123456789abcdef"
+                / "preflight.json"
+            )
+            for evidence in (parent, worker):
+                evidence.parent.mkdir(parents=True, exist_ok=True)
+                register_run(project, evidence, ROUTE, INTAKE)
+                evidence.write_text(
+                    json.dumps({"runtime_session": session}),
+                    encoding="utf-8",
+                )
+
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(
+                    parent.resolve(),
+                    resolve_runtime_evidence(project, session),
+                )
+            with patch.dict(
+                os.environ,
+                {"TAO_WORKER_EVIDENCE": str(worker)},
+                clear=True,
+            ):
+                self.assertEqual(
+                    worker.resolve(),
+                    resolve_runtime_evidence(project, session),
+                )
+
+    def test_invalid_or_foreign_worker_hint_fails_without_parent_fallback(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "project"
+            project.mkdir()
+            session = {
+                "runtime": "claude",
+                "session_id": "shared-session",
+            }
+            parent = project / ".tao" / "preflight-parent.json"
+            parent.parent.mkdir()
+            register_run(project, parent, ROUTE, INTAKE)
+            parent.write_text(
+                json.dumps({"runtime_session": session}),
+                encoding="utf-8",
+            )
+            invalid_hints = (
+                project / ".tao" / "workers" / "too" / "deep" / "preflight.json",
+                root / "foreign" / ".tao" / "workers" / "one" / "preflight.json",
+            )
+
+            for hint in invalid_hints:
+                with self.subTest(hint=hint):
+                    with patch.dict(
+                        os.environ,
+                        {"TAO_WORKER_EVIDENCE": str(hint)},
+                        clear=True,
+                    ):
+                        self.assertIsNone(
+                            resolve_runtime_evidence(project, session)
+                        )
+
+    def test_candidate_and_registry_enumeration_are_bounded_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            session = {
+                "runtime": "claude",
+                "session_id": "shared-session",
+            }
+            for index in range(3):
+                evidence = (
+                    project
+                    / ".tao"
+                    / f"nested-{index}"
+                    / f"preflight-{index}.json"
+                )
+                evidence.parent.mkdir(parents=True)
+                register_run(project, evidence, ROUTE, INTAKE)
+                evidence.write_text(
+                    json.dumps({"runtime_session": session}),
+                    encoding="utf-8",
+                )
+
+            with patch.dict(os.environ, {}, clear=True):
+                with patch.object(
+                    agent_runtime_session,
+                    "active_run_bindings",
+                    wraps=agent_runtime_session.active_run_bindings,
+                ) as bindings:
+                    with patch.object(
+                        agent_runtime_session,
+                        "_runtime_evidence_candidates",
+                        wraps=agent_runtime_session._runtime_evidence_candidates,
+                    ) as candidates:
+                        self.assertIsNone(
+                            resolve_runtime_evidence(project, session)
+                        )
+
+            bindings.assert_called_once_with(project.resolve())
+            candidates.assert_called_once()
+
     def test_exact_session_resolves_only_its_run_local_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = RuntimeFixture(directory)
@@ -134,6 +495,21 @@ class RuntimeEvidenceTests(unittest.TestCase):
             with patch.dict(
                 "os.environ", {"CLAUDE_CODE_SESSION_ID": "session-1"}, clear=True
             ):
+                first = preflight_evidence_path(args)
+                second = preflight_evidence_path(args)
+
+            self.assertEqual(first, second)
+            self.assertEqual("preflight.json", first.name)
+            self.assertEqual(project / ".tao" / "runs", first.parent.parent)
+            self.assertEqual(32, len(first.parent.name))
+
+    def test_generic_start_without_explicit_evidence_is_run_local(self) -> None:
+        """A runtime without a session id still gets an isolated gate ledger."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            args = Namespace(project=project, evidence=None, hook="start")
+            with patch.dict("os.environ", {}, clear=True):
                 first = preflight_evidence_path(args)
                 second = preflight_evidence_path(args)
 

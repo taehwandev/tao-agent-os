@@ -40,7 +40,10 @@ from pathlib import Path
 
 try:  # The gate must never fail to load; the import is only used for a message.
     from claude_continuation_hook import ClaudeContinuationAdapter
-    from agent_runtime_session import resolve_runtime_evidence
+    from agent_runtime_session import (
+        is_run_local_continuation_evidence,
+        resolve_runtime_evidence,
+    )
     from support.stable_launcher import stable_launcher_path
     from support.global_state import is_project_state_dir
 except ImportError:  # pragma: no cover - exercised only on a broken install
@@ -52,6 +55,11 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def resolve_runtime_evidence(project: Path, session: dict[str, str]) -> Path | None:
         return None
+
+    def is_run_local_continuation_evidence(
+        project: Path, evidence: Path | None
+    ) -> bool:
+        return False
 
     ClaudeContinuationAdapter = None
 
@@ -181,7 +189,7 @@ def deny_reason(root: Path, session_id: str = "") -> str:
     evidence = session_evidence(root, session_id)
     if evidence is None:
         cause = (
-            "No exact run-local preflight evidence is bound to this runtime session. "
+            "No exact registered preflight evidence is bound to this runtime session. "
             "Fresh or default-path evidence from another session is not reusable."
         )
     elif not evidence_is_fresh(evidence):
@@ -422,7 +430,16 @@ def decide(payload: dict) -> int:
     # A missing adapter module is a broken install, not a policy violation. This
     # gate promises never to fail to load; denying every edit because an import
     # failed breaks that promise and removes the means of repairing the install.
-    if ClaudeContinuationAdapter is not None:
+    evidence = session_evidence(root, session_id)
+    if evidence is None:
+        # The active claim can disappear between the workflow-entry check and
+        # the mutation checkpoint. Do not turn that registry race into an
+        # uncheckpointed edit.
+        return deny(deny_reason(root, session_id))
+    if (
+        ClaudeContinuationAdapter is not None
+        and is_run_local_continuation_evidence(root, evidence)
+    ):
         continuation_reason = ClaudeContinuationAdapter.pre_mutation(
             payload, root=root, cwd=cwd, session_id=session_id
         )
