@@ -23,6 +23,7 @@ from agent_execution_capsule_validation import (
 from agent_finish_common import add_gate_signal, append_unique
 from agent_finish_gate_policy import SOURCE_DOCS_GATE, validate_gate_evidence
 from agent_finish_documentation import documented_required_doc_updates
+from agent_review_attestation import REVIEW_HOOK_GATE, ReviewAttestation
 from agent_route_state import preflight_evidence_sha256, request_fingerprint, route_fingerprint
 from workflow_common import QUESTION_ROUTE_COMMANDS
 from workflow_request import (
@@ -47,6 +48,44 @@ GRILL_ME_EVIDENCE_GATES = (
     "question drill",
     "clarification drill",
 )
+
+
+def enforce_review_hook_attestation(
+    *,
+    route: dict[str, Any],
+    project: Path,
+    rules: Path,
+    evidence_path: Path,
+    gate_evidence: dict[str, str],
+    gate_evidence_ledger: dict[str, Any],
+    failures: list[str],
+) -> None:
+    """Remove a ledger-only review success unless the real hook attested it."""
+
+    if REVIEW_HOOK_GATE not in (route.get("gates") or []):
+        return
+    if REVIEW_HOOK_GATE not in gate_evidence:
+        return
+    entry_fields = (gate_evidence_ledger.get("entry_fields") or {}).get(
+        REVIEW_HOOK_GATE, {}
+    )
+    source = (gate_evidence_ledger.get("sources") or {}).get(REVIEW_HOOK_GATE, "")
+    attestation_failures = ReviewAttestation.failures(
+        project=project,
+        rules=rules,
+        evidence_path=evidence_path,
+        route=route,
+        ledger_fields=entry_fields,
+        ledger_source=source,
+    )
+    gate_evidence_ledger["review_attestation"] = {
+        "valid": not attestation_failures,
+        "failures": attestation_failures,
+    }
+    if not attestation_failures:
+        return
+    gate_evidence.pop(REVIEW_HOOK_GATE, None)
+    failures.extend(attestation_failures)
 
 
 def resolve_paths(args: argparse.Namespace) -> tuple[Path, Path, Path, Path]:

@@ -14,6 +14,7 @@ from agent_delegation_plan import (
     validate_delegation_plan_evidence,
 )
 from agent_gate_evidence import (
+    GateEvidenceAccessError,
     bind_gate_evidence_to_capsule,
     canonical_gate_fields,
     missing_structured_gate_fields,
@@ -26,11 +27,14 @@ from agent_gate_evidence import (
 from agent_finish_gate_policy import MULTI_AGENT_GATE, validate_gate_evidence
 from agent_finish_check_steps import validate_recorded_grill_me_evidence
 from agent_finish_documentation import required_doc_target_failures
-from agent_hook_runtime import finish_with_result, print_status
+from agent_hook_runtime import finish_with_result
 from agent_global_lessons import state_home
 from agent_retrospective_observation import recorded_observation_failures
 from agent_skill_catalog import canonical_skill_ids
 from agent_runtime_session import resolve_runtime_evidence, runtime_session
+
+
+HOOK_OWNED_GATES = frozenset({"review hook"})
 
 
 def preflight_evidence_path(args: argparse.Namespace) -> Path:
@@ -42,12 +46,12 @@ def preflight_evidence_path(args: argparse.Namespace) -> Path:
         if active is not None:
             args.evidence = active
             return active
-        if getattr(args, "hook", "") == "start":
-            generated = (
-                args.project / ".tao" / "runs" / uuid.uuid4().hex / "preflight.json"
-            )
-            args.evidence = generated
-            return generated
+    if getattr(args, "hook", "") == "start":
+        generated = (
+            args.project / ".tao" / "runs" / uuid.uuid4().hex / "preflight.json"
+        )
+        args.evidence = generated
+        return generated
     return args.project / ".tao" / "preflight.json"
 
 
@@ -57,8 +61,7 @@ def gate_hook(args: argparse.Namespace) -> int:
         try:
             key, value = parse_field(raw_field)
         except ValueError as error:
-            print_status("gate", False, [str(error)])
-            return 1
+            return _gate_failure(args, "gate", error, invocation_error=True)
         fields[key] = value
     try:
         entry = record_hook_gate(
@@ -69,9 +72,14 @@ def gate_hook(args: argparse.Namespace) -> int:
             args.source,
             args.status,
         )
-    except (OSError, json.JSONDecodeError, ValueError) as error:
-        print_status("gate", False, [f"gate evidence ledger update failed: {error}"])
-        return 1
+    except json.JSONDecodeError as error:
+        return _gate_failure(args, "gate", error, invocation_error=False)
+    except ValueError as error:
+        return _gate_failure(args, "gate", error, invocation_error=True)
+    except GateEvidenceAccessError as error:
+        return _gate_failure(args, "gate", error, invocation_error=True)
+    except OSError as error:
+        return _gate_failure(args, "gate", error, invocation_error=False)
     return finish_with_result(
         "gate",
         True,
@@ -85,10 +93,18 @@ def gate_hook(args: argparse.Namespace) -> int:
 def gate_batch_hook(args: argparse.Namespace) -> int:
     try:
         records = _gate_records_from_args(args)
-        entries = record_hook_gate_batch(args, records)
     except (OSError, json.JSONDecodeError, ValueError) as error:
-        print_status("gate-batch", False, [f"gate evidence batch update failed: {error}"])
-        return 1
+        return _gate_failure(args, "gate-batch", error, invocation_error=True)
+    try:
+        entries = record_hook_gate_batch(args, records)
+    except json.JSONDecodeError as error:
+        return _gate_failure(args, "gate-batch", error, invocation_error=False)
+    except ValueError as error:
+        return _gate_failure(args, "gate-batch", error, invocation_error=True)
+    except GateEvidenceAccessError as error:
+        return _gate_failure(args, "gate-batch", error, invocation_error=True)
+    except OSError as error:
+        return _gate_failure(args, "gate-batch", error, invocation_error=False)
     details = [f"{len(entries)} gate evidence entries recorded"]
     details.extend(f"recorded gate: {entry['gate']}" for entry in entries[:8])
     if len(entries) > 8:
@@ -100,6 +116,24 @@ def gate_batch_hook(args: argparse.Namespace) -> int:
         args.output,
         {"gate_evidence": entries},
         args.repair_cycle,
+    )
+
+
+def _gate_failure(
+    args: argparse.Namespace,
+    name: str,
+    error: Exception,
+    *,
+    invocation_error: bool,
+) -> int:
+    return finish_with_result(
+        name,
+        False,
+        [f"gate evidence ledger update failed: {error}"],
+        args.output,
+        {},
+        args.repair_cycle,
+        invocation_error=invocation_error,
     )
 
 
@@ -239,9 +273,15 @@ def _validate_records_before_write(
     failures: list[str] = []
 
     for record in records:
+        gate = str(record.get("gate") or "").strip()
+        if gate in HOOK_OWNED_GATES:
+            failures.append(
+                f"{gate} is hook-owned; run tao-hook review instead of "
+                "recording it through gate or gate-batch"
+            )
+            continue
         if str(record.get("status") or "SUCCESS") != "SUCCESS":
             continue
-        gate = str(record.get("gate") or "").strip()
         evidence = str(record.get("evidence") or "")
         fields = canonical_gate_fields(
             gate,

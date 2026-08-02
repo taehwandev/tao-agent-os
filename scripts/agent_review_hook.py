@@ -16,6 +16,7 @@ from agent_gate_evidence import (
 from agent_finish_final_checks import record_successful_review_workflow_validation
 from agent_inprocess import run_workflow_validate
 from agent_review_boundary import format_boundary_note_requirements, missing_boundary_note_fields
+from agent_review_attestation import ReviewAttestation
 from agent_review_structure import REVIEW_ADDED_LINE_LIMIT, structure_review
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_vibeguard_cache import cached_vibeguard
@@ -51,6 +52,7 @@ def review_hook(
     review_paths = review_pathspec(args)
     review_scope = review_scope_label(args, review_paths)
     checks["review_scope"] = review_scope
+    checks["review_paths"] = review_paths
     full_status_before, full_status_before_lines = git_status(args.project)
     if is_git_status_review_only(args.project, full_status_before):
         full_status_before["review_only"] = True
@@ -156,15 +158,19 @@ def review_hook(
             if args.evidence
             else args.project / ".tao" / "preflight.json"
         )
-        record_successful_review_workflow_validation(
-            args.project,
-            args.rules,
-            evidence_path,
-            checks["workflow_validate"],
-            checks["diff_check"],
-            review_scope,
-        )
-        record_review_gate(args, checks)
+        try:
+            record_successful_review_workflow_validation(
+                args.project,
+                args.rules,
+                evidence_path,
+                checks["workflow_validate"],
+                checks["diff_check"],
+                review_scope,
+            )
+            record_review_gate(args, checks)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            failures.append(f"review attestation failed: {error}")
+            record_review_failure(args, failures)
     else:
         record_review_failure(args, failures)
 
@@ -242,7 +248,9 @@ def record_review_prerequisite_readiness(
         )
     failures.extend(
         f"review prerequisites: {failure}"
-        for failure in incomplete_gate_evidence_failures(diagnostics)
+        for failure in incomplete_gate_evidence_failures(
+            _gate_diagnostics_for(diagnostics, prerequisite_gates)
+        )
     )
     if not missing_gates:
         failures.extend(
@@ -253,6 +261,25 @@ def record_review_prerequisite_readiness(
                 route=route,
             )
         )
+
+
+def _gate_diagnostics_for(
+    diagnostics: dict[str, Any],
+    gates: list[str],
+) -> dict[str, Any]:
+    """Restrict ledger diagnostics to the gates that precede review."""
+
+    allowed = set(gates)
+    scoped = dict(diagnostics)
+    for field in ("invalid_statuses", "failed_gates", "missing_fields"):
+        values = diagnostics.get(field)
+        if isinstance(values, dict):
+            scoped[field] = {
+                gate: value
+                for gate, value in values.items()
+                if gate in allowed
+            }
+    return scoped
 
 
 def record_review_workflow_validation(
@@ -357,12 +384,22 @@ def record_review_failure(args: Any, failures: list[str]) -> None:
     evidence_path = args.evidence if args.evidence else args.project / ".tao" / "preflight.json"
     try:
         preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
+        signature = failure_signature(failures)
+        record_gate_evidence(
+            evidence_path=evidence_path,
+            preflight=preflight,
+            gate="review hook",
+            evidence="review hook failed; repair is required before review evidence can be reused",
+            fields={"failure_signature": signature},
+            status="FAIL",
+            source="review",
+        )
         record_failure_checkpoints(
             evidence_path=evidence_path,
             preflight=preflight,
             checkpoints=["review"],
-            signature=failure_signature(failures),
-            checkpoint_signatures={"review": failure_signature(failures)},
+            signature=signature,
+            checkpoint_signatures={"review": signature},
         )
     except (OSError, ValueError):
         return
@@ -380,16 +417,27 @@ def record_review_gate(args: Any, checks: dict[str, Any]) -> None:
     evidence_path = args.evidence if args.evidence else args.project / ".tao" / "preflight.json"
     try:
         preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(
+            "review attestation requires readable preflight evidence"
+        ) from error
+    attestation = ReviewAttestation.record(
+        project=args.project,
+        rules=args.rules,
+        evidence_path=evidence_path,
+        preflight=preflight,
+        review_scope=str(checks.get("review_scope") or ""),
+        review_paths=[str(path) for path in (checks.get("review_paths") or [])],
+        changed_path_count=int(checks.get("changed_path_count") or 0),
+        checks=checks,
+    )
     record_gate_evidence(
         evidence_path=evidence_path,
         preflight=preflight,
         gate="review hook",
         evidence="review hook completed successfully and left worktree unchanged",
         fields={
-            "changed_path_count": str(checks.get("changed_path_count", "")),
-            "review_scope": str(checks.get("review_scope", "")),
+            **ReviewAttestation.ledger_fields(attestation),
             "workflow_validate": str((checks.get("workflow_validate") or {}).get("returncode", "")),
             "vibeguard": str((checks.get("vibeguard") or {}).get("overall", "")),
         },

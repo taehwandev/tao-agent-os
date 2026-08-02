@@ -48,6 +48,12 @@ from agent_hook_runtime import (
 from agent_inprocess import run_script_main
 from agent_review_hook import review_hook
 from agent_repair_verification import create_repair_receipt
+from agent_repair_ledger import (
+    CONFLICT as REPAIR_REBIND_CONFLICT,
+    REBOUND as REPAIR_REBOUND,
+    capture_failure_checkpoint_binding,
+    rebind_failure_checkpoints_after_required_doc_refresh,
+)
 from agent_skill_hooks import (
     skill_curate_hook,
     skill_feedback_hook,
@@ -67,6 +73,7 @@ from agent_run_registry import (
     transition_run,
 )
 from agent_context_store import (
+    context_snapshot_failures_are_required_doc_drift,
     context_snapshot_failures_are_replaceable,
     context_snapshot_path,
     refresh_and_validate_context_snapshot,
@@ -84,6 +91,7 @@ def start_hook(args: argparse.Namespace) -> int:
     # pre-tool gate turned that refusal into a denial of every edit.
     ensure_local_only_state_dir(args.project)
     evidence_path = preflight_evidence_path(args)
+    prior_repair_binding = capture_failure_checkpoint_binding(evidence_path)
     request_intake = {
         "request": args.request,
         "request_classified": bool(args.request_classified),
@@ -150,7 +158,11 @@ def start_hook(args: argparse.Namespace) -> int:
             details.append(capsule_detail)
         # Validate and refresh context before registering the run. If context
         # validation fails, start must not leave an orphaned running record.
-        success = _refresh_started_context(args, details) and success
+        success = _refresh_started_context(
+            args,
+            details,
+            prior_repair_binding=prior_repair_binding,
+        ) and success
         if success:
             success = _bind_read_only_execution_state(args, details)
         if success:
@@ -408,11 +420,17 @@ def _transition_finished_run(args: argparse.Namespace, success: bool) -> None:
         return
 
 
-def _refresh_started_context(args: argparse.Namespace, details: list[str]) -> bool:
+def _refresh_started_context(
+    args: argparse.Namespace,
+    details: list[str],
+    *,
+    prior_repair_binding: dict[str, str] | None = None,
+) -> bool:
     try:
         evidence_path = preflight_evidence_path(args)
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
         snapshot_path = context_snapshot_path(args.project)
+        prior_failures: list[str] = []
         if snapshot_path.exists():
             prior_failures = validate_context_snapshot(
                 args.project,
@@ -434,6 +452,18 @@ def _refresh_started_context(args: argparse.Namespace, details: list[str]) -> bo
         )
         if post_failures:
             raise ValueError("context snapshot validation failed after refresh: " + "; ".join(post_failures))
+        rebind_status = rebind_failure_checkpoints_after_required_doc_refresh(
+            evidence_path=evidence_path,
+            preflight=payload,
+            prior_binding=prior_repair_binding or {},
+            required_doc_drift=context_snapshot_failures_are_required_doc_drift(
+                prior_failures
+            ),
+        )
+        if rebind_status == REPAIR_REBIND_CONFLICT:
+            raise ValueError("repair checkpoint ledger changed during context refresh")
+        if rebind_status == REPAIR_REBOUND:
+            details.append("repair checkpoints: rebound after required-doc drift")
         details.append("context snapshot: refreshed")
         return True
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
