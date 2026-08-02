@@ -19,6 +19,25 @@ def _check_no_symlink(path: Path) -> None:
         raise OSError(f"Symbolic link detected in path: {path}")
 
 
+def is_isolated_worker_evidence(project: Path, evidence: Path) -> bool:
+    """Return whether a path has the launcher-owned worker evidence shape."""
+
+    project = project.expanduser().resolve()
+    lexical_selected = evidence.expanduser().absolute()
+    worker_root = project / ".tao" / "workers"
+    try:
+        _check_no_symlink(worker_root)
+        _check_no_symlink(lexical_selected.parent)
+        _check_no_symlink(lexical_selected)
+        if worker_root.resolve() != worker_root:
+            return False
+        selected = lexical_selected.resolve()
+        relative = selected.relative_to(worker_root)
+    except (OSError, ValueError):
+        return False
+    return len(relative.parts) == 2 and relative.parts[-1] == "preflight.json"
+
+
 def create_worker_reservation(worker_dir: Path) -> str:
     """Create a content-free reservation token in an already reserved directory."""
 

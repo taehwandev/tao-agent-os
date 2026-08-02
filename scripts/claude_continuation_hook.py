@@ -14,6 +14,7 @@ from agent_continuation_packet import ContinuationPacketError
 from agent_continuation_resume import resume_last
 from agent_runtime_session import (
     bind_resumed_runtime_session,
+    is_run_local_continuation_evidence,
     resolve_runtime_evidence,
 )
 from support.global_state import is_project_state_dir
@@ -97,7 +98,7 @@ class ClaudeContinuationAdapter:
         if root is None or not session_id:
             return None
         evidence = _session_evidence(root, session_id)
-        if evidence is None:
+        if not is_run_local_continuation_evidence(root, evidence):
             return None
         _checkpoint(root, evidence, "post_mutation")
         return None
