@@ -805,12 +805,12 @@ class RepairLedgerCycleTests(unittest.TestCase):
         # ["request intake"], and after exactly one more `gate` call it
         # became just the new gate, with "request intake" gone.
         #
-        # Run it under both runtime-session states. `start` puts its evidence in
-        # an isolated run directory when a session is present and on the shared
-        # default path when it is not, so a hard-coded ledger path silently
-        # tested whichever environment the suite happened to run in: green in a
-        # bare shell, red inside Claude Code. The ledger must be read where the
-        # product resolves it, and the property being asserted holds either way.
+        # Run it under both runtime-session states. `start` always puts implicit
+        # evidence in an isolated run directory. A session-bound caller may
+        # resolve that path from its runtime identity; a runtime without a
+        # session id must carry the exact path returned by start into every
+        # later hook. A hard-coded shared ledger path would silently test a
+        # lifecycle that the product no longer permits.
         for session_id in ("ledger-cycle-session", ""):
             with self.subTest(session=session_id or "none"):
                 self._assert_start_then_gate_preserves_intake(session_id)
@@ -824,7 +824,9 @@ class RepairLedgerCycleTests(unittest.TestCase):
             for variable, value in session_env.items():
                 if not value:
                     os.environ.pop(variable, None)
-            self._run_start_then_gate(bool(session_id), gate_evidence_path_for_preflight, resolve_runtime_evidence)
+            self._run_start_then_gate(
+                bool(session_id), gate_evidence_path_for_preflight, resolve_runtime_evidence
+            )
 
     def _run_start_then_gate(self, has_session, ledger_for, resolve_evidence) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -857,16 +859,21 @@ class RepairLedgerCycleTests(unittest.TestCase):
                 start_exit = agent_hook.main()
             self.assertEqual(0, start_exit)
 
-            evidence_path = None
+            run_evidence = tuple((project / ".tao" / "runs").glob("*/preflight.json"))
+            self.assertEqual(
+                1,
+                len(run_evidence),
+                "implicit start must allocate one unambiguous run-local evidence path",
+            )
+            evidence_path = run_evidence[0]
             if has_session:
-                evidence_path = resolve_evidence(project)
-                self.assertIsNotNone(
-                    evidence_path,
+                resolved_evidence = resolve_evidence(project)
+                self.assertEqual(
+                    evidence_path.resolve(),
+                    resolved_evidence,
                     "a session-bound start must leave exactly one resolvable run",
                 )
-            ledger_path = ledger_for(
-                evidence_path or project / ".tao" / "preflight.json"
-            )
+            ledger_path = ledger_for(evidence_path)
             after_start = json.loads(ledger_path.read_text(encoding="utf-8"))
             self.assertEqual(
                 ["request intake"], [entry["gate"] for entry in after_start["entries"]]
@@ -879,6 +886,8 @@ class RepairLedgerCycleTests(unittest.TestCase):
                 str(project),
                 "--rules",
                 str(ROOT),
+                "--evidence",
+                str(evidence_path),
                 "--gate-name",
                 "reproduce",
                 "--gate-evidence",

@@ -32,6 +32,13 @@ Use after implementation, before handing off or committing.
    make the structure evidence explicit with `owner`, `allowed imports`,
    `forbidden imports`, `callers/tests`, and `verification`; a prose-only
    boundary summary does not satisfy that contract.
+   Before invoking review, measure both the changed file and each changed class
+   or function block against the route's structural limits. A file below its
+   line budget can still fail because one owner block exceeds the function
+   limit; do not wait for the hook to discover that avoidable split.
+   Use those exact literal labels followed by a colon (for example,
+   `owner: domain; allowed imports: contracts`); grammatical variants such as
+   `allowed imports remain ...` are still prose and will be rejected.
    The hook validates evidence; it does not discover or infer it. Never invoke
    a bare `review` command for a completed change. Pass the review decision and
    every route-required evidence field in the same call:
@@ -49,6 +56,22 @@ Use after implementation, before handing off or committing.
    Omit a field only when `tao-hook review --help` and the active route both
    confirm it is not required. A missing field is a failed checkpoint, not a
    prompt for the hook to perform that review.
+   The `review hook` gate is hook-owned. Generic `gate` and `gate-batch`
+   commands must reject it even when the caller supplies `source=review`,
+   because a caller-provided source label is not execution provenance. A
+   successful `tao-hook review` writes a run-local review attestation and binds
+   the ledger entry to that attestation's current run, preflight hash, route
+   fingerprint, full worktree fingerprint, exact review pathspec, and changed
+   path count. Finish accepts the gate only while those bindings still match.
+   Finish must revalidate the review attestation after all final checks and
+   immediately before it reports completion. The initial validation establishes
+   eligibility to run those checks; it is not permission to accept a worktree
+   that changed while they ran.
+   Copying an attestation to another run, changing any tracked or untracked
+   worktree byte after review, or claiming a broader ledger scope than the
+   attested pathspec must fail closed. Pathspec review remains valid for an
+   explicitly scoped task; the attestation preserves that exact scope rather
+   than silently upgrading it to a working-tree review.
    Use `--review-outcome findings` only when unresolved findings intentionally
    keep the checkpoint failed. When the hook reports structure pressure, record
    whether the diff increased the unit size or added a responsibility; do not

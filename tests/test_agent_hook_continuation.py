@@ -35,8 +35,15 @@ agent_hook = _load_script("agent_hook_continuation_test", "agent-hook.py")
 import agent_hook_continuation as wiring
 from agent_continuation_packet import validate_continuation_packet
 from agent_continuation_store import continuation_path, read_continuation_packet
+from agent_context_store import refresh_context_snapshot
 from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION, doc_hash_record
 from agent_gate_evidence import record_gate_evidence
+from agent_repair_ledger import (
+    REBOUND,
+    capture_failure_checkpoint_binding,
+    checkpoint_has_recorded_failure,
+    record_failure_checkpoints,
+)
 from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import register_run, registry_path
 
@@ -482,6 +489,87 @@ class DispatchTests(unittest.TestCase):
             self.assertEqual(["initial"], [call["kind"] for call in calls])
             self.assertEqual("task workflow", calls[0]["work"]["objective"])
             self.assertNotIn(INTAKE["request"], json.dumps(calls[0]["work"]))
+
+    def test_context_refresh_marks_required_doc_byte_drift_for_rebind(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            refresh_context_snapshot(run.project, run.rules, ROUTE, INTAKE)
+            (run.rules / GUIDANCE).write_text("# changed guidance\n", encoding="utf-8")
+            details: list[str] = []
+
+            with patch.object(
+                agent_hook,
+                "rebind_failure_checkpoints_after_required_doc_refresh",
+                return_value=REBOUND,
+            ) as rebind:
+                self.assertTrue(
+                    agent_hook._refresh_started_context(
+                        run.args("start"),
+                        details,
+                        prior_repair_binding={"preflight_evidence_sha256": "old"},
+                    )
+                )
+
+            self.assertTrue(rebind.call_args.kwargs["required_doc_drift"])
+            self.assertIn(
+                "repair checkpoints: rebound after required-doc drift", details
+            )
+
+    def test_context_refresh_preserves_the_same_tasks_failed_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            preflight = json.loads(run.evidence.read_text(encoding="utf-8"))
+            refresh_context_snapshot(run.project, run.rules, ROUTE, INTAKE)
+            record_failure_checkpoints(
+                evidence_path=run.evidence,
+                preflight=preflight,
+                checkpoints=["review"],
+                signature="review-failure",
+            )
+            binding = capture_failure_checkpoint_binding(run.evidence)
+            (run.rules / GUIDANCE).write_text("# changed guidance\n", encoding="utf-8")
+            refreshed = {**preflight, "agent_run_id": "new-run"}
+            run.evidence.write_text(json.dumps(refreshed), encoding="utf-8")
+
+            self.assertTrue(
+                agent_hook._refresh_started_context(
+                    run.args("start"),
+                    [],
+                    prior_repair_binding=binding,
+                )
+            )
+            self.assertTrue(
+                checkpoint_has_recorded_failure(
+                    route=ROUTE,
+                    evidence_path=run.evidence,
+                    checkpoint="review",
+                )
+            )
+
+    def test_context_refresh_does_not_treat_request_replacement_as_doc_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            refresh_context_snapshot(
+                run.project,
+                run.rules,
+                ROUTE,
+                {"request": "a different request", "request_classified": False},
+            )
+
+            with patch.object(
+                agent_hook,
+                "rebind_failure_checkpoints_after_required_doc_refresh",
+                return_value="not_applicable",
+            ) as rebind:
+                self.assertTrue(
+                    agent_hook._refresh_started_context(
+                        run.args("start"),
+                        [],
+                        prior_repair_binding={"preflight_evidence_sha256": "old"},
+                    )
+                )
+
+            self.assertFalse(rebind.call_args.kwargs["required_doc_drift"])
 
 
 if __name__ == "__main__":

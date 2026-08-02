@@ -212,10 +212,21 @@ workflow entry and continuation enforceable, `setup-agent-hooks.py` installs:
 - matching `PostToolUse` and `PostToolUseFailure` continuation hooks; and
 - the existing `Stop` finish gate.
 
-The start hook allocates `.tao/runs/<opaque-run-id>/preflight.json` when Claude
-supplies a runtime session id. Every later hook uses the common exact-session
-resolver and requires runtime name, session id, registry evidence key, and
-resume generation to identify that path; `.tao/preflight.json`, freshness
+The start hook allocates `.tao/runs/<opaque-run-id>/preflight.json` whenever no
+explicit evidence path was supplied, including runtimes without a session id.
+When Claude supplies a runtime session id, every later hook uses the common
+exact-session resolver and requires runtime name, session id, registry evidence
+key, and resume generation to identify that path. An isolated worker additionally binds
+the resolver to the exact launcher-issued `TAO_WORKER_EVIDENCE` path and never
+falls back to parent evidence; without that worker binding, the resolver
+traverses worker evidence only to account for its active registry keys,
+excludes those files from parent matching, and then requires one exact
+parent-session match.
+Multiple parent-session matches fail closed, while a malformed, foreign, or
+unregistered worker binding fails without parent fallback. Candidate discovery
+uses one registry snapshot and one bounded state-tree traversal with explicit
+parent/worker scope classification rather than one recursive scan per active
+run; `.tao/preflight.json`, freshness
 alone, and newest-file selection never unlock editing. `PreToolUse` fails closed
 when the required pre-mutation checkpoint cannot be written. The post hooks
 clear the pending mutation after success or failure and block the next agentic

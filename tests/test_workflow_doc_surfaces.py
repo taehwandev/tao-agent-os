@@ -453,6 +453,98 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             ),
         )
 
+    def test_scripted_workflow_guidance_emits_canonical_graphify_fields(self) -> None:
+        guidance = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "scripted-agent-workflow"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "`runtime_ownership`, `project_integration`, `graph`, and `query_smoke`",
+            guidance,
+        )
+        self.assertNotIn("`git ownership=`", guidance)
+
+    def test_scripted_workflow_guidance_separates_claim_refusal_from_repair(self) -> None:
+        guidance = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "scripted-agent-workflow"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("`fix_invocation_and_rerun`", guidance)
+        self.assertRegex(guidance, r"no\s+checkpoint failed")
+        self.assertIn("must not enter `repair-verify`", guidance)
+
+    def test_review_guidance_makes_hook_provenance_executable(self) -> None:
+        scripted = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "scripted-agent-workflow"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+        review = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "review-and-commit"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        for guidance in (scripted, review):
+            self.assertIn("hook-owned", guidance)
+            self.assertIn("review attestation", guidance)
+            self.assertIn("gate-batch", guidance)
+            self.assertIn("pathspec", guidance)
+        self.assertIn("each changed class", review)
+        self.assertIn("owner block exceeds the function", review)
+
+    def test_review_attestation_is_rechecked_after_final_checks(self) -> None:
+        scripted = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "scripted-agent-workflow"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+        review = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "review-and-commit"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        for guidance in (scripted, review):
+            self.assertIn("after all final checks", guidance)
+            self.assertIn("immediately before", guidance)
+
+    def test_scripted_guidance_requires_atomic_claim_and_ledger_mutation(self) -> None:
+        guidance = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "scripted-agent-workflow"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("one atomic transaction", guidance)
+        self.assertIn("project-state -> run-registry -> gate-ledger", guidance)
+        self.assertIn("second unlocked claim check", guidance)
+
     def test_request_path_surface_promotes_docs_without_explicit_keyword(self) -> None:
         route = resolve_docs(
             "task",
