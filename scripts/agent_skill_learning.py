@@ -14,6 +14,7 @@ from agent_skill_state import (
     SCHEMA_VERSION,
     candidate_id as _candidate_id,
     candidate_lock_path as _candidate_lock_path,
+    occurrence_lock_path as _occurrence_lock_path,
     candidate_occurrence_count as _candidate_occurrence_count,
     completed_path as _completed_path,
     json_count as _json_count,
@@ -65,7 +66,11 @@ def record_observation(
         "privacy": "safe_slugs_and_opaque_ids_only",
     }
     try:
-        with state_lock(root / _candidate_lock_path(candidate_id)):
+        # The occurrence, not the candidate, is the scope of the invariant: a
+        # reusable gap may produce at most one observation per run. Locking per
+        # candidate let two different skill/signal pairs from the same run each
+        # pass their own existence check and store a second observation.
+        with state_lock(root / _occurrence_lock_path(occurrence_key)):
             if path.exists():
                 return {
                     "created": False,
@@ -74,6 +79,15 @@ def record_observation(
                     "candidate_id": candidate_id,
                     "status": "observed",
                     "relative_path": str(relative_path),
+                }
+            existing = _observation_for_occurrence(root, occurrence_key)
+            if existing is not None:
+                return {
+                    "created": False,
+                    "reason": "occurrence_already_observed",
+                    "observation_id": str(existing.get("observation_id") or ""),
+                    "candidate_id": str(existing.get("candidate_id") or ""),
+                    "status": "observed",
                 }
             atomic_write_json(path, payload)
     except (OSError, ValueError) as error:
@@ -86,6 +100,24 @@ def record_observation(
         "status": "observed",
         "relative_path": str(relative_path),
     }
+
+
+def _observation_for_occurrence(root: Path, occurrence_key: str) -> dict[str, Any] | None:
+    """Return the observation already stored for this run, if any.
+
+    Scanning rather than indexing keeps records written before this invariant
+    existed subject to it, and the observation store stays small because one
+    run may now contribute at most one file.
+    """
+
+    directory = root / _observation_dir()
+    if not directory.is_dir():
+        return None
+    for candidate in sorted(directory.glob("*.json")):
+        record = _read_json(candidate)
+        if isinstance(record, dict) and record.get("occurrence_key") == occurrence_key:
+            return record
+    return None
 
 
 def review_candidate(

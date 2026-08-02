@@ -15,6 +15,7 @@ from agent_route_state import request_fingerprint, route_fingerprint
 from agent_ipc import emit_event
 from agent_run_owner import (
     LIVE_OWNER_GRACE_MULTIPLIER,
+    is_recorded_owner,
     owner_death_is_proven,
     owner_is_gone,
     process_owner,
@@ -27,8 +28,16 @@ REGISTRY_FILENAME = "run-registry.json"
 RUNS_DIR = "runs"
 RUN_DIRECTORY_RE = re.compile(r"^[0-9a-f]{32}$")
 ACTIVE_RUN_STATES = frozenset({"running", "paused", "resuming"})
+CLAIMING_RUN_STATE = "claiming"
+CLAIM_HOLDING_RUN_STATES = frozenset({*ACTIVE_RUN_STATES, CLAIMING_RUN_STATE})
 RUN_STATES = frozenset(
-    {*ACTIVE_RUN_STATES, "failed", "completed", "cancelled", "reconcile_required"}
+    {
+        *CLAIM_HOLDING_RUN_STATES,
+        "failed",
+        "completed",
+        "cancelled",
+        "reconcile_required",
+    }
 )
 # States whose owner may still append gate evidence. Recovery happens after a
 # run stops being active: a failed finish must be answered by recording the
@@ -36,7 +45,7 @@ RUN_STATES = frozenset(
 # the same reason. A settled run must not gain new evidence, so completed and
 # cancelled are excluded.
 LEDGER_WRITABLE_RUN_STATES = frozenset(
-    {*ACTIVE_RUN_STATES, "failed", "reconcile_required"}
+    {*ACTIVE_RUN_STATES, CLAIMING_RUN_STATE, "failed", "reconcile_required"}
 )
 # The registry's shared stale window, repeated here as a name so the owner-less
 # compatibility path is bounded by the same number the sweep uses.
@@ -58,15 +67,15 @@ def register_run(
 ) -> dict[str, Any]:
     """Register a new run without persisting request text or local paths.
 
-    ``reuse_run_id`` is the only way to rebind an active record. Request
-    identity does not prove caller identity, so a claim can be resumed solely by
-    presenting the opaque id that claim returned.
+    ``reuse_run_id`` is the only way to promote a transient claim. Request
+    identity does not prove caller identity, so promotion requires both the
+    opaque id and current-process owner recorded by that exact claim.
     """
 
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
-        run, is_new = _register_locked(
+        run, started = _register_locked(
             payload,
             project,
             evidence_path,
@@ -75,7 +84,7 @@ def register_run(
             reuse_run_id=reuse_run_id,
         )
         _write_registry(path, payload)
-    if is_new:
+    if started:
         _safe_event(project, "run.started", run_id=run["run_id"], state="running")
     return run
 
@@ -121,13 +130,14 @@ def claim_run(
                 route,
                 request_intake,
                 reuse_run_id=None,
+                initial_state=CLAIMING_RUN_STATE,
             )
         if recovered or run is not None:
             _write_registry(path, payload)
     for item in recovered:
         _safe_event(project, "run.recovered", run_id=str(item["run_id"]), state="failed")
     if is_new and run is not None:
-        _safe_event(project, "run.started", run_id=run["run_id"], state="running")
+        _safe_event(project, "run.claimed", run_id=run["run_id"], state=CLAIMING_RUN_STATE)
     return {"run": run, "conflict": conflict, "recovered": recovered, "held": held}
 
 
@@ -142,6 +152,8 @@ def transition_run(
 
     if state not in RUN_STATES:
         raise ValueError(f"unsupported run state: {state}")
+    if state == CLAIMING_RUN_STATE:
+        raise ValueError("claiming is a creation-only run state")
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
@@ -153,11 +165,75 @@ def transition_run(
         if not candidates:
             return None
         target = candidates[-1]
+        if target.get("state") == CLAIMING_RUN_STATE:
+            _require_current_process_claim_owner(target)
+            if state in ACTIVE_RUN_STATES:
+                raise ValueError(
+                    "a transient claim can become runtime-active only through atomic promotion"
+                )
         target["state"] = state
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
         _write_registry(path, payload)
     _safe_event(project, "run.transitioned", run_id=target["run_id"], state=state)
     return target
+
+
+# A pending closeout may revive the run that owes the work, and nothing else.
+# Reviving from a settled state would resurrect a run that already reported its
+# outcome, so only a run that is still active or that failed with work owed can
+# come back. `claiming` is excluded because a transient claim becomes active
+# only through atomic promotion.
+RESUMABLE_FOR_CLOSEOUT_RUN_STATES = frozenset({*ACTIVE_RUN_STATES, "failed"})
+
+
+def resume_run_for_closeout(
+    project: Path,
+    evidence_path: Path,
+    *,
+    run_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return an unsettled run to an active state so it can finish owed work.
+
+    Unlike ``transition_run`` this refuses a settled run and a run owned by
+    another process, so a late or replayed closeout cannot resurrect a run that
+    already completed or hand one process's run to another.
+    """
+
+    path = registry_path(project)
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        candidates = [
+            run for run in payload["runs"] if _matches_evidence(run, project, evidence_path)
+        ]
+        if run_id:
+            candidates = [run for run in candidates if run.get("run_id") == run_id]
+        if not candidates:
+            return None
+        target = candidates[-1]
+        if target.get("state") not in RESUMABLE_FOR_CLOSEOUT_RUN_STATES:
+            return None
+        if not _closeout_owner_matches(target):
+            return None
+        target["state"] = "resuming"
+        target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _write_registry(path, payload)
+    _safe_event(project, "run.transitioned", run_id=target["run_id"], state="resuming")
+    return target
+
+
+def _closeout_owner_matches(run: dict[str, Any]) -> bool:
+    """Allow the revive only for the session that holds the run.
+
+    ``owner`` records the session that registered the run, not the short-lived
+    process running one hook, so this compares against the same identity
+    ``register_run`` stored. An unrecorded owner is treated as a match so runs
+    written before the field existed stay recoverable.
+    """
+
+    owner = run.get("owner")
+    if not is_recorded_owner(owner):
+        return True
+    return owner == process_owner()
 
 
 def active_runs(project: Path) -> list[dict[str, Any]]:
@@ -175,6 +251,9 @@ def active_run_bindings(project: Path) -> dict[str, dict[str, Any]]:
     latest-binding view under the registry lock once instead.  A newer terminal
     record suppresses an older active record for the same evidence path, which
     preserves ``latest_run_id`` semantics without exposing or persisting paths.
+    A transient ``claiming`` record is intentionally absent: preflight has not
+    committed its evidence yet, so publishing it as a runtime binding would let
+    an interrupted start create a false active session or an ambiguous match.
     """
 
     path = registry_path(project)
@@ -234,6 +313,7 @@ def ledger_writable_run_claim_is_owned(
 
     path = registry_path(project)
     current_owner = process_owner()
+    current_claim_owner = process_owner(current_process=True)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
         return _ledger_writable_run_claim_is_owned_locked(
@@ -242,6 +322,7 @@ def ledger_writable_run_claim_is_owned(
             evidence_path,
             run_id,
             current_owner=current_owner,
+            current_claim_owner=current_claim_owner,
             stale_after_seconds=stale_after_seconds,
         )
 
@@ -272,6 +353,7 @@ def ledger_writable_run_claim_transaction(
 
     path = registry_path(project)
     current_owner = process_owner()
+    current_claim_owner = process_owner(current_process=True)
     with project_state_lock(project), state_lock(path), state_lock(ledger_path):
         payload = _read_registry(path)
         matches = [
@@ -288,6 +370,7 @@ def ledger_writable_run_claim_transaction(
             evidence_path,
             selected_run_id,
             current_owner=current_owner,
+            current_claim_owner=current_claim_owner,
             stale_after_seconds=stale_after_seconds,
         )
 
@@ -299,6 +382,7 @@ def _ledger_writable_run_claim_is_owned_locked(
     run_id: str,
     *,
     current_owner: dict[str, Any] | None,
+    current_claim_owner: dict[str, Any] | None,
     stale_after_seconds: int,
 ) -> bool:
     """Validate one ledger claim while the caller holds the registry lock."""
@@ -316,12 +400,17 @@ def _ledger_writable_run_claim_is_owned_locked(
         or target.get("state") not in LEDGER_WRITABLE_RUN_STATES
     ):
         return False
-    recorded_owner = target.get("owner")
+    if target.get("state") == CLAIMING_RUN_STATE:
+        recorded_owner = target.get("claim_owner")
+        expected_owner = current_claim_owner
+    else:
+        recorded_owner = target.get("owner")
+        expected_owner = current_owner
     if not isinstance(recorded_owner, dict) or not recorded_owner:
         return not _claim_recency_expired(
             target, stale_after_seconds=stale_after_seconds
         )
-    return bool(current_owner) and recorded_owner == current_owner
+    return bool(expected_owner) and recorded_owner == expected_owner
 
 
 def _claim_recency_expired(
@@ -476,7 +565,11 @@ def resume_holder_state(
 ) -> str:
     """Classify a resume holder with the registry's shared stale-owner policy."""
 
-    owner = run.get("owner")
+    owner = (
+        run.get("claim_owner")
+        if run.get("state") == CLAIMING_RUN_STATE
+        else run.get("owner")
+    )
     if owner_death_is_proven(owner):
         return "dead_proven"
     moment = now or datetime.now(timezone.utc)
@@ -500,6 +593,7 @@ def _register_locked(
     request_intake: dict[str, Any] | None,
     *,
     reuse_run_id: str | None,
+    initial_state: str = "running",
 ) -> tuple[dict[str, Any], bool]:
     """Add or rebind a run inside a lock the caller already holds.
 
@@ -508,23 +602,53 @@ def _register_locked(
     functions that take the lock themselves.
     """
 
+    if reuse_run_id:
+        existing = _reusable_run(payload, project, evidence_path, reuse_run_id)
+        if existing is None:
+            raise ValueError("reuse_run_id does not identify the active transient claim")
+        _require_current_process_claim_owner(existing)
+    elif initial_state != CLAIMING_RUN_STATE and _has_transient_claim(
+        payload, project, evidence_path
+    ):
+        raise ValueError("an active transient claim requires its reuse_run_id")
+
     run = _new_run(
         project,
         evidence_path,
         route,
         request_intake,
         run_id=_run_id_for(payload, project, evidence_path),
+        state=initial_state,
     )
     if reuse_run_id:
-        existing = _reusable_run(payload, project, evidence_path, reuse_run_id)
-        if existing is not None:
-            existing["route_fingerprint"] = run["route_fingerprint"]
-            existing["state"] = "running"
-            existing["updated_at"] = run["updated_at"]
-            return existing, False
+        existing["command"] = run["command"]
+        existing["route_fingerprint"] = run["route_fingerprint"]
+        existing["request_fingerprint"] = run["request_fingerprint"]
+        existing["state"] = "running"
+        existing["owner"] = process_owner()
+        existing.pop("claim_owner", None)
+        existing["updated_at"] = run["updated_at"]
+        return existing, True
     payload["runs"].append(run)
     payload["runs"] = payload["runs"][-MAX_RUNS:]
     return run, True
+
+
+def _require_current_process_claim_owner(run: dict[str, Any]) -> None:
+    """Reject mutation of a transient claim by any process but its creator."""
+
+    if run.get("claim_owner") != process_owner(current_process=True):
+        raise ValueError("transient claim is owned by another process")
+
+
+def _has_transient_claim(
+    payload: dict[str, Any], project: Path, evidence_path: Path
+) -> bool:
+    return any(
+        item.get("state") == CLAIMING_RUN_STATE
+        and _matches_evidence(item, project, evidence_path)
+        for item in payload["runs"]
+    )
 
 
 def _run_id_for(
@@ -564,9 +688,10 @@ def _new_run(
     request_intake: dict[str, Any] | None,
     *,
     run_id: str = "",
+    state: str = "running",
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
-    return {
+    run = {
         "run_id": run_id or uuid.uuid4().hex,
         "project_id": _opaque_project_id(project),
         "evidence_name": evidence_path.name,
@@ -574,12 +699,16 @@ def _new_run(
         "command": str(route.get("command") or "task"),
         "route_fingerprint": route_fingerprint(route),
         "request_fingerprint": request_fingerprint(request_intake),
-        "state": "running",
+        "state": state,
         "resume_generation": 0,
-        "owner": process_owner(),
         "started_at": now,
         "updated_at": now,
     }
+    if state == CLAIMING_RUN_STATE:
+        run["claim_owner"] = process_owner(current_process=True)
+    else:
+        run["owner"] = process_owner()
+    return run
 
 
 def _reusable_run(
@@ -592,7 +721,7 @@ def _reusable_run(
         (
             item
             for item in reversed(payload["runs"])
-            if item.get("state") in {"running", "paused"}
+            if item.get("state") == CLAIMING_RUN_STATE
             and _matches_evidence(item, project, evidence_path)
             and item.get("run_id") == reuse_run_id
         ),
@@ -609,7 +738,7 @@ def _has_active_conflict(
     expected_request: str,
 ) -> bool:
     return any(
-        run.get("state") in ACTIVE_RUN_STATES
+        run.get("state") in CLAIM_HOLDING_RUN_STATES
         and _matches_evidence(run, project, evidence_path)
         and (
             run.get("command") != command
@@ -633,7 +762,7 @@ def _has_active_binding(
     """
 
     return any(
-        run.get("state") in ACTIVE_RUN_STATES
+        run.get("state") in CLAIM_HOLDING_RUN_STATES
         and _matches_evidence(run, project, evidence_path)
         for run in payload["runs"]
     )
@@ -660,7 +789,7 @@ def _sweep_stale_runs(
     recovered: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
     for run in payload["runs"]:
-        if run.get("state") not in ACTIVE_RUN_STATES:
+        if run.get("state") not in CLAIM_HOLDING_RUN_STATES:
             continue
         if evidence_path is not None and not _matches_evidence(
             run, project, evidence_path

@@ -286,10 +286,13 @@ class AgentSkillRetentionTests(unittest.TestCase):
         skill_id: str = "verification_policy",
         signal: str,
     ) -> str:
-        for occurrence_id in ("run-one", "run-two"):
+        # One run may store only one observation, so each candidate needs its
+        # own runs. Sharing "run-one"/"run-two" across candidates described a
+        # history that cannot occur.
+        for index in ("one", "two"):
             record_observation(
                 root,
-                occurrence_id=occurrence_id,
+                occurrence_id=f"run-{skill_id}-{signal}-{index}",
                 skill_id=skill_id,
                 signal=signal,
             )

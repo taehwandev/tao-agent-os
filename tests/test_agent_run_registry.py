@@ -8,6 +8,7 @@ import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import sys
 
@@ -15,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_run_registry import (
+    active_run_bindings,
     active_run_conflict,
     active_runs,
     claim_run,
@@ -44,7 +46,8 @@ def age_runs(project: Path, *, minutes: int, owner_pid: int | None = None) -> No
     for run in payload["runs"]:
         run["updated_at"] = old
         if owner_pid is not None:
-            run["owner"] = {"pid": owner_pid, "start_token": ""}
+            owner_field = "claim_owner" if run.get("state") == "claiming" else "owner"
+            run[owner_field] = {"pid": owner_pid, "start_token": ""}
     registry.write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -61,7 +64,13 @@ def _strip_owners(project: Path) -> None:
     payload = json.loads(registry.read_text(encoding="utf-8"))
     for run in payload["runs"]:
         run.pop("owner", None)
+        run.pop("claim_owner", None)
     registry.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def claiming_runs(project: Path) -> list[dict]:
+    payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+    return [run for run in payload["runs"] if run.get("state") == "claiming"]
 
 
 class AgentRunRegistryTests(unittest.TestCase):
@@ -246,8 +255,9 @@ class CrashedClaimantRetryTests(unittest.TestCase):
             self.assertEqual(1, len(retry["recovered"]))
             self.assertEqual(
                 [retry["run"]["run_id"]],
-                [run["run_id"] for run in active_runs(project)],
+                [run["run_id"] for run in claiming_runs(project)],
             )
+            self.assertEqual([], active_runs(project))
 
     def test_negative_control_a_live_claimant_still_conflicts_at_once(self) -> None:
         """The control: proof of death must not become a general bypass.
@@ -269,7 +279,7 @@ class CrashedClaimantRetryTests(unittest.TestCase):
             self.assertEqual([], retry["recovered"])
             self.assertEqual(
                 [first["run"]["run_id"]],
-                [run["run_id"] for run in active_runs(project)],
+                [run["run_id"] for run in claiming_runs(project)],
             )
 
     def test_negative_control_no_owner_evidence_still_waits_out_the_window(self) -> None:
@@ -358,7 +368,8 @@ class ClaimRunTests(unittest.TestCase):
                     thread.join()
 
                 self.assertEqual(1, sum(result["conflict"] for result in results))
-                self.assertEqual(1, len(active_runs(project)))
+                self.assertEqual(1, len(claiming_runs(project)))
+                self.assertEqual([], active_runs(project))
 
     def test_negative_control_a_live_conflicting_claim_is_still_rejected(self) -> None:
         """The control: exclusivity must reject, not silently take turns."""
@@ -377,7 +388,8 @@ class ClaimRunTests(unittest.TestCase):
             self.assertTrue(second["conflict"])
             self.assertIsNone(second["run"])
             self.assertEqual(
-                [first["run"]["run_id"]], [run["run_id"] for run in active_runs(project)]
+                [first["run"]["run_id"]],
+                [run["run_id"] for run in claiming_runs(project)],
             )
 
     def test_successive_same_request_independent_claim_is_rejected(self) -> None:
@@ -394,7 +406,7 @@ class ClaimRunTests(unittest.TestCase):
             self.assertIsNone(second["run"])
             self.assertEqual(
                 [first["run"]["run_id"]],
-                [run["run_id"] for run in active_runs(project)],
+                [run["run_id"] for run in claiming_runs(project)],
             )
 
     def test_claimed_run_can_be_explicitly_rebound_by_run_id(self) -> None:
@@ -413,10 +425,222 @@ class ClaimRunTests(unittest.TestCase):
             )
 
             self.assertEqual(claim["run"]["run_id"], rebound["run_id"])
+            self.assertEqual("running", rebound["state"])
+            self.assertNotIn("claim_owner", rebound)
+            self.assertIn("owner", rebound)
             self.assertEqual(
                 [claim["run"]["run_id"]],
                 [run["run_id"] for run in active_runs(project)],
             )
+            self.assertEqual(
+                [claim["run"]["run_id"]],
+                [run["run_id"] for run in active_run_bindings(project).values()],
+            )
+
+    def test_direct_registration_cannot_bypass_an_existing_transient_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            claim = claim_run(
+                project, evidence, {"command": "bugfix"}, {"request": "work"}
+            )
+
+            with self.assertRaisesRegex(ValueError, "requires its reuse_run_id"):
+                register_run(
+                    project,
+                    evidence,
+                    {"command": "bugfix"},
+                    {"request": "work"},
+                )
+
+            self.assertEqual(
+                [claim["run"]["run_id"]],
+                [run["run_id"] for run in claiming_runs(project)],
+            )
+            self.assertEqual([], active_runs(project))
+
+    def test_negative_control_direct_registration_without_a_claim_still_works(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+
+            run = register_run(
+                project, evidence, {"command": "bugfix"}, {"request": "work"}
+            )
+
+            self.assertEqual("running", run["state"])
+            self.assertEqual(
+                [run["run_id"]], [item["run_id"] for item in active_runs(project)]
+            )
+
+    def test_foreign_process_cannot_promote_a_transient_claim(self) -> None:
+        claimant = {"pid": 101, "start_token": "claimant"}
+        foreign = {"pid": 202, "start_token": "foreign"}
+
+        def claimant_owner(*, current_process: bool = False) -> dict:
+            return claimant
+
+        def foreign_hook_same_runtime(*, current_process: bool = False) -> dict:
+            return foreign if current_process else claimant
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            with patch("agent_run_registry.process_owner", side_effect=claimant_owner):
+                claim = claim_run(
+                    project, evidence, {"command": "bugfix"}, {"request": "work"}
+                )
+
+            with (
+                patch(
+                    "agent_run_registry.process_owner",
+                    side_effect=foreign_hook_same_runtime,
+                ),
+                self.assertRaisesRegex(ValueError, "owned by another process"),
+            ):
+                register_run(
+                    project,
+                    evidence,
+                    {"command": "bugfix"},
+                    {"request": "work"},
+                    reuse_run_id=claim["run"]["run_id"],
+                )
+
+            self.assertEqual(
+                [claim["run"]["run_id"]],
+                [run["run_id"] for run in claiming_runs(project)],
+            )
+            self.assertEqual([], active_runs(project))
+
+    def test_foreign_process_cannot_cancel_or_fail_a_transient_claim(self) -> None:
+        claimant = {"pid": 101, "start_token": "claimant"}
+        foreign = {"pid": 202, "start_token": "foreign"}
+
+        def claimant_owner(*, current_process: bool = False) -> dict:
+            return claimant
+
+        def foreign_hook_same_runtime(*, current_process: bool = False) -> dict:
+            return foreign if current_process else claimant
+
+        for state in ("cancelled", "failed"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                evidence = project / ".tao" / "preflight.json"
+                with patch(
+                    "agent_run_registry.process_owner", side_effect=claimant_owner
+                ):
+                    claim = claim_run(
+                        project,
+                        evidence,
+                        {"command": "bugfix"},
+                        {"request": "work"},
+                    )
+
+                with (
+                    patch(
+                        "agent_run_registry.process_owner",
+                        side_effect=foreign_hook_same_runtime,
+                    ),
+                    self.assertRaisesRegex(ValueError, "owned by another process"),
+                ):
+                    transition_run(
+                        project, evidence, state, run_id=claim["run"]["run_id"]
+                    )
+
+                self.assertEqual(
+                    [claim["run"]["run_id"]],
+                    [run["run_id"] for run in claiming_runs(project)],
+                )
+
+    def test_claim_owner_can_cancel_its_own_transient_claim(self) -> None:
+        claimant = {"pid": 101, "start_token": "claimant"}
+        runtime_owner = {"pid": 303, "start_token": "runtime"}
+
+        def owner_identity(*, current_process: bool = False) -> dict:
+            return claimant if current_process else runtime_owner
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            with patch("agent_run_registry.process_owner", side_effect=owner_identity):
+                claim = claim_run(
+                    project, evidence, {"command": "bugfix"}, {"request": "work"}
+                )
+                cancelled = transition_run(
+                    project,
+                    evidence,
+                    "cancelled",
+                    run_id=claim["run"]["run_id"],
+                )
+
+            self.assertEqual("cancelled", cancelled["state"])
+            self.assertEqual([], claiming_runs(project))
+
+    def test_transient_claim_is_not_runtime_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+
+            claim = claim_run(
+                project, evidence, {"command": "bugfix"}, {"request": "new work"}
+            )
+
+            self.assertEqual("claiming", claim["run"]["state"])
+            self.assertEqual([], active_runs(project))
+            self.assertEqual({}, active_run_bindings(project))
+
+    def test_wrong_reuse_id_cannot_append_a_second_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            claim_run(project, evidence, {"command": "bugfix"}, {"request": "work"})
+
+            with self.assertRaises(ValueError):
+                register_run(
+                    project,
+                    evidence,
+                    {"command": "bugfix"},
+                    {"request": "work"},
+                    reuse_run_id="not-the-claim-id",
+                )
+
+            self.assertEqual(1, len(claiming_runs(project)))
+            self.assertEqual([], active_runs(project))
+
+    def test_generic_transition_cannot_publish_an_incomplete_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            claim = claim_run(
+                project, evidence, {"command": "bugfix"}, {"request": "work"}
+            )
+
+            with self.assertRaisesRegex(ValueError, "atomic promotion"):
+                transition_run(
+                    project, evidence, "running", run_id=claim["run"]["run_id"]
+                )
+
+            self.assertEqual(
+                [claim["run"]["run_id"]],
+                [run["run_id"] for run in claiming_runs(project)],
+            )
+            self.assertEqual({}, active_run_bindings(project))
+
+    def test_generic_transition_cannot_create_a_transient_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            run = register_run(
+                project, evidence, {"command": "bugfix"}, {"request": "work"}
+            )
+
+            with self.assertRaisesRegex(ValueError, "creation-only"):
+                transition_run(project, evidence, "claiming", run_id=run["run_id"])
+
+            self.assertEqual(
+                [run["run_id"]], [item["run_id"] for item in active_runs(project)]
+            )
+            self.assertEqual([], claiming_runs(project))
 
     def test_claim_recovers_an_abandoned_holder_of_the_same_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -432,7 +656,8 @@ class ClaimRunTests(unittest.TestCase):
             self.assertFalse(claim["conflict"])
             self.assertEqual(1, len(claim["recovered"]))
             self.assertEqual(
-                [claim["run"]["run_id"]], [run["run_id"] for run in active_runs(project)]
+                [claim["run"]["run_id"]],
+                [run["run_id"] for run in claiming_runs(project)],
             )
 
     def test_claim_reports_a_silent_holder_it_refused_to_release(self) -> None:
