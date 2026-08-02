@@ -29,9 +29,10 @@ Use after implementation, before handing off or committing.
 2. Use the Review Hook as the default final code-review gate when it is
    installed and applicable. Do not duplicate a full manual code review only to
    repeat hook checks. When the hook identifies a multi-role runtime package,
+   including an added runtime file entering an existing multi-role package,
    make the structure evidence explicit with `owner`, `allowed imports`,
    `forbidden imports`, `callers/tests`, and `verification`; a prose-only
-   boundary summary does not satisfy that contract.
+   boundary summary or "no new package" claim does not satisfy that contract.
    Before invoking review, measure both the changed file and each changed class
    or function block against the route's structural limits. A file below its
    line budget can still fail because one owner block exceeds the function

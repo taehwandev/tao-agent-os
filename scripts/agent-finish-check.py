@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from agent_delegation_plan import read_delegation_plan
-from agent_global_lessons import write_retrospective_candidate
+from agent_execution_capsule_state import contained_doc_path, doc_hash_record
+from agent_global_lessons import state_home, write_retrospective_candidate
 from agent_runtime_session import runtime_session
 from agent_skill_catalog import canonical_skill_ids
 from agent_finish_check_steps import (
@@ -37,6 +38,7 @@ from agent_gate_evidence import (
 )
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_review_attestation import REVIEW_HOOK_GATE
+from agent_skill_followup import skill_followup_failures
 
 
 def build_parser(tao_root: Path) -> argparse.ArgumentParser:
@@ -74,6 +76,7 @@ def build_result(
     diff_check: dict[str, Any],
     vibeguard: dict[str, Any],
     retrospective_lesson: dict[str, Any],
+    skill_followup: list[str],
     failures: list[str],
 ) -> dict[str, Any]:
     route = preflight.get("route") or {}
@@ -100,6 +103,10 @@ def build_result(
         "diff_check": diff_check,
         "vibeguard": vibeguard,
         "retrospective_lesson": retrospective_lesson,
+        "skill_followup": {
+            "pending": bool(skill_followup),
+            "failures": skill_followup,
+        },
         "failures": failures,
     }
 
@@ -129,6 +136,7 @@ def process_failure_learning(
     gate_policy_failures: list[str],
     gate_signals: list[dict[str, str]],
     failures: list[str],
+    rules: Path | None = None,
 ) -> tuple[bool, dict[str, Any]]:
     retrospective_required = requires_retrospective(
         missed_gates,
@@ -146,11 +154,7 @@ def process_failure_learning(
             for failure in failures
         ):
             failures.append(
-                "required-doc drift recovery: when the repair intentionally changes that "
-                "document, run repair-verify for the actual failed checkpoint first, then "
-                "record documentation SUCCESS with decision=updated, the exact route-relative "
-                "required doc target, repair_evidence, and resume_checkpoint; this binds the "
-                "verified final document bytes without bypassing the snapshot check"
+                _required_doc_drift_recovery(rules or Path('.'), failures)
             )
         failures.append(
             "retrospective repair is required before final report, commit, release, or handoff; "
@@ -178,6 +182,7 @@ def _report_finish_failures(
     gate_evidence: dict[str, str],
     evidence_path: Path,
     preflight: dict[str, Any],
+    pending_closeout: bool = False,
 ) -> int:
     if not failures:
         return 0
@@ -213,7 +218,63 @@ def _report_finish_failures(
         pass
     for failure in failures:
         print(f"FAIL: {failure}", file=sys.stderr)
-    return 1
+    return 3 if pending_closeout else 1
+
+
+def process_skill_followup(
+    *,
+    preflight: dict[str, Any],
+    gate_signals: list[dict[str, str]],
+    failures: list[str],
+) -> list[str]:
+    """Block only a clean finish whose current occurrence needs follow-up."""
+
+    if failures:
+        return []
+    try:
+        pending = skill_followup_failures(
+            state_root=state_home(),
+            preflight=preflight,
+        )
+    except (OSError, ValueError):
+        pending = ["skill follow-up state unavailable"]
+    for failure in pending:
+        add_gate_signal(
+            gate_signals,
+            "FAIL",
+            "skill learning follow-up",
+            "failed",
+            failure,
+        )
+        failures.append(failure)
+    return pending
+
+
+def process_closeout_learning(
+    *,
+    preflight: dict[str, Any],
+    missed_gates: list[str],
+    gate_policy_failures: list[str],
+    gate_signals: list[dict[str, str]],
+    failures: list[str],
+    rules: Path | None = None,
+) -> tuple[bool, dict[str, Any], list[str]]:
+    """Keep failure learning and successful closeout follow-up in one boundary."""
+
+    retrospective_required, retrospective_lesson = process_failure_learning(
+        preflight=preflight,
+        missed_gates=missed_gates,
+        gate_policy_failures=gate_policy_failures,
+        gate_signals=gate_signals,
+        failures=failures,
+        rules=rules,
+    )
+    skill_followup = process_skill_followup(
+        preflight=preflight,
+        gate_signals=gate_signals,
+        failures=failures,
+    )
+    return retrospective_required, retrospective_lesson, skill_followup
 
 
 def record_session_finished(project: Path, session: dict[str, Any]) -> None:
@@ -247,6 +308,70 @@ def effective_read_only(
         (preflight.get("execution_mode") or {}).get("read_only")
         or route.get("command") == "analysis"
     )
+
+
+_DRIFT_PREFIXES = (
+    "execution capsule required doc size changed: ",
+    "execution capsule required doc hash changed: ",
+)
+
+
+def _required_doc_drift_recovery(rules: Path, failures: list[str]) -> str:
+    """Name the receipt fields the validator actually requires, with their values.
+
+    The previous text asked for `repair_evidence` and `resume_checkpoint`, which
+    the receipt validator never reads, so an agent that followed it exactly could
+    never clear the drift and reasonably concluded the check was unsatisfiable.
+    The four fields below are the ones that are read, and the final bytes are
+    computed here so recovery does not depend on reading the validator source.
+    """
+
+    drifted = sorted(
+        {
+            failure.split(": ", 1)[1]
+            for failure in failures
+            if failure.startswith(_DRIFT_PREFIXES) and ": " in failure
+        }
+    )
+    lines = [
+        "required-doc drift recovery: when the run intentionally changed that document, "
+        "record one documentation SUCCESS entry per required doc with decision=updated "
+        "and the exact route-relative required doc target. A document this route already "
+        "lists as required needs the receipt fields artifact_receipt_version=1, "
+        "baseline_sha256 (the snapshot hash this failure compared against), final_sha256 "
+        "and final_size_bytes (the current bytes reported below). A document outside this "
+        "route's required_docs instead needs repair_evidence and resume_checkpoint: run "
+        "repair-verify for the actual failed checkpoint first. Either way this binds the "
+        "verified final document without bypassing the snapshot check"
+    ]
+    for relative in drifted:
+        current = _current_doc_record(rules, relative)
+        if current:
+            lines.append(
+                f"required-doc drift recovery for {relative}: "
+                f"final_sha256={current['sha256']} "
+                f"final_size_bytes={current['size_bytes']}"
+            )
+        else:
+            # Naming the document still matters when its bytes cannot be read:
+            # the agent needs to know which receipt to record even if it has to
+            # compute the values itself.
+            lines.append(
+                f"required-doc drift recovery for {relative}: current bytes are "
+                "unreadable from the rules root, so compute final_sha256 and "
+                "final_size_bytes from the document itself"
+            )
+    return "; ".join(lines)
+
+
+def _current_doc_record(rules: Path, relative: str) -> dict[str, Any] | None:
+    # The containment check compares resolved paths, so a caller that passed a
+    # relative rules root would see every doc "escape" it and lose the byte
+    # values this guidance exists to hand over.
+    try:
+        return doc_hash_record(relative, contained_doc_path(rules.resolve(), relative))
+    except (OSError, ValueError):
+        return None
 
 
 def _validated_gate_evidence(
@@ -352,12 +477,7 @@ def main() -> int:
     )
     read_only = effective_read_only(preflight, route)
     check_preflight_vibeguard(preflight, failures, read_only=read_only)
-    check_read_only_execution(
-        preflight,
-        project,
-        failures,
-        read_only=read_only,
-    )
+    check_read_only_execution(preflight, project, failures, read_only=read_only)
     validate, diff_check, vibeguard, overall = run_final_checks(
         tao_root,
         project,
@@ -371,12 +491,13 @@ def main() -> int:
         route, project, rules, evidence_path, gate_evidence,
         gate_evidence_ledger, missed_gates, failures,
     )
-    retrospective_required, retrospective_lesson = process_failure_learning(
+    retrospective_required, retrospective_lesson, skill_followup = process_closeout_learning(
         preflight=preflight,
         missed_gates=missed_gates,
         gate_policy_failures=gate_policy_failures,
         gate_signals=gate_signals,
         failures=failures,
+        rules=rules,
     )
 
     result = build_result(
@@ -398,6 +519,7 @@ def main() -> int:
         diff_check=diff_check,
         vibeguard=vibeguard,
         retrospective_lesson=retrospective_lesson,
+        skill_followup=skill_followup,
         failures=failures,
     )
     # Stamp the producing session so the Stop gate can tell a finish from this
@@ -418,6 +540,7 @@ def main() -> int:
         gate_evidence=gate_evidence,
         evidence_path=evidence_path,
         preflight=preflight,
+        pending_closeout=bool(skill_followup),
     )
 
 

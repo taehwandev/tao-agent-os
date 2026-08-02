@@ -92,6 +92,7 @@ from workflow_request import infer_concerns_from_request
 from workflow_request import classify_request
 from workflow_request import classified_route_block_reason
 from workflow_request import route_block_reason
+from agent_route_state import request_fingerprint
 from workflow_dispatch import (
     build_dispatch_manifest,
     execute_dispatch_manifest,
@@ -208,9 +209,9 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             "안드로이드 작업에서 첫 화면에서는 전체 목록이, 두번째 화면에서는 즐겨찾기가 있는 화면을 구성해줘"
         )
 
-        self.assertEqual("clear-scoped", classification["clarity"])
-        self.assertEqual("feature", classification["recommended_route"])
-        self.assertFalse(classification["grill_me"])
+        self.assertEqual("vague-action", classification["clarity"])
+        self.assertEqual("triage", classification["recommended_route"])
+        self.assertTrue(classification["grill_me"])
 
     def test_commit_dirty_surfaces_stay_reference_only(self) -> None:
         surface_paths = [
@@ -341,6 +342,18 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertTrue(any(match["name"] == "graphify_integration" for match in route["doc_surface_matches"]))
 
     def test_classified_graphify_evidence_still_infers_route_concern(self) -> None:
+        request = "apply the confirmed change in scripts/workflow_doc_surfaces.py"
+        session_id = "workflow-doc-surfaces-session"
+        envelope = {
+            "schema_version": 1,
+            "request_fingerprint": request_fingerprint({"request": request}),
+            "runtime_session_id": session_id,
+            "mode": "work",
+            "intent": "configure",
+            "target_summary": "the confirmed document surface change",
+            "requested_effects": ["local_write"],
+            "ambiguity": "resolved",
+        }
         result = subprocess.run(
             [
                 sys.executable,
@@ -353,7 +366,11 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                 # real request must be supplied; the concern still has to come out
                 # of the classification evidence, which is where the scope is named.
                 "--request",
-                "apply the confirmed change in scripts/workflow_doc_surfaces.py",
+                request,
+                "--intent-envelope",
+                json.dumps(envelope),
+                "--runtime-session-id",
+                session_id,
                 "--request-classified",
                 "--classification-evidence",
                 "answered direct question; separate actionable clear-scoped Graphify project install and readiness workflow",
@@ -508,6 +525,26 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             self.assertIn("pathspec", guidance)
         self.assertIn("each changed class", review)
         self.assertIn("owner block exceeds the function", review)
+
+    def test_structure_contract_covers_files_added_to_existing_packages(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        review = (
+            ROOT
+            / "workflows"
+            / "skills"
+            / "review-and-commit"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        for guidance in (agents, review):
+            normalized = " ".join(guidance.split())
+            self.assertIn("added runtime file", normalized)
+            self.assertIn("existing multi-role package", normalized)
+            self.assertIn("allowed imports", normalized)
+            self.assertIn("forbidden imports", normalized)
+            self.assertIn("callers/tests", normalized)
+            self.assertIn("verification", normalized)
 
     def test_review_attestation_is_rechecked_after_final_checks(self) -> None:
         scripted = (

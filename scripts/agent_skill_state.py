@@ -59,6 +59,17 @@ def candidate_lock_path(candidate: str) -> Path:
     return Path("skill-learning") / "locks" / f"{candidate}.json"
 
 
+def occurrence_lock_path(occurrence_key: str) -> Path:
+    """Lock scope for the one-observation-per-occurrence invariant.
+
+    The candidate lock cannot hold it: two different candidates take two
+    different locks, so both would pass a per-candidate existence check and
+    store an observation for the same run.
+    """
+
+    return Path("skill-learning") / "locks" / f"occurrence-{occurrence_key}.json"
+
+
 def observation_candidate_ids(payload: dict[str, Any]) -> set[str]:
     """Return the stored and exact-mapped candidate identities for one observation."""
 

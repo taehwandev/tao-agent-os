@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import claude_pretool_gate as gate
+from agent_route_state import request_fingerprint
 from agent_runtime_session import SESSION_ENV_VARS
 
 SESSION_ID = "lockout-session"
@@ -68,11 +69,23 @@ class ContinuationLockoutTests(unittest.TestCase):
         for _, variable in SESSION_ENV_VARS:
             environment[variable] = SESSION_ID
         self.environment = environment
+        request = "clear-exact: fix one named parser bug in module.py; blockers resolved"
+        envelope = {
+            "schema_version": 1,
+            "request_fingerprint": request_fingerprint({"request": request}),
+            "runtime_session_id": SESSION_ID,
+            "mode": "work",
+            "intent": "repair",
+            "target_summary": "the named parser bug in module.py",
+            "requested_effects": ["local_write"],
+            "ambiguity": "resolved",
+        }
         started = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "agent-hook.py"), "start",
              "--project", str(self.project), "--rules", str(ROOT),
-             "--command", "bugfix", "--request",
-             "clear-exact: fix one named parser bug in module.py; blockers resolved"],
+             "--command", "bugfix", "--request", request,
+             "--intent-envelope", json.dumps(envelope),
+             "--runtime-session-id", SESSION_ID],
             capture_output=True, text=True, env=environment,
         )
         self.assertEqual(0, started.returncode, started.stdout + started.stderr)

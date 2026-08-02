@@ -44,6 +44,7 @@ def build_dispatch_manifest(
     request: str,
     project: Path,
     *,
+    continuation_scope: str = "",
     work_kind: str = "auto",
     complexity_evidence: str = "",
     route: Mapping[str, object] | None = None,
@@ -66,7 +67,10 @@ def build_dispatch_manifest(
 ) -> dict[str, object]:
     """Create an inspectable dispatch decision for one bounded task stage."""
 
-    classification = dict(request_classification or classify_request(request))
+    classification = dict(
+        request_classification
+        or classify_request(request, continuation_scope=continuation_scope)
+    )
     lexical_project = project.expanduser().absolute()
     project = project.expanduser().resolve()
     rules = (rules or Path(__file__).resolve().parents[1]).expanduser().resolve()
@@ -75,6 +79,7 @@ def build_dispatch_manifest(
         command,
         request,
         classification,
+        continuation_scope=continuation_scope,
         request_classified=request_classified,
         classification_evidence=classification_evidence,
         project=project,
@@ -132,6 +137,7 @@ def build_dispatch_manifest(
         selected_kind,
         handoff_state,
         non_authoring=non_authoring,
+        continuation_scope=continuation_scope,
     )
     isolated_worktree = capability.get("working_dir_kind") == "worktree"
     worktree_path = str(_new_worktree_path(project)) if isolated_worktree else ""
@@ -142,6 +148,7 @@ def build_dispatch_manifest(
         "project": str(project),
         "command": command,
         "request": request,
+        "continuation_scope": continuation_scope,
         "request_classification": classification,
         "orchestrator_profile": ORCHESTRATOR_PROFILE,
         "work_profile": profile,
@@ -171,6 +178,7 @@ def _raise_if_request_is_blocked(
     request: str,
     classification: Mapping[str, object],
     *,
+    continuation_scope: str = "",
     request_classified: bool,
     classification_evidence: str,
     project: Path | None = None,
@@ -193,6 +201,7 @@ def _raise_if_request_is_blocked(
             parent_evidence_path(project, evidence_path),
             command=command,
             request=request,
+            continuation_scope=continuation_scope,
         )
     reason = route_block_reason(command, None if exempt else classification)
     if not reason and request_classified:

@@ -16,6 +16,7 @@ from typing import Any
 
 from agent_execution_capsule import create_preflight_snapshot
 from agent_execution_capsule_state import atomic_write_json
+from agent_route_state import request_fingerprint
 from agent_global_lessons import lesson_summary
 from agent_runtime_session import runtime_session
 from agent_hook_gate_records import reset_and_record_preflight_gate
@@ -39,6 +40,8 @@ from workflow_classified_exemption import (
     classified_intake_decision,
     parent_evidence_path,
 )
+from workflow_intent_dual_run import route_intake_decision
+from workflow_intent_envelope import read_intent_envelope
 from workflow_request import infer_concerns_from_request
 from workflow_route import resolve_docs
 
@@ -118,6 +121,15 @@ def route_command(args: argparse.Namespace, tao_root: Path) -> list[str]:
             command.extend(["--request", args.request])
     else:
         command.extend(["--request", args.request])
+    continuation_scope = getattr(args, "continuation_scope", "")
+    if continuation_scope:
+        command.extend(["--continuation-scope", continuation_scope])
+    intent_envelope = getattr(args, "intent_envelope", "")
+    if intent_envelope:
+        command.extend(["--intent-envelope", intent_envelope])
+    runtime_session_id = getattr(args, "runtime_session_id", "")
+    if runtime_session_id:
+        command.extend(["--runtime-session-id", runtime_session_id])
     if getattr(args, "parent_evidence", None):
         command.extend(["--parent-evidence", str(args.parent_evidence)])
     for platform in args.platform:
@@ -167,32 +179,41 @@ def route_payload(
             "Route --request-classified requires --classification-evidence so request intake cannot be skipped silently.",
             2,
         )
-    # A worker that supplies resolved classification evidence may retain only a
-    # short acknowledgement as request identity.  Reclassifying that text here
-    # can reopen clarification/Grill-Me after the parent already resolved it --
-    # but only a ready and valid parent capsule proves such a parent exists.
     project_root = args.project.expanduser().resolve()
-    request_classification, block_reason = classified_intake_decision(
+    request_classification, failures = route_intake_decision(
         args.command,
-        args.request,
-        args.request_classified,
-        args.classification_evidence or "",
-        project=project_root,
-        rules=getattr(args, "rules", None),
-        parent_evidence=parent_evidence_path(
-            project_root, getattr(args, "parent_evidence", None)
-        ),
+        read_intent_envelope(getattr(args, "intent_envelope", "")),
+        request_fingerprint=request_fingerprint({"request": args.request or ""}),
+        runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
     )
-    if block_reason:
-        stderr = block_reason
-        if request_classification:
-            stderr += (
-                "\nClassification: "
-                f"{request_classification['clarity']} / "
-                f"response_mode: {request_classification['response_mode']} / "
-                f"grill_me: {str(request_classification['grill_me']).lower()}"
-            )
-        return None, stderr, 2
+    if failures:
+        return None, "\n".join(failures), 2
+    if request_classification is None:
+        # A capsule may reuse prior intake only after the envelope boundary has
+        # allowed this route. Question-resolution routes are the sole no-envelope
+        # path and still use the established classification rules.
+        request_classification, block_reason = classified_intake_decision(
+            args.command,
+            args.request,
+            args.request_classified,
+            args.classification_evidence or "",
+            getattr(args, "continuation_scope", ""),
+            project=project_root,
+            rules=getattr(args, "rules", None),
+            parent_evidence=parent_evidence_path(
+                project_root, getattr(args, "parent_evidence", None)
+            ),
+        )
+        if block_reason:
+            stderr = block_reason
+            if request_classification:
+                stderr += (
+                    "\nClassification: "
+                    f"{request_classification['clarity']} / "
+                    f"response_mode: {request_classification['response_mode']} / "
+                    f"grill_me: {str(request_classification['grill_me']).lower()}"
+                )
+            return None, stderr, 2
 
     intent_text = args.request or args.classification_evidence or ""
     inferred_concerns = infer_concerns_from_request(intent_text)
@@ -242,6 +263,27 @@ def build_parser(tao_root: Path) -> argparse.ArgumentParser:
     )
     parser.add_argument("--command", required=True, choices=sorted(COMMANDS), help="workflow.py route command")
     parser.add_argument("--request", help="current user request")
+    parser.add_argument(
+        "--intent-envelope",
+        default="",
+        help=(
+            "runtime intent envelope as JSON or a path to it; when supplied it "
+            "is the authority for intent, target and effect"
+        ),
+    )
+    parser.add_argument(
+        "--runtime-session-id",
+        default="",
+        help="current opaque runtime session id that must match the intent envelope",
+    )
+    parser.add_argument(
+        "--continuation-scope",
+        default="",
+        help=(
+            "bounded prior scope for a terse follow-up; supplies target identity "
+            "without changing current-request question, action, or risk signals"
+        ),
+    )
     parser.add_argument(
         "--request-classified",
         action="store_true",
@@ -392,6 +434,7 @@ def _enforce_worker_environment(args: argparse.Namespace) -> None:
 def request_intake(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "request": args.request or "",
+        "continuation_scope": getattr(args, "continuation_scope", "") or "",
         "request_classified": args.request_classified,
         "classification_evidence": args.classification_evidence or "",
     }

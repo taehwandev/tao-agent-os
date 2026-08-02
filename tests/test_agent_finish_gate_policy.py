@@ -184,7 +184,7 @@ class FinishGatePolicyTests(unittest.TestCase):
 
         self.assertIsNone(route)
         self.assertEqual(2, returncode)
-        self.assertIn("needs clarification before route `refactor`", error)
+        self.assertIn("intent envelope", error)
 
     def test_preflight_classified_without_request_or_capsule_is_rejected(self) -> None:
         # Today's fall-through returned None for the classification and then
@@ -204,8 +204,7 @@ class FinishGatePolicyTests(unittest.TestCase):
 
         self.assertIsNone(route)
         self.assertEqual(2, returncode)
-        self.assertIn("ready and valid execution capsule", error)
-        self.assertIn('--request "<USER_REQUEST>"', error)
+        self.assertIn("intent envelope", error)
 
     def test_analysis_preflight_routes_once_and_defers_capsule_creation(self) -> None:
         route = resolve_docs("analysis", None, [], request_classified=True)

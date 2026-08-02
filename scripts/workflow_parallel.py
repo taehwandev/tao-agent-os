@@ -113,7 +113,10 @@ def parallel_execution_plan(command: str, gates: list[str]) -> dict[str, Any]:
         ),
         constraints=(
             "do not finalize until every required gate has evidence",
-            "skill feedback storage or review must not change finish status",
+            "storing a first skill observation must not change finish status",
+            "once the current occurrence reaches the recurrence threshold, finish "
+            "stays pending until bounded review and any staged maintenance reach a "
+            "terminal outcome",
         ),
     )
     return {**_parallel_metadata(lightweight_analysis), "phases": phases}

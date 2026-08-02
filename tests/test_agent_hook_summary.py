@@ -184,7 +184,7 @@ class AgentHookSummaryTests(unittest.TestCase):
             )
 
             self.assertNotEqual(0, result.returncode)
-            self.assertIn("needs clarification before route `build`", result.stdout)
+            self.assertIn("session-bound intent envelope", result.stdout)
             self.assertIn("invocation request:", result.stdout)
             self.assertIn("nothing to repair", result.stdout)
             self.assertNotIn("recovery request:", result.stdout)

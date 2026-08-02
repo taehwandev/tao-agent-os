@@ -310,7 +310,7 @@ def _insert_before_any(gates: list[str], gate: str, anchors: tuple[str, ...]) ->
 
 
 def skill_feedback_policy(command: str) -> dict[str, object]:
-    """Describe required reflection and non-blocking skill-learning follow-up."""
+    """Describe passive observation and threshold-triggered closeout."""
 
     enabled = command in RETROSPECTIVE_CHECK_COMMANDS
     return {
@@ -320,12 +320,13 @@ def skill_feedback_policy(command: str) -> dict[str, object]:
         "evaluation_required": enabled,
         "evaluation_gate": RETROSPECTIVE_CHECK_GATE if enabled else "",
         "blocking": False,
-        "blocking_scope": "observation_storage_and_later_maintenance_only",
+        "blocking_scope": "passive_observation_storage_only",
+        "threshold_followup_required": enabled,
         "record_only_when": "actually_used_skill_and_structured_observation",
         "candidate_threshold": DEFAULT_REVIEW_THRESHOLD,
         "curation": "deterministic_distinct_occurrence_threshold",
-        "review": "separate_bounded_reviewer_no_change_or_staged_patch",
+        "review": "required_for_current_threshold_candidate_no_change_or_staged_patch",
         "write_policy": "staged_before_separate_verified_maintenance",
-        "maintenance": "separate_bounded_skill_maintenance_never_finish_gate",
+        "maintenance": "explicit_verified_terminal_closeout_never_automatic_edit",
         "review_policy": "single_agent_default_optional_multi_agent_for_high_impact",
     }

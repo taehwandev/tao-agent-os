@@ -201,7 +201,7 @@ do not separately repeat workflow list, classify, route, or preflight after it
 succeeds:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
 ```
 
 `--command` accepts a workflow route, not a stage label. For implementation work,
@@ -215,20 +215,24 @@ task with the target repo's local commands. Read every route `required_docs`
 entry directly before work. Direct `<TAO_LAUNCHER> workflow route` and `<TAO_LAUNCHER> agent-preflight`
 invocations are lower-level diagnostic or compatibility fallbacks only when the
 start hook is unavailable; never run them as a second startup sequence. The
-start hook must always receive the current user request. A top-level or
-first-touch agent passes `--request "<USER_REQUEST>"` with the real request and
-lets the classifier decide; when it returns clarify-first or Grill-Me, run that
-protocol rather than routing around it. A delegated worker may add
+start hook must always receive the current user request. A work route also
+requires `--intent-envelope` and `--runtime-session-id`. The runtime builds the
+envelope from the full conversation, binds it to the exact request fingerprint
+and current opaque session id, and declares intent, bounded target, effects,
+prohibited effects, and ambiguity. Tao validates that contract and applies the
+route effect floor; it never reconstructs work authority from request words.
+Without an envelope, use only `triage` or `ambiguity`; direct questions must be
+answered in the conversation. A delegated worker may add
 `--request-classified --classification-evidence "<evidence>"` only when the
 ready and valid parent capsule binds that reuse to the earlier intake. Without
-that capsule the flag is not honored and the classifier runs on `--request` as
-for any other caller; `--request-classified` with neither a request nor a
-capsule is rejected. The flag is not a same-session root override: when the user
-gives a terse follow-up, pass
-a context-complete `--request` that preserves the verbatim follow-up and names
-the already-established scope, without `--request-classified` unless the
-capsule proof exists. If the established scope cannot be stated safely, route
-through `triage` or `ambiguity`. Do not use `--request-classified` to bypass
+that capsule the flag proves nothing; even a valid capsule and free-text
+classification evidence never replace the envelope. The flag is not a
+same-session root override. For a terse root-session follow-up, keep `--request`
+equal to the user's current words and pass prior target context separately with
+`--continuation-scope`. That scope is context only: it cannot open a work route,
+turn a question into work, or authorize commit, release, deployment, or another
+mutation. Put the resolved bounded target in the envelope or use `triage` or
+`ambiguity`. Do not use `--request-classified` to bypass
 direct-question, ambiguity, or Grill-Me handling. A caller that only needs the
 document listing and label context and is asserting no request intake uses
 `--advisory`, which satisfies no downstream gate; work must be re-routed with a
@@ -238,7 +242,7 @@ Classification evidence that still says `vague-action`,
 `clarify_first`, `ambiguous`, `unclear`, `grill_me: true`, or
 `question_drill: true` and their obvious hyphen/space variants must route only
 to `triage` or `ambiguity` until the evidence states clear scope, a separate
-actionable request, or resolved blockers. For work routes, weak evidence such
+actionable request, or resolved blockers. For finish and capsule state checks, weak evidence such
 as `classified`, `done`, or `handled` is not enough; the evidence must contain
 a positive resolved-scope signal such as `clear-exact`, `clear-scoped`,
 `answered ... separate actionable`, or `blockers resolved`. Evidence that says
@@ -467,11 +471,13 @@ declared review scope. The default budget is 25 paths. A cohesive mechanical
 migration that must update more direct callers may raise `--max-changed-paths`
 to that observed count, but the review pathspec must still include only the
 owned code/resource scope and the evidence must explain why the change cannot
-be reviewed as independent behavioral slices. When the review reports a new
+be reviewed as independent behavioral slices. When the review reports that an
+added runtime file enters an existing multi-role package, or reports a new
 runtime package/folder boundary, write `--structure-review-evidence` as an
 explicit five-part contract: `owner: ...; allowed imports: ...; forbidden
 imports: ...; callers/tests: ...; verification: ...`. Do not substitute a
-general structure summary for any of those named fields.
+general structure summary or a claim that no new package was created for any
+of those named fields.
 
 Treat the changed-path count as a pre-invocation hard check. Do not call the
 review hook with its default limit after observing more than 25 owned paths.
@@ -527,7 +533,7 @@ hooks must use the stable launcher installed by `<TAO_LAUNCHER> setup-agent-hook
 hook command does not point at a stale checkout path.
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
 ```
 
 Keep `--output`, `--evidence`, and every custom evidence path inside
@@ -623,16 +629,23 @@ the exact fields `skills_checked`, `outcome`, and `observation`. `outcome` is
 `no_reusable_gap`, `reusable_gap`, or `no_skill_used`; `observation` is
 `not_needed`, `recorded`, or `deferred`. Pair `no_reusable_gap` and
 `no_skill_used` with `not_needed`, and pair `reusable_gap` with `recorded` or
-`deferred`. The check is required finish evidence; the follow-up skill-learning
-side channel is non-blocking. If there is no reusable gap, do not create a
-ceremonial observation record. If there is one, the optional
+`deferred`. The check is required finish evidence. Storing a first observation
+is non-blocking, but the follow-up is not unconditionally so: once the current
+occurrence reaches the recurrence threshold, that candidate must reach a
+terminal outcome before finish succeeds. If there is no reusable gap, do not
+create a ceremonial observation record. If there is one, the optional
 `skill-feedback` hook records only a
 content-free observation for a skill actually used; it does not let the task
 agent declare a patch candidate. Deterministic curation queues review only after
 the same structured signal recurs in distinct opaque runs. A separate bounded
 reviewer chooses `no_change` or `staged_patch`, and canonical guidance changes
-only during later verified maintenance. Missing storage, tokens, reviewers, or
-maintenance capacity never changes a successful finish result. Default review
+only during later verified maintenance. Below the threshold, missing storage,
+tokens, reviewers, or maintenance capacity never changes a successful finish
+result. At the threshold, finish returns pending closeout instead: it names the
+owed `skill-curate`, `skill-review`, or `skill-maintenance` step and keeps the
+run claim active so that work can proceed, and it is not a repair cycle — do
+not run `repair-verify` for it. Unrelated candidates queued by earlier runs do
+not block this one. Default review
 to one capable agent and use additional reviewers only when impact and available
 budget justify them. The detailed decision and privacy rules are owned by
 `workflows/skills/retrospective-learning/SKILL.md`.
@@ -738,7 +751,10 @@ repair cycle is exhausted.
 
 Do not merge this failure path with successful-task skill feedback. Required
 hook or gate failure remains blocking and must use the repair-and-resume
-contract; skill feedback remains a non-blocking future-maintenance signal.
+contract. Skill feedback is a separate path: storing an observation stays a
+non-blocking future-maintenance signal, and a threshold candidate holds finish
+as pending closeout, which is owed follow-up work rather than a repair cycle.
+Neither one is answered with `repair-verify`.
 
 VibeGuard `Needs review` is not completion unless the agent explicitly reports
 the review state and passes `--allow-vibeguard-review "<reason>"` to every

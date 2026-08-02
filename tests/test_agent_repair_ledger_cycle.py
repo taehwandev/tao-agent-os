@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_finish_common import requires_retrospective
+from agent_route_state import request_fingerprint
 from agent_finish_gate_policy import (
     PLATFORM_SELECTION_GATE,
     PRD_DRAFT_GATE,
@@ -194,6 +195,27 @@ class RepairLedgerCycleTests(unittest.TestCase):
         joined_details = " ".join(details)
         self.assertIn("failed after one repair cycle", joined_details)
         self.assertIn("do not resume", joined_details)
+
+    def test_skill_followup_pending_uses_closeout_not_repair_policy(self) -> None:
+        policy, details = hook_failure_policy(
+            success=False,
+            repair_cycle=0,
+            pending_closeout=True,
+        )
+
+        self.assertEqual(
+            "complete_skill_followup_then_retry_finish",
+            policy["next_action"],
+        )
+        self.assertEqual(
+            "bounded_skill_review_or_verified_maintenance",
+            policy["recovery_required"],
+        )
+        self.assertEqual("finish", policy["resume_scope"])
+        joined_details = " ".join(details)
+        self.assertIn("skill-review", joined_details)
+        self.assertIn("do not run repair-verify", joined_details)
+        self.assertNotIn("actionable retrospective", joined_details)
 
     def test_hook_success_after_repair_resumes_failed_checkpoint(self) -> None:
         policy, details = hook_failure_policy(success=True, repair_cycle=1)
@@ -838,6 +860,18 @@ class RepairLedgerCycleTests(unittest.TestCase):
                 check=True,
             )
 
+            request = "fix the stale ledger hash in scripts/agent_gate_evidence.py"
+            intent_session_id = "ledger-cycle-session" if has_session else "ledger-no-session-test"
+            envelope = {
+                "schema_version": 1,
+                "request_fingerprint": request_fingerprint({"request": request}),
+                "runtime_session_id": intent_session_id,
+                "mode": "work",
+                "intent": "repair",
+                "target_summary": "the stale gate ledger hash",
+                "requested_effects": ["local_write"],
+                "ambiguity": "resolved",
+            }
             start_argv = [
                 "agent-hook.py",
                 "start",
@@ -853,7 +887,11 @@ class RepairLedgerCycleTests(unittest.TestCase):
                 # The request must classify cleanly on its own: --request-classified
                 # no longer suppresses classification without a parent capsule.
                 "--request",
-                "fix the stale ledger hash in scripts/agent_gate_evidence.py",
+                request,
+                "--intent-envelope",
+                json.dumps(envelope),
+                "--runtime-session-id",
+                intent_session_id,
             ]
             with patch.object(sys, "argv", start_argv):
                 start_exit = agent_hook.main()

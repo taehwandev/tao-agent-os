@@ -69,6 +69,7 @@ from agent_review_structure import (
 from agent_run_registry import (
     claim_run,
     register_run,
+    resume_run_for_closeout,
     touch_run,
     transition_run,
 )
@@ -84,6 +85,39 @@ from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _preflight_arguments(args: argparse.Namespace) -> list[str]:
+    command = [
+        "--project", str(args.project),
+        "--rules", str(args.rules),
+        "--command", args.command,
+    ]
+    if args.request_classified:
+        command.append("--request-classified")
+        command.extend(["--classification-evidence", args.classification_evidence])
+        if args.request:
+            command.extend(["--request", args.request])
+    else:
+        command.extend(["--request", args.request])
+    for option, value in (
+        ("--continuation-scope", getattr(args, "continuation_scope", "")),
+        ("--intent-envelope", getattr(args, "intent_envelope", "")),
+        ("--runtime-session-id", getattr(args, "runtime_session_id", "")),
+    ):
+        if value:
+            command.extend([option, value])
+    for platform in args.platform:
+        command.extend(["--platform", platform])
+    for concern in args.concern:
+        command.extend(["--concern", concern])
+    if args.read_only:
+        command.append("--read-only")
+    if args.evidence:
+        command.extend(["--evidence", str(args.evidence)])
+    if args.worker_reservation_token:
+        command.extend(["--worker-reservation-token", args.worker_reservation_token])
+    return command
+
+
 def start_hook(args: argparse.Namespace) -> int:
     # Establish the local-only state root before anything writes into it. The
     # continuation store proves local-only status by asking Git, so a checkout
@@ -94,6 +128,7 @@ def start_hook(args: argparse.Namespace) -> int:
     prior_repair_binding = capture_failure_checkpoint_binding(evidence_path)
     request_intake = {
         "request": args.request,
+        "continuation_scope": getattr(args, "continuation_scope", ""),
         "request_classified": bool(args.request_classified),
         "classification_evidence": args.classification_evidence,
     }
@@ -121,61 +156,45 @@ def start_hook(args: argparse.Namespace) -> int:
             args.repair_cycle,
             invocation_error=True,
         )
-    command = [
-        "--project",
-        str(args.project),
-        "--rules",
-        str(args.rules),
-        "--command",
-        args.command,
-    ]
-    if args.request_classified:
-        command.append("--request-classified")
-        command.extend(["--classification-evidence", args.classification_evidence])
-        if args.request:
-            command.extend(["--request", args.request])
-    else:
-        command.extend(["--request", args.request])
-    for platform in args.platform:
-        command.extend(["--platform", platform])
-    for concern in args.concern:
-        command.extend(["--concern", concern])
-    if args.read_only:
-        command.append("--read-only")
-    if args.evidence:
-        command.extend(["--evidence", str(args.evidence)])
-    if args.worker_reservation_token:
-        command.extend(["--worker-reservation-token", args.worker_reservation_token])
-
-    result = run_script_main(ROOT / "scripts" / "agent-preflight.py", command, args.project)
-    success = result["returncode"] == 0
-    details = ["preflight completed" if success else "preflight failed"]
-    details.extend(_summary_lines(result))
-    if success:
-        details.extend(_hook_summary_from_preflight(preflight_evidence_path(args)))
-        capsule_detail = _start_capsule_detail(args)
-        if capsule_detail:
-            details.append(capsule_detail)
-        # Validate and refresh context before registering the run. If context
-        # validation fails, start must not leave an orphaned running record.
-        success = _refresh_started_context(
-            args,
-            details,
-            prior_repair_binding=prior_repair_binding,
-        ) and success
+    details: list[str] = []
+    success = False
+    committed = False
+    try:
+        command = _preflight_arguments(args)
+        result = run_script_main(ROOT / "scripts" / "agent-preflight.py", command, args.project)
+        success = result["returncode"] == 0
+        details.append("preflight completed" if success else "preflight failed")
+        details.extend(_summary_lines(result))
         if success:
-            success = _bind_read_only_execution_state(args, details)
-        if success:
-            _register_started_run(args, details, claim["run"])
-            # The route and objective are known and nothing has been mutated
-            # yet, which is the only moment an initial packet can describe.
-            details.append(
-                record_lifecycle_checkpoint(
-                    args, "initial", work={"objective": start_objective(args)}
+            details.extend(_hook_summary_from_preflight(preflight_evidence_path(args)))
+            capsule_detail = _start_capsule_detail(args)
+            if capsule_detail:
+                details.append(capsule_detail)
+            # Validate and refresh context before registering the run. If context
+            # validation fails, start must not leave an orphaned running record.
+            success = _refresh_started_context(
+                args,
+                details,
+                prior_repair_binding=prior_repair_binding,
+            ) and success
+            if success:
+                success = _bind_read_only_execution_state(args, details)
+            if success:
+                success = _register_started_run(args, details, claim["run"])
+                committed = success
+            if success:
+                # The route and objective are known and nothing has been mutated
+                # yet, which is the only moment an initial packet can describe.
+                details.append(
+                    record_lifecycle_checkpoint(
+                        args, "initial", work={"objective": start_objective(args)}
+                    )
                 )
-            )
-    if not success:
-        _release_claimed_run(args, claim["run"])
+    finally:
+        if not committed:
+            release_error = _release_claimed_run(args, claim["run"])
+            if release_error:
+                details.append(release_error)
     return finish_with_result(
         "start",
         success,
@@ -214,6 +233,7 @@ def _is_invocation_error(result: dict[str, Any]) -> bool:
             "classification evidence does not prove work can start",
             "route requires request intake evidence",
             "broad app/product/feature work",
+            "work routes require a current, session-bound intent envelope",
         )
     )
 
@@ -270,6 +290,18 @@ def finish_hook(args: argparse.Namespace) -> int:
                 finalize_completed=True,
             )
         )
+    elif result["returncode"] == 3:
+        # Pending closeout is owed work, not a failed run. Retiring it here
+        # dropped the run out of ACTIVE_RUN_STATES, so runtime evidence no
+        # longer resolved and the edit gate refused the very skill-document
+        # writes the closeout asks for. Leaving the state alone was not enough:
+        # the usual sequence is a finish that fails on a missing gate, the gate
+        # being recorded, and the retry returning pending closeout, so the run
+        # is already failed by then. Exit code 3 is only reachable once every
+        # other check passed, so reviving the claim here cannot smuggle an
+        # unfinished failure back into an active run.
+        details.append(record_lifecycle_checkpoint(args, "lifecycle"))
+        _resume_run_for_closeout(args)
     else:
         # A failed finish remains a resumable checkpoint, so record it while
         # the run is still active and only then move the registry to failed.
@@ -282,6 +314,7 @@ def finish_hook(args: argparse.Namespace) -> int:
         args.output,
         {"finish_check": result},
         args.repair_cycle,
+        pending_closeout=result["returncode"] == 3,
     )
 
 
@@ -307,7 +340,7 @@ def _claim_refusal_detail(claim: dict[str, Any]) -> str:
     return detail
 
 
-def _release_claimed_run(args: argparse.Namespace, run: dict[str, Any] | None) -> None:
+def _release_claimed_run(args: argparse.Namespace, run: dict[str, Any] | None) -> str:
     """Give back the evidence path when the start that claimed it never began.
 
     The claim is taken before preflight so two starts cannot both win the path.
@@ -316,52 +349,52 @@ def _release_claimed_run(args: argparse.Namespace, run: dict[str, Any] | None) -
     """
 
     if not run:
-        return
+        return ""
     try:
-        transition_run(
+        released = transition_run(
             args.project,
             preflight_evidence_path(args),
             "cancelled",
             run_id=str(run.get("run_id") or "") or None,
         )
-    except (OSError, RuntimeError, ValueError, TypeError):
-        return
+    except (OSError, RuntimeError, ValueError, TypeError) as error:
+        return f"agent run claim cleanup failed: {type(error).__name__}"
+    return "" if released is not None else "agent run claim cleanup failed: claim not found"
 
 
 def _register_started_run(
     args: argparse.Namespace,
     details: list[str],
     claimed: dict[str, Any] | None,
-) -> None:
-    """Persist lifecycle state without making registry health a startup blocker."""
+) -> bool:
+    """Commit preflight identity, then atomically promote its transient claim."""
 
     try:
         evidence_path = preflight_evidence_path(args)
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        claimed_run_id = str((claimed or {}).get("run_id") or "")
+        if not claimed_run_id:
+            raise ValueError("start claim has no opaque run id")
+        # Persist every byte needed by later hooks before publishing this run as
+        # active. A kill before the promotion leaves only a hook-owned transient
+        # claim; a kill after it leaves complete runtime evidence.
+        payload["agent_run_id"] = claimed_run_id
+        write_json(evidence_path, payload)
+        resync_gate_evidence_ledger(evidence_path, payload)
         run = register_run(
             args.project,
             evidence_path,
             payload.get("route") or {},
             payload.get("request_intake") or {},
-            reuse_run_id=str((claimed or {}).get("run_id") or "") or None,
+            reuse_run_id=claimed_run_id,
         )
-        payload["agent_run_id"] = run["run_id"]
-        write_json(evidence_path, payload)
-        # This rewrite changes preflight.json's hash after "request intake"
-        # was already recorded in the gate-evidence ledger against the
-        # pre-mutation content. Without resyncing, the next gate write's
-        # self-heal check sees a stale hash and silently wipes the ledger,
-        # including that "request intake" entry -- reproduced end-to-end:
-        # right after start the entries are ["request intake"], and after
-        # exactly one more `gate` call they become just the new gate, with
-        # "request intake" gone.
-        try:
-            resync_gate_evidence_ledger(evidence_path, payload)
-        except (OSError, ValueError):
-            pass
+        if run.get("run_id") != claimed_run_id or run.get("state") != "running":
+            raise ValueError("start claim was not promoted atomically")
         details.append("agent run registry: running")
+        return True
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        details.append("agent run registry: unavailable; lifecycle continues")
+        details.append("agent run registry: unavailable; start refused")
+        return False
 
 
 def _bind_read_only_execution_state(
@@ -403,6 +436,30 @@ def _refresh_run_heartbeat(args: argparse.Namespace) -> None:
     try:
         touch_run(args.project, preflight_evidence_path(args))
     except (OSError, RuntimeError, ValueError, TypeError):
+        return
+
+
+def _resume_run_for_closeout(args: argparse.Namespace) -> None:
+    """Return a pending-closeout run to an active state so it can finish its work.
+
+    The closeout may stage or apply a skill-document change, and the edit gate
+    only resolves session evidence for an active run. Pending closeout also
+    tells the agent not to run repair-verify, so without this the run has no
+    route back to an active state at all.
+
+    The registry owns the decision: a general transition accepted any prior
+    state, so replaying this on a run that had already completed resurrected it
+    and put an extra active run back on the shared evidence path.
+    """
+    try:
+        evidence_path = args.evidence or args.project / ".tao" / "preflight.json"
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        resume_run_for_closeout(
+            args.project,
+            evidence_path,
+            run_id=payload.get("agent_run_id"),
+        )
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return
 
 
@@ -575,6 +632,22 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
     start = parser.add_argument_group("start hook")
     start.add_argument("--command", default="task", help="workflow route command for start")
     start.add_argument("--request", help="current user request")
+    start.add_argument(
+        "--intent-envelope",
+        default="",
+        help=(
+            "runtime intent envelope as JSON or a path to it; when supplied it "
+            "is the authority for intent, target and effect"
+        ),
+    )
+    parser.add_argument(
+        "--continuation-scope",
+        default="",
+        help=(
+            "bounded prior scope for a terse follow-up; target context only, "
+            "never current-request intent"
+        ),
+    )
     start.add_argument(
         "--request-classified",
         action="store_true",

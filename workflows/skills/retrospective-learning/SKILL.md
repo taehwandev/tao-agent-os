@@ -45,15 +45,21 @@ failure-repair and skill-learning automation boundary.
    with `recorded` only when the hook created or deduplicated the bound
    observation. A reusable gap may produce at most one content-free observation
    tied to an actually used skill.
-6. Keep observation storage, curation, review, staging, and later canonical
-   maintenance separate and non-blocking. They remain outside required finish
-   gates even though the retrospective check itself is required.
+6. Keep observation, curation, review, staging, and canonical maintenance as
+   separate authority boundaries. A first observation or unavailable storage
+   remains non-blocking. Once an observation from the current run reaches the
+   recurrence threshold, finish must require the bounded review and, for
+   `staged_patch`, verified maintenance to reach a terminal result. This is a
+   closeout obligation, not permission for a hook to edit canonical guidance.
 
 ## Do Not
 
 - Do not look for legacy flat compatibility paths; load this skill bundle as the canonical context-loading target.
 - Do not load broad references for unrelated work just because this skill was nearby in the route.
-- Do not let a successful-task feedback write, review, or promotion block task completion.
+- Do not let one passive observation or unavailable storage block completion.
+- Do not let an agent report successful closeout while a threshold-reached
+  candidate bound to the current run is still waiting for curation, review, or
+  staged maintenance.
 - Do not skip the retrospective check merely because no reusable gap is
   expected; record `no_reusable_gap` or `no_skill_used` explicitly.
 - Do not route a user-confirmed wrong completion as an ordinary follow-up,
@@ -72,8 +78,10 @@ failure-repair and skill-learning automation boundary.
 - If routing changes, prove every route requires `retrospective check`, its
   structured evidence is validated, and every skill-learning hook remains
   optional.
-- Prove successful-task feedback remains non-blocking when storage, tokens, or
-  a reviewer are unavailable.
+- Prove a first successful-task observation remains non-blocking, while the
+  current run's threshold-reached candidate blocks closeout until `no_change`,
+  `applied`, or `rejected` is recorded.
+- Prove unrelated historical review-queue items never block the current run.
 - Prove a user-confirmed wrong completion enters blocking failure repair while
   an optional improvement or unrelated follow-up does not.
 - Prove correction routing requires an explicit completed-result anchor, keeps

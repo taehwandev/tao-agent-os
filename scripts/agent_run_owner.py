@@ -24,8 +24,8 @@ from typing import Any
 LIVE_OWNER_GRACE_MULTIPLIER = 12
 
 
-def process_owner() -> dict[str, Any]:
-    """Identify the process that launched this agent session.
+def process_owner(*, current_process: bool = False) -> dict[str, Any]:
+    """Identify the runtime owner, or this hook process for a transient claim.
 
     Neither end of the process tree works as a liveness anchor. The hook and
     the shell that ran it exit within the same tool call, so they look dead
@@ -35,6 +35,11 @@ def process_owner() -> dict[str, Any]:
     for a real hook invocation resolves to the agent runtime itself: it spans
     every hook of the session and disappears when that session ends.
 
+    ``current_process`` is deliberately narrow. A preflight claim exists only
+    while one start hook is executing, so that claim must die with the hook
+    rather than inherit the much longer-lived runtime owner. Normal runs keep
+    the launcher-anchored default described above.
+
     Only POSIX hosts can probe another process safely, so elsewhere the run
     records no owner and keeps the older timestamp-only recovery contract
     rather than an identity nothing can ever check.
@@ -42,7 +47,11 @@ def process_owner() -> dict[str, Any]:
 
     if os.name != "posix":
         return {}
-    pid, start_token = _owner_identity()
+    if current_process:
+        pid = os.getpid()
+        start_token = _process_start_token(pid)
+    else:
+        pid, start_token = _owner_identity()
     if pid < 1:
         return {}
     return {"pid": pid, "start_token": start_token}
@@ -88,13 +97,23 @@ def owner_death_is_proven(owner: Any) -> bool:
     return owner_is_gone(owner)
 
 
-def _owner_is_recorded(owner: Any) -> bool:
+def is_recorded_owner(owner: Any) -> bool:
+    """True when the record actually names an owning process.
+
+    Callers that gate a mutation on ownership need to tell "owned by someone
+    else" apart from "never recorded", because only the first is a refusal.
+    """
+
     if not isinstance(owner, dict):
         return False
     try:
         return int(owner.get("pid")) >= 1
     except (TypeError, ValueError):
         return False
+
+
+def _owner_is_recorded(owner: Any) -> bool:
+    return is_recorded_owner(owner)
 
 
 @functools.lru_cache(maxsize=1)

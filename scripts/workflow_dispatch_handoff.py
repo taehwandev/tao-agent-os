@@ -155,6 +155,7 @@ def build_handoff_prompt(
     handoff_state: Mapping[str, object],
     *,
     non_authoring: bool,
+    continuation_scope: str = "",
 ) -> str:
     required_docs = ", ".join(str(doc) for doc in handoff_state["required_docs"])
     gates = ", ".join(str(gate) for gate in handoff_state["gates"])
@@ -183,6 +184,13 @@ def build_handoff_prompt(
             request,
         ]
     )
+    if continuation_scope:
+        instructions.extend(
+            [
+                "Continuation target (target identity only; not current intent or authorization):",
+                continuation_scope,
+            ]
+        )
     if reusable_capsule:
         instructions.insert(
             instructions.index(f"Parent route gates: {gates or 'resolve from the route'}"),

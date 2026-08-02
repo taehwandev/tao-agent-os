@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_gate_evidence import record_gate_evidence
+from agent_route_state import request_fingerprint
 from agent_worker_evidence import create_worker_reservation, claim_worker_reservation, worker_reservation_matches
 from workflow_dispatch import build_dispatch_manifest, execute_dispatch_manifest
 from support.permission_entries import (
@@ -222,6 +223,14 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
             capsule = json.loads(output.read_text(encoding="utf-8"))["execution_capsule"]
             worker_evidence = Path(capsule["fallback_worker_preflight_evidence"])
             token = capsule["fallback_worker_reservation_token"]
+            accepted_classification = {
+                "request": "기획변경 때 문서 정리가 누락되는 걸 막아줘",
+                "clarity": "clear-scoped",
+                "effort": "standard",
+                "question_drill": False,
+                "response_mode": "work",
+                "recommended_route": "",
+            }
 
             manifest = build_dispatch_manifest(
                 "feature",
@@ -230,6 +239,7 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                 isolation_required=True,
                 worker_evidence_path=worker_evidence,
                 worker_reservation_token=token,
+                request_classification=accepted_classification,
             )
             second_manifest = build_dispatch_manifest(
                 "feature",
@@ -238,6 +248,7 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                 isolation_required=True,
                 worker_evidence_path=worker_evidence,
                 worker_reservation_token=token,
+                request_classification=accepted_classification,
             )
             # Isolated manifests can no longer be executed through an injected
             # runner (Fix B); drive the real launch path with only the codex
@@ -268,6 +279,7 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                     isolation_required=True,
                     worker_evidence_path=worker_evidence,
                     worker_reservation_token="0" * 32,
+                    request_classification=accepted_classification,
                 )
 
     def test_invalid_handoff_rejects_symlinked_worker_root(self) -> None:
@@ -378,6 +390,18 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
             self.assertIn("requires a single-use", without_token.stderr)
 
             token = create_worker_reservation(worker)
+            request = "Review only the current bounded worker fixture diff."
+            session_id = "worker-reservation-session"
+            envelope = {
+                "schema_version": 1,
+                "request_fingerprint": request_fingerprint({"request": request}),
+                "runtime_session_id": session_id,
+                "mode": "work",
+                "intent": "review",
+                "target_summary": "the bounded worker fixture diff",
+                "requested_effects": ["read"],
+                "ambiguity": "resolved",
+            }
             with_token = subprocess.run(
                 [
                     sys.executable,
@@ -389,7 +413,11 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                     "--command",
                     "review",
                     "--request",
-                    "Review only the current bounded worker fixture diff.",
+                    request,
+                    "--intent-envelope",
+                    json.dumps(envelope),
+                    "--runtime-session-id",
+                    session_id,
                     "--read-only",
                     "--evidence",
                     str(evidence),
@@ -439,9 +467,21 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
             )
 
             self.assertNotEqual(0, rejected.returncode)
-            self.assertIn("needs clarification", rejected.stderr)
+            self.assertIn("intent envelope", rejected.stderr)
             self.assertTrue(worker_reservation_matches(worker, token))
 
+            request = "Review only the current diff for notification permission correctness."
+            session_id = "worker-retry-session"
+            envelope = {
+                "schema_version": 1,
+                "request_fingerprint": request_fingerprint({"request": request}),
+                "runtime_session_id": session_id,
+                "mode": "work",
+                "intent": "review",
+                "target_summary": "the notification permission diff",
+                "requested_effects": ["read"],
+                "ambiguity": "resolved",
+            }
             accepted = subprocess.run(
                 [
                     sys.executable,
@@ -453,7 +493,11 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                     "--command",
                     "review",
                     "--request",
-                    "Review only the current diff for notification permission correctness.",
+                    request,
+                    "--intent-envelope",
+                    json.dumps(envelope),
+                    "--runtime-session-id",
+                    session_id,
                     "--read-only",
                     "--evidence",
                     str(evidence),

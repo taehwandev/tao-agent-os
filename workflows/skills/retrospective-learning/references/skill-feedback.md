@@ -10,14 +10,18 @@ Use before finish on every workflow. The closeout check is required; the
 follow-up flow begins only when successful completed work, review, or
 verification exposed a reusable gap in a skill the agent actually loaded and
 applied. A user correction that says a completed result was wrong belongs to
-blocking failure repair instead. This Hermes-inspired follow-up is best-effort
-and non-blocking:
+blocking failure repair instead. This Hermes-inspired follow-up starts as a
+best-effort side channel. When the current run supplies the occurrence that
+reaches the deterministic threshold, its remaining review and maintenance
+become required closeout work:
 
 ```text
 observe -> curate -> review -> stage -> maintain
 ```
 
-Each arrow is an asynchronous boundary. No stage may borrow authority from the
+Each arrow is an authority boundary. Work may pause and resume across those
+boundaries, but an agent may not report successful finish while its current
+threshold occurrence is unresolved. No stage may borrow authority from the
 next one.
 
 The separation is adapted from Hermes Agent's documented skill-creation and
@@ -46,9 +50,11 @@ agent materially benefit from changing one skill actually used in this task?
   retrospective record. Do not name an unrelated or merely adjacent skill.
 - The hook derives an opaque occurrence key from the current preflight run. It
   never stores the raw run id.
-- If the hook, store, current preflight occurrence, or token budget is
-  unavailable, record `observation: deferred`. The completed task remains
-  successful because the evaluation ran even though the side channel did not.
+- If the hook, store, or current preflight occurrence is unavailable before an
+  observation is stored, record `observation: deferred`; that passive gap does
+  not fail finish. After a stored current occurrence reaches the threshold,
+  unavailable review or maintenance capacity pauses closeout instead of
+  silently discarding the obligation.
 
 The observation hook only records facts. It does not deduplicate recurrence,
 queue review, ask a model to judge the skill, create a patch, or edit a
@@ -56,7 +62,10 @@ canonical file.
 
 The finish check validates the structured retrospective result. It fails when
 the evaluation is missing or when `reusable_gap` is paired with `not_needed`.
-It does not fail when a valid reusable gap uses `observation: deferred`.
+It does not fail merely because a valid reusable gap uses `observation:
+deferred`. Separately, it derives the current occurrence from the preflight run
+identity and fails when a matching candidate has at least two observations but
+has not reached a terminal `no_change`, `applied`, or `rejected` record.
 
 Structured gate fields are:
 
@@ -146,8 +155,10 @@ followed later by `applied | rejected` only after bounded maintenance.
 
 The curator must not infer truth, severity, similarity, or recurrence from
 prose keywords, task text, prompt content, path names, model confidence, or
-free-form explanations. It must not draft or apply a patch. If curation or
-storage is unavailable, leave observations pending without blocking work.
+free-form explanations. It must not draft or apply a patch. If curation is
+unavailable before recurrence can be established, leave passive observations
+pending. If the current occurrence already has threshold evidence, finish
+reports `curation_pending` and requires the agent to resume that step.
 
 ## 3. Bounded Review
 
@@ -170,11 +181,15 @@ keyword exceptions.
 Default to one capable reviewer and the smallest relevant context. Add
 independent review only when impact, ambiguity, or cross-owner scope justifies
 it. If a reviewer or token budget is unavailable, leave the review queued and
-continue ordinary work.
+pause the current closeout when that run owns one of the threshold occurrences.
+Other tasks whose occurrences are unrelated to the queued candidate continue
+normally.
 
 ## 4. Staged Maintenance
 
-Canonical skill writes happen only in a later bounded maintenance task:
+Canonical skill writes happen only in a bounded, explicitly authored
+maintenance task after review. It may be the next resumed closeout checkpoint;
+it is never performed implicitly by the observation or finish hook:
 
 1. Revalidate the queued observations, reviewer result, canonical owner, and
    current skill contents.
@@ -206,8 +221,10 @@ review, staging, structural target linkage, and a live verification receipt.
 
 ## Stop Or Defer
 
-- Defer without blocking when observation storage, curation capacity, reviewer
-  capacity, token budget, or maintenance capacity is unavailable.
+- Defer without blocking when a first observation cannot be stored. Once the
+  current run's stored occurrence reaches the threshold, unavailable curation,
+  review, or maintenance capacity pauses closeout and preserves the resume
+  action instead of allowing a successful finish.
 - Return `no_change` when evidence does not justify a testable improvement.
 - Stop staged maintenance when ownership is uncertain, the patch is stale,
   verification fails, approval is required but absent, or the proposed change

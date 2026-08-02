@@ -138,6 +138,7 @@ def parent_dispatch_route(
     *,
     command: str,
     request: str,
+    continuation_scope: str = "",
     request_classified: bool,
     classification_evidence: str,
     platform: str | None,
@@ -178,6 +179,8 @@ def parent_dispatch_route(
         if not intake.get("request") or intake.get("request") != request:
             return None
     elif intake.get("request") != request:
+        return None
+    if str(intake.get("continuation_scope") or "") != continuation_scope:
         return None
     return dict(route)
 

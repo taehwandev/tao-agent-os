@@ -328,6 +328,21 @@ class OwnerLivenessTests(unittest.TestCase):
             self.assertEqual({}, agent_run_owner.process_owner())
             self.assertTrue(owner_is_gone({"pid": os.getpid(), "start_token": ""}))
 
+    def test_current_process_owner_does_not_use_the_runtime_launcher_anchor(self) -> None:
+        with (
+            patch.object(agent_run_owner.os, "name", "posix"),
+            patch.object(agent_run_owner.os, "getpid", return_value=45_001),
+            patch.object(agent_run_owner, "_process_start_token", return_value="hook-token"),
+            patch.object(
+                agent_run_owner,
+                "_owner_identity",
+                side_effect=AssertionError("runtime launcher lookup must not run"),
+            ),
+        ):
+            owner = agent_run_owner.process_owner(current_process=True)
+
+        self.assertEqual({"pid": 45_001, "start_token": "hook-token"}, owner)
+
 
 if __name__ == "__main__":
     unittest.main()

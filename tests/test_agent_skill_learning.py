@@ -52,6 +52,48 @@ class AgentSkillLearningTests(unittest.TestCase):
         self.assertNotIn("runner", parameters)
         self.assertNotIn("verification_receipt", parameters)
 
+    def test_one_run_stores_at_most_one_observation(self) -> None:
+        """The contract binds the limit to the run, not to the candidate.
+
+        Deduplicating per candidate let two different skill/signal pairs from
+        the same run each pass their own existence check, so one run
+        contributed two observations toward two separate recurrence counts.
+        """
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            first = record_observation(
+                root, occurrence_id="run-1",
+                skill_id="verification_policy", signal="weak_verification",
+            )
+            second = record_observation(
+                root, occurrence_id="run-1",
+                skill_id="testing", signal="missing_rule",
+            )
+
+            self.assertTrue(first["created"])
+            self.assertFalse(second["created"])
+            self.assertEqual("occurrence_already_observed", second["reason"])
+            stored = list((root / "skill-learning" / "observations").rglob("*.json"))
+            self.assertEqual(1, len(stored))
+
+    def test_a_different_run_may_still_observe_the_same_gap(self) -> None:
+        """Negative control: the limit is per run, not a global one."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            record_observation(
+                root, occurrence_id="run-1",
+                skill_id="verification_policy", signal="weak_verification",
+            )
+            later = record_observation(
+                root, occurrence_id="run-2",
+                skill_id="verification_policy", signal="weak_verification",
+            )
+
+            self.assertTrue(later["created"])
+
     def test_observation_replay_is_idempotent_and_content_free(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -463,10 +505,12 @@ class AgentSkillLearningTests(unittest.TestCase):
         self.assertTrue(review_outcome_failures("findings"))
 
     def _ready_candidate(self, root: Path, *, signal: str) -> str:
-        for occurrence_id in ("run-one", "run-two"):
+        # One run may store only one observation, so each candidate needs its
+        # own runs rather than sharing a fixed pair across signals.
+        for index in ("one", "two"):
             record_observation(
                 root,
-                occurrence_id=occurrence_id,
+                occurrence_id=f"run-{signal}-{index}",
                 skill_id="verification_policy",
                 signal=signal,
             )

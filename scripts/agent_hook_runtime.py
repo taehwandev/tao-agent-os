@@ -110,9 +110,13 @@ def finish_with_result(
     payload: dict[str, Any],
     repair_cycle: int,
     invocation_error: bool = False,
+    pending_closeout: bool = False,
 ) -> int:
     policy, policy_details = hook_failure_policy(
-        success, repair_cycle, invocation_error=invocation_error
+        success,
+        repair_cycle,
+        invocation_error=invocation_error,
+        pending_closeout=pending_closeout,
     )
     details = [*details, *policy_details]
     evidence = {
@@ -130,7 +134,11 @@ def finish_with_result(
 
 
 def hook_failure_policy(
-    success: bool, repair_cycle: int, *, invocation_error: bool = False
+    success: bool,
+    repair_cycle: int,
+    *,
+    invocation_error: bool = False,
+    pending_closeout: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     if success:
         next_action = "resume_failed_checkpoint" if repair_cycle else "continue"
@@ -152,6 +160,19 @@ def hook_failure_policy(
             "invocation request: this call was rejected before any gate ran, so no checkpoint "
             "failed and there is nothing to repair. Do not run repair-verify; correct the "
             "reported argument and rerun the same hook",
+        ]
+    if pending_closeout:
+        return {
+            "repair_cycle": repair_cycle,
+            "repair_cycle_limit": REPAIR_CYCLE_LIMIT,
+            "next_action": "complete_skill_followup_then_retry_finish",
+            "recovery_required": "bounded_skill_review_or_verified_maintenance",
+            "resume_scope": "finish",
+        }, [
+            "closeout request: the current skill-learning occurrence reached the recurrence "
+            "threshold. Run the indicated skill-curate, skill-review, or skill-maintenance "
+            "step, then retry finish. This is expected closeout work, not a Tao repair cycle; "
+            "do not run repair-verify",
         ]
     if repair_cycle < REPAIR_CYCLE_LIMIT:
         return {
