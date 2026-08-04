@@ -60,8 +60,12 @@ class ConcernInferenceTests(unittest.TestCase):
             ("Preserve Spill workflow label bridge data", "metering"),
             ("Update the agent skill bundle", "skill-card"),
             ("Review the branch naming strategy", "branch"),
+            ("web service React Native Python 스킬 pack 추가", "web-service-stack"),
+            ("크리스밴 스킬처럼 활용해서 rn react python 스킬 추가해줘", "web-service-stack"),
+            ("React Native 화면을 추가해줘", "react-native"),
+            ("FastAPI endpoint를 Python web service에 추가해줘", "python-web-service"),
+            ("크리스밴 스킬처럼 활용해서 rn react python 스킬 추가해줘", "python-web-service"),
         )
-
         for request, concern in cases:
             with self.subTest(request=request):
                 self.assertIn(concern, infer_concerns_from_request(request))

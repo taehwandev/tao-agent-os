@@ -52,6 +52,26 @@ QUERY_FACETS: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "name": "web_service_rn_python",
+        "patterns": (
+            r"\bweb\s*service\b.*\b(react native|rn|python|fastapi|react)\b",
+            r"\b(react native|rn|python|fastapi|react)\b.*\bweb\s*service\b",
+            r"(?=.*\b(react native|rn|expo)\b)(?=.*\breact\b)(?=.*\b(python|fastapi)\b)(?=.*\b(skill|skills|pack|card)\b)",
+            r"\breact native\b", r"\bfastapi\b",
+            r"(웹\s*서비스|웹서비스).*(리액트\s*네이티브|파이썬|패스트api|react|리액트)",
+            r"(리액트\s*네이티브|파이썬|패스트api|react|리액트).*(웹\s*서비스|웹서비스)",
+            r"(?=.*(리액트\s*네이티브|리액트네이티브|RN|Expo))(?=.*(파이썬|패스트api|Python|FastAPI))(?=.*(스킬|카드|팩|pack))",
+        ),
+        "terms": ("react", "react native", "python", "fastapi", "web service", "api", "branch router", "source map"),
+        "docs": (
+            "common/skills/web-service-rn-python/SKILL.md",
+            "platforms/react-native/skills/react-native-app/SKILL.md",
+            "platforms/python/skills/python-web-service/SKILL.md",
+            "platforms/web/skills/web-react-ui/SKILL.md",
+            "platforms/server/skills/server-api-implementation/SKILL.md",
+        ),
+    },
+    {
         "name": "ui_feature",
         "patterns": (
             r"\b(screen|screens|ui|layout|list|lists|favorite|favorites|navigation|tab|page|component)\b.*\b(build|create|implement|design|add|make)\b",
