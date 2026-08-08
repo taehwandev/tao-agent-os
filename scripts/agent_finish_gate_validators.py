@@ -479,7 +479,7 @@ def validate_platform_selection_evidence(evidence: str) -> list[str]:
         (
             "selected platform", "platform:", "platforms:",
             "android", "ios", "swift", "web", "server", "application",
-            "flutter", "kmp", "react-native", "python", "web-service",
+            "flutter", "kmp",
         ),
     )
     docs = has_any(
@@ -487,7 +487,7 @@ def validate_platform_selection_evidence(evidence: str) -> list[str]:
         (
             "platform card", "platform cards", "platforms/",
             "android-", "ios-", "swift-", "web-", "server-", "application-",
-            "react-native-", "python-", "read", "loaded",
+            "read", "loaded",
         ),
     )
     before_architecture = has_any(

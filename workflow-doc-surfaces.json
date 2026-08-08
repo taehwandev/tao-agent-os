@@ -117,17 +117,29 @@
       "platforms/server/skills/server-api-implementation/SKILL.md",
       "platforms/server/skills/server-security/SKILL.md"
     ],
+    "web_service_rn_python_priority": [
+      "common/skills/web-service-rn-python/references/current-guidance.md",
+      "platforms/react-native/skills/react-native-app/references/current-guidance.md",
+      "platforms/python/skills/python-web-service/references/current-guidance.md"
+    ],
     "web_service_rn_python": [
       "common/skills/web-service-rn-python/SKILL.md",
+      "platforms/react-native/skills/react-native-app/SKILL.md",
+      "platforms/python/skills/python-web-service/SKILL.md",
       "platforms/web/skills/web-architecture/SKILL.md",
       "platforms/web/skills/web-react-ui/SKILL.md",
       "platforms/web/skills/web-state-data/SKILL.md",
       "platforms/server/skills/server-api-implementation/SKILL.md",
       "platforms/web/skills/web-security/SKILL.md",
-      "platforms/react-native/skills/react-native-app/SKILL.md",
-      "platforms/python/skills/python-web-service/SKILL.md",
       "common/skills/ui-visual-verification/SKILL.md",
       "common/skills/performance-verification/SKILL.md"
+    ],
+    "react_native_android_native": [
+      "platforms/react-native/skills/react-native-app/SKILL.md",
+      "platforms/android/skills/android-architecture/SKILL.md",
+      "platforms/android/skills/android-module-structure/SKILL.md",
+      "platforms/android/skills/android-security/SKILL.md",
+      "platforms/android/skills/android-review/SKILL.md"
     ],
     "android_module_di_build": [
       "platforms/android/skills/android-module-structure/references/current-guidance.md",
@@ -637,19 +649,26 @@
       ],
       "request_all": [
         [
-          "\\bweb\\s*service\\b",
-          "\\b(api|backend|server|endpoint)\\b",
-          "(\\uc6f9\\s*\\uc11c\\ube44\\uc2a4|\\uc6f9\\uc11c\\ube44\\uc2a4|\\ubc31\\uc5d4\\ub4dc|\\uc11c\\ubc84|API|\\uc5d4\\ub4dc\\ud3ec\\uc778\\ud2b8)"
+          "\\b(react\\s+native|rn|expo)\\b",
+          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\uc5d1\\uc2a4\\ud3ec)",
+          "(?<![A-Za-z0-9_])(RN|Expo)(?![A-Za-z0-9_])"
         ],
         [
-          "\\b(react native|rn|expo|python|fastapi|react)\\b",
-          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|RN|Expo|\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8API|React|\\ub9ac\\uc561\\ud2b8)"
+          "\\b(python|fastapi|pydantic|starlette)\\b",
+          "(\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8\\s*API)",
+          "(?<![A-Za-z0-9_])(Python|FastAPI)(?![A-Za-z0-9_])"
+        ],
+        [
+          "\\b(web\\s*service|api|backend|server|endpoint)\\b",
+          "(\\uc6f9\\s*\\uc11c\\ube44\\uc2a4|\\uc6f9\\uc11c\\ube44\\uc2a4|\\ubc31\\uc5d4\\ub4dc|\\uc11c\\ubc84|\\uc5d4\\ub4dc\\ud3ec\\uc778\\ud2b8|\\uc5d0\\uc774\\ud53c\\uc544\\uc774)",
+          "(?<![A-Za-z0-9_])API(?![A-Za-z0-9_])"
         ]
       ],
       "doc_sets": [
+        "web_service_rn_python_priority",
         "web_service_rn_python"
       ],
-      "reason": "Combined web service, React Native, React, and Python requests should load the reduced non-Android branch router, React Native app, Python service, web React, server API, security, visual, and performance guidance."
+      "reason": "Combined React Native and Python web-service requests should load the branch router, both requested runtime cards, and shared React, server API, security, visual, and performance guidance."
     },
     {
       "name": "web_service_rn_python_skill_pack",
@@ -663,22 +682,58 @@
       ],
       "request_all": [
         [
-          "\\b(react native|rn|expo)\\b",
-          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\ub9ac\\uc561\\ud2b8\\ub124\\uc774\\ud2f0\\ube0c|RN|Expo)"
+          "\\b(react\\s+native|rn|expo)\\b",
+          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\uc5d1\\uc2a4\\ud3ec)",
+          "(?<![A-Za-z0-9_])(RN|Expo)(?![A-Za-z0-9_])"
         ],
         [
-          "\\b(python|fastapi)\\b",
-          "(\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8API|Python|FastAPI)"
+          "\\b(python|fastapi|pydantic|starlette)\\b",
+          "(\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8\\s*API)",
+          "(?<![A-Za-z0-9_])(Python|FastAPI)(?![A-Za-z0-9_])"
         ],
         [
           "\\b(skill|skills|pack|card)\\b",
-          "(\\uc2a4\\ud0ac|\\uce74\\ub4dc|\\ud329|pack)"
+          "(\\uc2a4\\ud0ac|\\uce74\\ub4dc|\\ud329)",
+          "(?<![A-Za-z0-9_])pack(?![A-Za-z0-9_])"
         ]
       ],
       "doc_sets": [
+        "web_service_rn_python_priority",
         "web_service_rn_python"
       ],
-      "reason": "Requests to add or use React Native, React, and Python skill packs should load the reduced non-Android branch router even when the wording omits web service."
+      "reason": "Requests to add or use a combined React Native and Python skill pack should load the branch router and both requested runtime cards even when the wording omits web service."
+    },
+    {
+      "name": "react_native_android_native_implementation",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "review",
+        "code-simplify",
+        "refactor"
+      ],
+      "request_all": [
+        [
+          "\\b(react\\s+native|rn|expo)\\b",
+          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\uc5d1\\uc2a4\\ud3ec)",
+          "(?<![A-Za-z0-9_])(RN|Expo)(?![A-Za-z0-9_])"
+        ],
+        [
+          "(?<![A-Za-z0-9_])(?:android|kotlin|gradle|jni)(?![A-Za-z0-9_])",
+          "(?<![A-Za-z0-9_])android\\s+(?:sdk|manifest)(?![A-Za-z0-9_])",
+          "(?<![A-Za-z0-9_])androidmanifest\\.xml(?![A-Za-z0-9_])",
+          "(\\uc548\\ub4dc\\ub85c\\uc774\\ub4dc|\\ucf54\\ud2c0\\ub9b0|\\uadf8\\ub808\\uc77c|\\uc81c\\uc774\\uc5d4\\uc544\\uc774)"
+        ],
+        [
+          "(?<![A-Za-z0-9_])(?:native\\s+(?:module|bridge)|turbo\\s*module|turbomodule|jni|kotlin|gradle|android\\s+(?:sdk|manifest)|androidmanifest\\.xml)(?![A-Za-z0-9_])",
+          "(\\ub124\\uc774\\ud2f0\\ube0c\\s*(\\ubaa8\\ub4c8|\\ube0c\\ub9ac\\uc9c0)|\\ud130\\ubcf4\\s*\\ubaa8\\ub4c8|\\uc81c\\uc774\\uc5d4\\uc544\\uc774|\\ucf54\\ud2c0\\ub9b0|\\uadf8\\ub808\\uc77c|\\uc548\\ub4dc\\ub85c\\uc774\\ub4dc\\s*(SDK|\\ub9e4\\ub2c8\\ud398\\uc2a4\\ud2b8))"
+        ]
+      ],
+      "doc_sets": [
+        "react_native_android_native"
+      ],
+      "reason": "React Native work that explicitly crosses into Android native implementation must combine the mobile card with focused Android architecture, module, security, and review guidance."
     },
     {
       "name": "react_native_self_selected",
@@ -989,6 +1044,23 @@
       "reason": "Touched Swift design-system, style, modifier, primitive, or component paths imply Swift UI/design guidance should be read."
     },
     {
+      "name": "react_native_paths",
+      "patterns": [
+        "packages/mobile/**",
+        "apps/mobile/**",
+        "**/*.native.ts",
+        "**/*.native.tsx",
+        "**/*.ios.ts",
+        "**/*.ios.tsx",
+        "**/*.android.ts",
+        "**/*.android.tsx"
+      ],
+      "doc_sets": [
+        "react_native_app"
+      ],
+      "reason": "Touched React Native app roots or platform-qualified TypeScript paths imply mobile screen, state, native-integration, visual, and performance guidance."
+    },
+    {
       "name": "web_react_paths",
       "patterns": [
         "app/**/page.tsx",
@@ -1001,6 +1073,16 @@
         "src/**/features/**/*.tsx",
         "**/*Screen.tsx",
         "**/*Page.tsx"
+      ],
+      "exclude_patterns": [
+        "packages/mobile/**",
+        "apps/mobile/**",
+        "**/*.native.ts",
+        "**/*.native.tsx",
+        "**/*.ios.ts",
+        "**/*.ios.tsx",
+        "**/*.android.ts",
+        "**/*.android.tsx"
       ],
       "doc_sets": [
         "web_ui"

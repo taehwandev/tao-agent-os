@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
 
 
 class AgentHookSummaryTests(unittest.TestCase):
@@ -185,6 +186,113 @@ class AgentHookSummaryTests(unittest.TestCase):
 
             self.assertNotEqual(0, result.returncode)
             self.assertIn("session-bound intent envelope", result.stdout)
+            self.assertIn("invocation request:", result.stdout)
+            self.assertIn("nothing to repair", result.stdout)
+            self.assertNotIn("recovery request:", result.stdout)
+            self.assertNotIn("--repair-cycle", result.stdout)
+
+    def test_malformed_intent_envelope_is_an_invocation_error(self) -> None:
+        # Envelope schema errors also happen before route creation, so they
+        # cannot produce the failed checkpoint required by repair-verify.
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/agent-hook.py"),
+                    "start",
+                    "--project",
+                    directory,
+                    "--rules",
+                    str(ROOT),
+                    "--command",
+                    "bugfix",
+                    "--request",
+                    "repair a scoped workflow bug",
+                    "--intent-envelope",
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "request_fingerprint": "0" * 64,
+                            "runtime_session_id": "test-session",
+                            "mode": "work",
+                            "intent": "bugfix",
+                            "bounded_target": "workflow routing",
+                            "requested_effects": ["local_write"],
+                            "prohibited_effects": ["external_write"],
+                            "ambiguity": "resolved",
+                        }
+                    ),
+                    "--runtime-session-id",
+                    "test-session",
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("intent envelope has unknown fields", result.stdout)
+            self.assertIn("target_summary", result.stdout)
+            self.assertIn("invocation request:", result.stdout)
+            self.assertIn("nothing to repair", result.stdout)
+            self.assertNotIn("recovery request:", result.stdout)
+            self.assertNotIn("--repair-cycle", result.stdout)
+
+    def test_unrecorded_effect_approval_is_an_invocation_error(self) -> None:
+        # Effect-policy refusal also precedes route creation. It may require a
+        # caller-side approval repair, but there is still no gate checkpoint
+        # from which repair-verify could create a receipt.
+        request = "merge the reviewed change locally"
+        fingerprint_result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from agent_route_state import request_fingerprint; "
+                    f"print(request_fingerprint({{'request': {request!r}}}))"
+                ),
+            ],
+            cwd=str(SCRIPTS),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/agent-hook.py"),
+                    "start",
+                    "--project",
+                    directory,
+                    "--rules",
+                    str(ROOT),
+                    "--command",
+                    "bugfix",
+                    "--request",
+                    request,
+                    "--intent-envelope",
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "request_fingerprint": fingerprint_result.stdout.strip(),
+                            "runtime_session_id": "test-session",
+                            "mode": "work",
+                            "intent": "bugfix",
+                            "target_summary": "the local integration branch",
+                            "requested_effects": ["git_write"],
+                            "prohibited_effects": ["external_write", "destructive"],
+                            "ambiguity": "resolved",
+                        }
+                    ),
+                    "--runtime-session-id",
+                    "test-session",
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("requires a recorded user approval", result.stdout)
             self.assertIn("invocation request:", result.stdout)
             self.assertIn("nothing to repair", result.stdout)
             self.assertNotIn("recovery request:", result.stdout)

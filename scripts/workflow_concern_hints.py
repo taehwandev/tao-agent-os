@@ -36,7 +36,7 @@ REQUEST_CONCERN_HINTS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
             r"\bweb\s*service\b.*\b(react native|rn|python|fastapi|react)\b",
             r"\b(react native|rn|python|fastapi|react)\b.*\bweb\s*service\b",
             r"(?=.*\b(react native|rn|expo)\b)(?=.*\breact\b)(?=.*\b(python|fastapi)\b)(?=.*\b(skill|skills|pack|card)\b)",
-            r"(?=.*(리액트\s*네이티브|리액트네이티브|RN|Expo))(?=.*(파이썬|패스트api|Python|FastAPI))(?=.*(스킬|카드|팩|pack))",
+            r"(?=.*(?:리액트\s*네이티브|리액트네이티브|(?<![A-Za-z0-9_])(?:RN|Expo)(?![A-Za-z0-9_])))(?=.*(?:파이썬|패스트api|(?<![A-Za-z0-9_])(?:Python|FastAPI)(?![A-Za-z0-9_])))(?=.*(?:스킬|카드|팩|(?<![A-Za-z0-9_])pack(?![A-Za-z0-9_])))",
             r"(웹\s*서비스|웹서비스).*(리액트\s*네이티브|rn|파이썬|패스트api|react|리액트)",
             r"(리액트\s*네이티브|rn|파이썬|패스트api|react|리액트).*(웹\s*서비스|웹서비스)",
         ),
@@ -57,12 +57,11 @@ REQUEST_CONCERN_HINTS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
         (
             r"\b(python|fastapi|pydantic|starlette)\b.*\b(api|web service|backend|server|endpoint)\b",
             r"\b(api|web service|backend|server|endpoint)\b.*\b(python|fastapi|pydantic|starlette)\b",
-            r"\b(python|fastapi|pydantic|starlette)\b.*\b(skill|skills|pack|card)\b",
-            r"\b(python|fastapi|pydantic|starlette)\b.*(스킬|카드|팩|pack)",
+            r"(?=.*\b(react native|rn|expo)\b)(?=.*\breact\b)(?=.*\b(python|fastapi)\b)(?=.*\b(skill|skills|pack|card)\b)",
+            r"(?=.*(?:리액트\s*네이티브|리액트네이티브|(?<![A-Za-z0-9_])(?:RN|Expo)(?![A-Za-z0-9_])))(?=.*(?:파이썬|패스트api|(?<![A-Za-z0-9_])(?:Python|FastAPI)(?![A-Za-z0-9_])))(?=.*(?:스킬|카드|팩|(?<![A-Za-z0-9_])pack(?![A-Za-z0-9_])))",
             r"\bfastapi\b",
             r"(파이썬|패스트api).*(api|웹\s*서비스|웹서비스|백엔드|서버|엔드포인트)",
             r"(api|웹\s*서비스|웹서비스|백엔드|서버|엔드포인트).*(파이썬|패스트api)",
-            r"(파이썬|패스트api).*(스킬|카드|팩|pack)",
         ),
     ),
     (

@@ -54,13 +54,8 @@ QUERY_FACETS: tuple[dict[str, object], ...] = (
     {
         "name": "web_service_rn_python",
         "patterns": (
-            r"\bweb\s*service\b.*\b(react native|rn|python|fastapi|react)\b",
-            r"\b(react native|rn|python|fastapi|react)\b.*\bweb\s*service\b",
-            r"(?=.*\b(react native|rn|expo)\b)(?=.*\breact\b)(?=.*\b(python|fastapi)\b)(?=.*\b(skill|skills|pack|card)\b)",
-            r"\breact native\b", r"\bfastapi\b",
-            r"(웹\s*서비스|웹서비스).*(리액트\s*네이티브|파이썬|패스트api|react|리액트)",
-            r"(리액트\s*네이티브|파이썬|패스트api|react|리액트).*(웹\s*서비스|웹서비스)",
-            r"(?=.*(리액트\s*네이티브|리액트네이티브|RN|Expo))(?=.*(파이썬|패스트api|Python|FastAPI))(?=.*(스킬|카드|팩|pack))",
+            r"(?=.*\b(react native|rn|expo)\b)(?=.*\b(python|fastapi|pydantic|starlette)\b)(?=.*\b(web\s*service|api|backend|server|endpoint|skill|skills|pack|card)\b)",
+            r"(?=.*(?:리액트\s*네이티브|리액트네이티브|엑스포|(?<![A-Za-z0-9_])(?:RN|Expo)(?![A-Za-z0-9_])))(?=.*(?:파이썬|패스트api|(?<![A-Za-z0-9_])(?:Python|FastAPI)(?![A-Za-z0-9_])))(?=.*(?:웹\s*서비스|웹서비스|백엔드|서버|엔드포인트|스킬|카드|팩|(?<![A-Za-z0-9_])(?:API|pack)(?![A-Za-z0-9_])))",
         ),
         "terms": ("react", "react native", "python", "fastapi", "web service", "api", "branch router", "source map"),
         "docs": (

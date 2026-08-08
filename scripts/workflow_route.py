@@ -392,7 +392,10 @@ CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE = {
 # let the operating contract crowd out the documents actually matched to this
 # request.  Total mandatory reading is therefore roughly core + this budget.
 REQUIRED_DOC_BUDGET_BYTES = 30_000
-MAX_REQUIRED_DOCS = 9
+# Core and guaranteed review contracts consume six slots on code routes. Ten
+# leaves room for the route's own command card plus three request-specific
+# branch cards, which is the smallest useful combined-runtime surface.
+MAX_REQUIRED_DOCS = 10
 
 # STOPGAP -- not a permanent policy.  A single reference larger than this would
 # monopolise the route's mandatory reading: admitting one exhausts

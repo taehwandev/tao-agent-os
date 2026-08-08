@@ -35,7 +35,7 @@ Use this when a React Native or Expo change touches:
 | Lists and scroll | Use `FlatList` or `SectionList` for large or changing data. Provide stable keys, keep row work cheap, and tune pagination thresholds only against observed behavior. Memoize after a measured re-render or allocation issue, not by default. | Scroll smoke or profiler evidence for changed large-list behavior. |
 | Networking and API | Keep raw HTTP/SDK details behind a client, service, or hook. Convert DTOs before rendering. Abort or ignore stale requests when the screen can unmount or change params. | Request/response test, mocked client test, or screen smoke for loading/error/success. |
 | Animations and gestures | Prefer native-thread or Reanimated paths for frame-sensitive motion. Animate transform/opacity before layout-heavy properties when the design allows it. Keep gesture state separate from server state. | Device/simulator interaction smoke; profiler evidence for performance claims. |
-| Native integration | Name the native capability, permission, config plugin or native package owner, and fallback when unavailable. Keep native dependencies in the app package when the monorepo has multiple packages. | Platform build/config check or device smoke for the capability. |
+| Native integration | Name the native capability, permission, config plugin or native package owner, and fallback when unavailable. Keep native dependencies in the app package when the monorepo has multiple packages. When implementation crosses into Kotlin, Gradle, JNI, Android SDK or manifest behavior, or an Android native module or bridge, add the focused Android architecture, module, security, and review cards. | Platform build/config check or device smoke for the capability; include the focused Android check when native Android implementation changed. |
 | Startup, memory, bundle | Measure before optimizing. Prefer lazy work, smaller imports, asset discipline, Hermes-aware checks, static analysis, and type checking before broad rewrites. | Startup, memory, bundle analyzer, lint/typecheck, or release-like measurement tied to the changed path. |
 
 ## Boundary
@@ -43,6 +43,13 @@ Use this when a React Native or Expo change touches:
 React rules transfer only through React semantics: components, hooks, render
 state, effects, and props. Browser DOM, CSS, URL, cookie, and storage behavior
 needs a React Native equivalent before reuse.
+
+Pure JavaScript or TypeScript React Native work should not load Android platform
+guidance merely because the app runs on Android. Explicit native Android
+implementation is different: Kotlin, Gradle, JNI, Android SDK or manifest work,
+and Android native modules or bridges must combine this card with focused
+Android architecture, module, security, and review guidance. Do not suppress
+those cards just because the request is framed as React Native work.
 
 ## Common Mistakes
 

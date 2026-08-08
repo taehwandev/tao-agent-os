@@ -19,6 +19,12 @@ mobile performance work.
   hook rules.
 - `platforms/web/skills/web-state-data/SKILL.md` for server state, API client,
   cache, form, or storage boundaries.
+- The focused Android architecture, module, security, and review cards surfaced
+  by the mixed-native route when the requested React Native work explicitly
+  changes Kotlin, Gradle, JNI, Android SDK or manifest behavior, or an Android
+  native module or bridge. Keeping those paths in the conditional route avoids
+  leaking Android guidance into pure React Native requests through doc-graph
+  expansion.
 
 ## Process
 
@@ -41,6 +47,9 @@ mobile performance work.
 ## Verification
 
 - Route smoke with `--platform react-native` should include this card.
-- React Native request intent should route this card without Android platform
-  cards.
+- Pure React Native request intent should route this card without Android
+  platform cards.
+- Explicit React Native Android native-module, bridge, Kotlin, Gradle, JNI,
+  Android SDK, or manifest work should combine this card with focused Android
+  platform guidance.
 - Run `python3 scripts/workflow.py validate` after route wiring changes.

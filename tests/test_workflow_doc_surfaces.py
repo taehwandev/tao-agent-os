@@ -675,6 +675,8 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         )
 
         self.assertIn(required_doc("common/skills/web-service-rn-python/SKILL.md"), route["required_docs"])
+        self.assertIn(required_doc("platforms/react-native/skills/react-native-app/SKILL.md"), route["required_docs"])
+        self.assertIn(required_doc("platforms/python/skills/python-web-service/SKILL.md"), route["required_docs"])
         self.assertIn(guidance_area("platforms/react-native/skills/react-native-app/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("platforms/python/skills/python-web-service/SKILL.md"), routed_areas(route))
         self.assertFalse(any(doc.startswith("platforms/android/") for doc in route["docs"]))
@@ -689,10 +691,31 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         )
 
         self.assertIn(required_doc("common/skills/web-service-rn-python/SKILL.md"), route["required_docs"])
+        self.assertIn(required_doc("platforms/react-native/skills/react-native-app/SKILL.md"), route["required_docs"])
+        self.assertIn(required_doc("platforms/python/skills/python-web-service/SKILL.md"), route["required_docs"])
         self.assertIn(guidance_area("platforms/react-native/skills/react-native-app/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("platforms/python/skills/python-web-service/SKILL.md"), routed_areas(route))
         self.assertFalse(any(doc.startswith("platforms/android/") for doc in route["docs"]))
         self.assertTrue(any(match["name"] == "web_service_rn_python_skill_pack" for match in route["doc_surface_matches"]))
+
+    def test_combined_pack_requires_react_native_python_and_stack_intent(self) -> None:
+        cases = (
+            "React API endpoint를 추가해줘",
+            "FastAPI endpoint를 추가해줘",
+            "React Native screen을 추가해줘",
+            "React Native client for existing Go web service를 추가해줘",
+            "export API schema",
+        )
+
+        for request_text in cases:
+            with self.subTest(request_text=request_text):
+                _, matches = infer_surface_docs(
+                    command="feature",
+                    request_text=request_text,
+                )
+                names = {match["name"] for match in matches}
+                self.assertNotIn("web_service_rn_python_pack", names)
+                self.assertNotIn("web_service_rn_python_skill_pack", names)
 
     def test_react_native_and_python_web_service_requests_promote_branch_cards(self) -> None:
         rn_docs, rn_matches = infer_surface_docs(
@@ -708,6 +731,78 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertTrue(any(match["name"] == "react_native_self_selected" for match in rn_matches))
         self.assertIn("platforms/python/skills/python-web-service/SKILL.md", py_docs)
         self.assertTrue(any(match["name"] == "python_web_service_self_selected" for match in py_matches))
+
+    def test_react_native_android_native_work_combines_platform_cards(self) -> None:
+        mixed_docs, mixed_matches = infer_surface_docs(
+            command="feature",
+            request_text="React Native Android native module을 수정해줘",
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", mixed_docs)
+        self.assertIn("platforms/android/skills/android-architecture/SKILL.md", mixed_docs)
+        self.assertIn("platforms/android/skills/android-module-structure/SKILL.md", mixed_docs)
+        self.assertIn("platforms/android/skills/android-security/SKILL.md", mixed_docs)
+        self.assertIn("platforms/android/skills/android-review/SKILL.md", mixed_docs)
+        self.assertTrue(
+            any(match["name"] == "react_native_android_native_implementation" for match in mixed_matches)
+        )
+
+        pure_docs, pure_matches = infer_surface_docs(
+            command="feature",
+            request_text="React Native Expo screen을 추가해줘",
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", pure_docs)
+        self.assertFalse(any(doc.startswith("platforms/android/") for doc in pure_docs))
+        self.assertFalse(
+            any(match["name"] == "react_native_android_native_implementation" for match in pure_matches)
+        )
+
+        android_screen_docs, android_screen_matches = infer_surface_docs(
+            command="feature",
+            request_text="React Native Android screen을 추가해줘",
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", android_screen_docs)
+        self.assertFalse(any(doc.startswith("platforms/android/") for doc in android_screen_docs))
+        self.assertFalse(
+            any(
+                match["name"] == "react_native_android_native_implementation"
+                for match in android_screen_matches
+            )
+        )
+
+        ambiguous_native_docs, ambiguous_native_matches = infer_surface_docs(
+            command="feature",
+            request_text="React Native native module을 수정해줘",
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", ambiguous_native_docs)
+        self.assertFalse(any(doc.startswith("platforms/android/") for doc in ambiguous_native_docs))
+        self.assertFalse(
+            any(
+                match["name"] == "react_native_android_native_implementation"
+                for match in ambiguous_native_matches
+            )
+        )
+
+    def test_react_native_paths_do_not_fall_through_to_web_only_guidance(self) -> None:
+        docs, matches = infer_surface_docs(
+            command="feature",
+            surface_paths=["packages/mobile/src/screens/HomeScreen.tsx"],
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", docs)
+        self.assertTrue(any(match["name"] == "react_native_paths" for match in matches))
+        self.assertFalse(any(match["name"] == "web_react_paths" for match in matches))
+
+        platform_docs, platform_matches = infer_surface_docs(
+            command="feature",
+            surface_paths=["packages/ui/src/Button.android.tsx"],
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", platform_docs)
+        self.assertTrue(any(match["name"] == "react_native_paths" for match in platform_matches))
 
     def test_document_graph_expands_markdown_and_required_frontmatter_refs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
