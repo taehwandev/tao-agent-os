@@ -661,6 +661,53 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("platforms/web/skills/web-react-ui/SKILL.md", docs)
         self.assertIn("platforms/ios/skills/ios-swiftui-ui/SKILL.md", docs)
         self.assertIn("platforms/flutter/skills/flutter-widget-ui/SKILL.md", docs)
+        self.assertIn("common/skills/web-service-rn-python/SKILL.md", docs)
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", docs)
+        self.assertIn("platforms/python/skills/python-web-service/SKILL.md", docs)
+
+    def test_web_service_rn_python_request_promotes_non_android_pack(self) -> None:
+        route = resolve_docs(
+            "feature",
+            None,
+            [],
+            request_classified=True,
+            request_text="web service React Native Python 스킬 pack 추가",
+        )
+
+        self.assertIn(required_doc("common/skills/web-service-rn-python/SKILL.md"), route["required_docs"])
+        self.assertIn(guidance_area("platforms/react-native/skills/react-native-app/SKILL.md"), routed_areas(route))
+        self.assertIn(guidance_area("platforms/python/skills/python-web-service/SKILL.md"), routed_areas(route))
+        self.assertFalse(any(doc.startswith("platforms/android/") for doc in route["docs"]))
+        self.assertTrue(any(match["name"] == "web_service_rn_python_pack" for match in route["doc_surface_matches"]))
+
+        route = resolve_docs(
+            "feature",
+            None,
+            [],
+            request_classified=True,
+            request_text="크리스밴 스킬처럼 활용해서 rn react python 스킬 추가해줘",
+        )
+
+        self.assertIn(required_doc("common/skills/web-service-rn-python/SKILL.md"), route["required_docs"])
+        self.assertIn(guidance_area("platforms/react-native/skills/react-native-app/SKILL.md"), routed_areas(route))
+        self.assertIn(guidance_area("platforms/python/skills/python-web-service/SKILL.md"), routed_areas(route))
+        self.assertFalse(any(doc.startswith("platforms/android/") for doc in route["docs"]))
+        self.assertTrue(any(match["name"] == "web_service_rn_python_skill_pack" for match in route["doc_surface_matches"]))
+
+    def test_react_native_and_python_web_service_requests_promote_branch_cards(self) -> None:
+        rn_docs, rn_matches = infer_surface_docs(
+            command="feature",
+            request_text="React Native Expo screen을 추가해줘",
+        )
+        py_docs, py_matches = infer_surface_docs(
+            command="feature",
+            request_text="FastAPI endpoint를 Python web service에 추가해줘",
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", rn_docs)
+        self.assertTrue(any(match["name"] == "react_native_self_selected" for match in rn_matches))
+        self.assertIn("platforms/python/skills/python-web-service/SKILL.md", py_docs)
+        self.assertTrue(any(match["name"] == "python_web_service_self_selected" for match in py_matches))
 
     def test_document_graph_expands_markdown_and_required_frontmatter_refs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

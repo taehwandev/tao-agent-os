@@ -68,6 +68,25 @@ ANDROID_PERSISTENCE_DOCS = (
     "platforms/android/skills/android-state-data/references/android-datastore.md",
 )
 
+REACT_NATIVE_DOCS = (
+    "platforms/react-native/skills/react-native-app/SKILL.md",
+    "platforms/web/skills/web-react-ui/SKILL.md",
+    "platforms/web/skills/web-state-data/SKILL.md",
+)
+PYTHON_WEB_SERVICE_DOCS = (
+    "platforms/python/skills/python-web-service/SKILL.md",
+    "platforms/server/skills/server-api-implementation/SKILL.md",
+)
+WEB_SERVICE_STACK_DOCS = (
+    "common/skills/web-service-rn-python/SKILL.md",
+    "platforms/web/skills/web-architecture/SKILL.md",
+    "platforms/web/skills/web-react-ui/SKILL.md",
+    "platforms/web/skills/web-state-data/SKILL.md",
+    "platforms/server/skills/server-api-implementation/SKILL.md",
+    "platforms/react-native/skills/react-native-app/SKILL.md",
+    "platforms/python/skills/python-web-service/SKILL.md",
+)
+
 
 PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
     ("android", "architecture"): (
@@ -178,6 +197,27 @@ PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
     ("web", "structure"): ("platforms/web/skills/web-code-structure/SKILL.md",),
     ("web", "security"): ("platforms/web/skills/web-security/SKILL.md",),
     ("server", "api"): ("platforms/server/skills/server-api-implementation/SKILL.md",),
+    ("react-native", "react"): REACT_NATIVE_DOCS,
+    ("react-native", "ui"): REACT_NATIVE_DOCS,
+    ("react-native", "component"): REACT_NATIVE_DOCS,
+    ("react-native", "state"): REACT_NATIVE_DOCS,
+    ("react-native", "api"): REACT_NATIVE_DOCS,
+    ("react-native", "performance"): (
+        *REACT_NATIVE_DOCS,
+        "common/skills/performance-verification/SKILL.md",
+    ),
+    ("python", "api"): PYTHON_WEB_SERVICE_DOCS,
+    ("python", "web-service"): PYTHON_WEB_SERVICE_DOCS,
+    ("python", "python-web-service"): PYTHON_WEB_SERVICE_DOCS,
+    ("python", "fastapi"): PYTHON_WEB_SERVICE_DOCS,
+    ("python", "security"): (
+        *PYTHON_WEB_SERVICE_DOCS,
+        "platforms/server/skills/server-security/SKILL.md",
+    ),
+    ("web-service", "react"): WEB_SERVICE_STACK_DOCS,
+    ("web-service", "react-native"): WEB_SERVICE_STACK_DOCS,
+    ("web-service", "python"): WEB_SERVICE_STACK_DOCS,
+    ("web-service", "api"): WEB_SERVICE_STACK_DOCS,
     ("server", "security"): ("platforms/server/skills/server-security/SKILL.md",),
     ("application", "swift"): (
         "platforms/swift/skills/swift-architecture/SKILL.md",

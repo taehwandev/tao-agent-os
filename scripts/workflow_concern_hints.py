@@ -31,6 +31,41 @@ REQUEST_CONCERN_HINTS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "web-service-stack",
+        (
+            r"\bweb\s*service\b.*\b(react native|rn|python|fastapi|react)\b",
+            r"\b(react native|rn|python|fastapi|react)\b.*\bweb\s*service\b",
+            r"(?=.*\b(react native|rn|expo)\b)(?=.*\breact\b)(?=.*\b(python|fastapi)\b)(?=.*\b(skill|skills|pack|card)\b)",
+            r"(?=.*(리액트\s*네이티브|리액트네이티브|RN|Expo))(?=.*(파이썬|패스트api|Python|FastAPI))(?=.*(스킬|카드|팩|pack))",
+            r"(웹\s*서비스|웹서비스).*(리액트\s*네이티브|rn|파이썬|패스트api|react|리액트)",
+            r"(리액트\s*네이티브|rn|파이썬|패스트api|react|리액트).*(웹\s*서비스|웹서비스)",
+        ),
+    ),
+    (
+        "react-native",
+        (
+            r"\breact native\b",
+            r"\brn\b",
+            r"\bexpo\b",
+            "리액트 네이티브",
+            "리액트네이티브",
+            "엑스포",
+        ),
+    ),
+    (
+        "python-web-service",
+        (
+            r"\b(python|fastapi|pydantic|starlette)\b.*\b(api|web service|backend|server|endpoint)\b",
+            r"\b(api|web service|backend|server|endpoint)\b.*\b(python|fastapi|pydantic|starlette)\b",
+            r"\b(python|fastapi|pydantic|starlette)\b.*\b(skill|skills|pack|card)\b",
+            r"\b(python|fastapi|pydantic|starlette)\b.*(스킬|카드|팩|pack)",
+            r"\bfastapi\b",
+            r"(파이썬|패스트api).*(api|웹\s*서비스|웹서비스|백엔드|서버|엔드포인트)",
+            r"(api|웹\s*서비스|웹서비스|백엔드|서버|엔드포인트).*(파이썬|패스트api)",
+            r"(파이썬|패스트api).*(스킬|카드|팩|pack)",
+        ),
+    ),
+    (
         "design-system",
         (
             r"\bdesign system\b",

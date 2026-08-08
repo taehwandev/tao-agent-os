@@ -322,6 +322,34 @@ class WorkflowCatalogTests(unittest.TestCase):
                 self.assertIn(concern, CONCERNS)
                 self.assertIn(doc, CONCERNS[concern])
 
+    def test_web_service_rn_python_concerns_and_platforms_route(self) -> None:
+        expected = {
+            "web-service-stack": "common/skills/web-service-rn-python/SKILL.md",
+            "react-native": "platforms/react-native/skills/react-native-app/SKILL.md",
+            "python-web-service": "platforms/python/skills/python-web-service/SKILL.md",
+        }
+
+        for concern, doc in expected.items():
+            with self.subTest(concern=concern):
+                self.assertIn(concern, CONCERNS)
+                self.assertIn(doc, CONCERNS[concern])
+
+        inferred = infer_concerns_from_request("크리스밴 스킬처럼 활용해서 rn react python 스킬 추가해줘")
+        self.assertIn("web-service-stack", inferred)
+        self.assertIn("react-native", inferred)
+        self.assertIn("python-web-service", inferred)
+
+        route_cases = (
+            ("react-native", "platforms/react-native/skills/react-native-app/SKILL.md"),
+            ("python", "platforms/python/skills/python-web-service/SKILL.md"),
+            ("web-service", "common/skills/web-service-rn-python/SKILL.md"),
+        )
+        for platform, doc in route_cases:
+            with self.subTest(platform=platform):
+                route = resolve_docs("feature", platform, [], request_classified=True)
+                self.assertIn(route_doc(doc), route["docs"])
+                self.assertEqual([], route["missing"])
+
     def test_strict_card_required_headings_cover_anti_rationalization(self) -> None:
         self.assertIn("## Common Rationalizations", STRICT_CARD_REQUIRED_HEADINGS)
         self.assertIn("## Red Flags", STRICT_CARD_REQUIRED_HEADINGS)

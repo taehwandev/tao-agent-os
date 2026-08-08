@@ -105,6 +105,30 @@
       "common/skills/ui-visual-verification/SKILL.md",
       "common/skills/performance-verification/SKILL.md"
     ],
+    "react_native_app": [
+      "platforms/react-native/skills/react-native-app/SKILL.md",
+      "platforms/web/skills/web-react-ui/SKILL.md",
+      "platforms/web/skills/web-state-data/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md",
+      "common/skills/performance-verification/SKILL.md"
+    ],
+    "python_web_service": [
+      "platforms/python/skills/python-web-service/SKILL.md",
+      "platforms/server/skills/server-api-implementation/SKILL.md",
+      "platforms/server/skills/server-security/SKILL.md"
+    ],
+    "web_service_rn_python": [
+      "common/skills/web-service-rn-python/SKILL.md",
+      "platforms/web/skills/web-architecture/SKILL.md",
+      "platforms/web/skills/web-react-ui/SKILL.md",
+      "platforms/web/skills/web-state-data/SKILL.md",
+      "platforms/server/skills/server-api-implementation/SKILL.md",
+      "platforms/web/skills/web-security/SKILL.md",
+      "platforms/react-native/skills/react-native-app/SKILL.md",
+      "platforms/python/skills/python-web-service/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md",
+      "common/skills/performance-verification/SKILL.md"
+    ],
     "android_module_di_build": [
       "platforms/android/skills/android-module-structure/references/current-guidance.md",
       "platforms/android/skills/android-module-structure/references/di-build-logic.md",
@@ -600,6 +624,105 @@
         "web_ui"
       ],
       "reason": "React or TSX choices require React UI, web structure, state/data, design-system, accessibility, visual, and performance context."
+    },
+    {
+      "name": "web_service_rn_python_pack",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "docs",
+        "review",
+        "workflow-setup"
+      ],
+      "request_all": [
+        [
+          "\\bweb\\s*service\\b",
+          "\\b(api|backend|server|endpoint)\\b",
+          "(\\uc6f9\\s*\\uc11c\\ube44\\uc2a4|\\uc6f9\\uc11c\\ube44\\uc2a4|\\ubc31\\uc5d4\\ub4dc|\\uc11c\\ubc84|API|\\uc5d4\\ub4dc\\ud3ec\\uc778\\ud2b8)"
+        ],
+        [
+          "\\b(react native|rn|expo|python|fastapi|react)\\b",
+          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|RN|Expo|\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8API|React|\\ub9ac\\uc561\\ud2b8)"
+        ]
+      ],
+      "doc_sets": [
+        "web_service_rn_python"
+      ],
+      "reason": "Combined web service, React Native, React, and Python requests should load the reduced non-Android branch router, React Native app, Python service, web React, server API, security, visual, and performance guidance."
+    },
+    {
+      "name": "web_service_rn_python_skill_pack",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "docs",
+        "review",
+        "workflow-setup"
+      ],
+      "request_all": [
+        [
+          "\\b(react native|rn|expo)\\b",
+          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\ub9ac\\uc561\\ud2b8\\ub124\\uc774\\ud2f0\\ube0c|RN|Expo)"
+        ],
+        [
+          "\\b(python|fastapi)\\b",
+          "(\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8API|Python|FastAPI)"
+        ],
+        [
+          "\\b(skill|skills|pack|card)\\b",
+          "(\\uc2a4\\ud0ac|\\uce74\\ub4dc|\\ud329|pack)"
+        ]
+      ],
+      "doc_sets": [
+        "web_service_rn_python"
+      ],
+      "reason": "Requests to add or use React Native, React, and Python skill packs should load the reduced non-Android branch router even when the wording omits web service."
+    },
+    {
+      "name": "react_native_self_selected",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "review",
+        "code-simplify",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(react native|rn|expo)\\b",
+        "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\ub9ac\\uc561\\ud2b8\\ub124\\uc774\\ud2f0\\ube0c|\\uc5d1\\uc2a4\\ud3ec)"
+      ],
+      "doc_sets": [
+        "react_native_app"
+      ],
+      "reason": "React Native or Expo choices require mobile screen, state, list, animation, native integration, and shared React state guidance."
+    },
+    {
+      "name": "python_web_service_self_selected",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "review",
+        "code-simplify",
+        "refactor"
+      ],
+      "request_all": [
+        [
+          "\\b(python|fastapi|pydantic|starlette)\\b",
+          "(\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8API)"
+        ],
+        [
+          "\\b(api|web\\s*service|backend|server|endpoint|skill|skills|pack|card)\\b",
+          "(API|\\uc6f9\\s*\\uc11c\\ube44\\uc2a4|\\uc6f9\\uc11c\\ube44\\uc2a4|\\ubc31\\uc5d4\\ub4dc|\\uc11c\\ubc84|\\uc5d4\\ub4dc\\ud3ec\\uc778\\ud2b8|\\uc2a4\\ud0ac|\\uce74\\ub4dc|\\ud329|pack)"
+        ]
+      ],
+      "doc_sets": [
+        "python_web_service"
+      ],
+      "reason": "Python web-service requests need Python framework, Pydantic, dependency, async, server API, and security guidance."
     },
     {
       "name": "android_module_di_build_logic",
