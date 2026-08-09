@@ -37,7 +37,7 @@ from workflow_intent_dual_run import (
     dual_run_decision,
     route_intake_decision,
 )
-from workflow_intent_envelope import read_intent_envelope
+from workflow_intent_envelope import read_approval_record, read_intent_envelope
 from workflow_request import (
     classify_request,
     infer_concerns_from_request,
@@ -48,6 +48,17 @@ from workflow_route import resolve_docs
 from workflow_search import print_query_results, search_docs_outcome
 from workflow_spill import spill_label_for_args, write_spill_label
 from workflow_validate import validate
+
+
+def _add_approval_record_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--approval-record",
+        default="",
+        help=(
+            "Separate bound user-approval record as JSON or a path. Required "
+            "when the effective route reaches git_write or above."
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,6 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
             "re-read to second-guess it."
         ),
     )
+    _add_approval_record_argument(route)
     route.add_argument(
         "--runtime-session-id",
         default="",
@@ -143,6 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="runtime intent envelope as JSON or a path to it; when given it decides",
     )
+    _add_approval_record_argument(classify)
     classify.add_argument("--runtime-session-id", default="")
     classify.add_argument("--format", choices=("markdown", "json"), default="markdown")
 
@@ -170,6 +183,7 @@ def _add_dispatch_parser(subparsers: argparse._SubParsersAction) -> None:
     dispatch.add_argument("--request", required=True, help="Current user request text.")
     dispatch.add_argument("--continuation-scope", default="")
     dispatch.add_argument("--intent-envelope", default="")
+    _add_approval_record_argument(dispatch)
     dispatch.add_argument("--runtime-session-id", default="")
     dispatch.add_argument(
         "--request-classified",
@@ -290,6 +304,7 @@ def print_request_classification(args: argparse.Namespace) -> int:
             getattr(args, "command", "task") or "task",
             envelope,
             result,
+            approval=read_approval_record(getattr(args, "approval_record", "")),
             request_fingerprint=request_fingerprint({"request": args.request or ""}),
             runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
         )
@@ -329,6 +344,7 @@ def print_route(args: argparse.Namespace) -> int:
         request_classification, failures = route_intake_decision(
             args.command,
             read_intent_envelope(getattr(args, "intent_envelope", "")),
+            approval=read_approval_record(getattr(args, "approval_record", "")),
             request_fingerprint=request_fingerprint({"request": args.request or ""}),
             runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
         )
@@ -418,6 +434,7 @@ def _dispatch_request_classification(
     request_classification, failures = route_intake_decision(
         args.command,
         read_intent_envelope(getattr(args, "intent_envelope", "")),
+        approval=read_approval_record(getattr(args, "approval_record", "")),
         request_fingerprint=request_fingerprint({"request": args.request or ""}),
         runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
     )

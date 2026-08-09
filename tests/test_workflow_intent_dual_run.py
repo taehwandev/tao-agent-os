@@ -41,6 +41,15 @@ def envelope(**overrides):
     return base
 
 
+def approval(bound, *, command="release", effect="external_write"):
+    return {
+        "request_fingerprint": bound["request_fingerprint"],
+        "target_summary": bound["target_summary"],
+        "effect": effect,
+        "command": command,
+    }
+
+
 def classify(request, *, command="task", envelope_json=None, runtime_session_id=None):
     argv = [sys.executable, "scripts/workflow.py", "classify", request,
             "--format", "json", "--command", command]
@@ -169,12 +178,23 @@ class EnvelopeWiringTests(unittest.TestCase):
     the flag, and inline JSON was discarded before it could be parsed.
     """
 
-    def _route(self, command, envelope, request="Fix the commit parser"):
+    def _route(
+        self,
+        command,
+        envelope,
+        request="Fix the commit parser",
+        approval_record=None,
+    ):
+        argv = [
+            sys.executable, "scripts/workflow.py", "route", command,
+            "--format", "json", "--request", request,
+            "--intent-envelope", json.dumps(envelope),
+            "--runtime-session-id", envelope.get("runtime_session_id", ""),
+        ]
+        if approval_record is not None:
+            argv.extend(["--approval-record", json.dumps(approval_record)])
         return subprocess.run(
-            [sys.executable, "scripts/workflow.py", "route", command,
-             "--format", "json", "--request", request,
-             "--intent-envelope", json.dumps(envelope),
-             "--runtime-session-id", envelope.get("runtime_session_id", "")],
+            argv,
             capture_output=True, text=True, cwd=ROOT,
         )
 
@@ -232,6 +252,24 @@ class EnvelopeWiringTests(unittest.TestCase):
                     2, self._route(command, self._bound(**overrides)).returncode
                 )
 
+    def test_release_route_accepts_a_separate_bound_user_approval(self) -> None:
+        request = "Publish the next release"
+        bound = self._bound(
+            request=request,
+            intent="release",
+            requested_effects=["external_write"],
+            target_summary="the next repository release",
+        )
+
+        result = self._route(
+            "release",
+            bound,
+            request=request,
+            approval_record=approval(bound),
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def test_start_and_preflight_accept_the_envelope(self) -> None:
         for script, action in (("scripts/agent-hook.py", "start"), ("scripts/agent-preflight.py", None)):
             with self.subTest(script=script):
@@ -240,6 +278,7 @@ class EnvelopeWiringTests(unittest.TestCase):
                     argv, capture_output=True, text=True, cwd=ROOT
                 ).stdout
                 self.assertIn("--intent-envelope", helptext)
+                self.assertIn("--approval-record", helptext)
                 self.assertIn("--runtime-session-id", helptext)
 
     def test_preflight_in_process_routing_consumes_the_bound_envelope(self) -> None:
@@ -266,6 +305,40 @@ class EnvelopeWiringTests(unittest.TestCase):
         self.assertIsNotNone(route)
         self.assertEqual("envelope", route["request_classification"]["intent_envelope"]["authority"])
 
+    def test_preflight_in_process_routing_consumes_bound_user_approval(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "agent_preflight_approval_test", ROOT / "scripts" / "agent-preflight.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        request = "Publish the next release"
+        bound = self._bound(
+            request=request,
+            intent="release",
+            requested_effects=["external_write"],
+            target_summary="the next repository release",
+        )
+        args = module.build_parser(ROOT).parse_args(
+            [
+                "--command", "release",
+                "--request", request,
+                "--project", str(ROOT),
+                "--intent-envelope", json.dumps(bound),
+                "--approval-record", json.dumps(approval(bound)),
+                "--runtime-session-id", bound["runtime_session_id"],
+            ]
+        )
+
+        route, error, returncode = module.route_payload(args, {})
+
+        self.assertEqual(0, returncode, error)
+        self.assertIsNotNone(route)
+        self.assertEqual(
+            "external_write",
+            route["request_classification"]["intent_envelope"]["effective_effect"],
+        )
+
     def test_start_threads_the_envelope_and_runtime_session_to_preflight(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "agent_hook_intent_test", ROOT / "scripts" / "agent-hook.py"
@@ -274,6 +347,7 @@ class EnvelopeWiringTests(unittest.TestCase):
         assert spec.loader is not None
         spec.loader.exec_module(module)
         bound = self._bound()
+        approval_record = approval(bound)
         args = module.build_parser().parse_args(
             [
                 "start",
@@ -282,6 +356,7 @@ class EnvelopeWiringTests(unittest.TestCase):
                 "--command", "bugfix",
                 "--request", "Fix the commit parser",
                 "--intent-envelope", json.dumps(bound),
+                "--approval-record", json.dumps(approval_record),
                 "--runtime-session-id", bound["runtime_session_id"],
             ]
         )
@@ -289,6 +364,10 @@ class EnvelopeWiringTests(unittest.TestCase):
         command = module._preflight_arguments(args)
 
         self.assertEqual(json.dumps(bound), command[command.index("--intent-envelope") + 1])
+        self.assertEqual(
+            json.dumps(approval_record),
+            command[command.index("--approval-record") + 1],
+        )
         self.assertEqual(
             bound["runtime_session_id"],
             command[command.index("--runtime-session-id") + 1],

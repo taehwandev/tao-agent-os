@@ -9,6 +9,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from agent_route_state import request_fingerprint
 
 
 class AgentHookSummaryTests(unittest.TestCase):
@@ -185,6 +190,55 @@ class AgentHookSummaryTests(unittest.TestCase):
 
             self.assertNotEqual(0, result.returncode)
             self.assertIn("session-bound intent envelope", result.stdout)
+            self.assertIn("invocation request:", result.stdout)
+            self.assertIn("nothing to repair", result.stdout)
+            self.assertNotIn("recovery request:", result.stdout)
+            self.assertNotIn("--repair-cycle", result.stdout)
+
+    def test_invalid_intent_effect_is_an_invocation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            subprocess.run(
+                ["git", "init", "-q", str(project)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            request = "Publish the next release"
+            envelope = {
+                "schema_version": 1,
+                "request_fingerprint": request_fingerprint({"request": request}),
+                "runtime_session_id": "runtime-session-01",
+                "mode": "work",
+                "intent": "release",
+                "target_summary": "the next repository release",
+                "requested_effects": ["release"],
+                "ambiguity": "resolved",
+            }
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/agent-hook.py"),
+                    "start",
+                    "--project",
+                    str(project),
+                    "--rules",
+                    str(ROOT),
+                    "--command",
+                    "release",
+                    "--request",
+                    request,
+                    "--intent-envelope",
+                    json.dumps(envelope),
+                    "--runtime-session-id",
+                    envelope["runtime_session_id"],
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("unknown effects", result.stdout)
             self.assertIn("invocation request:", result.stdout)
             self.assertIn("nothing to repair", result.stdout)
             self.assertNotIn("recovery request:", result.stdout)
