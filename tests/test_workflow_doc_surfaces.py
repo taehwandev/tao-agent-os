@@ -662,8 +662,30 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("platforms/ios/skills/ios-swiftui-ui/SKILL.md", docs)
         self.assertIn("platforms/flutter/skills/flutter-widget-ui/SKILL.md", docs)
         self.assertIn("common/skills/web-service-rn-python/SKILL.md", docs)
+        self.assertIn("common/skills/react-rn-external-skill-source-coverage/SKILL.md", docs)
         self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", docs)
         self.assertIn("platforms/python/skills/python-web-service/SKILL.md", docs)
+
+    def test_react_rn_external_skill_snapshot_request_promotes_complete_coverage(self) -> None:
+        route = resolve_docs(
+            "docs",
+            None,
+            [],
+            request_classified=True,
+            request_text="React와 React Native 외부 스킬 문서 최신 source coverage를 검증해줘",
+        )
+
+        coverage = "common/skills/react-rn-external-skill-source-coverage/SKILL.md"
+        self.assertIn(guidance_area(coverage), required_areas(route))
+        self.assertIn(guidance_area(coverage), routed_areas(route))
+        self.assertFalse(any(doc.startswith("platforms/python/") for doc in route["docs"]))
+        self.assertFalse(any(doc.startswith("platforms/android/") for doc in route["docs"]))
+        self.assertTrue(
+            any(
+                match["name"] == "react_rn_external_skill_source_coverage"
+                for match in route["doc_surface_matches"]
+            )
+        )
 
     def test_web_service_rn_python_request_promotes_non_android_pack(self) -> None:
         route = resolve_docs(

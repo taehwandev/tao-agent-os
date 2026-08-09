@@ -9,7 +9,7 @@ type: human-reviewed-needed
 Use this reference when a branch needs current framework behavior or external
 skill provenance. It is a map, not vendored source text.
 
-Last verified: 2026-08-08.
+Last verified: 2026-08-09.
 
 ## Source Policy
 
@@ -20,6 +20,10 @@ Last verified: 2026-08-08.
   into local Tao Agent OS cards.
 - Do not copy vendor prose, sample code, repository layout, release notes, or
   provider setup into shared guidance.
+- For the complete reviewed 2026-08-07 React/RN bundle, including all 32
+  installable skills and nine nested Software Mansion subskills, read
+  `common/skills/react-rn-external-skill-source-coverage/SKILL.md`. The focused
+  links below are starting points, not a complete source manifest.
 
 ## React Web
 
@@ -34,6 +38,9 @@ performance behavior:
 - Local durable owners: `platforms/web/skills/web-react-ui/SKILL.md`,
   `platforms/web/skills/web-state-data/SKILL.md`, and
   `platforms/web/skills/web-security/SKILL.md`.
+- Complete external-skill coverage: Vercel React performance, composition, and
+  View Transition entries in
+  `common/skills/react-rn-external-skill-source-coverage/references/source-manifest.json`.
 
 ## React Native
 
@@ -51,6 +58,9 @@ native modules, Expo configuration, startup, memory, or bundle behavior:
   [`skills/react-native-skills/SKILL.md`](https://github.com/vercel-labs/agent-skills/blob/757ccb42a20478be6b7284088978070358b52d5e/skills/react-native-skills/SKILL.md),
   for React Native and Expo branch routing.
 - Local durable owner: `platforms/react-native/skills/react-native-app/SKILL.md`.
+- Complete external-skill coverage: Vercel, Expo, Callstack, and Software
+  Mansion entries, including nested source skills, in
+  `common/skills/react-rn-external-skill-source-coverage/references/source-manifest.json`.
 
 ## Python Web Service
 

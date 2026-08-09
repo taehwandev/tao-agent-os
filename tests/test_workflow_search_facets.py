@@ -19,6 +19,8 @@ COMBINED_FACET = "web_service_rn_python"
 REACT_NATIVE_DOC = "platforms/react-native/skills/react-native-app/SKILL.md"
 PYTHON_SERVICE_DOC = "platforms/python/skills/python-web-service/SKILL.md"
 SERVER_API_DOC = "platforms/server/skills/server-api-implementation/SKILL.md"
+COVERAGE_FACET = "react_rn_external_skill_source_coverage"
+COVERAGE_DOC = "common/skills/react-rn-external-skill-source-coverage/SKILL.md"
 
 
 class WorkflowSearchFacetTests(unittest.TestCase):
@@ -46,6 +48,22 @@ class WorkflowSearchFacetTests(unittest.TestCase):
                 self.assertIn(COMBINED_FACET, facets)
                 self.assertIn(REACT_NATIVE_DOC, boosts)
                 self.assertIn(PYTHON_SERVICE_DOC, boosts)
+
+    def test_external_react_rn_skill_snapshot_matches_coverage_facet(self) -> None:
+        for request in (
+            "Audit the React and React Native external skill source manifest",
+            "리액트와 RN 외부 스킬 문서 최신 소스 커버리지를 확인해줘",
+        ):
+            with self.subTest(request=request):
+                _, _, facets, boosts = query_terms(request)
+                self.assertIn(COVERAGE_FACET, facets)
+                self.assertIn(COVERAGE_DOC, boosts)
+
+    def test_ordinary_react_work_does_not_match_coverage_facet(self) -> None:
+        _, _, facets, boosts = query_terms("Add a React Native screen")
+
+        self.assertNotIn(COVERAGE_FACET, facets)
+        self.assertNotIn(COVERAGE_DOC, boosts)
 
 
 if __name__ == "__main__":

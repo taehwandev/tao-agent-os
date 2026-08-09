@@ -258,6 +258,10 @@ For React Native or Expo screens, components, navigation, lists, animations,
 native integrations, networking, startup, memory, or bundle-size work, read
 `platforms/react-native/skills/react-native-app/SKILL.md`.
 
+For external React or React Native agent-skill provenance, snapshot refreshes,
+or no-omission checks across Vercel, Expo, Callstack, and Software Mansion,
+read `common/skills/react-rn-external-skill-source-coverage/SKILL.md`.
+
 For Python web-service work, including FastAPI, Starlette, Pydantic models,
 dependency injection, middleware, async routes, settings, or endpoint tests,
 read `platforms/python/skills/python-web-service/SKILL.md` together with the

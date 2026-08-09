@@ -13,6 +13,9 @@ mobile performance work.
 ## Read
 
 - `references/current-guidance.md` for React Native branch rules.
+- `../../../../common/skills/react-rn-external-skill-source-coverage/SKILL.md`
+  when external React Native or Expo skill provenance, source completeness, or
+  version-sensitive provider behavior matters.
 - `../../../../common/skills/web-service-rn-python/references/source-map.md` when
   current React Native, Expo, Callstack, or Vercel source behavior matters.
 - `platforms/web/skills/web-react-ui/SKILL.md` for shared React component and

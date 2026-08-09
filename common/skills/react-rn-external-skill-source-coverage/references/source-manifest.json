@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "snapshot": {
+    "label": "user-provided React and React Native Agent Skills bundle",
+    "date": "2026-08-07",
+    "readme_sha256": "ed96f4cf15522e175a71e950a66006229e2dadd74fc0691d3594e3de84ddd7ba",
+    "license": "MIT",
+    "installable_skills": 32,
+    "nested_skills": 9,
+    "skill_files": 41
+  },
+  "repositories": {
+    "vercel": "https://github.com/vercel-labs/agent-skills",
+    "expo": "https://github.com/expo/skills",
+    "callstack": "https://github.com/callstackincubator/agent-skills",
+    "software_mansion": "https://github.com/software-mansion-labs/skills"
+  },
+  "skills": [
+    {
+      "path": "react-native/callstack/assess-react-native-migration/SKILL.md",
+      "provider": "callstack",
+      "installable": true,
+      "surface": "migration assessment and ROI decision",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "6ce341b910ddf667290e413449960546532ace83a57695521d30f253f7236775"
+    },
+    {
+      "path": "react-native/callstack/create-react-native-library/SKILL.md",
+      "provider": "callstack",
+      "installable": true,
+      "surface": "React Native library and native-module scaffolding",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "f262896559f8ad204b321068c02f6780c883f222d2021584e998e437d82312e4"
+    },
+    {
+      "path": "react-native/callstack/react-native-best-practices/SKILL.md",
+      "provider": "callstack",
+      "installable": true,
+      "surface": "React Native performance, memory, startup, and bundle diagnostics",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "6185c4978d7fdf825a68dec96048d943f6c5e21c77b00b4f44feaf95514fa4de"
+    },
+    {
+      "path": "react-native/callstack/react-native-brownfield-migration/SKILL.md",
+      "provider": "callstack",
+      "installable": true,
+      "surface": "accepted brownfield integration and native host packaging",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "a564dedaf040fa4fe1baf8402983db16682ba63f7746cc4ef321be90800d7fba"
+    },
+    {
+      "path": "react-native/callstack/react-native-tv-best-practices/SKILL.md",
+      "provider": "callstack",
+      "installable": true,
+      "surface": "React Native TV focus, playback, performance, and accessibility",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "577588fd50e75382e4040b2012ad9d706d566a300ec776f832bb41fe736f29ab"
+    },
+    {
+      "path": "react-native/callstack/react-navigation/SKILL.md",
+      "provider": "callstack",
+      "installable": true,
+      "surface": "React Navigation stacks, tabs, drawers, headers, and safe areas",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "f02d5c48f6bd3e70faec7af63155f04ed5281daadc900fbdcf6998b34332285f"
+    },
+    {
+      "path": "react-native/callstack/upgrading-react-native/SKILL.md",
+      "provider": "callstack",
+      "installable": true,
+      "surface": "React Native and Expo upgrade planning and verification",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "4e2db9f1cd47c2d45ec57333802eb27b59244062017d0a25f858454721afef03"
+    },
+    {
+      "path": "react-native/expo/eas-app-stores/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "EAS app-store metadata and submission workflows",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "22442e6b989277abae7ab33de9c5812c79db53c876477c4efa4dcfa2685ff325"
+    },
+    {
+      "path": "react-native/expo/eas-hosting/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "EAS Hosting deployment operations",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "48a48ad4864fca30c6bfdd18cc3ccec46a1ab84c2e6eb4e3a04bac1e7403a2ac"
+    },
+    {
+      "path": "react-native/expo/eas-observe/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "EAS Observe setup, metrics, and queries",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "2843ac516c253143d8053fa2ba5ff88594d48251f202d3bfdf6c0b214a885a73"
+    },
+    {
+      "path": "react-native/expo/eas-simulator/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "paid remote EAS Simulator operation",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "a204130df5b369626999d6dfcaa3dd51ff4357c0151f59fab0375a376797bba7"
+    },
+    {
+      "path": "react-native/expo/eas-update-insights/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "EAS Update health and rollout insights",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "2126124b659c1a59764f0d090b0a4a7f90a880fbaa939a6a677b34f4c91eb77e"
+    },
+    {
+      "path": "react-native/expo/eas-workflows/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "paid EAS CI workflow YAML",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "c866446d94b7025a942a1a7adc21e6ed8482755e6e30bea2985a6d0233ae3bfd"
+    },
+    {
+      "path": "react-native/expo/expo-app-clip/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo App Clip native integration",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "0a9005a4cce09151165953564f71192370a63b58e896ad16f6709e4ea9ba19d0"
+    },
+    {
+      "path": "react-native/expo/expo-brownfield/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo brownfield integration modes",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "3f48b4c9292a2e6f6a3739cb93f40ef3a59680ba1f01a7db08593db42205637d"
+    },
+    {
+      "path": "react-native/expo/expo-data-fetching/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "React Native networking, caching, offline, and router loaders",
+      "disposition": "distilled",
+      "owners": [
+        "platforms/react-native/skills/react-native-app/SKILL.md",
+        "platforms/web/skills/web-state-data/SKILL.md"
+      ],
+      "sha256": "cb79a899ccfaed4fa544034440138f34982b18752248066af98feeb50e43f35d"
+    },
+    {
+      "path": "react-native/expo/expo-dev-client/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo development-client setup and troubleshooting",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "f39d8f589e3b22e93fecd4a17b5102c3ff3eb392a7fe69081b181d7f0743826d"
+    },
+    {
+      "path": "react-native/expo/expo-dom/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo DOM components and web-to-native interoperability",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "6eafb05fcc5d95c1d0a593e4917e59ca8f505aed7cf3d97e41b4b80139492190"
+    },
+    {
+      "path": "react-native/expo/expo-examples/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo example discovery",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "c073bf5fa6f90b3d297dfaea85e5dcdce2b485c04ff3cb1ec58bf013009f7cac"
+    },
+    {
+      "path": "react-native/expo/expo-module/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo native modules and views",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "02847b29a4c8bb957cdea4e9efa060e78b6b1ac5976fb38d14275a9f21d5c776"
+    },
+    {
+      "path": "react-native/expo/expo-native-ui/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo native UI component selection",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "ed39bc3c516d7eae028dec4cb484bda0d825c2121cdeb80f72361c6fdf31f917"
+    },
+    {
+      "path": "react-native/expo/expo-project-structure/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo project and package ownership",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "96fd0659067e6e44bae2046bbfc779441705de0f31dadfe6d77029006f1bc5b9"
+    },
+    {
+      "path": "react-native/expo/expo-router/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo Router navigation and route structure",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "eeffbf9cd5271e9c742af3919741dc2bfbbf312e8898017204a523d1e2db811b"
+    },
+    {
+      "path": "react-native/expo/expo-tailwind-setup/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo Tailwind and NativeWind provider setup",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "eb965d8f27d7ca97127154b945ba27cb264901b335344a5d98e5803bc9de1db5"
+    },
+    {
+      "path": "react-native/expo/expo-ui/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo UI SwiftUI and Compose trees",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "785535ef4089336c77a331ab25b8bfd507eecb3cb5473931bc332a37a064823e"
+    },
+    {
+      "path": "react-native/expo/expo-upgrade/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "Expo SDK upgrade and dependency repair",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "a606ce06cf5a21c2438e721b4fea0542670120dd273a4648295dc6f6e0dc644f"
+    },
+    {
+      "path": "react-native/expo/expo-web-to-native/SKILL.md",
+      "provider": "expo",
+      "installable": true,
+      "surface": "incremental React web-to-native migration",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "ce3cb7aa92228fa4743d34aa94ae4e8f01421d34e2274382758a3380fdc229ea"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/SKILL.md",
+      "provider": "software_mansion",
+      "installable": true,
+      "surface": "New Architecture and specialized React Native source router",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "b82c21a205ef0aa0fba2ac4d2433255ba222b08583648bc8e9a5bf8360d7a4d4"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/animations/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "Reanimated, Skia, WebGPU, and accessible animation",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "cbf41937f716feb65c2b6fdc07c320623b6e19f9a9923b4b3c8a1462a0df8833"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/audio/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "React Native audio playback, recording, worklets, and sessions",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "8e3d4d7b87ee7455956128a390577ebf9a82990bf6c18a0b3a56295f6eb2aa97"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/enable-worklets-bundle-mode/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "Worklets Bundle Mode and package-manager patches",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "c86a39fe84a20d1aaf60a8d71ef7ef7219d237c773bae249c679d73ac3e65c0f"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/gestures/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "Gesture Handler interactions and version decisions",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "8608158a6b2979c42872a707dd5812fe641c82e9ccd9a150f7c9d9f5c758f438"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/jsi/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "JSI C++ runtime boundary",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "a70674691164d4c94b2615fab5da071536a3b00cdc769d96b9ec3c57538ff5a7"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/multithreading/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "React Native worklets and multithreading",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "087d8fe9868f5453d1335dc72562db986181152d246c17358b9248ccc84ff02c"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/on-device-ai/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "React Native on-device AI and model resource management",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "10570525ac88f34deb1aac24607d48ca741012f097c5b2f41faf81219782576d"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/rich-text/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "React Native rich-text editing and Markdown rendering",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "aae8fa526a72461de599ce7b35a338f378bc9646923b394856a57c96a062f4ae"
+    },
+    {
+      "path": "react-native/software-mansion/react-native-best-practices/references/svg/SKILL.md",
+      "provider": "software_mansion",
+      "installable": false,
+      "surface": "React Native SVG rendering",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "92353d60d2a42cf16d5206aa930edcf352c6ba71bc04de004bba75a38928f1f3"
+    },
+    {
+      "path": "react-native/vercel/react-native-skills/SKILL.md",
+      "provider": "vercel",
+      "installable": true,
+      "surface": "React Native/Expo UI, list, state, animation, and monorepo rules",
+      "disposition": "distilled",
+      "owners": ["platforms/react-native/skills/react-native-app/SKILL.md"],
+      "sha256": "4012750a5ccbe064ca04af3835d5d1b011979d2d09d9b6df1c8128fac58e0a66"
+    },
+    {
+      "path": "react/composition-patterns/SKILL.md",
+      "provider": "vercel",
+      "installable": true,
+      "surface": "React component composition and scalable APIs",
+      "disposition": "distilled",
+      "owners": ["common/skills/component-api-design/SKILL.md"],
+      "sha256": "e38e0eaa609316b10423a9a138ed95e35099accd3f735585295c8a8f165c28a3"
+    },
+    {
+      "path": "react/react-best-practices/SKILL.md",
+      "provider": "vercel",
+      "installable": true,
+      "surface": "React and Next.js performance",
+      "disposition": "distilled",
+      "owners": ["platforms/web/skills/web-react-ui/SKILL.md"],
+      "sha256": "71ed7794962fa6e803ee83030517b5b93a9f70fbfeb431ec4535c5480a8d8355"
+    },
+    {
+      "path": "react/react-view-transitions/SKILL.md",
+      "provider": "vercel",
+      "installable": true,
+      "surface": "React View Transition API and browser animation patterns",
+      "disposition": "source_only",
+      "owners": ["common/skills/react-rn-external-skill-source-coverage/SKILL.md"],
+      "sha256": "8be50324a2c0c168cd104756a3ae92e28522e96d4ed2fc1a034f1cbf6b626983"
+    }
+  ]
+}

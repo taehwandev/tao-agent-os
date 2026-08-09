@@ -67,6 +67,19 @@ QUERY_FACETS: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "name": "react_rn_external_skill_source_coverage",
+        "patterns": (
+            r"(?=.*\b(react native|rn|expo|react)\b)(?=.*\b(external skills?|agent skills?|skill bundle|source coverage|source manifest|skill snapshot)\b)",
+            r"(?=.*(?:리액트\s*네이티브|리액트네이티브|리액트|엑스포|(?<![A-Za-z0-9_])(?:RN|React|Expo)(?![A-Za-z0-9_])))(?=.*(?:외부\s*스킬|에이전트\s*스킬|스킬\s*번들|스킬\s*문서|소스\s*커버리지|소스\s*매니페스트|최신\s*스킬))",
+        ),
+        "terms": ("react", "react native", "external skills", "source coverage", "source manifest", "snapshot", "no omission"),
+        "docs": (
+            "common/skills/react-rn-external-skill-source-coverage/SKILL.md",
+            "platforms/web/skills/web-react-ui/SKILL.md",
+            "platforms/react-native/skills/react-native-app/SKILL.md",
+        ),
+    },
+    {
         "name": "ui_feature",
         "patterns": (
             r"\b(screen|screens|ui|layout|list|lists|favorite|favorites|navigation|tab|page|component)\b.*\b(build|create|implement|design|add|make)\b",
