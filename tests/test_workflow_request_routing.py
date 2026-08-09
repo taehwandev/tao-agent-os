@@ -60,11 +60,32 @@ class ConcernInferenceTests(unittest.TestCase):
             ("Preserve Spill workflow label bridge data", "metering"),
             ("Update the agent skill bundle", "skill-card"),
             ("Review the branch naming strategy", "branch"),
+            ("web service React Native Python 스킬 pack 추가", "web-service-stack"),
+            ("크리스밴 스킬처럼 활용해서 rn react python 스킬 추가해줘", "web-service-stack"),
+            ("React Native 화면을 추가해줘", "react-native"),
+            ("FastAPI endpoint를 Python web service에 추가해줘", "python-web-service"),
+            ("Create a Python API endpoint", "python-web-service"),
+            ("크리스밴 스킬처럼 활용해서 rn react python 스킬 추가해줘", "python-web-service"),
         )
-
         for request, concern in cases:
             with self.subTest(request=request):
                 self.assertIn(concern, infer_concerns_from_request(request))
+
+    def test_generic_python_skill_requests_do_not_infer_web_service(self) -> None:
+        for request in (
+            "Add a Python data science skill card",
+            "Create a Python CLI skill",
+            "Create a Python exporter skill",
+        ):
+            with self.subTest(request=request):
+                self.assertNotIn(
+                    "python-web-service",
+                    infer_concerns_from_request(request),
+                )
+                self.assertNotIn(
+                    "web-service-stack",
+                    infer_concerns_from_request(request),
+                )
 
     def test_explicit_graphify_opt_out_drops_the_concern(self) -> None:
         for request in (

@@ -222,24 +222,12 @@ def _is_invocation_error(result: dict[str, Any]) -> bool:
         return "error: argument" in output or "invalid choice" in output
     if result.get("returncode") != 1 or "workflow route failed:" not in output:
         return False
-    # Request intake can reject a work route before a route manifest or gate
-    # ledger exists.  That is an invocation to correct, not a failed checkpoint
-    # that repair-verify could bind to.  Sending it into the repair cycle creates
-    # an impossible receipt deadlock.
-    return any(
-        marker in output.lower()
-        for marker in (
-            "needs clarification before route",
-            "current request is a direct question",
-            "classification evidence does not prove work can start",
-            "route requires request intake evidence",
-            "broad app/product/feature work",
-            "work routes require a current, session-bound intent envelope",
-            "intent envelope",
-            "effective effect",
-            "recorded user approval",
-        )
-    )
+    # Every workflow-route refusal happens before a route manifest or gate
+    # ledger exists. That is an invocation to correct (or a router defect to
+    # repair directly), not a failed checkpoint that repair-verify could bind
+    # to. Trying to classify individual messages here leaves each new refusal
+    # spelling able to create an impossible receipt deadlock.
+    return True
 
 
 def _hook_summary_from_preflight(path: Path) -> list[str]:

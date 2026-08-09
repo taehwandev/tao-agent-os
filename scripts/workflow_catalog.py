@@ -354,6 +354,25 @@ PLATFORMS: Dict[str, Tuple[str, ...]] = {
         "platforms/web/skills/web-state-data/SKILL.md",
         "platforms/web/skills/web-review/SKILL.md",
     ),
+    "react-native": (
+        "platforms/react-native/skills/react-native-app/SKILL.md",
+        "platforms/web/skills/web-react-ui/SKILL.md",
+        "platforms/web/skills/web-state-data/SKILL.md",
+    ),
+    "python": (
+        "platforms/server/skills/server-architecture/SKILL.md",
+        "platforms/server/skills/server-api-implementation/SKILL.md",
+        "platforms/python/skills/python-web-service/SKILL.md",
+    ),
+    "web-service": (
+        "common/skills/web-service-rn-python/SKILL.md",
+        "platforms/web/skills/web-architecture/SKILL.md",
+        "platforms/web/skills/web-react-ui/SKILL.md",
+        "platforms/web/skills/web-state-data/SKILL.md",
+        "platforms/server/skills/server-api-implementation/SKILL.md",
+        "platforms/react-native/skills/react-native-app/SKILL.md",
+        "platforms/python/skills/python-web-service/SKILL.md",
+    ),
     "server": (
         "platforms/server/skills/server-architecture/SKILL.md",
         "platforms/server/skills/server-api-implementation/SKILL.md",

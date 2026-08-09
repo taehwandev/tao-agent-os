@@ -6,6 +6,25 @@ from typing import Dict, Tuple
 
 
 PUBLIC_DISCOVERY_DOCS = ("common/skills/public-discovery/SKILL.md",)
+WEB_SERVICE_STACK_DOCS = (
+    "common/skills/web-service-rn-python/SKILL.md",
+    "platforms/web/skills/web-architecture/SKILL.md",
+    "platforms/web/skills/web-react-ui/SKILL.md",
+    "platforms/web/skills/web-state-data/SKILL.md",
+    "platforms/server/skills/server-api-implementation/SKILL.md",
+    "platforms/react-native/skills/react-native-app/SKILL.md",
+    "platforms/python/skills/python-web-service/SKILL.md",
+)
+REACT_NATIVE_DOCS = (
+    "platforms/react-native/skills/react-native-app/SKILL.md",
+    "platforms/web/skills/web-react-ui/SKILL.md",
+    "platforms/web/skills/web-state-data/SKILL.md",
+)
+PYTHON_WEB_SERVICE_DOCS = (
+    "platforms/python/skills/python-web-service/SKILL.md",
+    "platforms/server/skills/server-api-implementation/SKILL.md",
+)
+
 
 
 CONCERNS: Dict[str, Tuple[str, ...]] = {
@@ -26,6 +45,14 @@ CONCERNS: Dict[str, Tuple[str, ...]] = {
     "done": ("common/skills/definition-of-done/SKILL.md", "common/skills/verification-policy/SKILL.md"),
     "definition-of-done": ("common/skills/definition-of-done/SKILL.md", "common/skills/verification-policy/SKILL.md"),
     "api": ("common/skills/api-contract-compatibility/SKILL.md",),
+    "web-service": WEB_SERVICE_STACK_DOCS,
+    "web-service-stack": WEB_SERVICE_STACK_DOCS,
+    "react-native": REACT_NATIVE_DOCS,
+    "rn": REACT_NATIVE_DOCS,
+    "expo": REACT_NATIVE_DOCS,
+    "python": PYTHON_WEB_SERVICE_DOCS,
+    "python-web-service": PYTHON_WEB_SERVICE_DOCS,
+    "fastapi": PYTHON_WEB_SERVICE_DOCS,
     "architecture": ("common/skills/architecture-selection/SKILL.md", "common/skills/architecture-design/SKILL.md", "common/skills/app-architecture/SKILL.md"),
     "swift": (
         "platforms/swift/skills/swift-architecture/SKILL.md",

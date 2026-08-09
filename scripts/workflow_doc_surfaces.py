@@ -68,7 +68,13 @@ def infer_surface_docs(
     )
     for rule in rule_list(rules, "path_surfaces"):
         patterns = string_list(rule.get("patterns"))
-        matched_paths = [path for path in paths if path_matches(path, patterns)]
+        excluded_patterns = string_list(rule.get("exclude_patterns"))
+        matched_paths = [
+            path
+            for path in paths
+            if path_matches(path, patterns)
+            and not path_matches(path, excluded_patterns)
+        ]
         if not matched_paths:
             continue
         docs.extend(_append_path_match(rules, rule, matched_paths, matches))

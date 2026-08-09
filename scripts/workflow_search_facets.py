@@ -52,6 +52,21 @@ QUERY_FACETS: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "name": "web_service_rn_python",
+        "patterns": (
+            r"(?=.*\b(react native|rn|expo)\b)(?=.*\b(python|fastapi|pydantic|starlette)\b)(?=.*\b(web\s*service|api|backend|server|endpoint|skill|skills|pack|card)\b)",
+            r"(?=.*(?:리액트\s*네이티브|리액트네이티브|엑스포|(?<![A-Za-z0-9_])(?:RN|Expo)(?![A-Za-z0-9_])))(?=.*(?:파이썬|패스트api|(?<![A-Za-z0-9_])(?:Python|FastAPI)(?![A-Za-z0-9_])))(?=.*(?:웹\s*서비스|웹서비스|백엔드|서버|엔드포인트|스킬|카드|팩|(?<![A-Za-z0-9_])(?:API|pack)(?![A-Za-z0-9_])))",
+        ),
+        "terms": ("react", "react native", "python", "fastapi", "web service", "api", "branch router", "source map"),
+        "docs": (
+            "common/skills/web-service-rn-python/SKILL.md",
+            "platforms/react-native/skills/react-native-app/SKILL.md",
+            "platforms/python/skills/python-web-service/SKILL.md",
+            "platforms/web/skills/web-react-ui/SKILL.md",
+            "platforms/server/skills/server-api-implementation/SKILL.md",
+        ),
+    },
+    {
         "name": "ui_feature",
         "patterns": (
             r"\b(screen|screens|ui|layout|list|lists|favorite|favorites|navigation|tab|page|component)\b.*\b(build|create|implement|design|add|make)\b",

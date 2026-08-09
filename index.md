@@ -254,6 +254,18 @@ For React-based desktop app work, such as Tauri, Electron, WebView, or a native 
 For macOS Swift apps, combine the Swift cards with the Application cards: Swift owns package, state, design-system, and architecture boundaries; Application owns window/panel/menu bar/tray commands, OS resources, IPC, privileged APIs, packaging, signing, and updates.
 
 For server API, GraphQL, RPC, webhook, route handler, validation, use case, repository, response shape, or API error work, load `platforms/server/skills/server-api-implementation/SKILL.md`.
+For React Native or Expo screens, components, navigation, lists, animations,
+native integrations, networking, startup, memory, or bundle-size work, read
+`platforms/react-native/skills/react-native-app/SKILL.md`.
+
+For Python web-service work, including FastAPI, Starlette, Pydantic models,
+dependency injection, middleware, async routes, settings, or endpoint tests,
+read `platforms/python/skills/python-web-service/SKILL.md` together with the
+server API card.
+
+For a reduced non-Android React web, React Native, and Python web-service pack,
+read `common/skills/web-service-rn-python/SKILL.md`.
+
 
 When the task touches keys, auth, permissions, user data, logs, analytics, external integrations, local config, release config, or a public/open-source repo, read `common/skills/secure-development-baseline/SKILL.md` before implementation.
 
