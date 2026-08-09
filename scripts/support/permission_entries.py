@@ -24,6 +24,7 @@ EXECUTABLE_ENTRYPOINTS = (
     "agent-preflight.py",
     "agent_execution_capsule.py",
     "check_android_external_skill_manifest.py",
+    "check_react_rn_external_skill_manifest.py",
     "claude_pretool_gate.py",
     "migrate_skill_bundles.py",
     "project-discover.py",

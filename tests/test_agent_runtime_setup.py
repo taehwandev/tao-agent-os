@@ -275,7 +275,7 @@ class RuntimeSetupTests(unittest.TestCase):
         entry_list = codex_prefix_rule_entries(ROOT / "scripts")
         entries = "\n".join(entry_list)
 
-        self.assertEqual(18, len(EXECUTABLE_ENTRYPOINTS))
+        self.assertEqual(19, len(EXECUTABLE_ENTRYPOINTS))
         self.assertTrue(all((ROOT / "scripts" / name).is_file() for name in EXECUTABLE_ENTRYPOINTS))
         for name in EXECUTABLE_ENTRYPOINTS:
             self.assertIn(str(ROOT / "scripts" / name), entries)
@@ -291,7 +291,7 @@ class RuntimeSetupTests(unittest.TestCase):
             f'prefix_rule(pattern=["{stable_launcher_path()}"], decision="allow")',
             entries,
         )
-        self.assertEqual(55, len(entry_list))
+        self.assertEqual(58, len(entry_list))
         self.assertNotIn("$HOME", entries)
         self.assertNotIn("${HOME}", entries)
         self.assertNotIn("$TAO_HOME", entries)

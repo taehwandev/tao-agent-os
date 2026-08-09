@@ -112,6 +112,11 @@
       "common/skills/ui-visual-verification/SKILL.md",
       "common/skills/performance-verification/SKILL.md"
     ],
+    "react_rn_external_skill_source_coverage": [
+      "common/skills/react-rn-external-skill-source-coverage/SKILL.md",
+      "platforms/web/skills/web-react-ui/SKILL.md",
+      "platforms/react-native/skills/react-native-app/SKILL.md"
+    ],
     "python_web_service": [
       "platforms/python/skills/python-web-service/SKILL.md",
       "platforms/server/skills/server-api-implementation/SKILL.md",
@@ -636,6 +641,32 @@
         "web_ui"
       ],
       "reason": "React or TSX choices require React UI, web structure, state/data, design-system, accessibility, visual, and performance context."
+    },
+    {
+      "name": "react_rn_external_skill_source_coverage",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "docs",
+        "review",
+        "workflow-setup"
+      ],
+      "request_all": [
+        [
+          "\\b(react\\s+native|rn|expo|react)\\b",
+          "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\ub9ac\\uc561\\ud2b8\\ub124\\uc774\\ud2f0\\ube0c|\\ub9ac\\uc561\\ud2b8|\\uc5d1\\uc2a4\\ud3ec)",
+          "(?<![A-Za-z0-9_])(RN|React|Expo)(?![A-Za-z0-9_])"
+        ],
+        [
+          "\\b(external\\s+skills?|agent\\s+skills?|skill\\s+bundle|source\\s+coverage|source\\s+manifest|skill\\s+snapshot)\\b",
+          "(\\uc678\\ubd80\\s*\\uc2a4\\ud0ac|\\uc5d0\\uc774\\uc804\\ud2b8\\s*\\uc2a4\\ud0ac|\\uc2a4\\ud0ac\\s*\\ubc88\\ub4e4|\\uc2a4\\ud0ac\\s*\\ubb38\\uc11c|\\uc18c\\uc2a4\\s*\\ucee4\\ubc84\\ub9ac\\uc9c0|\\uc18c\\uc2a4\\s*\\ub9e4\\ub2c8\\ud398\\uc2a4\\ud2b8|\\ucd5c\\uc2e0\\s*\\uc2a4\\ud0ac)"
+        ]
+      ],
+      "doc_sets": [
+        "react_rn_external_skill_source_coverage"
+      ],
+      "reason": "Explicit React or React Native external-skill, local snapshot, or no-omission work must load the complete Vercel, Expo, Callstack, and Software Mansion coverage owner."
     },
     {
       "name": "web_service_rn_python_pack",

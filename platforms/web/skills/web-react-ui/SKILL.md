@@ -12,6 +12,9 @@ Use when routed to `platforms/web/skills/web-react-ui/SKILL.md` or when work nee
 
 - `references/current-guidance.md` for the detailed guidance for this skill.
 - Related `SKILL.md` entrypoints named by the reference before loading their detailed references.
+- `../../../../common/skills/react-rn-external-skill-source-coverage/SKILL.md`
+  when external React skill provenance, source completeness, composition
+  patterns, performance rules, or View Transition source behavior matters.
 
 ## Process
 
