@@ -180,6 +180,16 @@ class ReviewAttestationTests(unittest.TestCase):
         self.assertNotIn("review hook", gate_evidence)
         self.assertTrue(any("worktree" in failure for failure in failures))
 
+    def test_staging_after_review_invalidates_the_gate_without_changing_file_bytes(self) -> None:
+        (self.project / "tracked.txt").write_text("ready to stage\n", encoding="utf-8")
+        self._record_real_review()
+
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.project, check=True)
+        gate_evidence, _, failures = self._finish_merge()
+
+        self.assertNotIn("review hook", gate_evidence)
+        self.assertTrue(any("worktree" in failure for failure in failures))
+
     def test_attestation_copied_to_another_run_is_rejected(self) -> None:
         attestation = self._record_real_review()
         other_evidence = self._write_preflight("b" * 32)

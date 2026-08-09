@@ -535,6 +535,121 @@ class ReviewHookTests(unittest.TestCase):
 
         self.assertTrue(outputs)
 
+    def test_review_hook_does_not_merge_boundary_plan_into_structure_evidence(self) -> None:
+        outputs: list[dict[str, object]] = []
+
+        def git_status(_project: Path) -> tuple[dict[str, object], list[str]]:
+            result = {
+                "command": ["git", "status", "--short", "--untracked-files=all"],
+                "cwd": str(ROOT),
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+            }
+            return result, []
+
+        def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+            return {
+                "command": command,
+                "cwd": str(cwd),
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+            }
+
+        def finish_with_result(
+            name: str,
+            success: bool,
+            details: list[str],
+            output: Path | None,
+            payload: dict[str, object],
+            repair_cycle: int,
+        ) -> int:
+            outputs.append(
+                {
+                    "name": name,
+                    "success": success,
+                    "details": details,
+                    "payload": payload,
+                }
+            )
+            return 0 if success else 1
+
+        args = SimpleNamespace(
+            project=ROOT,
+            rules=ROOT,
+            evidence=None,
+            review_outcome="pass",
+            code_review_evidence="reviewed scoped change",
+            docs_freshness_evidence="reviewed affected workflow guidance",
+            structure_review_evidence="",
+            boundary_plan_evidence=(
+                "owner: domain; allowed imports: contracts; forbidden imports: ui; "
+                "callers/tests: app and domain tests; verification: focused tests"
+            ),
+            side_effect_audit_evidence="side-effect audit checked diff",
+            review_scope="working-tree",
+            review_path=[],
+            max_changed_paths=25,
+            max_source_file_lines=500,
+            max_function_lines=120,
+            output=None,
+            repair_cycle=0,
+        )
+        structure = {
+            "failures": [],
+            "warnings": [],
+            "boundary_note_requirements": [
+                {"package": "src/domain", "reason": "existing multi-role package"},
+            ],
+            "checked_path_count": 1,
+            "checked_paths": ["src/domain/owner.py"],
+            "scope": "working tree",
+            "max_added_lines": 300,
+        }
+
+        def record_workflow_validate(
+            _args: object, checks: dict[str, object], _failures: list[str]
+        ) -> None:
+            checks["workflow_validate"] = {"returncode": 0}
+
+        # The success path is stubbed as well, so a regression that merges the
+        # boundary field into the structure field fails on this test's own
+        # assertions rather than on a KeyError from evidence the patched
+        # helpers never recorded.
+        with (
+            patch("agent_review_hook.record_review_failure"),
+            patch("agent_review_hook.record_review_prerequisite_readiness"),
+            patch(
+                "agent_review_hook.record_review_workflow_validation",
+                side_effect=record_workflow_validate,
+            ),
+            patch("agent_review_hook.record_review_vibeguard"),
+            patch("agent_review_hook.record_successful_review_workflow_validation"),
+            patch("agent_review_hook.record_review_gate"),
+            patch("agent_review_hook.structure_review", return_value=structure),
+        ):
+            result = review_hook(
+                args,
+                run_command,
+                git_status,
+                lambda _project, _rules: ["vibeguard", "audit", "."],
+                lambda _output: "Ready",
+                finish_with_result,
+            )
+
+        self.assertEqual(1, result)
+        self.assertFalse(outputs[0]["success"])
+        self.assertEqual("", outputs[0]["payload"]["structure_review_evidence"])
+        self.assertIn("owner: domain", outputs[0]["payload"]["boundary_plan_evidence"])
+        self.assertTrue(
+            any(
+                "structure-review-evidence must explicitly include owner"
+                in detail
+                for detail in outputs[0]["details"]
+            )
+        )
+
     def test_review_failure_records_resumable_checkpoint(self) -> None:
         from agent_repair_ledger import checkpoint_has_recorded_failure
         from agent_review_hook import record_review_failure
