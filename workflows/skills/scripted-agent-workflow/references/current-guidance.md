@@ -42,7 +42,7 @@ Run the shared start hook once for every multi-step task when it exists. It
 performs request intake, routing, and preflight as one lifecycle entry:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--continuation-scope "<ESTABLISHED_TARGET>"] [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" [--approval-record "<JSON_OR_PATH>"] --runtime-session-id "<OPAQUE_SESSION_ID>" [--continuation-scope "<ESTABLISHED_TARGET>"] [--platform <platform>] [--concern <concern>]
 ```
 
 `--rules` must point to the Tao Agent OS root directory, not to an
@@ -55,6 +55,16 @@ ambiguity state. Tao validates those fields and applies route and tool effect
 floors; it does not infer work authority from request words. A missing envelope
 can reach only `triage` or `ambiguity`. Direct questions are answered before any
 project work.
+
+The effect vocabulary is the ordered risk set `read`, `local_write`,
+`git_write`, `external_write`, and `destructive`. A runtime selects the highest
+class needed; it never writes operation names such as `commit`, `push`, `merge`,
+or `release` into `requested_effects`. An effective `git_write` or higher also
+requires a separate `--approval-record` created from the user's explicit
+approval for the current request. The record must bind the envelope's
+`request_fingerprint` and `target_summary` plus the route `command` and approved
+effect ceiling. It is passed separately because neither the envelope nor its
+optional `approval_ref` may authorize itself.
 
 `--request-classified` remains a proof-carrying delegation state exemption, not
 a work authorization. Add it with `--classification-evidence` only when a ready
@@ -517,7 +527,7 @@ workflow's executable checklist:
 Before editing, reviewing, committing, or reporting completion:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" [--approval-record "<JSON_OR_PATH>"] --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
 ```
 
 The route may promote additional `required_docs` from the root

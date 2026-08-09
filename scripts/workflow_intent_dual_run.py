@@ -102,6 +102,7 @@ def route_intake_decision(
     command: str,
     envelope: dict[str, Any] | None,
     *,
+    approval: dict[str, Any] | None = None,
     request_fingerprint: str,
     runtime_session_id: str,
 ) -> tuple[dict[str, Any] | None, list[str]]:
@@ -115,6 +116,7 @@ def route_intake_decision(
         command,
         envelope,
         None,
+        approval=approval,
         request_fingerprint=request_fingerprint,
         runtime_session_id=runtime_session_id,
     )
