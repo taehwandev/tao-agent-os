@@ -173,6 +173,15 @@ canonical skill bundle. It chooses exactly one result:
 
 Do not require or store those three reviewer judgments for `no_change`.
 
+`no_change` remains terminal only while its completed record is retained. During
+that time, the curator skips later observations for the same candidate. Retention
+may prune the completed record and its matching passive observations; two later
+distinct occurrences can then create a new review-ready candidate. Evaluate the
+queued evidence and current canonical bundle instead of treating `no_change` as
+permanent. Do not require a free-form coverage citation that the current review
+record cannot preserve or validate. If that rationale must become durable, add a
+bounded schema, CLI field, and validator before making it required.
+
 The reviewer does not write canonical skill files. A staged patch is a proposal,
 not guidance and not promotion evidence. The review should prefer a focused
 test, validator, routing rule, or concise decision rule over natural-language
