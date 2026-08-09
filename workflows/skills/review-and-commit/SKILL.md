@@ -28,6 +28,9 @@ Use when routed to `workflows/skills/review-and-commit/SKILL.md` or when work ne
 6. Apply the labeled boundary evidence rule even when the package already
    existed and no file move occurred; changed files can still expose multiple
    roles that the review hook must validate.
+7. Copy that exact labeled boundary contract into `--structure-review-evidence`;
+   do not paraphrase it or assume `--boundary-plan-evidence` is merged into the
+   structure field, because each review evidence field is validated independently.
 
 ## Do Not
 

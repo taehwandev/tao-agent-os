@@ -41,7 +41,7 @@ from workflow_classified_exemption import (
     parent_evidence_path,
 )
 from workflow_intent_dual_run import route_intake_decision
-from workflow_intent_envelope import read_intent_envelope
+from workflow_intent_envelope import read_approval_record, read_intent_envelope
 from workflow_request import infer_concerns_from_request
 from workflow_route import resolve_docs
 
@@ -127,6 +127,9 @@ def route_command(args: argparse.Namespace, tao_root: Path) -> list[str]:
     intent_envelope = getattr(args, "intent_envelope", "")
     if intent_envelope:
         command.extend(["--intent-envelope", intent_envelope])
+    approval_record = getattr(args, "approval_record", "")
+    if approval_record:
+        command.extend(["--approval-record", approval_record])
     runtime_session_id = getattr(args, "runtime_session_id", "")
     if runtime_session_id:
         command.extend(["--runtime-session-id", runtime_session_id])
@@ -183,6 +186,7 @@ def route_payload(
     request_classification, failures = route_intake_decision(
         args.command,
         read_intent_envelope(getattr(args, "intent_envelope", "")),
+        approval=read_approval_record(getattr(args, "approval_record", "")),
         request_fingerprint=request_fingerprint({"request": args.request or ""}),
         runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
     )
@@ -269,6 +273,14 @@ def build_parser(tao_root: Path) -> argparse.ArgumentParser:
         help=(
             "runtime intent envelope as JSON or a path to it; when supplied it "
             "is the authority for intent, target and effect"
+        ),
+    )
+    parser.add_argument(
+        "--approval-record",
+        default="",
+        help=(
+            "separate bound user-approval record as JSON or a path; required "
+            "when the effective route reaches git_write or above"
         ),
     )
     parser.add_argument(

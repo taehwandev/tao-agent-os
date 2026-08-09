@@ -101,6 +101,7 @@ def _preflight_arguments(args: argparse.Namespace) -> list[str]:
     for option, value in (
         ("--continuation-scope", getattr(args, "continuation_scope", "")),
         ("--intent-envelope", getattr(args, "intent_envelope", "")),
+        ("--approval-record", getattr(args, "approval_record", "")),
         ("--runtime-session-id", getattr(args, "runtime_session_id", "")),
     ):
         if value:
@@ -234,6 +235,9 @@ def _is_invocation_error(result: dict[str, Any]) -> bool:
             "route requires request intake evidence",
             "broad app/product/feature work",
             "work routes require a current, session-bound intent envelope",
+            "intent envelope",
+            "effective effect",
+            "recorded user approval",
         )
     )
 
@@ -638,6 +642,14 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             "runtime intent envelope as JSON or a path to it; when supplied it "
             "is the authority for intent, target and effect"
+        ),
+    )
+    start.add_argument(
+        "--approval-record",
+        default="",
+        help=(
+            "separate bound user-approval record as JSON or a path; required "
+            "when the effective route reaches git_write or above"
         ),
     )
     parser.add_argument(

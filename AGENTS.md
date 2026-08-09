@@ -201,7 +201,7 @@ do not separately repeat workflow list, classify, route, or preflight after it
 succeeds:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" [--approval-record "<JSON_OR_PATH>"] --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
 ```
 
 `--command` accepts a workflow route, not a stage label. For implementation work,
@@ -221,6 +221,14 @@ envelope from the full conversation, binds it to the exact request fingerprint
 and current opaque session id, and declares intent, bounded target, effects,
 prohibited effects, and ambiguity. Tao validates that contract and applies the
 route effect floor; it never reconstructs work authority from request words.
+The only valid effect names are `read`, `local_write`, `git_write`,
+`external_write`, and `destructive`; choose the highest reusable risk class the
+request needs rather than operation names such as `commit`, `push`, `merge`, or
+`release`. Effects from `git_write` upward also require a separate
+`--approval-record` built from the user's explicit approval for this exact
+request. That record is not part of the envelope and must bind
+`request_fingerprint`, the same `target_summary`, the route `command`, and the
+approved effect ceiling. An envelope or `approval_ref` cannot approve itself.
 Without an envelope, use only `triage` or `ambiguity`; direct questions must be
 answered in the conversation. A delegated worker may add
 `--request-classified --classification-evidence "<evidence>"` only when the
@@ -533,7 +541,7 @@ hooks must use the stable launcher installed by `<TAO_LAUNCHER> setup-agent-hook
 hook command does not point at a stale checkout path.
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" [--approval-record "<JSON_OR_PATH>"] --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
 ```
 
 Keep `--output`, `--evidence`, and every custom evidence path inside

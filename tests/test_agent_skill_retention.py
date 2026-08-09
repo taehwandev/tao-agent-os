@@ -247,6 +247,52 @@ class AgentSkillRetentionTests(unittest.TestCase):
             self.assertLessEqual(retention["kept_observations"], 3)
             self.assertTrue(set(completed_ids).isdisjoint(curated["queued"]))
 
+    def test_evicted_completed_candidate_can_recur_from_new_observations(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            candidate_skills: dict[str, str] = {}
+            for skill_id in ("verification_policy_one", "verification_policy_two"):
+                candidate_id = self._ready_candidate(
+                    root,
+                    skill_id=skill_id,
+                    signal="missing_rule",
+                )
+                self.assertTrue(
+                    review_candidate(root, candidate_id, decision="no_change")["updated"]
+                )
+                candidate_skills[candidate_id] = skill_id
+
+            retention = prune_skill_learning_state(
+                root,
+                max_observations=10,
+                max_completed=1,
+            )
+            evicted = [
+                candidate_id
+                for candidate_id in candidate_skills
+                if not (
+                    root
+                    / "skill-learning"
+                    / "completed"
+                    / f"{candidate_id}.json"
+                ).exists()
+            ]
+            self.assertEqual(1, retention["removed_completed"])
+            self.assertEqual(1, len(evicted))
+
+            candidate_id = evicted[0]
+            for occurrence_id in ("new-run-one", "new-run-two"):
+                record_observation(
+                    root,
+                    occurrence_id=occurrence_id,
+                    skill_id=candidate_skills[candidate_id],
+                    signal="missing_rule",
+                )
+
+            curated = curate_observations(root)
+
+            self.assertIn(candidate_id, curated["queued"])
+
     def test_staged_queue_and_observations_have_hard_caps(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

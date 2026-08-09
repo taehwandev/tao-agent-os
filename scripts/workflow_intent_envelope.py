@@ -45,6 +45,18 @@ _OPAQUE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{8,128}$")
 def read_intent_envelope(value: str) -> dict[str, Any] | None:
     """Read inline JSON or a JSON file, preserving malformed-as-present."""
 
+    return _read_json_object(value)
+
+
+def read_approval_record(value: str) -> dict[str, Any] | None:
+    """Read the separate user-approval record used by the effect policy."""
+
+    return _read_json_object(value)
+
+
+def _read_json_object(value: str) -> dict[str, Any] | None:
+    """Read inline JSON or a JSON file, preserving malformed-as-present."""
+
     text = str(value or "").strip()
     if not text:
         return None
