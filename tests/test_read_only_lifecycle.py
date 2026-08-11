@@ -212,6 +212,33 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
         self.assertIn("read-only execution was declared", failures[0])
         self.assertIn("rerun the lifecycle without --read-only", failures[0])
 
+    def test_clean_head_advance_reports_stale_input_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            target = self._init_repository(project)
+            state, _ = git_states_for_paths(project, project)
+            target.write_text("concurrent revision\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=project, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "concurrent revision"],
+                cwd=project,
+                check=True,
+            )
+            failures: list[str] = []
+
+            check_read_only_execution(
+                self._preflight(state, project),
+                project,
+                failures,
+                read_only=True,
+            )
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("revision changed after start", failures[0])
+        self.assertIn("stale-input evidence", failures[0])
+        self.assertIn("regenerate start/preflight", failures[0])
+        self.assertIn("first failed checkpoint", failures[0])
+
     def test_negative_control_writing_run_is_not_policed_by_this_check(self) -> None:
         """The control: the same mutation must pass when read-only was not claimed.
 
@@ -404,7 +431,8 @@ class ReadOnlyRulesRootTests(unittest.TestCase):
         )
 
         self.assertEqual(1, len(failures))
-        self.assertIn("rules root changed after start", failures[0])
+        self.assertIn("rules revision changed after start", failures[0])
+        self.assertIn("regenerate start/preflight", failures[0])
 
     def test_negative_control_changed_project_still_fails(self) -> None:
         """The control: widening to two roots must not drop the project check."""
@@ -423,7 +451,8 @@ class ReadOnlyRulesRootTests(unittest.TestCase):
         )
 
         self.assertEqual(1, len(failures))
-        self.assertIn("project root changed after start", failures[0])
+        self.assertIn("project revision changed after start", failures[0])
+        self.assertIn("regenerate start/preflight", failures[0])
 
     def test_reader_receives_the_recorded_rules_root(self) -> None:
         seen: list[tuple] = []

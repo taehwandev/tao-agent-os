@@ -330,6 +330,29 @@ class FinishGatePolicyTests(unittest.TestCase):
                 lesson["next_action"],
             )
 
+    def test_read_only_revision_drift_uses_fresh_start_without_runtime_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ["TAO_STATE_HOME"] = temp_dir
+            failures = [
+                "read-only execution was declared but the project revision changed "
+                "after start while its worktree fingerprint stayed unchanged; treat "
+                "this as stale-input evidence, re-read the current required guidance, "
+                "regenerate start/preflight at the current revision, and resume at the "
+                "first failed checkpoint"
+            ]
+
+            retrospective_required, lesson = agent_finish_check.process_failure_learning(
+                preflight={"agent_run_id": "read-only-revision-drift"},
+                missed_gates=[],
+                gate_policy_failures=[],
+                gate_signals=[],
+                failures=failures,
+            )
+
+            self.assertFalse(retrospective_required)
+            self.assertFalse(lesson["created"])
+            self.assertNotIn("retrospective repair is required", " ".join(failures))
+
     def test_required_doc_drift_failure_names_exact_documentation_receipt_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             os.environ["TAO_STATE_HOME"] = temp_dir
