@@ -78,6 +78,11 @@ to rollback or forward-fix.
 - Check repo-local branch, push, PR, or tag rules only when that action is in
   scope.
 - Inspect the final diff, not memory of the work.
+- Measure changed development files and changed owner blocks against the
+  structural budgets before the first Review Hook call. A commit route's
+  startup summary lists universally required evidence only; it does not exempt
+  conditionally required `--structure-review-evidence` for oversized or
+  multi-role files.
 - Remove only unused code created by this change.
 - Run the nearest useful verification, or record why it was skipped.
 - Do not include secrets, local paths, debug logs, or temporary artifacts.
