@@ -80,6 +80,7 @@ Skill observation:
 - skill_id: <canonical safe skill id>
 - signal: <schema-owned content-free signal identifier>
 - occurrence_key: <opaque key derived from the current preflight run>
+- candidate_order: <candidate-local monotonic positive integer>
 - status: observed
 - created_at: <timestamp>
 ```
@@ -180,16 +181,19 @@ the explicit `skill-curate` hook or the existing bounded maintenance pass:
 4. Count only distinct valid occurrence keys. For the active closeout, queue
    review at the current occurrence; periodic historical curation may continue
    using its separate two-occurrence threshold.
-5. Queue one idempotent review item when the threshold is reached. Preserve its
+5. Use `candidate_order` to select the active candidate occurrence even when
+   wall-clock timestamps tie. Historical records without this field may fall
+   back to their existing timestamps.
+6. Queue one idempotent review item when the threshold is reached. Preserve its
    distinct-occurrence count and first/last observation timestamps in the queue
    record so later passive-history pruning does not erase the review basis.
-6. Keep every state class bounded. The default implementation caps
+7. Keep every state class bounded. The default implementation caps
    review-ready items at 100, staged items at 100, passive observations at 500,
    and completed records at 200. The observation cap is strict. If pruning
    removes a terminal record, it also removes that candidate's passive
    observations so an old `no_change`, `applied`, or `rejected` decision cannot
    be resurrected. Retention never deletes or rewrites canonical skills.
-7. Report mapped and unmapped legacy counts. An unmapped record remains passive
+8. Report mapped and unmapped legacy counts. An unmapped record remains passive
    evidence for migration review; silently excluding it is not curation.
 
 The lifecycle status is `observed -> review_ready -> no_change | staged_patch`,

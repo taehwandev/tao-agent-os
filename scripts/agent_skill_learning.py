@@ -60,20 +60,6 @@ def record_observation(
     observation_id = _opaque_key(f"{candidate_id}:{occurrence_key}")
     relative_path = _observation_dir() / f"{observation_id}.json"
     path = root / relative_path
-    now = _now()
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "observation_id": observation_id,
-        "candidate_id": candidate_id,
-        "skill_id": skill_id,
-        "signal": signal,
-        "occurrence_key": occurrence_key,
-        "status": "observed",
-        "created_at": now,
-        "privacy": "safe_slugs_and_opaque_ids_only",
-    }
-    if gap_type:
-        payload["gap_type"] = gap_type
     try:
         # The occurrence, not the candidate, is the scope of the invariant: a
         # reusable gap may produce at most one observation per run. Locking per
@@ -98,7 +84,25 @@ def record_observation(
                     "candidate_id": str(existing.get("candidate_id") or ""),
                     "status": "observed",
                 }
-            atomic_write_json(path, payload)
+            # Distinct occurrences for one candidate may be written in the same
+            # clock tick. Serialize a candidate-local order so curation never
+            # guesses the active occurrence from a tied wall-clock timestamp.
+            with state_lock(root / _candidate_lock_path(candidate_id)):
+                payload = {
+                    "schema_version": SCHEMA_VERSION,
+                    "observation_id": observation_id,
+                    "candidate_id": candidate_id,
+                    "skill_id": skill_id,
+                    "signal": signal,
+                    "occurrence_key": occurrence_key,
+                    "candidate_order": _next_candidate_order(root, candidate_id),
+                    "status": "observed",
+                    "created_at": _now(),
+                    "privacy": "safe_slugs_and_opaque_ids_only",
+                }
+                if gap_type:
+                    payload["gap_type"] = gap_type
+                atomic_write_json(path, payload)
     except (OSError, ValueError) as error:
         return {"created": False, "reason": "write_failed", "error": error.__class__.__name__}
     return {
@@ -127,6 +131,23 @@ def _observation_for_occurrence(root: Path, occurrence_key: str) -> dict[str, An
         if isinstance(record, dict) and record.get("occurrence_key") == occurrence_key:
             return record
     return None
+
+
+def _next_candidate_order(root: Path, candidate_id: str) -> int:
+    """Return the next persisted order while the candidate lock is held."""
+
+    latest = 0
+    for path in (root / _observation_dir()).glob("*.json"):
+        payload = _read_json(path)
+        value = payload.get("candidate_order")
+        if (
+            payload.get("candidate_id") == candidate_id
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+            and value >= 1
+        ):
+            latest = max(latest, value)
+    return latest + 1
 
 
 def review_candidate(

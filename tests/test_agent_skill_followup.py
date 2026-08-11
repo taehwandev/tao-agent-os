@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -15,7 +16,7 @@ from agent_skill_curator import curate_observations
 from agent_skill_draft import record_draft
 from agent_skill_followup import skill_followup_failures
 from agent_skill_learning import record_observation, review_candidate
-from agent_skill_state import completed_path
+from agent_skill_state import completed_path, read_json, review_queue_path
 
 
 class AgentSkillFollowupTests(unittest.TestCase):
@@ -109,6 +110,116 @@ class AgentSkillFollowupTests(unittest.TestCase):
                     staged.unlink()
 
                 self.assertEqual([], self._failures(root, "run-two"))
+
+    def test_completed_no_change_does_not_cover_a_new_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = record_observation(
+                root,
+                occurrence_id="run-one",
+                skill_id="verification_policy",
+                signal="missing_rule",
+                gap_type="missing_import_policy",
+            )
+            candidate = str(first["candidate_id"])
+            curate_observations(root, min_occurrences=1)
+            self.assertTrue(
+                review_candidate(
+                    root,
+                    candidate,
+                    decision="no_change",
+                    min_occurrences=1,
+                )["updated"]
+            )
+            record_observation(
+                root,
+                occurrence_id="run-two",
+                skill_id="verification_policy",
+                signal="missing_rule",
+                gap_type="missing_error_policy",
+            )
+
+            self.assertEqual(
+                [f"skill follow-up curation pending: candidate={candidate}"],
+                self._failures(root, "run-two"),
+            )
+            curate_observations(root, min_occurrences=1)
+            self.assertEqual(
+                [f"skill follow-up bounded review pending: candidate={candidate}"],
+                self._failures(root, "run-two"),
+            )
+
+    def test_fifth_gap_advances_from_curation_to_bounded_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            candidate = ""
+            covered_gaps = ("gap_alpha", "gap_beta", "gap_delta", "gap_gamma")
+            for index, gap_type in enumerate(covered_gaps, 1):
+                result = record_observation(
+                    root,
+                    occurrence_id=f"run-{index}",
+                    skill_id="verification_policy",
+                    signal="missing_rule",
+                    gap_type=gap_type,
+                )
+                candidate = str(result["candidate_id"])
+            curate_observations(root, min_occurrences=1)
+            self.assertTrue(
+                review_candidate(
+                    root,
+                    candidate,
+                    decision="no_change",
+                    min_occurrences=1,
+                )["updated"]
+            )
+            record_observation(
+                root,
+                occurrence_id="run-five",
+                skill_id="verification_policy",
+                signal="missing_rule",
+                gap_type="gap_zeta",
+            )
+
+            curate_observations(root, min_occurrences=1)
+
+            self.assertEqual(
+                [f"skill follow-up bounded review pending: candidate={candidate}"],
+                self._failures(root, "run-five"),
+            )
+
+    def test_fifth_gap_enters_an_initial_bounded_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            candidate = ""
+            gap_types = (
+                "gap_alpha",
+                "gap_beta",
+                "gap_delta",
+                "gap_gamma",
+                "gap_zeta",
+            )
+            with patch(
+                "agent_skill_learning._now",
+                return_value="2026-08-11T00:00:00+00:00",
+            ):
+                for index, gap_type in enumerate(gap_types, 1):
+                    result = record_observation(
+                        root,
+                        occurrence_id=f"run-{index}",
+                        skill_id="verification_policy",
+                        signal="missing_rule",
+                        gap_type=gap_type,
+                    )
+                    candidate = str(result["candidate_id"])
+
+            curate_observations(root, min_occurrences=1)
+
+            queued = read_json(root / review_queue_path(candidate))
+            self.assertIn("gap_zeta", queued["gap_types"])
+            self.assertEqual(
+                [f"skill follow-up bounded review pending: candidate={candidate}"],
+                self._failures(root, "run-5"),
+            )
 
     def test_matching_malformed_records_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

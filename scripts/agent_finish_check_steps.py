@@ -466,18 +466,15 @@ def check_read_only_execution(
             current["worktree_fingerprint"]
             != recorded_root["worktree_fingerprint"]
         )
-        if head_changed and not worktree_changed:
-            failures.append(
-                f"read-only execution was declared but the {root} revision changed "
-                "after start while its worktree fingerprint stayed unchanged; treat "
-                "this as stale-input evidence, re-read the current required guidance, "
-                "regenerate start/preflight at the current revision, and resume at the "
-                "first failed checkpoint"
+        if head_changed or worktree_changed:
+            attribution = (
+                "a clean worktree cannot attribute the revision change to an external actor, so "
+                if head_changed and not worktree_changed
+                else "the recorded worktree state no longer matches, so "
             )
-        elif head_changed or worktree_changed:
             failures.append(
                 f"read-only execution was declared but the {root} root changed after start; "
-                "read-only skips VibeGuard, so rerun the lifecycle without --read-only"
+                f"{attribution}read-only skips VibeGuard; rerun the lifecycle without --read-only"
             )
 
 

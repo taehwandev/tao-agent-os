@@ -594,6 +594,21 @@ class HostConfigDirIsNotAProjectTests(unittest.TestCase):
             self.assertTrue(gate.opts_in(project))
             self.assertTrue(pretool.opts_in(project))
 
+    def test_an_immediate_hidden_git_repository_is_still_a_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            os.environ["HOME"] = str(home)
+
+            project = home / ".dotfiles"
+            (project / ".git").mkdir(parents=True)
+            (project / "AGENTS.md").write_text("# tao project\n", encoding="utf-8")
+
+            self.assertTrue(gate.opts_in(project))
+            self.assertTrue(pretool.opts_in(project))
+            self.assertEqual(project, gate.find_project_root(project))
+            self.assertEqual(project, pretool.find_project_root(project))
+
 
 if __name__ == "__main__":
     unittest.main()
