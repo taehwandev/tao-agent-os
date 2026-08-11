@@ -122,6 +122,7 @@ from workflow_validate import (
     _threshold_followup_contradictions,
     markdown_files_to_validate,
     removed_cli_option_failures,
+    validate_route_contracts,
 )
 
 
@@ -244,6 +245,9 @@ class WorkflowCatalogTests(unittest.TestCase):
             (graphify_dir / "GRAPH_REPORT.md").write_text("# Generated graph report\n", encoding="utf-8")
 
             self.assertEqual([valid_doc], markdown_files_to_validate(root))
+
+    def test_workflow_validate_accepts_skill_draft_route_hook(self) -> None:
+        self.assertEqual([], validate_route_contracts())
 
     def test_lifecycle_alias_commands_are_registered(self) -> None:
         for command in ("analysis", "spec", "plan", "build", "test", "webperf", "code-simplify", "ship"):
@@ -551,7 +555,7 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertTrue(route["skill_feedback"]["enabled"])
         self.assertTrue(route["skill_feedback"]["evaluation_required"])
         self.assertEqual(RETROSPECTIVE_CHECK_GATE, route["skill_feedback"]["evaluation_gate"])
-        self.assertFalse(route["skill_feedback"]["blocking"])
+        self.assertTrue(route["skill_feedback"]["blocking"])
         self.assertTrue(route["skill_feedback"]["threshold_followup_required"])
         feedback_hooks = [hook for hook in route["hooks"] if hook["hook"] == SKILL_FEEDBACK_HOOK]
         self.assertEqual(1, len(feedback_hooks))
@@ -625,6 +629,40 @@ class WorkflowCatalogTests(unittest.TestCase):
                         command, route, route.get("skill_feedback") or {}
                     ),
                 )
+
+
+class AutoRouteSentinelTests(unittest.TestCase):
+    """The prompt hook cannot know the task, so it must be able to defer.
+
+    A fixed command routed every request as triage, so the work-shaped routes
+    never fired from a prompt: a deploy was asked for test and implementation
+    evidence while nobody asked for smoke or rollback. `auto` classifies the
+    prompt on stdin instead, and fails open to triage in every direction because
+    a hook that runs on every prompt must never block a session from starting.
+    """
+
+    ROOT = Path(__file__).resolve().parents[1]
+
+    def _route(self, stdin_text: str) -> str:
+        completed = subprocess.run(
+            [sys.executable, str(self.ROOT / "scripts" / "workflow.py"), "route", "auto", "--advisory"],
+            input=stdin_text,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in completed.stdout.splitlines():
+            if line.startswith("Command:"):
+                return line.split(":", 1)[1].strip().strip("`")
+        return ""
+
+    def test_a_deploy_prompt_resolves_to_the_release_route(self) -> None:
+        self.assertEqual("release", self._route('{"prompt": "테스터에게 앱 배포"}'))
+
+    def test_every_unusable_payload_falls_back_to_triage(self) -> None:
+        for payload in ("", "not json", "{}", '{"prompt": ""}', '[]'):
+            with self.subTest(payload=payload):
+                self.assertEqual("triage", self._route(payload))
 
 
 if __name__ == "__main__":

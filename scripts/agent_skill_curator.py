@@ -20,6 +20,7 @@ from agent_skill_state import (
     observation_dir,
     read_json,
     review_queue_path,
+    safe_slug,
     terminal_candidate_exists,
 )
 from agent_state_lock import state_lock
@@ -27,6 +28,22 @@ from agent_state_lock import state_lock
 
 MAX_CURATED_GROUPS = 100
 MAX_REVIEW_QUEUE = 100
+# A candidate groups occurrences that share skill_id + signal, so its members can
+# name different gaps. Carrying all of them keeps a later reviewer from guessing
+# which one the representative observation happened to be; the cap keeps the
+# record bounded.
+MAX_QUEUED_GAP_TYPES = 4
+
+
+def _observed_gap_types(observations: list[dict[str, Any]]) -> list[str]:
+    """Return the distinct safe gap slugs named across this candidate's observations."""
+
+    seen = {
+        value
+        for value in (str(item.get("gap_type") or "").strip() for item in observations)
+        if value and safe_slug(value)
+    }
+    return sorted(seen)[:MAX_QUEUED_GAP_TYPES]
 
 
 def curate_observations(
@@ -39,7 +56,7 @@ def curate_observations(
 
 
 def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str, Any]:
-    threshold = max(DEFAULT_REVIEW_THRESHOLD, int(min_occurrences))
+    threshold = max(1, int(min_occurrences))
     groups: dict[str, list[dict[str, Any]]] = {}
     legacy_mapped_count = 0
     legacy_unmapped_count = 0
@@ -107,7 +124,9 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
             "candidate_id": candidate,
             "skill_id": representative["skill_id"],
             "signal": representative["signal"],
+            "gap_types": _observed_gap_types(observations),
             "distinct_occurrences": len(occurrence_keys),
+            "threshold": threshold,
             "first_observed_at": min(str(item.get("created_at") or "") for item in observations),
             "last_observed_at": max(str(item.get("created_at") or "") for item in observations),
             "queued_at": now(),

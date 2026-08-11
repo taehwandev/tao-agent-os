@@ -40,6 +40,7 @@ def complete_verified_skill_maintenance(
     verification_kind: str = "",
     target: str = "",
     test_selector: str = "",
+    preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reject directly, or apply only after a changed target passes a fixed check."""
 
@@ -66,7 +67,16 @@ def complete_verified_skill_maintenance(
         promotion_target=promotion_target,
     ):
         return {"updated": False, "reason": "maintenance_target_mismatch"}
-    if not verification_target_is_changed(target_root, target_path):
+    # A runtime tree is not always a git checkout. Without the preflight and the
+    # relative path, the change check has no non-git fallback to reach and every
+    # `applied` in such a tree fails as `maintenance_target_not_changed`, which
+    # made the whole observe-to-applied loop unreachable there.
+    if not verification_target_is_changed(
+        target_root,
+        target_path,
+        preflight=preflight,
+        target_relative=target_relative,
+    ):
         return {"updated": False, "reason": "maintenance_target_not_changed"}
     command = verification_command(
         project=project,

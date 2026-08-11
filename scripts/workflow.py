@@ -50,13 +50,19 @@ from workflow_spill import spill_label_for_args, write_spill_label
 from workflow_validate import validate
 
 
+AUTO_COMMAND = "auto"
+
+
 def _add_approval_record_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--approval-record",
+        "--user-approval",
+        dest="approval_record",
         default="",
         help=(
-            "Separate bound user-approval record as JSON or a path. Required "
-            "when the effective route reaches git_write or above."
+            "Separate bound user-approval record as JSON or a path. "
+            "--user-approval is a compatibility alias; required when the "
+            "effective route reaches git_write or above."
         ),
     )
 
@@ -66,7 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="action", required=True)
 
     route = subparsers.add_parser("route", help="Print a workflow route manifest.")
-    route.add_argument("command", choices=sorted(COMMANDS), help="Task command profile.")
+    route.add_argument(
+        "command",
+        choices=sorted(COMMANDS) + [AUTO_COMMAND],
+        help=f"Task command profile, or {AUTO_COMMAND!r} to classify the prompt on stdin.",
+    )
     route.add_argument(
         "--project",
         help="Target project root used for target-project readiness checks.",
@@ -588,9 +598,46 @@ def print_dispatch_finalize(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_auto_command(args: argparse.Namespace) -> None:
+    """Replace the ``auto`` sentinel with the classifier's recommended route.
+
+    Fails open in every direction: an unreadable payload, an unparsable body, a
+    missing prompt, or a route the catalog does not know all fall back to
+    ``triage``. A hook that runs on every prompt must never be the reason a
+    session cannot start.
+    """
+    # Only the route/dispatch actions carry a command; classify, list, and
+    # validate do not, and this runs before the action dispatch.
+    if getattr(args, "command", None) != AUTO_COMMAND:
+        return
+    args.command = "triage"
+    prompt = ""
+    try:
+        if not sys.stdin.isatty():
+            payload = json.loads(sys.stdin.read() or "{}")
+            if isinstance(payload, dict):
+                candidate = payload.get("prompt") or payload.get("request") or ""
+                prompt = candidate if isinstance(candidate, str) else ""
+    except Exception:
+        return
+    if not prompt.strip():
+        return
+    try:
+        # route_shape, not recommended_route: intake must not select a work
+        # route, but the prompt hook may pick a manifest by shape.
+        recommended = str(classify_request(prompt).get("route_shape") or "")
+    except Exception:
+        return
+    if recommended in COMMANDS:
+        args.command = recommended
+        if not getattr(args, "request", None):
+            args.request = prompt
+
+
 def main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _resolve_auto_command(args)
     task_type, stage = spill_label_for_args(args)
     write_spill_label(task_type, stage)
 

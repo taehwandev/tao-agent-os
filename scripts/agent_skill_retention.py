@@ -21,6 +21,7 @@ def skill_learning_summary(root: Path) -> dict[str, int]:
         "review_ready": _json_count(root / "skill-learning" / "review-queue"),
         "staged": _json_count(root / "skill-learning" / "staged"),
         "completed": _json_count(root / "skill-learning" / "completed"),
+        "drafts": _json_count(root / "skill-learning" / "drafts"),
     }
 
 
@@ -66,12 +67,42 @@ def _prune_skill_learning_state_locked(
         [path for path in observation_paths if path not in keep]
     )
     _drop_unreviewable_queue_records(root, keep)
+    removed_drafts = _drop_spent_drafts(root, keep)
     return {
         "removed_observations": removed_observations,
         "removed_completed": removed_completed,
         "kept_observations": len(keep),
         "kept_completed": min(len(completed_paths), completed_limit),
+        "removed_drafts": removed_drafts,
     }
+
+
+def _drop_spent_drafts(root: Path, kept_observations: set[Path]) -> int:
+    """Remove drafts whose proposal can no longer reach a canonical write.
+
+    A draft outlives its purpose once the candidate reached a terminal record,
+    and it becomes unreviewable once its observations are gone. Keeping either
+    would let a stale proposal be re-bound to a candidate that reappears later.
+    A staged candidate is deliberately excluded: its maintenance step still has
+    to read the proposal it was reviewed against.
+    """
+
+    draft_paths = list((root / "skill-learning" / "drafts").glob("*.json"))
+    if not draft_paths:
+        return 0
+    live_candidates: set[str] = set()
+    for path in kept_observations:
+        live_candidates |= observation_candidate_ids(_read_json(path))
+    spent = [
+        path
+        for path in draft_paths
+        if (root / "skill-learning" / "completed" / path.name).exists()
+        or (
+            path.stem not in live_candidates
+            and not (root / "skill-learning" / "staged" / path.name).exists()
+        )
+    ]
+    return _remove_paths(spent)
 
 
 def _drop_unreviewable_queue_records(root: Path, kept_observations: set[Path]) -> None:
@@ -80,7 +111,11 @@ def _drop_unreviewable_queue_records(root: Path, kept_observations: set[Path]) -
         for candidate_id in observation_candidate_ids(_read_json(path)):
             counts[candidate_id] = counts.get(candidate_id, 0) + 1
     for queue_path in (root / "skill-learning" / "review-queue").glob("*.json"):
-        if counts.get(queue_path.stem, 0) < DEFAULT_REVIEW_THRESHOLD:
+        queue = _read_json(queue_path)
+        threshold = queue.get("threshold", DEFAULT_REVIEW_THRESHOLD)
+        if not isinstance(threshold, int) or threshold < 1:
+            threshold = DEFAULT_REVIEW_THRESHOLD
+        if counts.get(queue_path.stem, 0) < threshold:
             try:
                 queue_path.unlink()
             except FileNotFoundError:

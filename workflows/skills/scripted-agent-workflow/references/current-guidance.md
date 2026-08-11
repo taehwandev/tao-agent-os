@@ -65,6 +65,9 @@ approval for the current request. The record must bind the envelope's
 `request_fingerprint` and `target_summary` plus the route `command` and approved
 effect ceiling. It is passed separately because neither the envelope nor its
 optional `approval_ref` may authorize itself.
+`--user-approval` is accepted as a backward-compatible CLI alias and normalizes
+to the same approval record; shared guidance and generated commands should keep
+using `--approval-record` as the canonical spelling.
 
 `--request-classified` remains a proof-carrying delegation state exemption, not
 a work authorization. Add it with `--classification-evidence` only when a ready
@@ -286,17 +289,13 @@ forgets them:
   before finish, inspect the skills actually used and record
   `no_reusable_gap`, `reusable_gap`, or `no_skill_used` with the observation
   disposition.
-- `skill-feedback` (optional hook): when the check finds a reusable gap, first
-  record the retrospective with `observation: deferred`. The hook queues only
-  one reusable content-free observation when its canonical skill id matches the
-  current retrospective. Replace the gate with `observation: recorded` only
-  after the hook creates or deduplicates that observation; otherwise keep
-  `deferred`, which cannot fail finish by itself. The feedback hook runs the
-  deterministic curator after a stored observation. When the current run is an
-  occurrence that reaches the recurrence threshold, finish requires the agent
-  to complete bounded review and any staged verified maintenance before
-  reporting success. Unrelated historical queue items remain non-blocking, and
-  no hook automatically edits canonical guidance. A failed
+- `skill-feedback` (conditional closeout hook): when the check finds a reusable
+  gap, record the retrospective with `observation: recorded` and queue only one
+  reusable content-free observation when its canonical skill id matches the
+  current retrospective. The same closeout must run the draft, deterministic
+  curation, bounded review, canonical skill-document edit, and verified
+  maintenance before reporting success. Unrelated historical queue items remain
+  non-blocking, and no hook bypasses canonical maintenance verification. A failed
   required hook or gate never uses this path; it follows the repair cycle.
 - `gate-batch` validates the complete batch before writing any entry. Structured
   fields alone are not enough: each record must also satisfy that gate's
@@ -846,8 +845,8 @@ The route enforces `repair_cycle_limit=1`,
 `resume_scope=first_failed_checkpoint`, and
 `stop_condition=same_failure_after_repair_or_unsafe_repair`. The complete
 failure-repair decision rules remain owned by the retrospective workflow.
-Successful-task candidate deduplication is a separate non-blocking policy in the
-same skill bundle.
+Successful-task skill-document maintenance is a separate same-closeout policy
+in the same skill bundle; unrelated historical candidates remain non-blocking.
 
 ## Command Profiles
 

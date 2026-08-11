@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_skill_learning import DEFAULT_REVIEW_THRESHOLD
+from agent_skill_state import CURRENT_TASK_REVIEW_THRESHOLD
 
 
 WORK_PRODUCING_COMMANDS = {
@@ -74,6 +74,7 @@ SOURCE_DOCS_GATE = "source docs"
 PRODUCT_REENTRY_GATE = "product route re-entry"
 RETROSPECTIVE_CHECK_GATE = "retrospective check"
 SKILL_FEEDBACK_HOOK = "skill-feedback"
+SKILL_DRAFT_HOOK = "skill-draft"
 SKILL_CURATE_HOOK = "skill-curate"
 SKILL_REVIEW_HOOK = "skill-review"
 SKILL_MAINTENANCE_HOOK = "skill-maintenance"
@@ -310,23 +311,28 @@ def _insert_before_any(gates: list[str], gate: str, anchors: tuple[str, ...]) ->
 
 
 def skill_feedback_policy(command: str) -> dict[str, object]:
-    """Describe passive observation and threshold-triggered closeout."""
+    """Describe same-closeout skill-document maintenance."""
 
     enabled = command in RETROSPECTIVE_CHECK_COMMANDS
     return {
         "enabled": enabled,
-        "mode": "observe_curate_review_stage_maintain",
+        "mode": "observe_draft_review_stage_maintain_same_closeout",
         "trigger": "after_task_verification_before_finish",
         "evaluation_required": enabled,
         "evaluation_gate": RETROSPECTIVE_CHECK_GATE if enabled else "",
-        "blocking": False,
-        "blocking_scope": "passive_observation_storage_only",
+        "blocking": True,
+        "blocking_scope": "reusable_gap_same_closeout",
         "threshold_followup_required": enabled,
         "record_only_when": "actually_used_skill_and_structured_observation",
-        "candidate_threshold": DEFAULT_REVIEW_THRESHOLD,
-        "curation": "deterministic_distinct_occurrence_threshold",
-        "review": "required_for_current_threshold_candidate_no_change_or_staged_patch",
-        "write_policy": "staged_before_separate_verified_maintenance",
-        "maintenance": "explicit_verified_terminal_closeout_never_automatic_edit",
+        "candidate_threshold": CURRENT_TASK_REVIEW_THRESHOLD,
+        # The observing run is the only participant holding the context that
+        # explains the gap. Without a draft, a later reviewer sees only slugs and
+        # counts and can do nothing but return no_change.
+        "draft": "observing_run_authors_bounded_proposal_no_authority",
+        "draft_required_for_reusable_gap": enabled,
+        "curation": "deterministic_current_occurrence_queue",
+        "review": "required_for_current_occurrence_no_change_or_staged_patch",
+        "write_policy": "draft_required_before_staged_patch",
+        "maintenance": "explicit_verified_terminal_same_closeout",
         "review_policy": "single_agent_default_optional_multi_agent_for_high_impact",
     }

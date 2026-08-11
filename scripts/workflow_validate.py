@@ -18,6 +18,7 @@ from workflow_common import (
 )
 from workflow_doc_surfaces import load_doc_surface_rules, surface_rule_doc_refs
 from workflow_gate_policy import (
+    SKILL_DRAFT_HOOK,
     SKILL_CURATE_HOOK,
     SKILL_FEEDBACK_HOOK,
     SKILL_MAINTENANCE_HOOK,
@@ -46,6 +47,9 @@ STRICT_CARD_REQUIRED_HEADINGS = (
 )
 MARKDOWN_VALIDATE_IGNORED_DIRS = {
     ".tao",
+    # Personal skills are loaded directly by runtimes and do not own Tao's
+    # runtime-card frontmatter contract.
+    "local",
     ".git",
     ".mypy_cache",
     ".pytest_cache",
@@ -121,6 +125,7 @@ def validate_route_contracts() -> list[str]:
             expected_hook_names.extend(
                 [
                     SKILL_FEEDBACK_HOOK,
+                    SKILL_DRAFT_HOOK,
                     SKILL_CURATE_HOOK,
                     SKILL_REVIEW_HOOK,
                     SKILL_MAINTENANCE_HOOK,
@@ -199,8 +204,14 @@ def _retrospective_policy_failures(
         failures.append(f"{command}: retrospective evaluation must be required")
     if feedback_policy.get("evaluation_gate") != RETROSPECTIVE_CHECK_GATE:
         failures.append(f"{command}: retrospective evaluation gate is invalid")
-    if feedback_policy.get("blocking") is not False:
-        failures.append(f"{command}: skill observation follow-up must be non-blocking")
+    if feedback_policy.get("blocking") is not True:
+        failures.append(
+            f"{command}: reusable-gap skill-document follow-up must block finish"
+        )
+    if feedback_policy.get("blocking_scope") != "reusable_gap_same_closeout":
+        failures.append(
+            f"{command}: skill follow-up blocking scope must be reusable_gap_same_closeout"
+        )
     if feedback_policy.get("threshold_followup_required") is not True:
         failures.append(
             f"{command}: current threshold candidate must require explicit follow-up"

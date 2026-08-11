@@ -195,6 +195,16 @@ Before finishing:
   evidence must provide those fields. Record one-off manual evidence through
   `gate` or `gate-batch` before finish; finish is a read-only validator and
   accepts no inline gate state.
+- Prefer one `gate-batch` submission for the route's remaining gates. If any
+  gate record is rejected, stop before `finish`, correct every reported field
+  or semantic contract, and confirm the complete required-gate set is present
+  in the ledger. A rejected `gate`/`gate-batch` call records no checkpoint and
+  must never be followed by `finish` as though the rejected evidence existed.
+  Exclude hook-owned gates such as `review hook` from every manual `gate` or
+  `gate-batch` payload: run the owning hook once, then batch only the still
+  missing manual gates (for example, record `handoff` by itself after review).
+  Run `gate-batch` and `finish` as separate, observed invocations; never place
+  them in one shell command where `finish` can run after a rejected batch.
 - Confirm alignment evidence names the user-visible checkpoint, not only an
   internal note reconstructed after the work.
 - Confirm documentation evidence names the decision, affected source-of-truth

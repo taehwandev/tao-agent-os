@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,81 @@ from agent_state_lock import state_lock
 
 
 OCCURRENCE_KEY_HISTORY_LIMIT = 20
+
+
+def promote_repaired_candidates(
+    root: Path,
+    *,
+    occurrence_id: str,
+    receipt_id: str,
+) -> dict[str, Any]:
+    """Move this run's lesson candidates to `promoted` after a verified repair.
+
+    Only the inbox was ever written, so `accepted=0 promoted=0` was structural
+    rather than neglect, and a signature could recur 89 times while the counter
+    only grew. A candidate records the opaque occurrence key of every run that
+    produced it, and a repair receipt is bound to one run's preflight, so the
+    two join exactly: promote the candidates carrying this run's key and leave
+    every unrelated historical candidate alone.
+
+    `occurrence_keys` is preserved on the promoted record because
+    `existing_candidates` reads promoted records for the occurrence baseline --
+    a signature that returns after a repair must keep counting, not restart.
+    """
+
+    occurrence_key = _opaque_occurrence_key(occurrence_id)
+    if not occurrence_key or not receipt_id.strip():
+        return {"promoted": [], "reason": "missing_repair_binding"}
+    inbox = root / "lessons" / "inbox"
+    if not inbox.is_dir():
+        return {"promoted": [], "reason": "no_candidates"}
+
+    promoted: list[str] = []
+    for path in sorted(inbox.glob("*.json")):
+        lesson = _read_lesson(path)
+        lesson_id = str(lesson.get("lesson_id") or "")
+        if not lesson_id:
+            continue
+        keys = lesson.get("occurrence_keys")
+        if not isinstance(keys, list) or occurrence_key not in keys:
+            continue
+        if _promote_one(root, path, lesson, receipt_id=receipt_id.strip()):
+            promoted.append(lesson_id)
+    return {"promoted": promoted}
+
+
+def _promote_one(
+    root: Path,
+    inbox_path: Path,
+    lesson: dict[str, Any],
+    *,
+    receipt_id: str,
+) -> bool:
+    relative_path = Path("lessons") / "promoted" / f"{lesson['lesson_id']}.json"
+    destination = root / relative_path
+    payload = {
+        **lesson,
+        "status": "promoted",
+        "promotion_status": "repair_verified",
+        "repair_receipt_id": receipt_id,
+    }
+    try:
+        assert_no_continuation_outbound(payload, boundary="global_lesson")
+        with state_lock(destination):
+            atomic_write_json(destination, payload)
+            _update_index(root, relative_path, payload)
+        inbox_path.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _read_lesson(path: Path) -> dict[str, Any]:
+    try:
+        lesson = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return lesson if isinstance(lesson, dict) else {}
 
 
 def upsert_retrospective_candidate(
@@ -96,10 +172,11 @@ def _occurrence_baseline(
 ) -> list[dict[str, Any]]:
     """Pick the occurrence-count source for this write.
 
-    Inbox records already carry forward any legacy promoted baseline, so
-    prefer them. Read the promoted record only as backward-compatible history
-    when no inbox record exists; there is no write path that promotes a new
-    candidate from this module.
+    Inbox records already carry forward any promoted baseline, so prefer them.
+    Read the promoted record when no inbox record exists: that is both legacy
+    history and the state left by `promote_repaired_candidates`, which removes
+    the inbox record. A signature that returns after a verified repair therefore
+    resumes counting from the promoted baseline instead of restarting at one.
     """
     return inbox_records if inbox_records else promoted_records
 

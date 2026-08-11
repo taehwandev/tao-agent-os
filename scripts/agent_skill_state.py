@@ -20,6 +20,9 @@ SCHEMA_VERSION = 1
 SAFE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
 CANDIDATE_ID_RE = re.compile(r"^[a-f0-9]{16}$")
 DEFAULT_REVIEW_THRESHOLD = 2
+# A reusable gap found during the current task must be resolved in that same
+# closeout. Periodic and historical curation keeps the two-occurrence threshold.
+CURRENT_TASK_REVIEW_THRESHOLD = 1
 
 
 def candidate_id(skill_id: str, signal: str) -> str:
@@ -116,7 +119,13 @@ def valid_candidate_record(
         return False
     if expected_status == "review_ready":
         count = payload.get("distinct_occurrences")
-        return isinstance(count, int) and count >= DEFAULT_REVIEW_THRESHOLD
+        threshold = payload.get("threshold", DEFAULT_REVIEW_THRESHOLD)
+        return (
+            isinstance(count, int)
+            and isinstance(threshold, int)
+            and threshold >= 1
+            and count >= threshold
+        )
     if expected_status == "staged_patch":
         return payload.get("review_decision") == "stage_patch" and all(
             safe_slug(str(payload.get(field) or ""))

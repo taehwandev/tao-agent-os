@@ -629,6 +629,14 @@ def _register_locked(
         existing.pop("claim_owner", None)
         existing["updated_at"] = run["updated_at"]
         return existing, True
+    # An adopted id can only come from a terminal record for the same isolated
+    # evidence directory: that record's evidence file is about to be overwritten
+    # in place, so it would describe a run whose evidence no longer exists.
+    # Replacing it here keeps one record per id without deleting anything a
+    # resolver still needs while the id is being chosen.
+    payload["runs"] = [
+        item for item in payload["runs"] if item.get("run_id") != run["run_id"]
+    ]
     payload["runs"].append(run)
     payload["runs"] = payload["runs"][-MAX_RUNS:]
     return run, True
@@ -665,20 +673,34 @@ def _run_id_for(
     opaque 32-hex token chosen per lifecycle -- and any other evidence path
     keeps a freshly minted id and simply has no packet.
 
-    An id already present in the registry is never adopted a second time. Two
-    records sharing one opaque id would make "the run" ambiguous for every later
-    lookup, which is worse than a run without a packet.
+    Only an *active* run blocks adoption. Two live records sharing one opaque id
+    would make "the run" ambiguous for every later lookup, so that case still
+    mints a fresh id. A terminal record must not block it: a ``start`` rejected
+    after registering -- an unclear request, a failed route -- leaves its id
+    behind, and refusing to adopt it again meant the obvious retry with the same
+    isolated path silently minted a different id. The evidence then sat in the
+    directory the agent chose while the registry pointed at one that was never
+    written, so no lookup could resolve the run and every later edit was denied.
+
+    The terminal record is left in place rather than dropped. Deleting it would
+    also delete the record a later resolver traverses to account for this id,
+    and the resolvers already read active state, so a superseded duplicate is
+    inert where a missing record is not.
     """
 
     directory = evidence_path.resolve().parent
     name = directory.name
-    if (
+    if not (
         RUN_DIRECTORY_RE.match(name)
         and directory.parent == project.resolve() / ".tao" / RUNS_DIR
-        and not any(run.get("run_id") == name for run in payload["runs"])
     ):
-        return name
-    return uuid.uuid4().hex
+        return uuid.uuid4().hex
+    if any(
+        run.get("run_id") == name and run.get("state") in ACTIVE_RUN_STATES
+        for run in payload["runs"]
+    ):
+        return uuid.uuid4().hex
+    return name
 
 
 def _new_run(

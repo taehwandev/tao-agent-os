@@ -436,8 +436,8 @@ class GateEvidenceLedgerTests(unittest.TestCase):
                     {
                         "gate": TEST_GATE,
                         "fields": {
-                            "check": "unit test",
-                            "result": "PASS",
+                            "check": "unittest tests/test_agent_gate_evidence_ledger.py",
+                            "result": "exit 0, 110 tests",
                         },
                     },
                 ],
@@ -951,8 +951,8 @@ class GateEvidenceLedgerTests(unittest.TestCase):
                 {
                     "gate": TEST_GATE,
                     "fields": {
-                        "check": "subprocess test",
-                        "result": "PASS",
+                        "check": "unittest tests/test_agent_gate_evidence_ledger.py",
+                        "result": "exit 0, 110 tests",
                     },
                 },
             ]

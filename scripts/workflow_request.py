@@ -7,11 +7,36 @@ from typing import Optional
 
 from workflow_catalog import REQUEST_CONCERN_HINTS
 from workflow_common import ANSWER_ONLY_CLARITY, QUESTION_ROUTE_COMMANDS, unique
+from workflow_request_decision import classification_decision
 from workflow_request_patterns import (
+    BROAD_PATTERNS,
+    COMMIT_ACTION_PATTERNS,
+    COMMIT_BLOCKING_RISK_PATTERNS,
+    COMMIT_NEGATION_PATTERNS,
+    COMMIT_RELEASE_SUBSTEP_PATTERNS,
+    COMPLETION_FAILURE_PATTERNS,
+    CORRECTION_ACTION_PATTERNS,
     CORRECTION_WORD_SENSE_QUESTION_PATTERNS,
     DIRECT_QUESTION_PATTERNS,
+    EXACT_PATTERNS,
+    FOLLOW_UP_APPROVAL_PATTERNS,
+    GRILL_ME_REQUEST_PATTERNS,
     IMPERATIVE_CORRECTION_ACTION_PATTERNS,
+    INSPECTION_PATTERNS,
+    MUTATION_ACTION_NEGATION_PATTERNS,
+    PRIOR_COMPLETION_REFERENCE_PATTERNS,
     QUESTION_ACTION_PATTERNS,
+    REFACTOR_ACTION_PATTERNS,
+    RELEASE_ACTION_PATTERNS,
+    RELEASE_BLOCKING_RISK_PATTERNS,
+    RELEASE_SCOPE_SIGNAL_PATTERNS,
+    REVIEW_ACTION_PATTERNS,
+    RISKY_PATTERNS,
+    SCOPED_PATTERNS,
+    TEST_ACTION_PATTERNS,
+    UI_FEATURE_ACTION_PATTERNS,
+    VAGUE_PATTERNS,
+    WORKFLOW_SETUP_ACTION_PATTERNS,
 )
 
 
@@ -139,6 +164,7 @@ def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, ob
     model_tier = MODEL_TIER_BY_EFFORT[effort]
     if requires_code_authoring(normalized) and model_tier == "fast":
         model_tier = "balanced"
+    shape, shape_mode = _route_shape(answer_only, normalized, lowered)
     return {
         "request": normalized,
         "clarity": ANSWER_ONLY_CLARITY if answer_only else "vague-action",
@@ -146,6 +172,8 @@ def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, ob
         "model_tier": model_tier,
         "model_selection": _model_selection(model_tier, effort),
         "recommended_route": "none" if answer_only else "triage",
+        "route_shape": shape,
+        "shape_response_mode": shape_mode,
         "grill_me": not answer_only,
         "question_drill": not answer_only,
         "response_mode": "answer_first" if answer_only else "clarify_first",
@@ -161,6 +189,34 @@ def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, ob
             "Use repo-local instructions before editing.",
         ],
     }
+
+
+def _route_shape(answer_only: bool, normalized: str, lowered: str) -> tuple[str, str]:
+    """The route this prompt is *shaped* like. Never an authorization.
+
+    ``recommended_route`` deliberately stays `triage`: natural-language intake
+    must not select a work route, because deriving work authority from request
+    words is exactly what the intent envelope replaced. This is a separate,
+    advisory key, so reading it can never be mistaken for intake having decided.
+
+    It exists for the one caller that has no envelope yet and cannot get one --
+    the prompt hook. Routing every prompt to `triage` asked a deploy for test
+    and implementation evidence while nobody asked for smoke or rollback. The
+    hook may pick a manifest by shape; the work route it leads to still refuses
+    without an envelope.
+
+    A direct question is answered rather than routed, and any failure falls back
+    to `triage`: intake must never be the reason a session cannot start.
+    """
+
+    if answer_only:
+        return "none", "answer_first"
+    try:
+        flags = _request_flags(normalized, lowered)
+        decided, _drill, mode, _reason = classification_decision(flags)
+    except Exception:  # pragma: no cover - a shortlist must never block intake
+        return "triage", "clarify_first"
+    return (decided or "triage"), (mode or "clarify_first")
 
 
 def _normalize_continuation_scope(value: str) -> str:
@@ -245,3 +301,129 @@ def classification_evidence_requires_clarification(evidence: str) -> bool:
 
 def _matches(patterns: object, text: str, flags: int = 0) -> bool:
     return any(re.search(pattern, text, flags) for pattern in patterns)
+
+
+def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
+    has_exact = _matches(EXACT_PATTERNS, normalized, re.IGNORECASE)
+    has_scoped = _matches(SCOPED_PATTERNS, normalized)
+    has_broad = _matches(BROAD_PATTERNS, lowered)
+    has_risky = _matches(RISKY_PATTERNS, lowered)
+    has_vague = _matches(VAGUE_PATTERNS, lowered)
+    has_inspection = _matches(INSPECTION_PATTERNS, lowered)
+    has_refactor_action = _matches(REFACTOR_ACTION_PATTERNS, lowered)
+    has_review_action = _matches(REVIEW_ACTION_PATTERNS, lowered)
+    has_test_action = _matches(TEST_ACTION_PATTERNS, lowered)
+    has_workflow_setup_action = _matches(WORKFLOW_SETUP_ACTION_PATTERNS, lowered)
+    has_ui_feature_action = _matches(UI_FEATURE_ACTION_PATTERNS, lowered)
+    has_commit_action = _has_commit_action(normalized)
+    has_release_action = _has_release_action(normalized)
+    release_scope_signal_count = _release_scope_signal_count(normalized)
+    has_release_scope = release_scope_signal_count >= 2
+    commit_risk_blocked = _commit_risk_blocks(lowered)
+    release_risk_blocked = _release_risk_blocks(lowered)
+    has_follow_up_approval = _matches(
+        FOLLOW_UP_APPROVAL_PATTERNS,
+        lowered,
+        re.IGNORECASE,
+    )
+    commit_release_substep = has_commit_action and (
+        not has_release_action or _matches(COMMIT_RELEASE_SUBSTEP_PATTERNS, normalized, re.IGNORECASE)
+    )
+    inspection_lacks_target = has_inspection and _inspection_lacks_target(lowered)
+    has_direct_question = _matches(DIRECT_QUESTION_PATTERNS, lowered)
+    asks_agent_action = _matches(QUESTION_ACTION_PATTERNS, lowered) or _matches(
+        IMPERATIVE_CORRECTION_ACTION_PATTERNS,
+        lowered,
+        re.IGNORECASE,
+    )
+    short_without_target = len(normalized.split()) <= 8 and not (has_exact or has_scoped)
+    asks_drill = _matches(GRILL_ME_REQUEST_PATTERNS, lowered)
+    has_user_correction = _has_user_confirmed_correction(lowered)
+    underspecified_action = (
+        asks_agent_action
+        and not (has_exact or has_scoped or has_inspection)
+        and not (has_direct_question and not asks_agent_action)
+    )
+    return {
+        "normalized": normalized,
+        "lowered": lowered,
+        "has_exact": has_exact,
+        "has_scoped": has_scoped,
+        "has_broad": has_broad,
+        "has_risky": has_risky,
+        "has_vague": has_vague,
+        "has_inspection": has_inspection,
+        "has_refactor_action": has_refactor_action,
+        "has_review_action": has_review_action,
+        "has_test_action": has_test_action,
+        "has_workflow_setup_action": has_workflow_setup_action,
+        "has_ui_feature_action": has_ui_feature_action,
+        "has_commit_action": has_commit_action,
+        "has_release_action": has_release_action,
+        "has_release_scope": has_release_scope,
+        "commit_risk_blocked": commit_risk_blocked,
+        "release_risk_blocked": release_risk_blocked,
+        "has_follow_up_approval": has_follow_up_approval,
+        "release_scope_signal_count": release_scope_signal_count,
+        "commit_release_substep": commit_release_substep,
+        "inspection_lacks_target": inspection_lacks_target,
+        "has_direct_question": has_direct_question,
+        "asks_agent_action": asks_agent_action,
+        "short_without_target": short_without_target,
+        "asks_drill": asks_drill,
+        "has_user_correction": has_user_correction,
+        "underspecified_action": underspecified_action,
+    }
+
+
+def _inspection_lacks_target(lowered: str) -> bool:
+    compact = lowered.strip(" .,!?:;")
+    if not compact:
+        return False
+    targetless_patterns = (
+        r"^(?:please\s+)?(?:check|review|inspect|verify|status|summarize|report)(?:\s+(?:it|this|that|please))?$",
+        r"^(?:can you|could you|would you)\s+(?:check|review|inspect|verify|summarize|report)(?:\s+(?:it|this|that))?$",
+        r"^(?:이거|그거|저거)?\s*(?:확인|체크|검토|점검|상태|파악|정리)\s*(?:해줘|해주세요|해줄래|좀)?$",
+    )
+    return _matches(targetless_patterns, compact)
+
+
+def _has_commit_action(text: str) -> bool:
+    if not _matches(COMMIT_ACTION_PATTERNS, text, re.IGNORECASE):
+        return False
+    # "do not commit", "commit is only a term", "before committing" all
+    # match COMMIT_ACTION_PATTERNS' bare \bcommit\b, but none of them are a
+    # request or approval to actually commit.
+    return not _matches(
+        COMMIT_NEGATION_PATTERNS + MUTATION_ACTION_NEGATION_PATTERNS,
+        text,
+        re.IGNORECASE,
+    )
+
+
+def _has_release_action(text: str) -> bool:
+    return _matches(RELEASE_ACTION_PATTERNS, text, re.IGNORECASE) and not _matches(
+        MUTATION_ACTION_NEGATION_PATTERNS,
+        text,
+        re.IGNORECASE,
+    )
+
+
+def _has_user_confirmed_correction(text: str) -> bool:
+    return (
+        _matches(PRIOR_COMPLETION_REFERENCE_PATTERNS, text, re.IGNORECASE)
+        and _matches(COMPLETION_FAILURE_PATTERNS, text, re.IGNORECASE)
+        and _matches(CORRECTION_ACTION_PATTERNS, text, re.IGNORECASE)
+    )
+
+
+def _commit_risk_blocks(text: str) -> bool:
+    return _matches(COMMIT_BLOCKING_RISK_PATTERNS, text.lower())
+
+
+def _release_risk_blocks(text: str) -> bool:
+    return _matches(RELEASE_BLOCKING_RISK_PATTERNS, text.lower())
+
+
+def _release_scope_signal_count(text: str) -> int:
+    return sum(1 for patterns in RELEASE_SCOPE_SIGNAL_PATTERNS if _matches(patterns, text, re.IGNORECASE))

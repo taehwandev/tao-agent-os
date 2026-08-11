@@ -7,7 +7,7 @@
 - the global install -- ``~/.tao/bin/tao-hook``, ``~/.tao/tao-root``,
   ``~/.tao/projects.json``, ``~/.tao/claude-session-projects/``.
 
-Every "is this a Tao project?" check used to be ``(path / ".tao").is_dir()``,
+Every "is this a Tao Agent OS project?" check used to be ``(path / ".tao").is_dir()``,
 so the home directory that hosts the global install always answered yes. That
 made ``$HOME`` classify as a project, which let a harness path such as
 ``~/.claude/plans/x.md`` register ``$HOME`` as a session project and left the
@@ -74,6 +74,51 @@ def is_project_state_dir(path: Path) -> bool:
         return False
     return not is_global_state_dir(path)
 
+
+
+def is_host_config_dir(path: Path) -> bool:
+    """True when ``path`` is host configuration rather than a project checkout.
+
+    Setup writes the managed runtime bridge into each runtime's own config
+    directory, so ``~/.claude/CLAUDE.md`` and ``~/.codex/AGENTS.md`` always carry
+    the opt-in token. Marker-file opt-in then reads those directories as projects
+    and the edit gate demands a workflow lifecycle before touching, for instance,
+    a session memory file. ``$HOME`` itself is already excluded; these are the
+    same case one level down.
+
+    The rule is the shape rather than a list of vendor names, so a runtime this
+    file has never heard of is covered too: a hidden directory sitting directly
+    in ``$HOME`` is configuration. A project checkout is not kept there.
+    """
+    resolved = _resolved(path)
+    home = _resolved(Path.home())
+    if resolved is None or home is None:
+        return False
+    return resolved.parent == home and resolved.name.startswith(".")
+
+
+
+def prefer_git_root(candidates: list[Path]) -> Path | None:
+    """Choose the project root from opt-in candidates ordered nearest-first.
+
+    A repository keeps its agent documentation in a subdirectory, and that
+    subdirectory carries its own ``AGENTS.md``. Marker opt-in alone therefore
+    reads it as a project and it shadows the repository that owns it. Everything
+    downstream then resolves against the wrong root at once: run evidence lands
+    outside the repository, the VibeGuard scan root is no longer a Git checkout,
+    and the skill catalog looks for project skills one level too deep.
+
+    A project root is a repository root, so the nearest candidate that is one
+    wins. Nearest rather than outermost, because a submodule or a linked
+    worktree is its own project. When no candidate is a repository the nearest
+    candidate still stands: a plain directory may opt in deliberately.
+    """
+    for candidate in candidates:
+        # A linked worktree records ``.git`` as a file, a main checkout as a
+        # directory. Both are repository roots.
+        if (candidate / ".git").exists():
+            return candidate
+    return candidates[0] if candidates else None
 
 def project_state_dir_target(project: Path) -> Path:
     """Where per-project state for ``project`` belongs."""

@@ -107,16 +107,14 @@ def parallel_execution_plan(command: str, gates: list[str]) -> dict[str, Any]:
             ),
         ),
         tasks=(
-            "optionally record non-blocking feedback for a skill used in the task",
+            "run retrospective skill feedback and same-closeout document maintenance when a reusable gap is found",
             "check required gate evidence",
             "report verification and residual risk",
         ),
         constraints=(
             "do not finalize until every required gate has evidence",
-            "storing a first skill observation must not change finish status",
-            "once the current occurrence reaches the recurrence threshold, finish "
-            "stays pending until bounded review and any staged maintenance reach a "
-            "terminal outcome",
+            "a reusable skill gap keeps finish pending until draft, review, and verified "
+            "same-closeout maintenance reach a terminal outcome",
         ),
     )
     return {**_parallel_metadata(lightweight_analysis), "phases": phases}

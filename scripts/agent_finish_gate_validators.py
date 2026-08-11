@@ -9,6 +9,52 @@ def has_any(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _render(label: str, phrases: tuple[str, ...], limit: int) -> str:
+    shown = [phrase for phrase in phrases if phrase][:limit]
+    if not shown:
+        return ""
+    more = ", ..." if len(phrases) > len(shown) else ""
+    return f" {label}: " + ", ".join(shown) + more
+
+
+def accepted(phrases: tuple[str, ...], limit: int = 8) -> str:
+    """Name the wording that satisfies a substring check.
+
+    These gates decide pass or fail by substring match, but the refusal only
+    restated the requirement in prose. An agent that wrote a truthful sentence
+    the matcher did not recognise had no way to learn which wording it wanted, so
+    the only route forward was to open the validator source -- once per refusal,
+    every time. Naming the phrases turns a source dive into a reread of the
+    message. It leaks nothing: the phrases are the contract, not a secret.
+    """
+    return _render("accepted wording includes", phrases, limit)
+
+
+def matched(text: str, phrases: tuple[str, ...]) -> str:
+    """Return the first phrase in ``text``, or an empty string."""
+    for phrase in phrases:
+        if phrase and phrase in text:
+            return phrase
+    return ""
+
+
+def triggers(text: str, phrases: tuple[str, ...], limit: int = 8) -> str:
+    """Name the wording that caused a refusal.
+
+    The mirror of ``accepted``. Where a check refuses on a match rather than
+    passing on one, listing what it accepts points the reader the wrong way: what
+    they need is the word their own sentence tripped over. Naming the match beats
+    listing the first few candidates, because the phrase that fired is often not
+    among them -- observed on a Korean skip token that sat last in a 21-entry
+    list, so the refusal showed eight English phrases and none of them was the
+    reason.
+    """
+    hit = matched(text, phrases)
+    if hit:
+        return f" refused on the wording: {hit}"
+    return _render("reads as such on wording like", phrases, limit)
+
+
 DOC_ARTIFACT_PHRASES = (
     "artifact", "doc type", "doc class", "prd", "product requirements",
     "spec", "feature spec", "functional spec", "ard", "architecture note",
@@ -248,7 +294,13 @@ def validate_documentation_impact_evidence(evidence: str) -> list[str]:
             "documentation impact evidence can use unchanged only when it names "
             "the existing doc path it opened/inspected and states why that "
             "already-read doc covers the planning, behavior, contract, or "
-            "acceptance change; a bare coverage claim is not enough"
+            "acceptance change; a bare coverage claim is not enough."
+            + accepted(DOC_INSPECTION_PROOF_PHRASES).replace(
+                "accepted wording includes", "inspection proof is recognised on"
+            )
+            + accepted(DOC_COVERAGE_STATE_PHRASES, limit=6).replace(
+                "accepted wording includes", "and the coverage claim on"
+            )
         ]
     if no_doc_decision and not has_any(text, NO_DURABLE_DOC_REASONS):
         return [
@@ -458,7 +510,10 @@ def validate_product_reentry_evidence(evidence: str) -> list[str]:
         "implementation ordering/roadmap/backlog, name the PRD coverage (Accepted "
         "PRD link, or explicit product-route re-entry to create and accept the "
         "PRD, plus an ARD link when structure/module boundaries change) that must "
-        "precede any implementation task or PR"
+        "precede any implementation task or PR."
+        + accepted(NO_PROPOSAL_PHRASES).replace(
+            "accepted wording includes", "a no-proposal disclaimer is recognised on"
+        )
     ]
 
 

@@ -56,6 +56,12 @@ regenerate the start/preflight capsule, and resume at the failed checkpoint.
 Record the observed old and current revisions in local evidence; do not weaken
 the capsule hash check or reuse evidence bound to the earlier revision.
 
+The same rule applies when the concurrent change lands after a successful
+Review Hook but before finish: the review attestation is correctly stale. Do
+not weaken or rewrite the attestation. Wait for the writer to settle when
+necessary, re-read the current guidance, refresh start/preflight, rerun the
+affected review, and only then rerun finish.
+
 ## Executable Contract
 
 ```text

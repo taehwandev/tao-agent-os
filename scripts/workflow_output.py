@@ -160,17 +160,17 @@ def _print_skill_feedback(policy: dict[str, object]) -> None:
     print(f"- Evaluation gate: `{policy['evaluation_gate']}`")
     print(f"- Observation follow-up blocking: `{str(bool(policy['blocking'])).lower()}`")
     print(
-        "- Current threshold candidate follow-up required: "
+        "- Current reusable-gap follow-up required: "
         f"`{str(bool(policy['threshold_followup_required'])).lower()}`"
     )
-    print(f"- Review threshold: `{policy['candidate_threshold']}` distinct occurrences")
+    print(f"- Same-closeout review threshold: `{policy['candidate_threshold']}` occurrence")
     print(f"- Curation: `{policy['curation']}`")
     print(f"- Review: `{policy['review']}`")
     print(f"- Write policy: `{policy['write_policy']}`")
     print(f"- Maintenance: `{policy['maintenance']}`")
     print(
-        "- Initial observation storage is non-blocking; once the current occurrence reaches "
-        "the threshold, bounded review and any staged maintenance must reach a terminal outcome."
+        "- A reusable gap requires same-closeout draft, review, and verified skill-document "
+        "maintenance before finish; no gap leaves the canonical document unchanged."
     )
     print()
 

@@ -90,9 +90,9 @@ A workflow is complete only when:
 ## Essential Hooks
 
 Start with only three required lifecycle hooks plus one required lightweight
-`retrospective check` route gate and the optional non-blocking skill-learning
-side channel (`skill-feedback`, `skill-curate`, `skill-review`, and
-`skill-maintenance`). Do not add separate PRD, ARD, docs freshness,
+`retrospective check` route gate and the conditional skill-learning closeout
+sequence (`skill-feedback`, `skill-curate`, `skill-review`, and
+`skill-maintenance`) for reusable gaps. Do not add separate PRD, ARD, docs freshness,
 architecture, security, dependency, test, or release hooks unless a repeated
 blocking failure proves that the check cannot live inside one of these three.
 Those concerns belong in route gates, review criteria, or finish evidence first.
@@ -115,19 +115,7 @@ task at `first_failed_checkpoint`. A candidate note alone is not recovery. Stop
 when the same failure recurs after repair, the repair is unsafe or ambiguous,
 source ownership is uncertain, or the one repair cycle is exhausted.
 
-Every route records whether its actually used skills revealed a reusable gap
-before finish. Missing or vague `retrospective check` evidence fails finish.
-When a gap exists, the optional `skill-feedback` hook emits at most one
-content-free observation for a skill actually used by the task and never
-changes finish status. A later `skill-curate` run
-or the existing bounded maintenance pass queues review after two distinct opaque occurrence
-keys share the exact `skill_id + signal` identity; a separate bounded reviewer
-chooses `no_change` or `staged_patch`. Canonical skill
-writes happen only in later staged maintenance with the normal verification and
-approval policy; `applied` requires a changed linked target and a successful
-allowlisted check, not a free-form claim. Observation, queue, staged, and
-completed state all have explicit caps. Missing storage, tokens, reviewer capacity, or maintenance
-capacity defers the side channel without blocking completed work.
+Every route records whether its actually used skills revealed a reusable gap before finish. Missing or vague `retrospective check` evidence fails finish. When a gap exists, the same closeout's `skill-feedback` hook emits at most one content-free observation, then the bounded draft/review/stage sequence updates the canonical skill document. The maintenance recorder requires a changed linked target and a successful allowlisted check before `applied`; it never accepts a free-form claim. Observation, queue, staged, and completed state all have explicit caps. Missing storage, tokens, reviewer capacity, or maintenance capacity keeps the closeout pending.
 
 Use the same public states for route gate signals and hook status:
 `🐱🟢 SUCCESS` and `🐱🔴 FAIL`. Do not report any third state.
@@ -235,8 +223,8 @@ the update.
 - `multi-perspective-review.md`: review non-trivial work through product, UX, architecture, reliability, security, release, and QA lenses.
 - `retrospective-learning.md`: require a lightweight skill check before every
   route finishes, repair failed work synchronously, and process reusable skill
-  observations through separate non-blocking curation, review, staging, and
-  later maintenance.
+  observations through same-closeout curation, review, staging, and verified
+  maintenance.
 - `planning-research.md`: investigate, compare options, and produce an implementation plan or recommendation.
 - `documentation-update.md`: create, review, or restructure docs without duplicating source guidance.
 - `feature-implementation.md`: turn a request into scoped implementation and verification.

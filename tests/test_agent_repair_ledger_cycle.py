@@ -282,6 +282,54 @@ class RepairLedgerCycleTests(unittest.TestCase):
             allowed = [result for result in results if result[0]]
             self.assertEqual(1, len(allowed))
 
+    def test_invocation_error_can_release_consumed_repair_attempt(self) -> None:
+        from agent_repair_ledger import (
+            record_failure_checkpoints,
+            register_repair_attempt,
+            release_repair_attempt,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            evidence_path = Path(temp_dir) / "preflight.json"
+            preflight = {"route": {"command": "bugfix", "gates": ["review hook"]}}
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            record_failure_checkpoints(
+                evidence_path=evidence_path,
+                preflight=preflight,
+                checkpoints=["review"],
+                signature="review-signature",
+                checkpoint_signatures={"review": "review-signature"},
+            )
+
+            self.assertEqual(
+                (True, 1),
+                register_repair_attempt(
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                    checkpoint="review",
+                    limit=1,
+                    failure_signature="review-signature",
+                ),
+            )
+            self.assertTrue(
+                release_repair_attempt(
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                    checkpoint="review",
+                    failure_signature="review-signature",
+                )
+            )
+            self.assertEqual(
+                (True, 1),
+                register_repair_attempt(
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                    checkpoint="review",
+                    limit=1,
+                    failure_signature="review-signature",
+                ),
+            )
+
     def test_repair_cycle_requires_persisted_prior_failure_and_is_bounded(self) -> None:
         from agent_repair_ledger import record_failure_checkpoints
         from agent_repair_verification import create_repair_receipt

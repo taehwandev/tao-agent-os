@@ -1028,6 +1028,28 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertNotIn("unsupported Tao Agent OS script alias: resume", result.stderr)
         self.assertIn("--last", result.stdout)
 
+    def test_stable_launcher_supports_codex_stop_gate_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_home:
+            with patch.dict(os.environ, {"HOME": temp_home}):
+                ensure_stable_launcher(ROOT, dry_run=False)
+                launcher = stable_launcher_path()
+
+                result = subprocess.run(
+                    [str(launcher), "codex-stop-gate"],
+                    cwd=str(ROOT),
+                    input="{}",
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+
+        self.assertEqual(0, result.returncode)
+        self.assertNotIn(
+            "unsupported Tao Agent OS script alias: codex-stop-gate",
+            result.stderr,
+        )
+
     def test_stable_launcher_supports_optional_skill_feedback_alias(self) -> None:
         expected = {
             "skill-feedback": "--skill-feedback-outcome",

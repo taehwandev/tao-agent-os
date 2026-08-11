@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_lesson_store import upsert_retrospective_candidate
+from agent_lesson_store import promote_repaired_candidates, upsert_retrospective_candidate
 from agent_skill_retention import skill_learning_summary
 from support.global_state import STATE_HOME_ENV, global_state_dir
 from workflow_common import (
@@ -23,6 +23,12 @@ from workflow_common import (
 SCHEMA_VERSION = 1
 SAFE_SLUG_RE = re.compile(r"[^a-z0-9_]+")
 LESSON_STATUSES = ("accepted", "promoted")
+
+# A bare `candidates=37` reads as bookkeeping, so a signature that had already
+# recurred 89 times stayed invisible while agents reported a clean finish. At or
+# above this many occurrences the summary names the signature instead of only
+# counting it.
+RECURRENCE_NOTICE_THRESHOLD = 3
 
 
 def state_home() -> Path:
@@ -40,6 +46,7 @@ def lesson_summary(limit: int = 10) -> dict[str, Any]:
         "accepted": [],
         "promoted": [],
         "candidate_count": _count_unique_lessons(root / "lessons" / "inbox"),
+        "top_recurrence": _top_recurring_candidate(root / "lessons" / "inbox"),
         "skill_learning": skill_learning_summary(root),
     }
     for status in LESSON_STATUSES:
@@ -55,6 +62,14 @@ def write_retrospective_candidate(finish_result: dict[str, Any]) -> dict[str, An
         state_home(),
         retrospective_candidate(finish_result),
         occurrence_id=str(finish_result.get("occurrence_id") or ""),
+    )
+
+
+def promote_lessons_for_repair(occurrence_id: str, receipt_id: str) -> dict[str, Any]:
+    """Promote this run's lesson candidates once a repair receipt verifies."""
+
+    return promote_repaired_candidates(
+        state_home(), occurrence_id=occurrence_id, receipt_id=receipt_id
     )
 
 
@@ -147,6 +162,39 @@ def _read_lessons(path: Path, limit: int) -> list[dict[str, Any]]:
             }
         )
     return lessons
+
+
+def _top_recurring_candidate(path: Path) -> dict[str, Any]:
+    """Name the most-repeated candidate so a count cannot stand in for a repair.
+
+    Only safe slugs, an opaque lesson id and a number are returned; the lesson
+    records themselves hold no request content.
+    """
+
+    best: dict[str, Any] = {}
+    best_count = 0
+    if not path.exists():
+        return {}
+    for lesson_path in sorted(path.glob("*.json")):
+        try:
+            lesson = json.loads(lesson_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(lesson, dict):
+            continue
+        count = lesson.get("occurrence_count")
+        if not isinstance(count, int) or isinstance(count, bool):
+            continue
+        if count > best_count:
+            best, best_count = lesson, count
+    if best_count < RECURRENCE_NOTICE_THRESHOLD:
+        return {}
+    return {
+        "lesson_id": str(best.get("lesson_id") or ""),
+        "failure_type": str(best.get("failure_type") or ""),
+        "occurrence_count": best_count,
+        "promotion_status": str(best.get("promotion_status") or ""),
+    }
 
 
 def _count_unique_lessons(path: Path) -> int:

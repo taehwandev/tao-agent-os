@@ -190,6 +190,43 @@ class ReviewAttestationTests(unittest.TestCase):
         self.assertNotIn("review hook", gate_evidence)
         self.assertTrue(any("worktree" in failure for failure in failures))
 
+    def test_rules_drift_after_review_is_reported_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as rules_directory:
+            rules = Path(rules_directory)
+            rules_file = rules / "rules.md"
+            rules_file.write_text("initial\n", encoding="utf-8")
+            preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+            attestation = ReviewAttestation.record(
+                project=self.project,
+                rules=rules,
+                evidence_path=self.evidence_path,
+                preflight=preflight,
+                review_scope="pathspec: tracked.txt",
+                review_paths=["tracked.txt"],
+                changed_path_count=0,
+                checks={
+                    "review_outcome": "pass",
+                    "workflow_validate": {"returncode": 0},
+                    "diff_check": {"returncode": 0},
+                    "vibeguard": {"returncode": 0, "overall": "Ready"},
+                },
+            )
+            rules_file.write_text("changed after review\n", encoding="utf-8")
+
+            failures = ReviewAttestation.failures(
+                project=self.project,
+                rules=rules,
+                evidence_path=self.evidence_path,
+                route=self.route,
+                ledger_fields=ReviewAttestation.ledger_fields(attestation),
+                ledger_source="review",
+            )
+
+            self.assertEqual(
+                ["review hook attestation rules worktree binding is stale"],
+                failures,
+            )
+
     def test_attestation_copied_to_another_run_is_rejected(self) -> None:
         attestation = self._record_real_review()
         other_evidence = self._write_preflight("b" * 32)

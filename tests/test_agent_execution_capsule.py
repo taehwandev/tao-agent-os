@@ -730,6 +730,7 @@ class ExecutionCapsuleTests(unittest.TestCase):
         capsule = refresh_execution_capsule(
             self.project, self.rules, self.evidence_path, self.route
         )
+        (self.project / "guide.md").write_text("# Project Guide\n", encoding="utf-8")
         (self.rules / "guide.md").write_text("# Repaired Guide\n", encoding="utf-8")
         (self.rules / "test_repair.py").write_text(
             "import unittest\n\n"
@@ -750,7 +751,7 @@ class ExecutionCapsuleTests(unittest.TestCase):
             rules=self.rules,
             evidence_path=self.evidence_path,
             preflight=preflight,
-            target="guide.md",
+            target=str(self.rules / "guide.md"),
             checkpoint="source docs",
             verification_kind="unittest",
             test_selector="test_repair.RepairTest.test_ok",
@@ -807,6 +808,34 @@ class ExecutionCapsuleTests(unittest.TestCase):
 
         self.assertEqual(DIRECTORY_STATE_HEAD, state["head"])
         self.assertEqual(state, duplicate)
+
+    def test_non_git_rules_ignore_root_local_skill_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory)
+            shared_rule = rules / "AGENTS.md"
+            shared_rule.write_text("shared rules\n", encoding="utf-8")
+            personal_skill = rules / "local" / "skills" / "example" / "SKILL.md"
+            personal_skill.parent.mkdir(parents=True)
+            personal_skill.write_text("initial skill\n", encoding="utf-8")
+            original, _ = git_states_for_paths(rules, rules)
+
+            personal_skill.write_text("updated skill\n", encoding="utf-8")
+            after_local_change, _ = git_states_for_paths(
+                rules,
+                rules,
+                project_record=original,
+                rules_record=original,
+            )
+            shared_rule.write_text("updated shared rules\n", encoding="utf-8")
+            after_shared_change, _ = git_states_for_paths(
+                rules,
+                rules,
+                project_record=original,
+                rules_record=original,
+            )
+
+        self.assertEqual(original, after_local_change)
+        self.assertNotEqual(original, after_shared_change)
 
     def test_documentation_gate_cannot_mint_a_receipt_for_a_non_required_doc_target(self) -> None:
         # Required-doc receipts are exact-path capabilities. Even a documentation

@@ -35,13 +35,33 @@ from pathlib import Path
 try:  # Never fail to load; used for the message and the session lookup.
     from agent_runtime_session import recorded_session_id
     from support.stable_launcher import stable_launcher_path
-    from support.global_state import is_project_state_dir
+    from support.global_state import (
+        global_state_dir,
+        is_host_config_dir,
+        is_project_state_dir,
+        prefer_git_root,
+    )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
         return Path.home() / ".tao" / "bin" / "tao-hook"
 
     def is_project_state_dir(path: Path) -> bool:
         return path.is_dir() and path.resolve() != (Path.home() / ".tao").resolve()
+
+    def global_state_dir() -> Path:
+        import os
+        override = os.environ.get("TAO_STATE_HOME", "").strip()
+        return Path(override).expanduser() if override else Path.home() / ".tao"
+
+    def is_host_config_dir(path: Path) -> bool:
+        resolved = path.expanduser().resolve()
+        return resolved.parent == Path.home().resolve() and resolved.name.startswith(".")
+
+    def prefer_git_root(candidates: "list[Path]") -> "Path | None":
+        for candidate in candidates:
+            if (candidate / ".git").exists():
+                return candidate
+        return candidates[0] if candidates else None
 
     def recorded_session_id(payload: object) -> str:
         if not isinstance(payload, dict):
@@ -83,6 +103,8 @@ def safe_session_id(session_id: str) -> str:
 def opts_in(path: Path) -> bool:
     # Must stay identical to claude_pretool_gate.opts_in; both delegate the
     # global-vs-project question to support.global_state so they cannot drift.
+    if is_host_config_dir(path):
+        return False
     if is_project_state_dir(path / STATE_DIR):
         return True
     for name in OPT_IN_FILES:
@@ -96,12 +118,20 @@ def opts_in(path: Path) -> bool:
 
 
 def find_project_root(cwd: Path) -> Path | None:
+    """The repository that owns ``cwd``, preferring a Git root over a marker.
+
+    Collecting every opt-in ancestor rather than returning the first one lets
+    ``prefer_git_root`` reject a documentation subdirectory that opts in but is
+    not the repository. Must stay identical to
+    claude_pretool_gate.find_project_root.
+    """
+    candidates: list[Path] = []
     for candidate in (cwd, *cwd.parents):
         if opts_in(candidate):
-            return candidate
+            candidates.append(candidate)
         if candidate == candidate.parent:
             break
-    return None
+    return prefer_git_root(candidates)
 
 
 def edit_activity_marker(root: Path, session_id: str) -> Path:
@@ -205,7 +235,7 @@ def session_projects(session_id: str, cwd_root: Path | None) -> list[Path]:
     roots: list[Path] = []
     if cwd_root is not None:
         roots.append(cwd_root)
-    index = Path.home() / STATE_DIR / SESSION_PROJECT_DIR / safe_session_id(session_id)
+    index = global_state_dir() / SESSION_PROJECT_DIR / safe_session_id(session_id)
     try:
         recorded = index.read_text(encoding="utf-8").splitlines()
     except OSError:

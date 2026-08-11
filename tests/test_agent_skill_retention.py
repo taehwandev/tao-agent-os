@@ -20,6 +20,7 @@ from agent_skill_learning import (
     review_candidate,
 )
 from agent_skill_maintenance import complete_verified_skill_maintenance
+from agent_skill_draft import record_draft
 from agent_skill_retention import prune_skill_learning_state
 
 
@@ -344,6 +345,18 @@ class AgentSkillRetentionTests(unittest.TestCase):
             )
         result = curate_observations(root, min_occurrences=2)
         self.assertEqual(1, result["ready_count"])
+        bundle = root / "common" / "skills" / skill_id.replace("_", "-")
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "SKILL.md").write_text("test skill\n", encoding="utf-8")
+        record_draft(
+            root,
+            project=root,
+            rules=root,
+            skill_id=skill_id,
+            signal=signal,
+            proposal="A bounded test proposal describes the missing rule and its verification path.",
+            occurrence_id=f"draft-{skill_id}-{signal}",
+        )
         return str(result["queued"][0])
 
 

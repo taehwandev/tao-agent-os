@@ -181,8 +181,10 @@ def _attestation_failures(
         failures.append("review hook attestation route binding is stale or foreign")
     if record["agent_run_id"] != str(preflight.get("agent_run_id") or ""):
         failures.append("review hook attestation run binding is stale or foreign")
-    if project_git != record["project_git"] or rules_git != record["rules_git"]:
-        failures.append("review hook attestation worktree binding is stale")
+    if project_git != record["project_git"]:
+        failures.append("review hook attestation project worktree binding is stale")
+    if rules_git != record["rules_git"]:
+        failures.append("review hook attestation rules worktree binding is stale")
     return list(dict.fromkeys(failures))
 
 

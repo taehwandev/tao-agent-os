@@ -57,6 +57,7 @@ from agent_review_hook import (
     record_review_gate,
     record_review_prerequisite_readiness,
     review_hook,
+    review_success_details,
     review_vibeguard_command,
     vibeguard_review_failure,
     workflow_validate_failure_detail,
@@ -205,6 +206,47 @@ class ReviewHookTests(unittest.TestCase):
             )
             self.assertFalse(any("retrospective check" in failure for failure in failures))
 
+    def test_review_hook_rejects_rules_root_that_differs_from_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            expected_rules = project / "runtime"
+            actual_rules = project / "runtime" / ".agents" / "rules"
+            actual_rules.mkdir(parents=True)
+            evidence_path = project / ".tao" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            preflight = {
+                "rules": str(expected_rules),
+                "route": {
+                    "command": "review",
+                    "gates": ["source docs", "review hook"],
+                },
+            }
+            evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+            args = SimpleNamespace(
+                project=project,
+                evidence=evidence_path,
+                rules=actual_rules,
+            )
+            checks: dict[str, object] = {}
+            failures: list[str] = []
+
+            record_review_prerequisite_readiness(args, checks, failures)
+
+            self.assertEqual(
+                {
+                    "expected": str(expected_rules),
+                    "actual": str(actual_rules),
+                },
+                checks["review_rules_root"],
+            )
+            self.assertEqual(
+                [
+                    "review --rules must match the rules root recorded by start; "
+                    "rerun review with the preflight rules root"
+                ],
+                failures,
+            )
+
     def test_review_hook_treats_missing_prerequisites_as_invocation_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -225,6 +267,11 @@ class ReviewHookTests(unittest.TestCase):
                 repair_cycle=0,
             )
             result_payload: dict[str, object] = {}
+            invocation_rollbacks = 0
+
+            def rollback_repair_attempt() -> None:
+                nonlocal invocation_rollbacks
+                invocation_rollbacks += 1
 
             def unexpected_command(*_args: object, **_kwargs: object) -> object:
                 self.fail("review checks must not run before prerequisites are complete")
@@ -254,6 +301,7 @@ class ReviewHookTests(unittest.TestCase):
                     unexpected_command,
                     unexpected_command,
                     finish_with_result,
+                    rollback_repair_attempt,
                 )
 
             self.assertEqual(1, result)
@@ -265,6 +313,7 @@ class ReviewHookTests(unittest.TestCase):
                     for detail in result_payload["details"]
                 )
             )
+            self.assertEqual(1, invocation_rollbacks)
             record_failure.assert_not_called()
 
     def test_review_hook_accepts_complete_pre_review_gate_evidence(self) -> None:
@@ -421,6 +470,7 @@ class ReviewHookTests(unittest.TestCase):
             output: Path | None,
             payload: dict[str, object],
             repair_cycle: int,
+            invocation_error: bool = False,
         ) -> int:
             outputs.append({"name": name, "success": success, "details": details, "payload": payload})
             return 0 if success else 1
@@ -494,6 +544,7 @@ class ReviewHookTests(unittest.TestCase):
             output: Path | None,
             payload: dict[str, object],
             repair_cycle: int,
+            invocation_error: bool = False,
         ) -> int:
             outputs.append({"name": name, "success": success, "details": details})
             return 0 if success else 1
@@ -564,6 +615,7 @@ class ReviewHookTests(unittest.TestCase):
             output: Path | None,
             payload: dict[str, object],
             repair_cycle: int,
+            invocation_error: bool = False,
         ) -> int:
             outputs.append(
                 {
@@ -826,6 +878,7 @@ class ReviewHookTests(unittest.TestCase):
                 "start",
                 "review",
                 "skill-feedback",
+                "skill-draft",
                 "skill-curate",
                 "skill-review",
                 "skill-maintenance",
@@ -856,6 +909,20 @@ class ReviewHookTests(unittest.TestCase):
 
         finish_hook = next(hook for hook in route["hooks"] if hook["hook"] == "finish")
         self.assertNotIn("--gate", finish_hook["command"])
+
+    def test_review_success_requires_finish_before_commit(self) -> None:
+        details = review_success_details(
+            {"checked_path_count": 1, "scope": "working-tree"},
+            "working-tree",
+        )
+
+        self.assertTrue(
+            any(
+                "run finish before commit, push, release, or handoff" in detail
+                and "invalidates this review attestation" in detail
+                for detail in details
+            )
+        )
 
 
 class RaisedAdditionLimitEvidenceTests(unittest.TestCase):
@@ -888,6 +955,401 @@ class RaisedAdditionLimitEvidenceTests(unittest.TestCase):
         )
 
         self.assertEqual([], failures)
+
+
+class ContentLossIsReviewableTests(unittest.TestCase):
+    """A large removal must be accounted for whatever file type it happened in.
+
+    Structural review reads development sources only, so a doc rewrite that
+    dropped a documented deploy procedure produced no signal from any check in
+    the review hook: whitespace was clean, the remaining markdown still
+    validated, and VibeGuard scanned what the change added.
+    """
+
+    def _structure(self, metadata: dict[str, dict[str, object]]) -> dict[str, object]:
+        from agent_review_structure import REVIEW_NET_DELETION_LIMIT, net_deletion_findings
+
+        return {
+            "net_deletion_limit": REVIEW_NET_DELETION_LIMIT,
+            "net_deletions": net_deletion_findings(metadata),
+        }
+
+    def test_a_markdown_rewrite_that_loses_content_fails_review(self) -> None:
+        from agent_review_hook import net_deletion_failures
+
+        structure = self._structure(
+            {"docs/deploy.md": {"additions": 98, "deletions": 171}}
+        )
+        failures = net_deletion_failures(structure, "final diff checked; no unexpected files")
+
+        self.assertTrue(failures)
+        # The measured counts belong in the message: the agent that overwrote a
+        # stale copy did not know anything had disappeared.
+        self.assertIn("docs/deploy.md", failures[0])
+        self.assertIn("net -73", failures[0])
+
+    def test_naming_the_path_in_the_side_effect_audit_clears_it(self) -> None:
+        from agent_review_hook import net_deletion_failures
+
+        structure = self._structure(
+            {"docs/deploy.md": {"additions": 98, "deletions": 171}}
+        )
+
+        self.assertEqual(
+            [],
+            net_deletion_failures(
+                structure,
+                "docs/deploy.md loses the local-gradle fallback section; "
+                "superseded by the pipeline trigger documented above",
+            ),
+        )
+
+    def test_missing_net_deletion_evidence_is_a_correctable_invocation(self) -> None:
+        from agent_review_hook import (
+            net_deletion_failures,
+            review_input_invocation_failure,
+            review_input_invocation_failure_details,
+        )
+
+        structure = self._structure(
+            {"docs/deploy.md": {"additions": 98, "deletions": 171}}
+        )
+        failures = net_deletion_failures(structure, "final diff checked")
+
+        self.assertTrue(review_input_invocation_failure(failures))
+        details = review_input_invocation_failure_details(
+            failures,
+            {"scope": "changed-files", "checked_paths": ["docs/deploy.md"]},
+            "full worktree",
+        )
+        self.assertIn("--side-effect-audit-evidence", details[-1])
+        self.assertIn("no lifecycle checkpoint failed", details[-1])
+        self.assertNotIn("repair-verify", " ".join(details))
+
+    def test_an_ordinary_edit_and_a_growing_file_stay_silent(self) -> None:
+        from agent_review_hook import net_deletion_failures
+
+        quiet = self._structure(
+            {
+                "scripts/thing.py": {"additions": 120, "deletions": 4},
+                "docs/notes.md": {"additions": 10, "deletions": 30},
+                "docs/binary.png": {"additions": None, "deletions": None},
+            }
+        )
+
+        self.assertEqual([], net_deletion_failures(quiet, ""))
+
+
+class StaleBaseBlocksReviewTests(unittest.TestCase):
+    """Rewriting a path the base already moved is how a stale read reaches disk."""
+
+    def _args(self, boundary_evidence: str = "") -> SimpleNamespace:
+        return SimpleNamespace(
+            project=Path("/repo"),
+            boundary_plan_evidence=boundary_evidence,
+        )
+
+    def _runner(
+        self,
+        moved: str,
+        behind: str = "21",
+        upstream: str = "",
+        merge_head: str = "",
+        unresolved: str = "",
+        base_is_merged: bool = True,
+    ):
+        def run_command(command: list[str], _cwd: Path) -> dict[str, object]:
+            if command == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
+                return {"returncode": 0, "stdout": "feature\n", "stderr": ""}
+            if command[:2] == ["git", "rev-parse"] and "@{upstream}" in command:
+                if upstream:
+                    return {"returncode": 0, "stdout": f"{upstream}\n", "stderr": ""}
+                return {"returncode": 1, "stdout": "", "stderr": ""}
+            if command[:2] == ["git", "rev-parse"]:
+                target = command[-1]
+                if target == "MERGE_HEAD":
+                    return {
+                        "returncode": 0 if merge_head else 1,
+                        "stdout": f"{merge_head}\n" if merge_head else "",
+                        "stderr": "",
+                    }
+                ok = target == "origin/develop"
+                return {"returncode": 0 if ok else 1, "stdout": target if ok else "", "stderr": ""}
+            if command[1] == "merge-base":
+                if "--is-ancestor" in command:
+                    return {
+                        "returncode": 0 if base_is_merged else 1,
+                        "stdout": "",
+                        "stderr": "",
+                    }
+                return {"returncode": 0, "stdout": "abc123\n", "stderr": ""}
+            if command[1] == "rev-list":
+                return {"returncode": 0, "stdout": f"{behind}\n", "stderr": ""}
+            if command[1] == "diff":
+                if "--diff-filter=U" in command:
+                    return {"returncode": 0, "stdout": unresolved, "stderr": ""}
+                return {"returncode": 0, "stdout": moved, "stderr": ""}
+            raise AssertionError(command)
+
+        return run_command
+
+    def _structure(self, changed: list[str]) -> dict[str, object]:
+        return {"discovery": {"path_metadata": {name: {} for name in changed}}}
+
+    def test_rewriting_a_path_the_base_moved_fails_review(self) -> None:
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner("docs/deploy.md\0src/other.py\0"),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertEqual(["docs/deploy.md"], checks["base_drift"]["drifted_paths"])
+        self.assertTrue(failures)
+        self.assertIn("21 commits behind origin/develop", failures[0])
+        self.assertIn("docs/deploy.md", failures[0])
+
+    def test_stale_base_refusal_is_an_invocation_failure(self) -> None:
+        from agent_review_hook import (
+            record_review_base_drift,
+            review_input_invocation_failure,
+        )
+
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner("docs/deploy.md\0"),
+            self._structure(["docs/deploy.md"]),
+            {},
+            failures,
+        )
+
+        self.assertTrue(review_input_invocation_failure(failures))
+
+    def test_stale_base_invocation_requests_base_integration_without_repair(self) -> None:
+        from agent_review_hook import (
+            record_review_base_drift,
+            review_input_invocation_failure_details,
+        )
+
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner("docs/deploy.md\0"),
+            self._structure(["docs/deploy.md"]),
+            {},
+            failures,
+        )
+
+        details = review_input_invocation_failure_details(
+            failures,
+            {"scope": "changed-files", "checked_paths": ["docs/deploy.md"]},
+            "full worktree",
+        )
+
+        self.assertIn("integrate the current base", details[-1])
+        self.assertIn("no lifecycle checkpoint failed", details[-1])
+        self.assertNotIn("repair-verify", " ".join(details))
+
+    def test_stale_base_does_not_hide_a_real_review_failure(self) -> None:
+        from agent_review_hook import (
+            record_review_base_drift,
+            review_input_invocation_failure,
+        )
+
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner("docs/deploy.md\0"),
+            self._structure(["docs/deploy.md"]),
+            {},
+            failures,
+        )
+        failures.append("code review evidence is required")
+
+        self.assertFalse(review_input_invocation_failure(failures))
+
+    def test_an_up_to_date_checkout_is_silent(self) -> None:
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner("docs/deploy.md\0", behind="0"),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertEqual([], failures)
+
+    def test_a_resolved_in_progress_merge_of_the_base_is_silent(self) -> None:
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner(
+                "docs/deploy.md\0",
+                behind="26",
+                merge_head="def456",
+            ),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertEqual([], failures)
+        self.assertEqual(
+            "resolved in-progress merge already incorporates the current base ref",
+            checks["base_drift"]["skipped"],
+        )
+
+    def test_an_unresolved_in_progress_merge_does_not_hide_stale_paths(self) -> None:
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner(
+                "docs/deploy.md\0",
+                merge_head="def456",
+                unresolved="docs/deploy.md\n",
+            ),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertTrue(failures)
+        self.assertEqual(
+            ["docs/deploy.md"],
+            checks["base_drift"]["unresolved_merge_paths"],
+        )
+
+    def test_a_path_the_base_left_alone_is_silent(self) -> None:
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner("src/unrelated.py\0"),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertEqual([], failures)
+
+    def test_recording_the_base_and_the_path_does_not_waive_the_block(self) -> None:
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args("base revision origin/develop; re-read docs/deploy.md there; worktree owns it"),
+            self._runner("docs/deploy.md\0"),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertTrue(failures)
+        self.assertIn("cannot waive this stale-base overlap", failures[0])
+
+    def test_recording_a_commit_sha_does_not_waive_the_block(self) -> None:
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args("re-read docs/deploy.md at 2903b6091 before rewriting it"),
+            self._runner("docs/deploy.md\0"),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertTrue(failures)
+        self.assertIn("Integrate the current base", failures[0])
+
+    def test_scope_evidence_does_not_waive_the_block(self) -> None:
+        """An ordinary scope sentence cannot make a stale overlap reviewable."""
+
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args("owned scope is docs/deploy.md; verification is a manual read"),
+            self._runner("docs/deploy.md\0"),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertTrue(failures)
+        self.assertIn("Integrate the current base", failures[0])
+        self.assertIn("cannot waive this stale-base overlap", failures[0])
+
+    def test_a_branch_tracking_its_own_mirror_is_still_measured_against_the_base(self) -> None:
+        """`@{upstream}` on a pushed work branch is that branch's own remote copy.
+
+        Measured on a real branch: 0 commits behind its own mirror, 26 behind the
+        integration base, 7 changed paths shared with it. Trusting the mirror
+        would silence the check in exactly the case it exists for.
+        """
+
+        from agent_review_hook import record_review_base_drift, resolve_base_ref
+
+        runner = self._runner("docs/deploy.md\0", upstream="origin/feature")
+
+        self.assertEqual("origin/develop", resolve_base_ref(Path("/repo"), runner))
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(), runner, self._structure(["docs/deploy.md"]), checks, failures
+        )
+
+        self.assertTrue(failures)
+        self.assertIn("origin/develop", failures[0])
+
+    def test_a_real_base_upstream_is_honoured(self) -> None:
+        from agent_review_hook import resolve_base_ref
+
+        self.assertEqual(
+            "origin/release-2026",
+            resolve_base_ref(Path("/repo"), self._runner("", upstream="origin/release-2026")),
+        )
+
+    def test_the_refusal_requires_base_integration_before_review(self) -> None:
+        """The refusal must not advertise evidence text as a stale-base waiver."""
+
+        from agent_review_hook import record_review_base_drift
+
+        checks: dict[str, object] = {}
+        failures: list[str] = []
+        record_review_base_drift(
+            self._args(),
+            self._runner("docs/deploy.md\0"),
+            self._structure(["docs/deploy.md"]),
+            checks,
+            failures,
+        )
+
+        self.assertIn("Stop before review", failures[0])
+        self.assertIn("Integrate the current base", failures[0])
+        self.assertNotIn("for example", failures[0])
 
 
 if __name__ == "__main__":

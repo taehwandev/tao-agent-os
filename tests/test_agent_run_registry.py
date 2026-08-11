@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -674,6 +675,74 @@ class ClaimRunTests(unittest.TestCase):
             self.assertTrue(claim["conflict"])
             self.assertEqual([], claim["recovered"])
             self.assertEqual(1, len(claim["held"]))
+
+
+class IsolatedEvidenceIdAdoptionTests(unittest.TestCase):
+    """An isolated evidence directory names the run, so retries must keep it.
+
+    A `start` rejected after registering -- an unclear request, a failed route --
+    leaves its id in the registry. Refusing to adopt that id again meant the
+    obvious retry with the same isolated path minted a different one, so the
+    evidence sat where the agent put it while the registry pointed at a directory
+    that was never written. No lookup could resolve the run and every later edit
+    was denied.
+    """
+
+    @staticmethod
+    def _isolated(project: Path) -> tuple[str, Path]:
+        run_id = uuid.uuid4().hex
+        evidence = project / ".tao" / "runs" / run_id / "preflight.json"
+        evidence.parent.mkdir(parents=True)
+        return run_id, evidence
+
+    @staticmethod
+    def _route() -> dict:
+        return {"command": "task", "gates": ["finish"], "required_docs": []}
+
+    def test_retry_after_a_failed_start_keeps_the_chosen_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            chosen, evidence = self._isolated(project)
+
+            first = register_run(project, evidence, self._route(), {"request": "a"})
+            self.assertEqual(chosen, first["run_id"])
+            transition_run(project, evidence, "failed", run_id=first["run_id"])
+
+            retry = register_run(project, evidence, self._route(), {"request": "b"})
+            self.assertEqual(chosen, retry["run_id"])
+
+            payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+            ids = [run["run_id"] for run in payload["runs"]]
+            # The terminal record is replaced, not kept beside the new one: its
+            # evidence file has just been overwritten in place.
+            self.assertEqual([chosen], ids)
+
+    def test_an_active_run_still_forces_a_fresh_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            chosen, evidence = self._isolated(project)
+
+            first = register_run(project, evidence, self._route(), {"request": "a"})
+            self.assertEqual(chosen, first["run_id"])
+
+            # Still running: two live records sharing one id would make "the run"
+            # ambiguous for every later lookup.
+            second = register_run(project, evidence, self._route(), {"request": "b"})
+            self.assertNotEqual(chosen, second["run_id"])
+
+    def test_a_non_isolated_evidence_path_is_never_adopted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+
+            run = register_run(project, evidence, self._route(), {"request": "a"})
+            self.assertNotEqual("preflight.json", run["run_id"])
+            self.assertEqual(32, len(run["run_id"]))
+
+
+if __name__ == "__main__":
+    unittest.main()
 
 
 if __name__ == "__main__":

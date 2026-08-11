@@ -38,6 +38,13 @@ REVIEW_TEST_FILE_REVIEW_WARNING_LIMIT = (
     REVIEW_FILE_REVIEW_WARNING_LIMIT * REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER
 )
 REVIEW_TEST_ADDED_LINE_LIMIT = REVIEW_ADDED_LINE_LIMIT * REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER
+# Every structural check below inspects development source files only, so a
+# rewrite that dropped a documented procedure out of a markdown file produced no
+# signal from any gate: the result still parsed, still validated, and still
+# passed review. Net line loss is therefore measured for every changed path
+# regardless of extension, because losing content is a reviewable outcome of the
+# diff rather than a property of the language it was written in.
+REVIEW_NET_DELETION_LIMIT = 50
 REVIEW_SOURCE_EXTENSIONS = {
     ".c",
     ".cc",
@@ -158,6 +165,8 @@ def structure_review(
         "warnings": [],
         "failures": list(discovery["command_errors"]),
         "boundary_note_requirements": [],
+        "net_deletion_limit": REVIEW_NET_DELETION_LIMIT,
+        "net_deletions": net_deletion_findings(discovery["path_metadata"]),
         "discovery": discovery,
     }
 
@@ -211,6 +220,7 @@ def structure_review(
         result["warnings"].extend(block_warnings)
 
     flag_new_source_file_sprawl(result, discovery["path_metadata"])
+    flag_content_preserving_source_copies(result, discovery["path_metadata"])
 
     result["failures"].extend(
         purpose_failures(
@@ -275,6 +285,30 @@ def flag_new_source_file_sprawl(
     )
 
 
+def flag_content_preserving_source_copies(
+    result: dict[str, Any],
+    path_metadata: dict[str, dict[str, Any]],
+) -> None:
+    """Keep copy-first migrations visible without treating retained debt as new work."""
+    copied = [
+        path
+        for path in result["strict_checked_paths"]
+        if path_metadata.get(path, {}).get("status") == "C"
+    ]
+    result["content_preserving_source_copy_count"] = len(copied)
+    if not copied:
+        return
+
+    shown = ", ".join(copied[:8])
+    if len(copied) > 8:
+        shown += "; ..."
+    result["warnings"].append(
+        f"change adds {len(copied)} content-preserving source copy/copies ({shown}); "
+        "structure-review evidence must name the copy-first source and target, the "
+        "behavior-parity verification, and the caller-cutover or legacy-removal condition"
+    )
+
+
 def changed_source_paths(
     project: Path,
     run_command: CommandRunner,
@@ -329,6 +363,13 @@ def changed_source_paths(
             path_metadata,
             command_errors,
             review_paths,
+        )
+        reclassify_untracked_copies(
+            project,
+            run_command,
+            commands,
+            path_metadata,
+            command_errors,
         )
 
     paths = [Path(name) for name in sorted(names)]
@@ -575,6 +616,89 @@ def reclassify_untracked_moves(
     }
 
 
+def reclassify_untracked_copies(
+    project: Path,
+    run_command: CommandRunner,
+    commands: dict[str, Any],
+    path_metadata: dict[str, dict[str, Any]],
+    command_errors: list[str],
+) -> None:
+    """Recognize copy-first migrations while the tracked source remains in place.
+
+    Copy-first work intentionally keeps the current runtime owner until parity is
+    proven. Git therefore reports the destination as an untracked addition rather
+    than a copy. Compare only remaining untracked additions against tracked HEAD
+    files with the same filename and require high line similarity.
+    """
+
+    tracked = run_command(["git", "ls-files", "-z", "--cached", "--"], project)
+    commands["ls_files_copy_candidates"] = tracked
+    if tracked["returncode"] != 0:
+        command_errors.append("git ls-files copy candidate discovery failed")
+        return
+
+    tracked_by_filename: dict[str, list[str]] = {}
+    for previous_path in _listed_paths(tracked["stdout"]):
+        tracked_by_filename.setdefault(Path(previous_path).name, []).append(previous_path)
+
+    matches: list[dict[str, Any]] = []
+    for current_path, metadata in path_metadata.items():
+        if metadata.get("status") != "A" or metadata.get("untracked") is not True:
+            continue
+        candidates = [
+            previous_path
+            for previous_path in tracked_by_filename.get(Path(current_path).name, [])
+            if previous_path != current_path
+        ]
+        if not candidates:
+            continue
+        try:
+            current_lines = (project / current_path).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        scored_candidates: list[tuple[float, str, list[str]]] = []
+        for previous_path in candidates:
+            previous = run_command(["git", "show", f"HEAD:{previous_path}"], project)
+            if previous["returncode"] != 0:
+                continue
+            previous_lines = previous["stdout"].splitlines()
+            similarity = SequenceMatcher(
+                None,
+                previous_lines,
+                current_lines,
+                autojunk=False,
+            ).ratio()
+            scored_candidates.append((similarity, previous_path, previous_lines))
+
+        if not scored_candidates:
+            continue
+        scored_candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+        similarity, previous_path, previous_lines = scored_candidates[0]
+        if similarity < 0.8:
+            continue
+        additions, deletions = line_change_counts(previous_lines, current_lines)
+        metadata.update(
+            status="C",
+            previous_path=previous_path,
+            additions=additions,
+            deletions=deletions,
+            similarity=round(similarity, 4),
+        )
+        matches.append(
+            {
+                "current_path": current_path,
+                "previous_path": previous_path,
+                "similarity": round(similarity, 4),
+            }
+        )
+
+    commands["unstaged_copy_detection"] = {
+        "similarity_threshold": 0.8,
+        "matches": matches,
+    }
+
+
 def line_change_counts(previous_lines: list[str], current_lines: list[str]) -> tuple[int, int]:
     additions = 0
     deletions = 0
@@ -599,6 +723,29 @@ def record_path(
 ) -> None:
     names.add(name)
     path_metadata.setdefault(name, {}).update(updates)
+
+
+def net_deletion_findings(path_metadata: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return changed paths whose net line loss needs an explicit account.
+
+    ``path_metadata`` carries the numstat counts for every changed path, not just
+    the development sources the structural checks read, so this is the one place
+    a large removal in documentation, configuration, or fixtures is observable.
+    """
+
+    findings: list[dict[str, Any]] = []
+    for name in sorted(path_metadata):
+        metadata = path_metadata[name]
+        additions = metadata.get("additions")
+        deletions = metadata.get("deletions")
+        if not isinstance(additions, int) or not isinstance(deletions, int):
+            continue
+        net = deletions - additions
+        if net >= REVIEW_NET_DELETION_LIMIT:
+            findings.append(
+                {"path": name, "additions": additions, "deletions": deletions, "net": net}
+            )
+    return findings
 
 
 def _pathspec_args(review_paths: list[str] | None) -> list[str]:
@@ -695,7 +842,9 @@ def check_file_size(
     elif added_lines > max_added_lines:
         result["failures"].append(
             f"{path} adds {added_lines} lines in one development source/style file; "
-            f"per-file addition limit is {max_added_lines}; split the change before approval"
+            f"per-file addition limit is {max_added_lines}; split the change before approval. "
+            "Move independently reviewable previews, demos, or samples to a subject-named "
+            "sibling file, or extract the nearest real behavior owner"
         )
     if status != "A" and line_count > max_file_lines and added_lines > 0:
         result["warnings"].append(

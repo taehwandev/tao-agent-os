@@ -301,6 +301,134 @@ class AgentReviewStructureTests(unittest.TestCase):
         self.assertEqual(1, metadata["additions"])
         self.assertEqual(1, metadata["deletions"])
 
+    def test_unstaged_content_preserving_copy_is_not_treated_as_new_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = project / "src"
+            source.mkdir()
+            original = source / "LegacyViewModel.kt"
+            original.write_text(
+                "package example\n\n" + "\n".join(f"// retained line {index}" for index in range(510)) + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "add", "."], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Tao Agent OS Tests",
+                    "-c",
+                    "user.email=tao@example.invalid",
+                    "commit",
+                    "-m",
+                    "initial",
+                ],
+                cwd=project,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            copied = source / "contact" / original.name
+            copied.parent.mkdir()
+            copied.write_text(
+                "package example.contact\n\n"
+                + "\n".join(f"// retained line {index}" for index in range(510))
+                + "\n",
+                encoding="utf-8",
+            )
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+
+            review = structure_review(project, 500, 120, run_command, ["src/contact"])
+
+        metadata = review["discovery"]["path_metadata"]["src/contact/LegacyViewModel.kt"]
+        self.assertEqual([], review["failures"])
+        self.assertEqual("C", metadata["status"])
+        self.assertEqual("src/LegacyViewModel.kt", metadata["previous_path"])
+        self.assertEqual(1, metadata["additions"])
+        self.assertEqual(1, metadata["deletions"])
+        self.assertTrue(
+            any("content-preserving source copy" in warning for warning in review["warnings"])
+        )
+
+    def test_dissimilar_unstaged_same_name_file_remains_a_new_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = project / "src"
+            source.mkdir()
+            original = source / "LegacyViewModel.kt"
+            original.write_text(
+                "package example\n\n" + "\n".join(f"// original line {index}" for index in range(510)) + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "add", "."], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Tao Agent OS Tests",
+                    "-c",
+                    "user.email=tao@example.invalid",
+                    "commit",
+                    "-m",
+                    "initial",
+                ],
+                cwd=project,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            added = source / "contact" / original.name
+            added.parent.mkdir()
+            added.write_text(
+                "package example.contact\n\n"
+                + "\n".join(f"val unrelated{index} = {index}" for index in range(510))
+                + "\n",
+                encoding="utf-8",
+            )
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+
+            review = structure_review(project, 500, 120, run_command, ["src/contact"])
+
+        metadata = review["discovery"]["path_metadata"]["src/contact/LegacyViewModel.kt"]
+        self.assertEqual("A", metadata["status"])
+        self.assertTrue(
+            any("new development source/style file" in failure for failure in review["failures"])
+        )
+
     def test_renamed_preexisting_oversized_block_uses_previous_path(self) -> None:
         lines = ["private fun handle() {"]
         lines.extend(f"    val value{index} = {index}" for index in range(120))

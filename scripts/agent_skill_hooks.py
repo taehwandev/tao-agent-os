@@ -1,4 +1,4 @@
-"""Thin non-blocking CLI adapters for the skill-learning lifecycle."""
+"""Closeout adapters for retrospective skill-document maintenance."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,10 +8,12 @@ from agent_hook_gate_records import preflight_evidence_path
 from agent_hook_runtime import finish_with_result
 from agent_skill_feedback import (
     record_skill_curation,
+    record_skill_draft,
     record_skill_feedback,
     record_skill_maintenance,
     record_skill_review,
 )
+from agent_skill_state import CURRENT_TASK_REVIEW_THRESHOLD
 
 
 def skill_feedback_hook(args: Any) -> int:
@@ -22,10 +24,37 @@ def skill_feedback_hook(args: Any) -> int:
         outcome=args.skill_feedback_outcome,
         skill_id=args.skill_id,
         signal=args.feedback_signal,
+        gap_type=str(getattr(args, "feedback_gap", "") or ""),
     )
     return finish_with_result(
         "skill-feedback", True, details, args.output, {"skill_feedback": feedback}, 0
     )
+
+
+def skill_draft_hook(args: Any) -> int:
+    draft, details = record_skill_draft(
+        project=args.project,
+        rules=getattr(args, "rules", Path(__file__).resolve().parents[1]),
+        evidence_path=preflight_evidence_path(args),
+        skill_id=args.skill_id,
+        signal=args.feedback_signal,
+        proposal=_draft_proposal(args),
+    )
+    return finish_with_result(
+        "skill-draft", True, details, args.output, {"skill_draft": draft}, 0
+    )
+
+
+def _draft_proposal(args: Any) -> str:
+    """Prefer a file so a bounded rationale never depends on shell quoting."""
+
+    source = getattr(args, "draft_proposal_file", "")
+    if source:
+        try:
+            return Path(source).read_text(encoding="utf-8")
+        except OSError:
+            return ""
+    return str(getattr(args, "draft_proposal", "") or "")
 
 
 def skill_review_hook(args: Any) -> int:
@@ -42,7 +71,9 @@ def skill_review_hook(args: Any) -> int:
 
 
 def skill_curate_hook(args: Any) -> int:
-    curation, details = record_skill_curation()
+    curation, details = record_skill_curation(
+        min_occurrences=CURRENT_TASK_REVIEW_THRESHOLD
+    )
     return finish_with_result(
         "skill-curate", True, details, args.output, {"skill_curation": curation}, 0
     )
@@ -57,6 +88,7 @@ def skill_maintenance_hook(args: Any) -> int:
         verification_kind=args.verification_kind,
         target=args.maintenance_target,
         test_selector=args.maintenance_test_selector,
+        evidence_path=preflight_evidence_path(args),
     )
     return finish_with_result(
         "skill-maintenance", True, details, args.output,

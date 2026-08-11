@@ -2,6 +2,22 @@
 
 from __future__ import annotations
 
+from agent_finish_gate_validators import accepted, triggers
+
+# The refusal message renders these, so the wording a validator accepts and the
+# wording it advertises cannot drift apart.
+_SKIP_PHRASES = (
+    "skipped because", "skipped due", "skipped:", "was skipped", "gate skipped",
+    "verification skipped", "check skipped", "test skipped", "docs skipped",
+    "review skipped", "skip because", "skip reason", "skip/not",
+    "recording a skip", "deferred until", "deferred to", "will do later",
+    "스킵", "생략", "해당 없음", "미실행",
+)
+_RESOLVED_PHRASES = (
+    "no unresolved", "none unresolved", "no known issue", "no blocking issue",
+    "none found", "resolved", "없음", "해결",
+)
+
 
 def validate_required_gate_not_skipped(
     gate: str,
@@ -16,42 +32,21 @@ def validate_required_gate_not_skipped(
     if has_skip and gate not in skip_allowed_gates:
         failures.append(
             f"{gate} evidence cannot pass by recording a skip/not-applicable reason; "
-            "complete the required gate or report FAIL and run missed-gate recovery"
+            "complete the required gate or report FAIL and run missed-gate recovery."
+            + triggers(text, _SKIP_PHRASES)
         )
 
     if _evidence_names_unresolved_issue(text):
         failures.append(
             f"{gate} evidence names an unresolved issue; required gates must fail instead of "
-            "passing with a deferred fix"
+            "passing with a deferred fix. State that nothing is outstanding instead."
+            + accepted(_RESOLVED_PHRASES)
         )
     return failures
 
 
 def _evidence_records_skip_reason(text: str) -> bool:
-    explicit_skip_phrases = (
-        "skipped because",
-        "skipped due",
-        "skipped:",
-        "was skipped",
-        "gate skipped",
-        "verification skipped",
-        "check skipped",
-        "test skipped",
-        "docs skipped",
-        "review skipped",
-        "skip because",
-        "skip reason",
-        "skip/not",
-        "recording a skip",
-        "deferred until",
-        "deferred to",
-        "will do later",
-        "스킵",
-        "생략",
-        "해당 없음",
-        "미실행",
-    )
-    if any(phrase in text for phrase in explicit_skip_phrases):
+    if any(phrase in text for phrase in _SKIP_PHRASES):
         return True
 
     leading_skip_reasons = (
@@ -98,19 +93,7 @@ def _evidence_records_skip_reason(text: str) -> bool:
 
 
 def _evidence_names_unresolved_issue(text: str) -> bool:
-    no_unresolved = any(
-        phrase in text
-        for phrase in (
-            "no unresolved",
-            "none unresolved",
-            "no known issue",
-            "no blocking issue",
-            "none found",
-            "resolved",
-            "없음",
-            "해결",
-        )
-    )
+    no_unresolved = any(phrase in text for phrase in _RESOLVED_PHRASES)
     if no_unresolved:
         return False
     return any(
