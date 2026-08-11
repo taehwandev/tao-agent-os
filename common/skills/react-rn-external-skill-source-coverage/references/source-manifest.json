@@ -10,10 +10,30 @@
     "skill_files": 41
   },
   "repositories": {
-    "vercel": "https://github.com/vercel-labs/agent-skills",
-    "expo": "https://github.com/expo/skills",
-    "callstack": "https://github.com/callstackincubator/agent-skills",
-    "software_mansion": "https://github.com/software-mansion-labs/skills"
+    "vercel": {
+      "url": "https://github.com/vercel-labs/agent-skills",
+      "commit": "7c180d9044c9ae2b442b567aad4e42a28dd5ed62",
+      "provenance": "content_verified",
+      "verified_at": "2026-08-11"
+    },
+    "expo": {
+      "url": "https://github.com/expo/skills",
+      "commit": "ea6f1492f4e69e5b530c3fb8162728a1b0d982eb",
+      "provenance": "content_verified",
+      "verified_at": "2026-08-11"
+    },
+    "callstack": {
+      "url": "https://github.com/callstackincubator/agent-skills",
+      "commit": "unknown",
+      "provenance": "unpinned",
+      "verified_at": "2026-08-11"
+    },
+    "software_mansion": {
+      "url": "https://github.com/software-mansion-labs/skills",
+      "commit": "bc37ee5eff31c6dd81846f38b49c7b72ea37b281",
+      "provenance": "content_verified",
+      "verified_at": "2026-08-11"
+    }
   },
   "skills": [
     {
