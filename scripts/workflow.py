@@ -56,10 +56,13 @@ AUTO_COMMAND = "auto"
 def _add_approval_record_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--approval-record",
+        "--user-approval",
+        dest="approval_record",
         default="",
         help=(
-            "Separate bound user-approval record as JSON or a path. Required "
-            "when the effective route reaches git_write or above."
+            "Separate bound user-approval record as JSON or a path. "
+            "--user-approval is a compatibility alias; required when the "
+            "effective route reaches git_write or above."
         ),
     )
 

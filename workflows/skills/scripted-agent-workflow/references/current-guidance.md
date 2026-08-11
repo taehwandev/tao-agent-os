@@ -65,6 +65,9 @@ approval for the current request. The record must bind the envelope's
 `request_fingerprint` and `target_summary` plus the route `command` and approved
 effect ceiling. It is passed separately because neither the envelope nor its
 optional `approval_ref` may authorize itself.
+`--user-approval` is accepted as a backward-compatible CLI alias and normalizes
+to the same approval record; shared guidance and generated commands should keep
+using `--approval-record` as the canonical spelling.
 
 `--request-classified` remains a proof-carrying delegation state exemption, not
 a work authorization. Add it with `--classification-evidence` only when a ready

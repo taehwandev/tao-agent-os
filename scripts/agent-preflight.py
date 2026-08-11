@@ -277,10 +277,13 @@ def build_parser(tao_root: Path) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--approval-record",
+        "--user-approval",
+        dest="approval_record",
         default="",
         help=(
-            "separate bound user-approval record as JSON or a path; required "
-            "when the effective route reaches git_write or above"
+            "separate bound user-approval record as JSON or a path; "
+            "--user-approval is a compatibility alias; required when the "
+            "effective route reaches git_write or above"
         ),
     )
     parser.add_argument(
