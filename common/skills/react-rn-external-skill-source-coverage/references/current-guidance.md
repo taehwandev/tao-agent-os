@@ -34,6 +34,27 @@ path. Pass a local snapshot root only to the checker at verification time.
 | Callstack | `https://github.com/callstackincubator/agent-skills` | 7 | 0 | migration, libraries, performance, brownfield, TV, navigation, and upgrades |
 | Software Mansion | `https://github.com/software-mansion-labs/skills` | 1 | 9 | New Architecture, animation, gestures, JSI, worklets, AI, audio, rich text, and SVG |
 
+## Upstream Provenance
+
+The snapshot date and bundle README hash record when the files were reviewed,
+never which upstream commit they came from. Each `repositories` entry therefore
+carries a `commit` and a `provenance` state:
+
+| Provenance | Meaning | Set the commit to |
+| --- | --- | --- |
+| `content_verified` | every manifest `SKILL.md` for that provider was found byte-identical in a fresh clone at that commit | the proven 40-character sha |
+| `unpinned` | upstream has already moved past the reviewed content, so the originating commit is not recoverable from a snapshot directory | `unknown` |
+
+As of 2026-08-11, Vercel, Expo, and Software Mansion are `content_verified`
+against their current HEADs. Callstack is `unpinned`: all seven reviewed
+Callstack skills have changed upstream, so no reachable commit reproduces the
+reviewed bytes. Never write today's HEAD into a provider whose content no longer
+matches -- a guessed pin is worse than an explicit `unknown`, because it makes an
+unprovable snapshot look proven.
+
+A snapshot directory copied without its `.git` cannot answer this question at
+all. Clone each provider when refreshing so the pin can be established.
+
 ## Dispositions
 
 - `distilled`: a provider-neutral Tao owner already carries the reusable
@@ -72,9 +93,12 @@ verification: compare all 41 paths and hashes, validate owners, run route tests,
 4. Compare each SHA-256 value. A hash change requires a refreshed review
    decision even when the path and frontmatter name stayed the same.
 5. Validate provider, installable flag, disposition, surface, and local owner.
-6. Treat the Callstack and Software Mansion `react-native-best-practices`
+6. Re-establish each provider's `commit` and `provenance` from a fresh clone,
+   and record `unpinned` for any provider whose reviewed bytes no longer exist
+   upstream.
+7. Treat the Callstack and Software Mansion `react-native-best-practices`
    entries as distinct provider-qualified paths.
-7. Run focused route checks so explicit source-coverage requests load this
+8. Run focused route checks so explicit source-coverage requests load this
    owner without pulling Python or Android cards into unrelated React work.
 
 ## Trigger Map
@@ -107,10 +131,17 @@ Run:
 ```text
 python3 scripts/check_react_rn_external_skill_manifest.py \
   --source-root <reviewed-snapshot>
+python3 scripts/check_react_rn_external_skill_manifest.py --remote-check
 python3 -m unittest tests.test_react_rn_external_skill_manifest
 python3 scripts/workflow.py validate
 vibeguard audit . --rules .
 ```
+
+`--remote-check` is opt-in and needs network access; the default run stays
+offline. It reports `CURRENT` when a provider's remote HEAD still equals the
+pinned commit and `MOVED` when upstream advanced past it. `MOVED` is not a
+failure -- a snapshot is a point in time. It fails only when the question cannot
+be answered at all: an `unpinned` provider or an unreachable remote.
 
 Report added, removed, renamed, and hash-changed entries separately. A provider
 rename is not evidence that the old surface disappeared; inspect the source

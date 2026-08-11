@@ -51,6 +51,8 @@ external-source provenance or a version-sensitive provider surface.
 ## Red Flags
 
 - A source refresh changes a hash without a review decision.
+- A provider commit is pinned to a HEAD that does not reproduce the reviewed
+  bytes, which makes an unprovable snapshot look proven.
 - One provider path is absent, duplicated, or assigned to a nonexistent owner.
 - The two `react-native-best-practices` names are treated as one source.
 - A local machine path appears in committed documentation or tests.
@@ -79,6 +81,9 @@ external-source provenance or a version-sensitive provider surface.
 
 - `python3 scripts/check_react_rn_external_skill_manifest.py`
 - Add `--source-root <reviewed-snapshot>` to verify exact paths and hashes.
+- Add `--remote-check` to compare each pinned commit with the provider's current
+  remote HEAD; it needs network access and fails on an unpinned or unreachable
+  provider, not on an upstream that merely moved.
 - `python3 -m unittest tests.test_react_rn_external_skill_manifest`
 - Run the React/RN source-coverage route smoke and
   `python3 scripts/workflow.py validate` after routing changes.
