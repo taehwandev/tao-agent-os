@@ -529,5 +529,71 @@ class GlobalInstallIsNotAProjectTests(unittest.TestCase):
             )
 
 
+class HostConfigDirIsNotAProjectTests(unittest.TestCase):
+    """Setup writes the managed bridge into each runtime's own config directory.
+
+    That makes `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` carry the opt-in
+    token, so marker-file opt-in read those directories as projects and the edit
+    gate demanded a workflow lifecycle before touching a session memory file --
+    which VibeGuard then refused, because auditing `~/.claude` walks every
+    transcript. `$HOME` was already excluded; this is the same case one level
+    down.
+    """
+
+    def setUp(self) -> None:
+        self._old_home = os.environ.get("HOME")
+
+    def tearDown(self) -> None:
+        if self._old_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self._old_home
+
+    def test_runtime_config_directory_carrying_the_token_is_not_a_project(self) -> None:
+        for name in (".claude", ".codex", ".gemini", ".antigravity"):
+            with self.subTest(directory=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    home = Path(tmp) / "home"
+                    home.mkdir()
+                    os.environ["HOME"] = str(home)
+
+                    config = home / name
+                    config.mkdir()
+                    # The managed bridge block is what puts the token here.
+                    (config / "CLAUDE.md").write_text("# Tao Agent OS Bridge\n")
+                    (config / "AGENTS.md").write_text("# Tao Agent OS Bridge\n")
+
+                    self.assertFalse(gate.opts_in(config))
+                    self.assertFalse(pretool.opts_in(config))
+
+    def test_a_real_project_directory_still_opts_in(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            os.environ["HOME"] = str(home)
+
+            project = home / "git" / "some-repo"
+            project.mkdir(parents=True)
+            (project / "AGENTS.md").write_text("# tao project\n")
+
+            self.assertTrue(gate.opts_in(project))
+            self.assertTrue(pretool.opts_in(project))
+
+    def test_a_hidden_directory_below_home_is_not_excluded(self) -> None:
+        # Only an immediate child of $HOME is host configuration. A dotted
+        # directory deeper in the tree can still be a checkout.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            os.environ["HOME"] = str(home)
+
+            project = home / "work" / ".hidden-repo"
+            project.mkdir(parents=True)
+            (project / "AGENTS.md").write_text("# tao project\n")
+
+            self.assertTrue(gate.opts_in(project))
+            self.assertTrue(pretool.opts_in(project))
+
+
 if __name__ == "__main__":
     unittest.main()

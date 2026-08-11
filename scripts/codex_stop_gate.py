@@ -21,6 +21,7 @@ from pathlib import Path
 try:
     from agent_project_search import instruction_files, project_markers
     from agent_runtime_session import resolve_runtime_evidence
+    from support.global_state import prefer_git_root as _prefer_git_root
     from support.setup_config_files import read_json
     from support.stable_launcher import stable_launcher_path
 except ImportError:  # pragma: no cover - only a broken installation reaches this
@@ -29,6 +30,12 @@ except ImportError:  # pragma: no cover - only a broken installation reaches thi
     resolve_runtime_evidence = None
     read_json = None
     stable_launcher_path = None
+
+    def _prefer_git_root(candidates: "list[Path]") -> "Path | None":
+        for candidate in candidates:
+            if (candidate / ".git").exists():
+                return candidate
+        return candidates[0] if candidates else None
 
 
 def _allow() -> int:
@@ -47,13 +54,6 @@ def _stop_incomplete(reason: str) -> int:
 
 def _gate_enabled() -> bool:
     return os.environ.get("TAO_CODEX_STOP_GATE", "").strip() != "0"
-
-
-def _prefer_git_root(candidates: list[Path]) -> Path | None:
-    for candidate in candidates:
-        if (candidate / ".git").exists():
-            return candidate
-    return candidates[0] if candidates else None
 
 
 def _find_project_root(cwd: Path) -> Path | None:

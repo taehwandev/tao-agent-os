@@ -47,12 +47,18 @@ AUTO_DELEGATION_BRIDGE_PHRASE = (
 )
 RUNTIME_START_BRIDGE_PHRASE = (
     "For multi-step work, run Tao Agent OS agent-hook.py start once; do not separately repeat "
-    "workflow list, classify, route, or preflight. Pass --request with the real user request and "
-    "let the classifier decide; if it returns clarify-first or Grill-Me, run that protocol instead "
-    "of routing around it. Add --request-classified with --classification-evidence only as a "
-    "delegated worker whose parent left a ready and valid execution capsule bound to the same "
-    "exact request and workflow command; without that matching capsule the flag is not honored, "
-    "the classifier runs anyway, and the requestless form is rejected."
+    "workflow list, classify, route, or preflight. Always pass --request with the real user request. "
+    "A work route additionally requires --intent-envelope and --runtime-session-id: build the "
+    "envelope from the full conversation, bind it to the exact request fingerprint and the current "
+    "opaque session id, and declare intent, bounded target, requested effects, prohibited effects, "
+    "and ambiguity. When the effective effect is git_write or higher, also pass a separately recorded "
+    "--approval-record bound to the same request, target, effect ceiling, and route; the envelope cannot "
+    "approve itself. Without an envelope use only triage or ambiguity, and answer direct questions in "
+    "the conversation. For a terse follow-up keep --request equal to the user's current words and "
+    "pass prior target context through --continuation-scope, which is context only and cannot open a "
+    "work route or authorize a mutation. Add --request-classified with --classification-evidence only "
+    "as a delegated worker whose parent left a ready and valid execution capsule bound to the same "
+    "exact request and workflow command; that flag never replaces the envelope."
 )
 RUNTIME_FINISH_BRIDGE_PHRASE = (
     "For multi-step work, run Tao Agent OS agent-hook.py finish before final report, commit, "

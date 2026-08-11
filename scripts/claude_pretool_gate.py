@@ -45,13 +45,33 @@ try:  # The gate must never fail to load; the import is only used for a message.
         resolve_runtime_evidence,
     )
     from support.stable_launcher import stable_launcher_path
-    from support.global_state import is_project_state_dir
+    from support.global_state import (
+        global_state_dir,
+        is_host_config_dir,
+        is_project_state_dir,
+        prefer_git_root,
+    )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
         return Path.home() / ".tao" / "bin" / "tao-hook"
 
     def is_project_state_dir(path: Path) -> bool:
         return path.is_dir() and path.resolve() != (Path.home() / ".tao").resolve()
+
+    def global_state_dir() -> Path:
+        import os
+        override = os.environ.get("TAO_STATE_HOME", "").strip()
+        return Path(override).expanduser() if override else Path.home() / ".tao"
+
+    def is_host_config_dir(path: Path) -> bool:
+        resolved = path.expanduser().resolve()
+        return resolved.parent == Path.home().resolve() and resolved.name.startswith(".")
+
+    def prefer_git_root(candidates: "list[Path]") -> "Path | None":
+        for candidate in candidates:
+            if (candidate / ".git").exists():
+                return candidate
+        return candidates[0] if candidates else None
 
     def resolve_runtime_evidence(project: Path, session: dict[str, str]) -> Path | None:
         return None
@@ -135,6 +155,8 @@ def opts_in(path: Path) -> bool:
     The global install lives in a ``.tao`` too, so directory existence alone
     would classify ``$HOME`` as a project -- see support.global_state.
     """
+    if is_host_config_dir(path):
+        return False
     if is_project_state_dir(path / STATE_DIR):
         return True
     for name in OPT_IN_FILES:
@@ -149,13 +171,19 @@ def opts_in(path: Path) -> bool:
 
 
 def find_project_root(cwd: Path) -> Path | None:
-    """Nearest ancestor (including cwd) that opts into Tao Agent OS."""
+    """The repository that owns cwd, preferring a Git root over a marker.
+
+    Collecting every opt-in ancestor rather than returning the first one lets
+    prefer_git_root reject a documentation subdirectory that opts in but is
+    not the repository. Must stay identical between the pretool and stop gates.
+    """
+    candidates: list[Path] = []
     for candidate in (cwd, *cwd.parents):
         if opts_in(candidate):
-            return candidate
+            candidates.append(candidate)
         if candidate == candidate.parent:
             break
-    return None
+    return prefer_git_root(candidates)
 
 
 def evidence_mtime(evidence: Path | None) -> float | None:
@@ -261,7 +289,7 @@ def session_projects_index(session_id: str) -> Path:
     several projects. Without this index it only ever checks the cwd project and
     lets an edited-but-unverified project stop silently.
     """
-    return Path.home() / STATE_DIR / SESSION_PROJECT_DIR / safe_session_id(session_id)
+    return global_state_dir() / SESSION_PROJECT_DIR / safe_session_id(session_id)
 
 
 def record_session_project(root: Path, session_id: str) -> None:

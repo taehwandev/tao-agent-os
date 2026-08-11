@@ -84,6 +84,14 @@ Use after implementation, before handing off or committing.
 5. Confirm side-effect audit evidence names the final diff and unexpected
    generated, lockfile, public-contract, external-state, formatting, or
    unrelated behavior.
+   When any reviewed path has a net deletion of 50 lines or more, name that
+   exact path in `--side-effect-audit-evidence`, identify what content was
+   removed, and state why it is no longer needed. A generic final-diff summary
+   does not account for a large deletion.
+   When recovery changes a document that the active route already lists in
+   `required_docs`, record its `documentation` SUCCESS artifact receipt before
+   rerunning review or finish. A repair receipt alone does not bind required-doc
+   drift to the execution snapshot.
 6. Run or record the nearest useful verification.
 7. Remove only unused code created by the change.
 8. Split unrelated work before committing.

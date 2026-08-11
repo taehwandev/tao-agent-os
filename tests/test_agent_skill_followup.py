@@ -12,18 +12,22 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from agent_skill_curator import curate_observations
+from agent_skill_draft import record_draft
 from agent_skill_followup import skill_followup_failures
 from agent_skill_learning import record_observation, review_candidate
 from agent_skill_state import completed_path
 
 
 class AgentSkillFollowupTests(unittest.TestCase):
-    def test_one_occurrence_does_not_require_followup(self) -> None:
+    def test_one_occurrence_requires_same_closeout_followup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            self._observe(root, "run-one")
+            candidate = self._observe(root, "run-one")
 
-            self.assertEqual([], self._failures(root, "run-one"))
+            self.assertEqual(
+                [f"skill follow-up curation pending: candidate={candidate}"],
+                self._failures(root, "run-one"),
+            )
 
     def test_second_occurrence_reports_curation_pending(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -40,7 +44,6 @@ class AgentSkillFollowupTests(unittest.TestCase):
             root = Path(temp_dir)
             self._observe_twice(root, skill_id="testing", signal="weak_verification")
             curate_observations(root)
-            self._observe(root, "current-run")
 
             self.assertEqual([], self._failures(root, "current-run"))
 
@@ -162,7 +165,20 @@ class AgentSkillFollowupTests(unittest.TestCase):
         signal: str = "missing_rule",
     ) -> str:
         self._observe(root, "run-one", skill_id=skill_id, signal=signal)
-        return self._observe(root, "run-two", skill_id=skill_id, signal=signal)
+        candidate = self._observe(root, "run-two", skill_id=skill_id, signal=signal)
+        bundle = root / "common" / "skills" / skill_id.replace("_", "-")
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "SKILL.md").write_text("test skill\n", encoding="utf-8")
+        record_draft(
+            root,
+            project=root,
+            rules=root,
+            skill_id=skill_id,
+            signal=signal,
+            proposal="A bounded test proposal describes the missing rule and its verification path.",
+            occurrence_id="draft-run",
+        )
+        return candidate
 
     def _observe(
         self,

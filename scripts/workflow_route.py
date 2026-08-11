@@ -28,6 +28,7 @@ from workflow_doc_graph import expand_doc_matches, graph_required_docs
 from workflow_gate_policy import (
     MULTI_AGENT_GATE,
     SKILL_CURATE_HOOK,
+    SKILL_DRAFT_HOOK,
     SKILL_FEEDBACK_HOOK,
     SKILL_MAINTENANCE_HOOK,
     SKILL_REVIEW_HOOK,
@@ -587,68 +588,7 @@ def route_hooks(command: str) -> list[dict[str, object]]:
         }
     )
     if command in RETROSPECTIVE_CHECK_COMMANDS:
-        hooks.append(
-            {
-                "hook": SKILL_FEEDBACK_HOOK,
-                "required": False,
-                "when": (
-                    "after the required retrospective check records reusable_gap; run before "
-                    "finish when available, or record deferred without failing the task"
-                ),
-                "command": (
-                    f"{launcher} {SKILL_FEEDBACK_HOOK} "
-                    "--project <TARGET_REPO> --rules <TAO_ROOT> "
-                    "--evidence <RUN_EVIDENCE> "
-                    "--skill-feedback-outcome observed --skill-id <safe_skill_slug> "
-                    "--feedback-signal <"
-                    + "|".join(sorted(FEEDBACK_SIGNALS))
-                    + ">"
-                ),
-            }
-        )
-        hooks.extend(
-            [
-                {
-                    "hook": SKILL_CURATE_HOOK,
-                    "required": False,
-                    "when": "later or periodically, when bounded deterministic curation capacity is available",
-                    "command": (
-                        f"{launcher} {SKILL_CURATE_HOOK} "
-                        "--project <TARGET_REPO> --rules <TAO_ROOT> "
-                        "--evidence <RUN_EVIDENCE>"
-                    ),
-                },
-                {
-                    "hook": SKILL_REVIEW_HOOK,
-                    "required": False,
-                    "when": "later, when deterministic curation marks a repeated observation review-ready",
-                    "command": (
-                        f"{launcher} {SKILL_REVIEW_HOOK} "
-                        "--project <TARGET_REPO> --rules <TAO_ROOT> "
-                        "--evidence <RUN_EVIDENCE> "
-                        "--feedback-candidate-id <opaque_candidate_id> "
-                        "--skill-review-outcome <no_change|stage_patch> "
-                        "[--feedback-gap <safe_gap_slug> --change-type <safe_change_slug> "
-                        "--promotion-target <safe_target_slug>]"
-                    ),
-                },
-                {
-                    "hook": SKILL_MAINTENANCE_HOOK,
-                    "required": False,
-                    "when": "after separate staged skill maintenance has been verified",
-                    "command": (
-                        f"{launcher} {SKILL_MAINTENANCE_HOOK} "
-                        "--project <TARGET_REPO> --rules <TAO_ROOT> "
-                        "--evidence <RUN_EVIDENCE> "
-                        "--feedback-candidate-id <opaque_candidate_id> "
-                        "--skill-maintenance-outcome <applied|rejected> "
-                        "[--maintenance-target <changed_skill_path> "
-                        "--verification-kind <py_compile|unittest|vibeguard|workflow_validate> "
-                        "--maintenance-test-selector <safe_unittest_selector>]"
-                    ),
-                },
-            ]
-        )
+        hooks.extend(_retrospective_hooks(launcher))
     hooks.append(
         {
             "hook": "finish",
@@ -662,6 +602,85 @@ def route_hooks(command: str) -> list[dict[str, object]]:
         }
     )
     return hooks
+
+
+def _retrospective_hooks(launcher: str) -> list[dict[str, object]]:
+    return [
+        {
+            "hook": SKILL_FEEDBACK_HOOK,
+            "required": False,
+            "when": (
+                "when the required retrospective check records reusable_gap; run in the "
+                "same closeout before finish"
+            ),
+            "command": (
+                f"{launcher} {SKILL_FEEDBACK_HOOK} "
+                "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                "--evidence <RUN_EVIDENCE> "
+                "--skill-feedback-outcome observed --skill-id <safe_skill_slug> "
+                "--feedback-signal <"
+                + "|".join(sorted(FEEDBACK_SIGNALS))
+                + ">"
+            ),
+        },
+        {
+            "hook": SKILL_DRAFT_HOOK,
+            "required": False,
+            "when": (
+                "immediately after the observation, while this run still holds the context "
+                "that explains the gap; required before same-closeout review"
+            ),
+            "command": (
+                f"{launcher} {SKILL_DRAFT_HOOK} "
+                "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                "--evidence <RUN_EVIDENCE> "
+                "--skill-id <safe_skill_slug> "
+                "--feedback-signal <"
+                + "|".join(sorted(FEEDBACK_SIGNALS))
+                + "> "
+                "--draft-proposal-file <bounded rationale file>"
+            ),
+        },
+        {
+            "hook": SKILL_CURATE_HOOK,
+            "required": False,
+            "when": "in the same closeout after the observation, before review",
+            "command": (
+                f"{launcher} {SKILL_CURATE_HOOK} "
+                "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                "--evidence <RUN_EVIDENCE>"
+            ),
+        },
+        {
+            "hook": SKILL_REVIEW_HOOK,
+            "required": False,
+            "when": "in the same closeout after curation, before the skill-document edit",
+            "command": (
+                f"{launcher} {SKILL_REVIEW_HOOK} "
+                "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                "--evidence <RUN_EVIDENCE> "
+                "--feedback-candidate-id <opaque_candidate_id> "
+                "--skill-review-outcome <no_change|stage_patch> "
+                "[--feedback-gap <safe_gap_slug> --change-type <safe_change_slug> "
+                "--promotion-target <safe_target_slug>]"
+            ),
+        },
+        {
+            "hook": SKILL_MAINTENANCE_HOOK,
+            "required": False,
+            "when": "in the same closeout after the canonical skill-document edit and its verification",
+            "command": (
+                f"{launcher} {SKILL_MAINTENANCE_HOOK} "
+                "--project <TARGET_REPO> --rules <TAO_ROOT> "
+                "--evidence <RUN_EVIDENCE> "
+                "--feedback-candidate-id <opaque_candidate_id> "
+                "--skill-maintenance-outcome <applied|rejected> "
+                "[--maintenance-target <changed_skill_path> "
+                "--verification-kind <py_compile|unittest|vibeguard|workflow_validate> "
+                "--maintenance-test-selector <safe_unittest_selector>]"
+            ),
+        },
+    ]
 
 
 def _review_hook_timing(required: bool) -> str:

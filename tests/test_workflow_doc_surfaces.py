@@ -31,6 +31,7 @@ from agent_finish_check_steps import (
     validate_grill_me_skill_evidence,
 )
 from agent_gate_evidence import (
+    GRAPHIFY_READINESS_STATUS,
     canonical_gate_fields,
     gate_evidence_path_for_preflight,
     merge_gate_evidence_from_ledger,
@@ -395,13 +396,13 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
 
     def test_graphify_readiness_gate_requires_all_structured_fields(self) -> None:
         success_fields = {
-            "cli": "success",
-            "skill_doc": "success",
-            "runtime_links": "success",
-            "runtime_ownership": "success",
-            "project_integration": "success",
-            "graph": "success",
-            "query_smoke": "success",
+            "cli": GRAPHIFY_READINESS_STATUS,
+            "skill_doc": GRAPHIFY_READINESS_STATUS,
+            "runtime_links": GRAPHIFY_READINESS_STATUS,
+            "runtime_ownership": GRAPHIFY_READINESS_STATUS,
+            "project_integration": GRAPHIFY_READINESS_STATUS,
+            "graph": GRAPHIFY_READINESS_STATUS,
+            "query_smoke": GRAPHIFY_READINESS_STATUS,
         }
         evidence, missing = synthesize_gate_evidence(
             "graphify readiness",

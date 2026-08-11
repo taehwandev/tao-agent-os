@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import agent_gate_evidence
+
 from agent_finish_gate_boundary_validators import (
     validate_agentic_run_state,
     validate_boundary_plan,
@@ -220,11 +222,13 @@ def _validate_graphify_readiness(evidence: str) -> list[str]:
         ]
         finish = min(later_positions) if later_positions else len(lower)
         value = lower[start:finish].strip(" ;")
-        if value != "success":
+        if value != agent_gate_evidence.GRAPHIFY_READINESS_STATUS:
             invalid.append(anchor.rstrip("="))
     if invalid:
         return [
-            "graphify readiness structured status must be exactly success for "
+            "graphify readiness structured status must be exactly "
+            + agent_gate_evidence.GRAPHIFY_READINESS_STATUS
+            + " for "
             + ", ".join(invalid)
         ]
     return []

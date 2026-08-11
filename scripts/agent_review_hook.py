@@ -27,6 +27,34 @@ CommandRunner = Callable[[list[str], Path], dict[str, Any]]
 FinishWithResult = Callable[..., int]
 
 
+BASE_DRIFT_CANDIDATE_REFS = ("origin/develop", "origin/main", "origin/master")
+
+# Which review evidence the hook will demand, stated once so `start` can
+# advertise it up front. The requirement was only discoverable by failing the
+# review hook, which made the same `review_hook` missed-gate lesson recur; the
+# route already determines the answer, so the answer belongs in the route
+# summary. `record_review_input_evidence` enforces these and
+# `test_review_evidence_advertisement.py` pins the two together.
+ALWAYS_REQUIRED_REVIEW_EVIDENCE = (
+    "--code-review-evidence",
+    "--docs-freshness-evidence",
+)
+GATE_REQUIRED_REVIEW_EVIDENCE = {
+    "boundary plan": "--boundary-plan-evidence",
+    "side-effect audit": "--side-effect-audit-evidence",
+}
+
+
+def required_review_evidence_flags(route_gates: list[str]) -> list[str]:
+    """Return every review-hook evidence flag this route makes mandatory."""
+
+    gates = set(route_gates)
+    flags = list(ALWAYS_REQUIRED_REVIEW_EVIDENCE)
+    flags.extend(
+        flag for gate, flag in GATE_REQUIRED_REVIEW_EVIDENCE.items() if gate in gates
+    )
+    return flags
+
 def review_hook(
     args: Any,
     run_command: CommandRunner,
@@ -34,11 +62,14 @@ def review_hook(
     vibeguard_command: Callable[[Path, Path], list[str]],
     parse_overall: Callable[[str], str],
     finish_with_result: FinishWithResult,
+    on_invocation_error: Callable[[], None] | None = None,
 ) -> int:
     checks: dict[str, Any] = {}
     prerequisite_failures: list[str] = []
     record_review_prerequisite_readiness(args, checks, prerequisite_failures)
     if prerequisite_failures:
+        if on_invocation_error is not None:
+            on_invocation_error()
         return finish_with_result(
             "review",
             False,
@@ -82,6 +113,8 @@ def review_hook(
             f"limit is {args.max_changed_paths}; split the change or run a smaller review scope"
         )
         checks["review_scope_failure"] = scope_failure
+        if on_invocation_error is not None:
+            on_invocation_error()
         return finish_with_result(
             "review",
             False,
@@ -113,6 +146,9 @@ def review_hook(
     failures.extend(
         structure_evidence_failures(structure, (args.structure_review_evidence or "").strip())
     )
+    failures.extend(
+        net_deletion_failures(structure, (args.side_effect_audit_evidence or "").strip())
+    )
 
     diff_check = (
         {
@@ -131,6 +167,7 @@ def review_hook(
     if diff_check["returncode"] != 0:
         failures.append("git diff --check failed")
 
+    record_review_base_drift(args, run_command, structure, checks, failures)
     record_review_workflow_validation(args, checks, failures)
     record_review_vibeguard(
         args,
@@ -152,6 +189,12 @@ def review_hook(
         failures,
     )
 
+    # A correctable invocation (a stale base, a missing evidence field) is not a
+    # review finding: recording it as one would leave a failure in the ledger
+    # that the agent cannot clear by fixing the diff.
+    invocation_failure = review_input_invocation_failure(failures)
+    if invocation_failure and on_invocation_error is not None:
+        on_invocation_error()
     if not failures:
         evidence_path = (
             args.evidence
@@ -171,15 +214,25 @@ def review_hook(
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             failures.append(f"review attestation failed: {error}")
             record_review_failure(args, failures)
-    else:
+    elif not invocation_failure:
         record_review_failure(args, failures)
 
     details = (
-        review_failure_details(failures, structure, review_scope)
+        review_input_invocation_failure_details(failures, structure, review_scope)
+        if invocation_failure
+        else review_failure_details(failures, structure, review_scope)
         if failures
         else review_success_details(structure, review_scope)
     )
-    return finish_with_result("review", not failures, details, args.output, checks, args.repair_cycle)
+    return finish_with_result(
+        "review",
+        not failures,
+        details,
+        args.output,
+        checks,
+        args.repair_cycle,
+        invocation_error=invocation_failure,
+    )
 
 
 def record_review_input_evidence(
@@ -224,6 +277,18 @@ def record_review_prerequisite_readiness(
         preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         failures.append("review preflight evidence is missing or invalid")
+        return
+
+    expected_rules = str(preflight.get("rules") or "").strip()
+    if expected_rules and Path(expected_rules).expanduser().resolve() != args.rules.resolve():
+        checks["review_rules_root"] = {
+            "expected": expected_rules,
+            "actual": str(args.rules),
+        }
+        failures.append(
+            "review --rules must match the rules root recorded by start; "
+            "rerun review with the preflight rules root"
+        )
         return
 
     route = preflight.get("route") or {}
@@ -470,6 +535,210 @@ def structure_evidence_failures(structure: dict[str, Any], structure_evidence: s
     return failures
 
 
+
+def resolve_base_ref(project: Path, run_command: CommandRunner) -> str:
+    """Resolve the ref this branch is supposed to be current with.
+
+    An upstream that is the branch's own remote mirror answers "am I behind my
+    own push", which is not the staleness this check is about. Measured on real
+    work branches, that mirror reported 0 commits behind while the same branch
+    was 26 commits behind the integration base and shared 7 changed paths with
+    it -- the exact condition a stale read needs. So a self-tracking upstream is
+    skipped and the conventional integration refs are used instead.
+    """
+
+    head = run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"], project)
+    branch = head["stdout"].strip() if head["returncode"] == 0 else ""
+    upstream = run_command(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        project,
+    )
+    tracked = upstream["stdout"].strip() if upstream["returncode"] == 0 else ""
+    if tracked and branch and tracked != branch and not tracked.endswith(f"/{branch}"):
+        return tracked
+    for candidate in BASE_DRIFT_CANDIDATE_REFS:
+        verified = run_command(["git", "rev-parse", "--verify", "--quiet", candidate], project)
+        if verified["returncode"] == 0 and verified["stdout"].strip():
+            return candidate
+    return ""
+
+
+def record_review_base_drift(
+    args: Any,
+    run_command: CommandRunner,
+    structure: dict[str, Any],
+    checks: dict[str, Any],
+    failures: list[str],
+) -> None:
+    """Fail review when the change rewrites paths that already moved on the base.
+
+    Working from a checkout that trails its base is how an agent reads a file at
+    one revision and writes it at another: the content it reasoned about is not
+    the content it overwrites. Git cannot see which revision was read, but it can
+    see that the base already changed the same path since the merge base, which
+    is the condition that makes a stale read possible.
+    """
+
+    drift: dict[str, Any] = {"base_ref": "", "behind": 0, "drifted_paths": []}
+    checks["base_drift"] = drift
+    base_ref = resolve_base_ref(args.project, run_command)
+    if not base_ref:
+        drift["skipped"] = "no upstream or conventional base ref is available"
+        return
+    drift["base_ref"] = base_ref
+    merge_head = run_command(
+        ["git", "rev-parse", "--verify", "--quiet", "MERGE_HEAD"], args.project
+    )
+    merge_head_sha = merge_head["stdout"].strip() if merge_head["returncode"] == 0 else ""
+    if merge_head_sha:
+        unresolved = run_command(
+            ["git", "diff", "--name-only", "--diff-filter=U"], args.project
+        )
+        unresolved_paths = [
+            line.strip() for line in unresolved["stdout"].splitlines() if line.strip()
+        ] if unresolved["returncode"] == 0 else []
+        base_is_merged = run_command(
+            ["git", "merge-base", "--is-ancestor", base_ref, "MERGE_HEAD"], args.project
+        )
+        drift["merge_head"] = merge_head_sha
+        drift["unresolved_merge_paths"] = unresolved_paths
+        if base_is_merged["returncode"] == 0 and not unresolved_paths:
+            drift["skipped"] = (
+                "resolved in-progress merge already incorporates the current base ref"
+            )
+            return
+    merge_base = run_command(["git", "merge-base", "HEAD", base_ref], args.project)
+    if merge_base["returncode"] != 0:
+        drift["skipped"] = "merge base with the base ref is unavailable"
+        return
+    base_point = merge_base["stdout"].strip()
+    behind = run_command(
+        ["git", "rev-list", "--count", f"HEAD..{base_ref}"], args.project
+    )
+    drift["behind"] = (
+        int(behind["stdout"].strip() or 0) if behind["returncode"] == 0 and behind["stdout"].strip().isdigit() else 0
+    )
+    if drift["behind"] < 1:
+        return
+    moved = run_command(
+        ["git", "diff", "--name-only", "-z", base_point, base_ref], args.project
+    )
+    if moved["returncode"] != 0:
+        drift["skipped"] = "base-side change discovery failed"
+        return
+    moved_paths = {field for field in moved["stdout"].split("\0") if field} or {
+        line.strip() for line in moved["stdout"].splitlines() if line.strip()
+    }
+    changed_paths = set(structure.get("discovery", {}).get("path_metadata") or {})
+    drifted = sorted(moved_paths.intersection(changed_paths))
+    drift["drifted_paths"] = drifted
+    if not drifted:
+        return
+    listed = "; ".join(drifted[:5]) + ("" if len(drifted) <= 5 else f"; ... (+{len(drifted) - 5} more)")
+    failures.append(
+        f"this checkout is {drift['behind']} commits behind {base_ref} and the change "
+        f"rewrites paths that already moved on {base_ref}: {listed}. Stop before review. "
+        "Integrate the current base according to repository policy and user authority, "
+        "resolve the overlapping paths, rerun the affected verification, and invoke "
+        "review again from a checkout that is no longer behind that base. "
+        "Boundary-plan evidence cannot waive this stale-base overlap."
+    )
+
+
+def review_input_invocation_failure(failures: list[str]) -> bool:
+    invocation_failure_prefixes = (
+        "structure boundary note evidence is required for ",
+        "per-file addition limit was raised to ",
+        "net deletion of ",
+    )
+    return bool(failures) and all(
+        failure.startswith(invocation_failure_prefixes)
+        or is_stale_base_invocation_failure(failure)
+        for failure in failures
+    )
+
+
+def is_stale_base_invocation_failure(failure: str) -> bool:
+    return (
+        failure.startswith("this checkout is ")
+        and " commits behind " in failure
+        and "rewrites paths that already moved on " in failure
+        and "Stop before review." in failure
+    )
+
+
+def review_input_invocation_failure_details(
+    failures: list[str],
+    structure: dict[str, Any],
+    review_scope: str,
+) -> list[str]:
+    details = [
+        f"review scope: {review_scope}",
+        f"structure scope: {structure['scope']}",
+        f"checked development source/style files: {format_checked_paths(structure.get('checked_paths', []))}",
+    ]
+    details.extend(f"invocation detail: {failure}" for failure in failures)
+    if any(is_stale_base_invocation_failure(failure) for failure in failures):
+        details.append(
+            "invocation request: integrate the current base according to repository policy and "
+            "user authority, resolve overlapping paths, rerun affected verification, and rerun "
+            "the same review hook; no lifecycle checkpoint failed"
+        )
+    if any(
+        failure.startswith(
+            (
+                "structure boundary note evidence is required for ",
+                "per-file addition limit was raised to ",
+            )
+        )
+        for failure in failures
+    ):
+        details.append(
+            "invocation request: correct --structure-review-evidence with every required boundary "
+            "field and rerun the same review hook; no lifecycle checkpoint failed"
+        )
+    if any(failure.startswith("net deletion of ") for failure in failures):
+        details.append(
+            "invocation request: correct --side-effect-audit-evidence by naming every reported "
+            "path, removed content, and reason, then rerun the same review hook; no lifecycle "
+            "checkpoint failed"
+        )
+    return details
+
+def net_deletion_failures(structure: dict[str, Any], side_effect_evidence: str) -> list[str]:
+    """Require the side-effect audit to name every large net removal in the diff.
+
+    A removal is the one diff outcome no other check in this hook can see:
+    ``git diff --check`` reads whitespace, workflow validation reads the files
+    that remain, VibeGuard reads what the change added, and structural review
+    reads development sources only. The measured counts are put in the failure
+    text so the agent learns what disappeared instead of being asked to assert
+    that nothing did.
+    """
+
+    findings = structure.get("net_deletions") or []
+    if not findings:
+        return []
+    normalized = side_effect_evidence.replace("\\", "/")
+    unnamed = [item for item in findings if str(item["path"]) not in normalized]
+    if not unnamed:
+        return []
+    measured = "; ".join(
+        f"{item['path']} (-{item['deletions']} +{item['additions']}, net -{item['net']})"
+        for item in unnamed[:5]
+    )
+    if len(unnamed) > 5:
+        measured += f"; ... (+{len(unnamed) - 5} more)"
+    limit = structure.get("net_deletion_limit")
+    return [
+        f"net deletion of {limit}+ lines is unaccounted for: {measured}. "
+        "side-effect-audit-evidence must name each path above and state what the "
+        "removed content was and why it is no longer needed. If the removal was "
+        "not intended, re-read each file at the revision being overwritten before "
+        "rerunning review"
+    ]
+
+
 def raised_addition_limit_failures(
     structure: dict[str, Any], structure_evidence: str
 ) -> list[str]:
@@ -620,6 +889,9 @@ def review_success_details(structure: dict[str, Any], review_scope: str) -> list
         "diff whitespace check passed",
         "workflow validation passed",
         "VibeGuard audit passed",
+        "next required checkpoint: record every remaining route gate and run finish "
+        "before commit, push, release, or handoff; changing the worktree first "
+        "invalidates this review attestation",
     ]
 
 

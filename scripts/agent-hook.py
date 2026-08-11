@@ -14,7 +14,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from agent_gate_evidence import resync_gate_evidence_ledger
+from agent_gate_evidence import (
+    FIELD_REQUIREMENTS,
+    gate_field_enums,
+    resync_gate_evidence_ledger,
+)
 from agent_execution_capsule_state import git_states_for_paths
 from agent_handoff_hook import handoff_hook
 from agent_hook_continuation import (
@@ -46,18 +50,22 @@ from agent_hook_runtime import (
     write_json,
 )
 from agent_inprocess import run_script_main
-from agent_review_hook import review_hook
+from agent_global_lessons import promote_lessons_for_repair
+from agent_review_hook import required_review_evidence_flags, review_hook
 from agent_repair_verification import create_repair_receipt
 from agent_repair_ledger import (
     CONFLICT as REPAIR_REBIND_CONFLICT,
     REBOUND as REPAIR_REBOUND,
     capture_failure_checkpoint_binding,
+    checkpoint_failure_signature,
     rebind_failure_checkpoints_after_required_doc_refresh,
+    release_repair_attempt,
 )
 from agent_skill_hooks import (
     skill_curate_hook,
     skill_feedback_hook,
     skill_maintenance_hook,
+    skill_draft_hook,
     skill_review_hook,
 )
 from agent_skill_catalog import FEEDBACK_SIGNALS
@@ -235,7 +243,8 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
-    hooks = (payload.get("route") or {}).get("hooks") or []
+    route = payload.get("route") or {}
+    hooks = route.get("hooks") or []
     required = [hook.get("hook") for hook in hooks if hook.get("required")]
     conditional = [hook.get("hook") for hook in hooks if not hook.get("required")]
     lines: list[str] = []
@@ -243,7 +252,44 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         lines.append(f"Required hooks: {required}")
     if conditional:
         lines.append(f"Conditional hooks: {conditional}")
+    gates = [gate for gate in (route.get("gates") or []) if isinstance(gate, str)]
+    if any(hook.get("hook") == "review" for hook in hooks):
+        flags = required_review_evidence_flags(gates)
+        lines.append("Review hook requires evidence paths: " + " ".join(flags))
+    lines.extend(_structured_gate_field_lines(gates))
     return lines
+
+
+def _structured_gate_field_lines(gates: list[str]) -> list[str]:
+    """State which gates need named fields, and which fields.
+
+    Recording a gate looked like writing a sentence, but several gates reject
+    prose and demand an exact field set. That was only discoverable by failing
+    finish, so `retrospective check` alone accounts for the largest recurring
+    lesson class in the store. The route already knows the answer, so `start`
+    states it.
+    """
+
+    required = [
+        (gate, FIELD_REQUIREMENTS[gate])
+        for gate in gates
+        if FIELD_REQUIREMENTS.get(gate)
+    ]
+    if not required:
+        return []
+    lines = ["Gates requiring named fields (--field name=value):"]
+    lines.extend(f"  {gate}: {_rendered_fields(gate, fields)}" for gate, fields in required)
+    return lines
+
+
+def _rendered_fields(gate: str, fields: tuple[str, ...]) -> str:
+    """Name each field, and its accepted values when the set is closed."""
+
+    enums = gate_field_enums(gate)
+    return ", ".join(
+        f"{field} ({'|'.join(enums[field])})" if field in enums else field
+        for field in fields
+    )
 
 
 def _start_capsule_detail(args: argparse.Namespace) -> str:
@@ -577,6 +623,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
             "review",
             "finish",
             "skill-feedback",
+            "skill-draft",
             "skill-curate",
             "skill-review",
             "skill-maintenance",
@@ -636,7 +683,7 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
         "--approval-record",
         default="",
         help=(
-            "separate bound user-approval record as JSON or a path; required "
+            "separate bound user approval record as JSON or a path; required "
             "when the effective route reaches git_write or above"
         ),
     )
@@ -770,13 +817,31 @@ def _add_skill_feedback_arguments(parser: argparse.ArgumentParser) -> None:
         default="",
         help="schema-owned content-free recurrence signal",
     )
+    feedback.add_argument(
+        "--draft-proposal",
+        default="",
+        help="bounded rationale for the proposed skill change",
+    )
+    feedback.add_argument(
+        "--draft-proposal-file",
+        default="",
+        help="path holding the bounded rationale; preferred over --draft-proposal",
+    )
     feedback.add_argument("--feedback-candidate-id", default="")
     feedback.add_argument(
         "--skill-review-outcome",
         choices=("no_change", "stage_patch"),
         default="no_change",
     )
-    feedback.add_argument("--feedback-gap", default="")
+    feedback.add_argument(
+        "--feedback-gap",
+        default="",
+        help=(
+            "safe slug naming which gap this is; pass it to skill-feedback so a "
+            "later closeout can still review the candidate, and to skill-review "
+            "when staging a patch"
+        ),
+    )
     feedback.add_argument("--change-type", default="")
     feedback.add_argument("--promotion-target", default="")
     feedback.add_argument(
@@ -878,6 +943,98 @@ def _run_checkpoint_hook(
     return checkpoint_hook(args)
 
 
+def _run_repair_verify_hook(args: argparse.Namespace) -> int:
+    repair_evidence_path = preflight_evidence_path(args)
+    try:
+        repair_preflight = json.loads(repair_evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        repair_preflight = {}
+    result = create_repair_receipt(
+        project=args.project,
+        rules=args.rules,
+        evidence_path=repair_evidence_path,
+        preflight=repair_preflight,
+        target=args.repair_target,
+        checkpoint=args.resume_checkpoint,
+        verification_kind=args.repair_verification_kind,
+        test_selector=args.repair_test_selector,
+        output_path=args.repair_receipt_output,
+    )
+    success = bool(result.get("created")) and result.get("status") == "SUCCESS"
+    details = [
+        f"repair receipt: {result.get('receipt_path', 'not_created')}",
+        f"verification status: {result.get('status', result.get('reason', 'unknown'))}",
+    ]
+    if success:
+        # A verified repair is the only thing that retires a lesson. Without
+        # this the inbox was write-only, so a signature kept counting up
+        # (89 at the worst) with no way to ever record that it was fixed.
+        promotion = promote_lessons_for_repair(
+            str(repair_preflight.get("agent_run_id") or ""),
+            str(result.get("receipt_id") or ""),
+        )
+        result["lesson_promotion"] = promotion
+        promoted = promotion.get("promoted") or []
+        if promoted:
+            details.append(f"lessons promoted by this repair: {', '.join(promoted)}")
+    return finish_with_result(
+        "repair-verify",
+        success,
+        details,
+        args.output,
+        {"repair_verification": result},
+        0,
+    )
+
+
+def _apply_repair_cycle_context(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    # Must run after _apply_worker_evidence_boundary: that call is what
+    # points args.evidence at a worker's launcher-issued isolated
+    # evidence path. Resolving preflight_evidence_path(args) any earlier
+    # would silently read/write the parent's preflight.json instead of
+    # the worker's, so checkpoint_has_recorded_failure would always miss
+    # and every worker repair-cycle claim would be rejected.
+    repair_evidence_path = preflight_evidence_path(args)
+    try:
+        repair_preflight = json.loads(repair_evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        repair_preflight = {}
+    repair_failures = repair_context_failures(
+        args.repair_target,
+        args.repair_evidence,
+        args.resume_checkpoint,
+        route=repair_preflight.get("route") or {},
+        evidence_path=repair_evidence_path,
+        preflight=repair_preflight,
+        project=args.project,
+        rules=args.rules,
+    )
+    if repair_failures:
+        parser.error(
+            "--repair-cycle 1 requires verified repair context: "
+            + "; ".join(repair_failures)
+        )
+    if args.hook == "review":
+        repair_signature = checkpoint_failure_signature(
+            route=repair_preflight.get("route") or {},
+            evidence_path=repair_evidence_path,
+            checkpoint=args.resume_checkpoint,
+        )
+
+        def release_review_repair_attempt() -> None:
+            release_repair_attempt(
+                evidence_path=repair_evidence_path,
+                preflight=repair_preflight,
+                checkpoint=args.resume_checkpoint,
+                failure_signature=repair_signature,
+            )
+
+        args.repair_invocation_rollback = release_review_repair_attempt
+
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
@@ -913,62 +1070,9 @@ def main() -> int:
     if args.hook == "checkpoint":
         return _run_checkpoint_hook(parser, args)
     if args.hook == "repair-verify":
-        repair_evidence_path = preflight_evidence_path(args)
-        try:
-            repair_preflight = json.loads(repair_evidence_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            repair_preflight = {}
-        result = create_repair_receipt(
-            project=args.project,
-            rules=args.rules,
-            evidence_path=repair_evidence_path,
-            preflight=repair_preflight,
-            target=args.repair_target,
-            checkpoint=args.resume_checkpoint,
-            verification_kind=args.repair_verification_kind,
-            test_selector=args.repair_test_selector,
-            output_path=args.repair_receipt_output,
-        )
-        success = bool(result.get("created")) and result.get("status") == "SUCCESS"
-        details = [
-            f"repair receipt: {result.get('receipt_path', 'not_created')}",
-            f"verification status: {result.get('status', result.get('reason', 'unknown'))}",
-        ]
-        return finish_with_result(
-            "repair-verify",
-            success,
-            details,
-            args.output,
-            {"repair_verification": result},
-            0,
-        )
+        return _run_repair_verify_hook(args)
     if args.repair_cycle:
-        # Must run after _apply_worker_evidence_boundary: that call is what
-        # points args.evidence at a worker's launcher-issued isolated
-        # evidence path. Resolving preflight_evidence_path(args) any earlier
-        # would silently read/write the parent's preflight.json instead of
-        # the worker's, so checkpoint_has_recorded_failure would always miss
-        # and every worker repair-cycle claim would be rejected.
-        repair_evidence_path = preflight_evidence_path(args)
-        try:
-            repair_preflight = json.loads(repair_evidence_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            repair_preflight = {}
-        repair_failures = repair_context_failures(
-            args.repair_target,
-            args.repair_evidence,
-            args.resume_checkpoint,
-            route=repair_preflight.get("route") or {},
-            evidence_path=repair_evidence_path,
-            preflight=repair_preflight,
-            project=args.project,
-            rules=args.rules,
-        )
-        if repair_failures:
-            parser.error(
-                "--repair-cycle 1 requires verified repair context: "
-                + "; ".join(repair_failures)
-            )
+        _apply_repair_cycle_context(parser, args)
     if args.hook == "start":
         if args.request_classified and not args.classification_evidence:
             parser.error("start --request-classified requires --classification-evidence")
@@ -986,6 +1090,8 @@ def main() -> int:
         return handoff_hook(args)
     if args.hook == "skill-feedback":
         return skill_feedback_hook(args)
+    if args.hook == "skill-draft":
+        return skill_draft_hook(args)
     if args.hook == "skill-curate":
         return skill_curate_hook(args)
     if args.hook == "skill-review":
@@ -1016,7 +1122,13 @@ def _checkpointed_hook(
         return checkpoint_after_hook(
             args,
             review_hook(
-                args, run_command, git_status, vibeguard_command, parse_overall, finish_with_result
+                args,
+                run_command,
+                git_status,
+                vibeguard_command,
+                parse_overall,
+                finish_with_result,
+                getattr(args, "repair_invocation_rollback", None),
             ),
             "lifecycle",
             phase="reviewing",

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 from agent_finish_gate_skip_policy import _evidence_records_skip_reason
 from agent_finish_gate_validators import (
+    DOC_COVERAGE_STATE_PHRASES,
+    DOC_INSPECTION_PROOF_PHRASES,
     NO_DOC_DECISIONS,
+    accepted,
     UNCHANGED_DECISIONS,
     _explicit_documentation_decision,
     _has_durable_doc_change_signal,
@@ -118,7 +123,13 @@ def validate_documentation(evidence: str) -> list[str]:
             "documentation evidence can use unchanged only when it names the "
             "existing doc path it opened/inspected and states why that "
             "already-read doc covers the planning, behavior, contract, or "
-            "acceptance change; a bare coverage claim is not enough"
+            "acceptance change; a bare coverage claim is not enough."
+            + accepted(DOC_INSPECTION_PROOF_PHRASES).replace(
+                "accepted wording includes", "inspection proof is recognised on"
+            )
+            + accepted(DOC_COVERAGE_STATE_PHRASES, limit=6).replace(
+                "accepted wording includes", "and the coverage claim on"
+            )
         ]
     if has_decision and names_target and explains_reason:
         return []
@@ -139,25 +150,54 @@ def _is_documentation_skip_decision(text: str) -> bool:
     return has_any(text, NO_DOC_DECISIONS) or _evidence_records_skip_reason(text)
 
 
+# validate_tests renders these in its refusal, so the wording it accepts and the
+# wording it advertises cannot drift apart.
+_TEST_SIGNAL_PHRASES = (
+    "test", "pytest", "unittest", "unit", "integration", "regression",
+    "smoke", "verification", "manual", "not applicable",
+)
+_TEST_PASSED_PHRASES = (
+    "passed", "pass", "0 failures", "no failures", "green", "성공", "통과",
+)
+
+# A pass word on its own is not a result: "통과" and "passed" are equally true of
+# a suite that never ran, which is how a finish gate reports SUCCESS for work
+# whose checks were never executed. This gate cannot run the project's suite, so
+# it requires the claim to be falsifiable by whoever reads it -- either an
+# outcome the run produced (exit status, or a count of tests/cases/failures/
+# findings) or the concrete command or selector that produced it, which a reader
+# can rerun.
+_TEST_RESULT_RE = re.compile(
+    r"(?:exit|return|returncode|status|rc)\s*(?:code|status)?\s*[:=]?\s*\d+"
+    r"|\d+\s*(?:tests?|cases?|specs?|scenarios?|assertions?|failures?|errors?|"
+    r"issues?|findings?|violations?|warnings?|개|건)"
+    r"|(?:tests?|cases?|specs?|failures?|errors?|issues?|findings?)\s*[:=]\s*\d+"
+    r"|\bok\s*\(?\s*\d+"
+)
+_TEST_COMMAND_RE = re.compile(
+    r"\b(?:gradlew|pytest|unittest|jest|vitest|mocha|rspec|phpunit|mvn|make|"
+    r"cargo|xcodebuild|swift\s+test|go\s+test|npm\s+(?:run\s+)?test|"
+    r"yarn\s+test|pnpm\s+test|detekt|ktlint|eslint|mypy|ruff|tsc)\b"
+    r"|[\w.-]+/[\w./-]*\btest[\w./-]*"
+    r"|\btest[\w.-]*\.(?:py|kt|kts|swift|ts|tsx|js|jsx|rb|go|java|cs)\b"
+    r"|\b[\w.-]+_test\.[a-z]+\b"
+    r"|\b[\w.-]+(?:test|spec)s?\b\s*(?:::|#|\.)\s*\w+"
+)
+
+TESTS_RESULT_REQUIRED = (
+    "tests evidence claims a check ran but is not falsifiable: name either the "
+    "result it produced (exit status, or a count such as \"1163 tests\", "
+    "\"tests: 0 failures\") or the exact command/selector that ran "
+    "(such as \"unittest discover -s tests\", \"./gradlew testDebugUnitTest\"). A "
+    "pass word alone is equally true of a suite that never ran"
+)
+
+
 def validate_tests(evidence: str) -> list[str]:
     text = evidence.lower()
     if not text:
         return []
-    has_test_signal = any(
-        phrase in text
-        for phrase in (
-            "test",
-            "pytest",
-            "unittest",
-            "unit",
-            "integration",
-            "regression",
-            "smoke",
-            "verification",
-            "manual",
-            "not applicable",
-        )
-    )
+    has_test_signal = any(phrase in text for phrase in _TEST_SIGNAL_PHRASES)
     skipped = any(phrase in text for phrase in ("skipped", "not run", "unable", "cannot run"))
     explained_skip = any(
         phrase in text
@@ -169,12 +209,31 @@ def validate_tests(evidence: str) -> list[str]:
     )
     # A suite that ran and passed is a named test run even when it mentions
     # skipped subtests; the skip guard is for runs that never happened.
-    ran_and_passed = any(
-        phrase in text
-        for phrase in ("passed", "pass", "0 failures", "no failures", "green", "성공", "통과")
-    )
+    ran_and_passed = any(phrase in text for phrase in _TEST_PASSED_PHRASES)
     if has_test_signal and (not skipped or explained_skip or ran_and_passed):
+        if (
+            _claims_a_run(text, skipped, explained_skip)
+            and not _TEST_RESULT_RE.search(text)
+            and not _TEST_COMMAND_RE.search(text)
+        ):
+            return [TESTS_RESULT_REQUIRED]
         return []
     return [
-        "tests evidence must name the test/check run or explain skipped/not-applicable tests with a reason"
+        "tests evidence must name the test/check run or explain skipped/not-applicable tests with a reason."
+        + accepted(_TEST_SIGNAL_PHRASES)
+        + accepted(_TEST_PASSED_PHRASES, limit=6).replace(
+            "accepted wording includes", "a run that passed also clears it on"
+        )
     ]
+
+
+def _claims_a_run(text: str, skipped: bool, explained_skip: bool) -> bool:
+    """True when the evidence asserts a check executed rather than was waived.
+
+    An approved skip and a not-applicable decision owe no result, so the outcome
+    requirement applies only to the positive claim.
+    """
+
+    if "not applicable" in text:
+        return False
+    return not (skipped and explained_skip)

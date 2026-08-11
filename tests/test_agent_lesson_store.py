@@ -302,7 +302,7 @@ class LessonStoreTests(unittest.TestCase):
                 )
                 self.assertTrue(route["skill_feedback"]["enabled"])
                 self.assertTrue(route["skill_feedback"]["evaluation_required"])
-                self.assertFalse(route["skill_feedback"]["blocking"])
+                self.assertTrue(route["skill_feedback"]["blocking"])
                 self.assertTrue(
                     route["skill_feedback"]["threshold_followup_required"]
                 )

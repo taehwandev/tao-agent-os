@@ -15,6 +15,8 @@ from agent_execution_capsule_state import atomic_write_json, sha256_file
 from agent_repair_ledger import (
     checkpoint_failure_signature,
     checkpoint_has_recorded_failure,
+    failure_signature,
+    record_failure_checkpoints,
 )
 from agent_route_state import preflight_evidence_sha256, route_fingerprint
 from agent_repair_receipt_validation import validate_repair_receipt
@@ -49,10 +51,18 @@ def create_repair_receipt(
     checkpoint_text = checkpoint.strip()
     if verification_kind not in VERIFICATION_KINDS:
         return {"created": False, "reason": "unsupported_verification_kind"}
-    if not checkpoint_text or not checkpoint_has_recorded_failure(
-        route=route,
-        evidence_path=evidence_path,
-        checkpoint=checkpoint_text,
+    if not checkpoint_text:
+        return {"created": False, "reason": "checkpoint_not_failed"}
+    if not checkpoint_has_recorded_failure(
+        route=route, evidence_path=evidence_path, checkpoint=checkpoint_text
+    ):
+        _record_structural_preflight_failure(
+            preflight=preflight,
+            evidence_path=evidence_path,
+            checkpoint=checkpoint_text,
+        )
+    if not checkpoint_has_recorded_failure(
+        route=route, evidence_path=evidence_path, checkpoint=checkpoint_text
     ):
         return {"created": False, "reason": "checkpoint_not_failed"}
     resolved = resolve_verification_target(project, rules, target)
@@ -129,3 +139,30 @@ def create_repair_receipt(
         "status": status,
         "returncode": returncode,
     }
+
+
+def _record_structural_preflight_failure(
+    *,
+    preflight: dict[str, Any],
+    evidence_path: Path,
+    checkpoint: str,
+) -> None:
+    if checkpoint != "preflight":
+        return
+
+    failed_checks = [
+        name
+        for name in ("route_command", "git_status", "vibeguard")
+        if int((preflight.get(name) or {}).get("returncode", 0)) != 0
+    ]
+    if not failed_checks:
+        return
+
+    signature = failure_signature(failed_checks)
+    record_failure_checkpoints(
+        evidence_path=evidence_path,
+        preflight=preflight,
+        checkpoints=[checkpoint],
+        signature=signature,
+        checkpoint_signatures={checkpoint: signature},
+    )

@@ -71,6 +71,7 @@ from support.spill_permissions import spill_helper_path_variants
 from support.runtime_bridge import (
     CODEX_DISPATCH_BRIDGE_PHRASE,
     RUNTIME_BRIDGE_GRAPH_PHRASES,
+    RUNTIME_START_BRIDGE_PHRASE,
     runtime_bridge_block,
     runtime_bridge_required_phrases,
 )
@@ -391,6 +392,42 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertIn(phrase, claude_required)
             self.assertIn(phrase, agy_block)
             self.assertIn(phrase, codex_block)
+
+    def test_every_runtime_bridge_states_the_intent_envelope_contract(self) -> None:
+        """Work routes refuse a bridge that still promises request-text authority.
+
+        The start phrase is one shared constant, but it reaches each runtime
+        through a separate call, and the verifier list is assembled separately
+        from the generated block. A runtime whose bridge kept the pre-envelope
+        wording sends its agent to build work-route arguments the runtime now
+        rejects, so every surface is asserted rather than the constant alone.
+        """
+
+        agy_block = _agy_runtime_bridge_block(ROOT)
+        codex_block = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        claude_block = runtime_bridge_block(ROOT, "Claude", "CLAUDE.md")
+        claude_required = runtime_bridge_required_phrases("Claude", "CLAUDE.md")
+        codex_required = runtime_bridge_required_phrases("Codex", "AGENTS.md")
+
+        for surface in (
+            claude_block,
+            codex_block,
+            agy_block,
+            claude_required,
+            codex_required,
+            AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES,
+            PREFLIGHT_AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES,
+        ):
+            self.assertIn(RUNTIME_START_BRIDGE_PHRASE, surface)
+
+        for required in (
+            "--intent-envelope",
+            "--runtime-session-id",
+            "--approval-record",
+            "--continuation-scope",
+        ):
+            self.assertIn(required, RUNTIME_START_BRIDGE_PHRASE)
+        self.assertNotIn("let the classifier decide", RUNTIME_START_BRIDGE_PHRASE)
 
     def test_setup_hook_runtime_selection_is_scoped(self) -> None:
         from support.setup_agent_hooks_impl import _runtime_selected

@@ -14,6 +14,7 @@ from agent_skill_catalog import (
     normalize_skill_id,
     parse_skill_ids,
 )
+from agent_skill_draft import record_draft
 from agent_skill_learning import (
     curate_observations,
     record_observation,
@@ -21,6 +22,7 @@ from agent_skill_learning import (
 )
 from agent_skill_maintenance import complete_verified_skill_maintenance
 from agent_skill_retention import prune_skill_learning_state
+from agent_skill_state import CURRENT_TASK_REVIEW_THRESHOLD, DEFAULT_REVIEW_THRESHOLD
 
 
 def record_skill_feedback(
@@ -31,12 +33,13 @@ def record_skill_feedback(
     outcome: str,
     skill_id: str,
     signal: str,
+    gap_type: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
-    """Record an observation and immediately run deterministic curation.
+    """Record an observation and immediately prepare same-closeout maintenance.
 
-    Curation can expose that the current occurrence crossed the recurrence
-    threshold, but it never chooses a review outcome or edits canonical skill
-    guidance. Those decisions remain explicit follow-up work.
+    The hook still does not write prose or mutate canonical skill guidance. It
+    queues the current occurrence immediately so the observing run can author,
+    verify, and record the bounded maintenance before finish.
     """
 
     normalized_outcome = outcome.strip().lower()
@@ -63,7 +66,7 @@ def record_skill_feedback(
     checked_skills = set(parse_skill_ids(retrospective.get("skills_checked", "")))
     if (
         retrospective.get("outcome", "").strip().lower() != "reusable_gap"
-        or retrospective.get("observation", "").strip().lower() not in {"recorded", "deferred"}
+        or retrospective.get("observation", "").strip().lower() != "recorded"
         or normalized_skill not in checked_skills
     ):
         return {"created": False, "reason": "skill_not_checked_in_retrospective"}, [
@@ -76,6 +79,7 @@ def record_skill_feedback(
         occurrence_id=_occurrence_id(evidence_path),
         skill_id=normalized_skill,
         signal=normalized_signal,
+        gap_type=gap_type,
     )
     if result.get("idempotent"):
         details = [
@@ -91,7 +95,9 @@ def record_skill_feedback(
             f"observation status: {result.get('status', 'observed')}",
         ]
 
-    curation, curation_details = record_skill_curation()
+    curation, curation_details = record_skill_curation(
+        min_occurrences=CURRENT_TASK_REVIEW_THRESHOLD
+    )
     result["curation"] = curation
     details.extend(curation_details)
     candidate = str(result.get("candidate_id") or "")
@@ -102,9 +108,53 @@ def record_skill_feedback(
     return result, details
 
 
-def record_skill_curation() -> tuple[dict[str, Any], list[str]]:
+def record_skill_draft(
+    *,
+    project: Path,
+    rules: Path,
+    evidence_path: Path,
+    skill_id: str,
+    signal: str,
+    proposal: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Store the observing run's bounded proposal without write authority."""
+
     try:
-        result = curate_observations(state_home())
+        result = record_draft(
+            state_home(),
+            project=project,
+            rules=rules,
+            skill_id=skill_id,
+            signal=signal,
+            proposal=proposal,
+            occurrence_id=_occurrence_id(evidence_path),
+        )
+    except (OSError, ValueError) as error:
+        result = {
+            "created": False,
+            "reason": "draft_failed",
+            "error": error.__class__.__name__,
+        }
+    if result.get("idempotent"):
+        return result, ["skill patch draft was unchanged; task completion is unchanged"]
+    if not result.get("created"):
+        reason = str(result.get("reason") or "not_recorded")
+        return result, [f"skill patch draft skipped: {reason}; task completion is unchanged"]
+    return result, [
+        "skill patch draft recorded for same-closeout review"
+        if not result.get("revised")
+        else "skill patch draft revised for same-closeout review",
+        "canonical skill guidance is edited only by the verified maintenance step",
+    ]
+
+
+def record_skill_curation(
+    *, min_occurrences: int = DEFAULT_REVIEW_THRESHOLD
+) -> tuple[dict[str, Any], list[str]]:
+    try:
+        result = curate_observations(
+            state_home(), min_occurrences=min_occurrences
+        )
         result["retention"] = prune_skill_learning_state(state_home())
     except (OSError, ValueError) as error:
         return {"updated": False, "reason": "curation_failed", "error": error.__class__.__name__}, [
@@ -141,6 +191,7 @@ def record_skill_review(
             gap_type=gap_type,
             change_type=change_type,
             promotion_target=promotion_target,
+            min_occurrences=CURRENT_TASK_REVIEW_THRESHOLD,
         )
     except (OSError, ValueError) as error:
         result = {"updated": False, "reason": "review_failed", "error": error.__class__.__name__}
@@ -149,7 +200,7 @@ def record_skill_review(
         return result, [f"bounded skill review skipped: {reason}; completed tasks are unchanged"]
     return result, [
         f"bounded skill review recorded: {result['status']}",
-        "canonical skill guidance was not edited by the review recorder",
+        "canonical skill guidance is edited only by the verified maintenance step",
     ]
 
 
@@ -162,6 +213,7 @@ def record_skill_maintenance(
     verification_kind: str,
     target: str,
     test_selector: str,
+    evidence_path: Path | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     try:
         result = complete_verified_skill_maintenance(
@@ -173,6 +225,7 @@ def record_skill_maintenance(
             verification_kind=verification_kind,
             target=target,
             test_selector=test_selector,
+            preflight=_preflight_payload(evidence_path),
         )
     except (OSError, ValueError) as error:
         result = {"updated": False, "reason": "maintenance_failed", "error": error.__class__.__name__}
@@ -180,6 +233,18 @@ def record_skill_maintenance(
         reason = str(result.get("reason") or "not_updated")
         return result, [f"skill maintenance status skipped: {reason}"]
     return result, [f"skill maintenance completed: {result['status']}"]
+
+
+def _preflight_payload(evidence_path: Path | None) -> dict[str, Any] | None:
+    """Read preflight evidence for non-Git runtime maintenance proof."""
+
+    if evidence_path is None:
+        return None
+    try:
+        payload = json.loads(Path(evidence_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _occurrence_id(evidence_path: Path) -> str:

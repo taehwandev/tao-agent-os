@@ -196,6 +196,13 @@ document routing are shared by every target repo. Keep it narrow: install or
 repair only Tao Agent OS-managed bridge blocks and allow only
 Tao Agent OS-managed entrypoints and suffix-aware runtime matchers. Do not
 broadly allow `python3`.
+For Codex, the same setup also merges one Tao Agent OS-owned `Stop` hook into
+`~/.codex/hooks.json` without replacing unrelated hooks such as local metering.
+`start` binds evidence to Codex's exact `CODEX_THREAD_ID`; the Stop gate acts
+only when that same session still owns an active run. It continues the turn
+once with the remaining `finish` and same-closeout skill-maintenance work, then
+stops an unchanged second attempt explicitly instead of looping or reporting a
+false completion. A successful `finish` closes the run and lets Stop proceed.
 For Claude, `setup-agent-hooks.py` installs a stable user-level launcher at
 `<TAO_LAUNCHER>` and writes the current checkout to
 `~/.tao/tao-root`. Rerun setup after moving or migrating

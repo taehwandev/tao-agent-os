@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from agent_retrospective_observation import recorded_observation_failures
 from agent_skill_catalog import normalize_feedback_signal
 from agent_skill_state import (
     CANDIDATE_ID_RE,
-    DEFAULT_REVIEW_THRESHOLD,
+    CURRENT_TASK_REVIEW_THRESHOLD,
     SCHEMA_VERSION,
     candidate_id,
     candidate_occurrence_count,
@@ -42,6 +43,13 @@ def skill_followup_failures(
         return ["skill follow-up occurrence unavailable"]
 
     failures: set[str] = set()
+    failures.update(
+        recorded_observation_failures(
+            preflight=preflight,
+            fields=_retrospective_fields(preflight),
+            state_root=state_root,
+        )
+    )
     candidates: set[str] = set()
     for path in (state_root / observation_dir()).glob("*.json"):
         payload = read_json(path)
@@ -55,10 +63,24 @@ def skill_followup_failures(
         candidates.add(candidate)
 
     for candidate in sorted(candidates):
-        if candidate_occurrence_count(state_root, candidate) < DEFAULT_REVIEW_THRESHOLD:
+        if candidate_occurrence_count(state_root, candidate) < CURRENT_TASK_REVIEW_THRESHOLD:
             continue
         failures.update(_candidate_failures(state_root, candidate))
     return sorted(failures)
+
+
+def _retrospective_fields(preflight: dict[str, Any]) -> dict[str, Any]:
+    """Read the current retrospective fields from the route gate ledger."""
+
+    route = preflight.get("route")
+    if not isinstance(route, dict):
+        return {}
+    for item in route.get("gate_ledger") or []:
+        if not isinstance(item, dict) or item.get("gate") != "retrospective check":
+            continue
+        fields = item.get("fields")
+        return fields if isinstance(fields, dict) else {}
+    return {}
 
 
 def _valid_current_observation(payload: dict[str, Any], occurrence_key: str) -> bool:

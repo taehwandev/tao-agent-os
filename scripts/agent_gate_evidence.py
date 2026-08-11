@@ -85,6 +85,56 @@ FIELD_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "tests": ("check", "result"),
 }
 
+AMBIGUITY_BLOCKER_STATUSES = ("none", "resolved")
+AMBIGUITY_DECISIONS = ("proceed",)
+ALIGNMENT_BRIEF_CHECKPOINTS = ("user_visible_before_edits",)
+GRAPHIFY_READINESS_STATUS = "success"
+
+
+# Fields whose validator tests exact membership, so `start` can state the
+# accepted values instead of leaving them to be found by failing finish. Naming
+# the field was not enough: `retrospective check` was the largest recurring
+# lesson class in the store, and its outcome and observation vocabularies are
+# discoverable nowhere else.
+#
+# Only exact-membership fields belong here. A phrase-matching validator -- run
+# state, documentation decision, multi-agent mode, tests result -- accepts prose
+# containing a marker, so listing its markers as a closed set would advertise a
+# restriction that does not exist. A prose-compatible gate may still constrain
+# individual fields on its structured path; advertise only those fields. Values
+# come from the owning validator, never restated here, so the advertisement
+# cannot drift from the check.
+def gate_field_enums(gate: str) -> dict[str, tuple[str, ...]]:
+    """Return the exact accepted values for this gate's closed-set fields."""
+
+    # Imported inside the call because the learning validators sit beside this
+    # module's own consumers; a module-level import would couple load order for
+    # no benefit.
+    from agent_finish_gate_learning_validators import (
+        RETROSPECTIVE_OBSERVATION_STATES,
+        RETROSPECTIVE_OUTCOMES,
+    )
+
+    registry: dict[str, dict[str, tuple[str, ...]]] = {
+        "ambiguity check": {
+            "blocker_status": AMBIGUITY_BLOCKER_STATUSES,
+            "decision": AMBIGUITY_DECISIONS,
+        },
+        "alignment brief": {
+            "checkpoint": ALIGNMENT_BRIEF_CHECKPOINTS,
+        },
+        "retrospective check": {
+            "outcome": tuple(sorted(RETROSPECTIVE_OUTCOMES)),
+            "observation": tuple(sorted(RETROSPECTIVE_OBSERVATION_STATES)),
+        },
+        "graphify readiness": {
+            field: (GRAPHIFY_READINESS_STATUS,)
+            for field in FIELD_REQUIREMENTS["graphify readiness"]
+        },
+    }
+    return registry.get(gate, {})
+
+
 MULTI_AGENT_PARALLEL_FIELDS = (
     "owned_scope",
     "forbidden_scope",
@@ -537,12 +587,15 @@ def synthesize_gate_evidence(
         failures: list[str] = []
         blocker_status = fields["blocker_status"].strip().lower()
         decision = fields["decision"].strip().lower()
-        if blocker_status not in {"none", "resolved"}:
+        if blocker_status not in AMBIGUITY_BLOCKER_STATUSES:
             failures.append(
-                "ambiguity check blocker_status must be none or resolved"
+                "ambiguity check blocker_status must be "
+                + " or ".join(AMBIGUITY_BLOCKER_STATUSES)
             )
-        if decision != "proceed":
-            failures.append("ambiguity check decision must be proceed")
+        if decision not in AMBIGUITY_DECISIONS:
+            failures.append(
+                "ambiguity check decision must be " + " or ".join(AMBIGUITY_DECISIONS)
+            )
         if failures:
             return "", failures
         return (
@@ -553,9 +606,10 @@ def synthesize_gate_evidence(
         )
     if gate == "alignment brief":
         checkpoint = fields["checkpoint"].strip().lower()
-        if checkpoint != "user_visible_before_edits":
+        if checkpoint not in ALIGNMENT_BRIEF_CHECKPOINTS:
             return "", [
-                "alignment brief checkpoint must be user_visible_before_edits"
+                "alignment brief checkpoint must be "
+                + " or ".join(ALIGNMENT_BRIEF_CHECKPOINTS)
             ]
         return (
             f"alignment brief; shared understanding: {fields['shared_understanding']}; "
@@ -639,7 +693,7 @@ def synthesize_gate_evidence(
         invalid = [
             field
             for field in FIELD_REQUIREMENTS[gate]
-            if fields[field].strip().lower() != "success"
+            if fields[field].strip().lower() != GRAPHIFY_READINESS_STATUS
         ]
         if invalid:
             return "", [

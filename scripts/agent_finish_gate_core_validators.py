@@ -104,8 +104,21 @@ def validate_alignment_brief(evidence: str) -> list[str]:
     )
     if has_shared and has_difference and has_assumption and has_user_visible_checkpoint:
         return []
+    # Name the parts that are actually absent. A refusal that only restates the
+    # full requirement makes the agent re-guess which clause it missed.
+    missing = [
+        label
+        for label, present in (
+            ("shared understanding", has_shared),
+            ("possible differences", has_difference),
+            ("unsupported assumptions/unknowns or minimal blocker questions", has_assumption),
+            ("user-visible checkpoint", has_user_visible_checkpoint),
+        )
+        if not present
+    ]
     return [
         "alignment brief evidence must state shared understanding, possible differences, "
         "unsupported assumptions/unknowns or minimal blocker questions, and the user-visible "
-        "checkpoint before requirements analysis or modification work"
+        "checkpoint before requirements analysis or modification work. Missing: "
+        + "; ".join(missing)
     ]

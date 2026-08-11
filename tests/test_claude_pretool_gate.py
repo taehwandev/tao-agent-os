@@ -634,5 +634,166 @@ class patch_stdin:
         sys.stdin = self._old
 
 
+def _load_stop_gate():
+    """The stop gate must agree with the pretool gate on what a project is."""
+    spec = importlib.util.spec_from_file_location(
+        "claude_stop_gate_under_test", ROOT / "scripts" / "claude_stop_gate.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+from support.global_state import STATE_HOME_ENV
+
+
+class IsolatedGlobalStateTestCase(unittest.TestCase):
+    """Point the global state home at a temp directory for the whole test.
+
+    The gate records every project a session edits into the global state home.
+    Without this, running the suite appended these tests' temporary project paths
+    to the real user's session index, which the Stop gate then walks.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        patcher = patch.dict(os.environ, {STATE_HOME_ENV: state.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.state_home = Path(state.name)
+
+
+class ProjectRootIsTheRepositoryTests(unittest.TestCase):
+    """A repository's docs subdirectory carries its own `AGENTS.md`.
+
+    Marker opt-in alone then read that subdirectory as a project and it shadowed
+    the repository that owned the work, so three things resolved against the
+    wrong root at once: run evidence landed outside the repository, the VibeGuard
+    scan root was not a Git checkout, and the skill catalog looked for project
+    skills one level too deep. A project root is a repository root.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._old_home = os.environ.get("HOME")
+
+    def tearDown(self) -> None:
+        if self._old_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self._old_home
+
+    @staticmethod
+    def _repo(root: Path) -> None:
+        (root / ".git").mkdir(parents=True)
+        (root / "AGENTS.md").write_text("# tao project\n")
+
+    def test_docs_subdirectory_resolves_to_the_repository(self) -> None:
+        stop_gate = _load_stop_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            os.environ["HOME"] = str(home)
+
+            repo = home / "git" / "project"
+            self._repo(repo)
+            docs = repo / ".agents"
+            docs.mkdir()
+            (docs / "AGENTS.md").write_text("# tao shared docs\n")
+            deep = docs / "shared" / "llm-skills" / "task"
+            deep.mkdir(parents=True)
+
+            for start in (deep, docs):
+                with self.subTest(start=start.name):
+                    self.assertEqual(repo, gate.find_project_root(start))
+                    self.assertEqual(repo, stop_gate.find_project_root(start))
+
+    def test_linked_worktree_is_its_own_project(self) -> None:
+        # Nearest repository, not outermost: a worktree owns its own run.
+        stop_gate = _load_stop_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            os.environ["HOME"] = str(home)
+
+            repo = home / "git" / "project"
+            self._repo(repo)
+            worktree = repo / ".tao" / "worktrees" / "task-1"
+            worktree.mkdir(parents=True)
+            # A linked worktree records .git as a file.
+            (worktree / ".git").write_text("gitdir: ../../../.git/worktrees/task-1\n")
+            (worktree / "AGENTS.md").write_text("# tao project\n")
+            inside = worktree / "app" / "src"
+            inside.mkdir(parents=True)
+
+            self.assertEqual(worktree, gate.find_project_root(inside))
+            self.assertEqual(worktree, stop_gate.find_project_root(inside))
+
+    def test_a_non_repository_marker_directory_still_opts_in(self) -> None:
+        # The runtime checkout itself is not a Git repository here; a deliberate
+        # marker must keep working when no candidate is a repository.
+        stop_gate = _load_stop_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            os.environ["HOME"] = str(home)
+
+            plain = home / "tools" / "runtime"
+            plain.mkdir(parents=True)
+            (plain / "AGENTS.md").write_text("# tao runtime\n")
+            inside = plain / "scripts"
+            inside.mkdir()
+
+            self.assertEqual(plain, gate.find_project_root(inside))
+            self.assertEqual(plain, stop_gate.find_project_root(inside))
+
+
+class SessionProjectIndexFollowsStateHomeTests(unittest.TestCase):
+    """The session project index belongs to the global state home, not to `$HOME`.
+
+    Both call sites used to build this path from ``Path.home()`` directly, which
+    made ``TAO_STATE_HOME`` a partial override: the suite wrote its temporary
+    project paths into the real user's index, and the Stop gate then walked them.
+    The writer and the reader must agree, so both are asserted here.
+    """
+
+    def test_index_path_follows_the_state_home_override(self) -> None:
+        with tempfile.TemporaryDirectory() as state:
+            with patch.dict(os.environ, {STATE_HOME_ENV: state}):
+                index = gate.session_projects_index("probe-session")
+            self.assertEqual(
+                Path(state) / "claude-session-projects" / "probe-session", index
+            )
+
+    def test_recording_a_project_writes_under_the_override(self) -> None:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "repo"
+            project.mkdir()
+            with patch.dict(os.environ, {STATE_HOME_ENV: state}):
+                gate.record_session_project(project, "probe-session")
+                recorded = gate.session_projects_index("probe-session").read_text()
+
+            self.assertIn(str(project), recorded)
+            # Nothing may appear beside the override.
+            self.assertFalse(
+                (Path.home() / ".tao" / "claude-session-projects" / "probe-session").exists()
+            )
+
+    def test_stop_gate_reads_the_same_index_the_pretool_gate_writes(self) -> None:
+        import claude_stop_gate as stop_gate
+
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "repo"
+            project.mkdir()
+            with patch.dict(os.environ, {STATE_HOME_ENV: state}):
+                gate.record_session_project(project, "probe-session")
+                roots = stop_gate.session_projects("probe-session", None)
+
+            self.assertIn(project, roots)
+
+
 if __name__ == "__main__":
     unittest.main()

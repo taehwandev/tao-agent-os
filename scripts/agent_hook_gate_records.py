@@ -28,8 +28,6 @@ from agent_finish_gate_policy import MULTI_AGENT_GATE, validate_gate_evidence
 from agent_finish_check_steps import validate_recorded_grill_me_evidence
 from agent_finish_documentation import required_doc_target_failures
 from agent_hook_runtime import finish_with_result
-from agent_global_lessons import state_home
-from agent_retrospective_observation import recorded_observation_failures
 from agent_skill_catalog import canonical_skill_ids
 from agent_runtime_session import resolve_runtime_evidence, runtime_session
 
@@ -316,14 +314,10 @@ def _validate_records_before_write(
                 + ", ".join(synthesis_failures)
             )
             continue
-        if gate == "retrospective check":
-            failures.extend(
-                recorded_observation_failures(
-                    preflight=preflight,
-                    fields=fields,
-                    state_root=state_home(),
-                )
-            )
+        # Observation existence is enforced at finish so the documented order
+        # remains possible: record the retrospective gate, store the
+        # observation, then finish. Gate-time enforcement made those two writes
+        # depend on each other and deadlocked every reusable gap.
         gate_evidence[gate] = synthesized or evidence
         if gate == MULTI_AGENT_GATE or gate in MULTI_AGENT_ROUTE_GATES:
             validates_delegation_plan = True

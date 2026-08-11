@@ -134,6 +134,7 @@ HOOK_ALIASES = {
     "review",
     "finish",
     "skill-feedback",
+    "skill-draft",
     "skill-curate",
     "skill-review",
     "skill-maintenance",

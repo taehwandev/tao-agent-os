@@ -270,6 +270,37 @@ def register_repair_attempt(
     return True, count
 
 
+def release_repair_attempt(
+    *,
+    evidence_path: Path,
+    preflight: dict[str, Any],
+    checkpoint: str,
+    failure_signature: str,
+) -> bool:
+    """Release the matching repair claim when a hook rejects its invocation."""
+
+    if not failure_signature:
+        return False
+    _enforce_worker_evidence_boundary(evidence_path)
+    path = repair_checkpoint_path_for_preflight(evidence_path)
+    with state_lock(path):
+        payload = _recorded_failure_payload(preflight.get("route") or {}, evidence_path)
+        attempts = payload.get("repair_attempts") if payload else None
+        if not isinstance(attempts, dict):
+            return False
+        prior = attempts.get(checkpoint)
+        if not isinstance(prior, dict):
+            return False
+        if str(prior.get("failure_signature") or "") != failure_signature:
+            return False
+        if int(prior.get("count", 0)) != 1:
+            return False
+        attempts.pop(checkpoint)
+        payload["repair_attempts"] = attempts
+        atomic_write_json(path, payload)
+    return True
+
+
 def _recorded_failure_payload(route: dict[str, Any], evidence_path: Path) -> dict[str, Any]:
     payload = read_json_object(repair_checkpoint_path_for_preflight(evidence_path))
     if not payload or payload.get("invalid_json"):

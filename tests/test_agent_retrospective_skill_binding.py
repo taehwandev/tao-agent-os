@@ -17,6 +17,7 @@ from agent_finish_gate_learning_validators import validate_retrospective_check
 from agent_gate_evidence import record_gate_evidence, reset_gate_evidence_ledger
 from agent_hook_gate_records import record_hook_gate
 from agent_skill_feedback import record_skill_feedback
+from agent_skill_draft import record_draft
 from agent_skill_learning import curate_observations, record_observation, review_candidate
 from agent_skill_maintenance import complete_verified_skill_maintenance
 
@@ -50,18 +51,24 @@ class RetrospectiveSkillBindingTests(unittest.TestCase):
             }
             evidence.write_text(json.dumps(preflight), encoding="utf-8")
             reset_gate_evidence_ledger(evidence, preflight)
+            record_observation(
+                state,
+                occurrence_id="opaque-runtime-run",
+                skill_id="retrospective_learning",
+                signal="weak_verification",
+            )
             record_gate_evidence(
                 evidence_path=evidence,
                 preflight=preflight,
                 gate="retrospective check",
                 evidence=(
                     "retrospective check; skills checked: retrospective-learning; "
-                    "outcome: reusable_gap; observation: deferred"
+                    "outcome: reusable_gap; observation: recorded"
                 ),
                 fields={
                     "skills_checked": "retrospective-learning",
                     "outcome": "reusable_gap",
-                    "observation": "deferred",
+                    "observation": "recorded",
                 },
                 status="SUCCESS",
                 source="test",
@@ -93,9 +100,10 @@ class RetrospectiveSkillBindingTests(unittest.TestCase):
                     signal="missing_binding_rule",
                 )
 
-            self.assertTrue(accepted["created"])
+            self.assertFalse(accepted["created"])
+            self.assertTrue(accepted["idempotent"])
             self.assertEqual(1, accepted["curation"]["scanned"])
-            self.assertEqual(0, accepted["curation"]["ready_count"])
+            self.assertEqual(1, accepted["curation"]["ready_count"])
             self.assertEqual("unknown_canonical_skill", rejected["reason"])
             self.assertEqual("unknown_feedback_signal", unstable["reason"])
 
@@ -142,103 +150,85 @@ class RetrospectiveSkillBindingTests(unittest.TestCase):
             )
             self.assertTrue(any(candidate in detail for detail in details))
 
-    def test_recorded_gate_requires_current_matching_observation(self) -> None:
+    def test_recorded_gate_no_longer_blocks_on_a_missing_observation(self) -> None:
+        """The observation-exists check moved to finish so the gate is reachable.
+
+        Enforcing it when the gate is recorded deadlocked every reusable gap: the
+        gate needed a stored observation, and the observation writer needed the
+        gate to already be recorded.
+        """
+
+        import inspect
+
+        import agent_hook_gate_records as records
+
+        source = inspect.getsource(records)
+        self.assertNotIn("recorded_observation_failures(", source)
+        self.assertNotIn("from agent_retrospective_observation import", source)
+
+    def test_finish_still_refuses_a_reusable_gap_without_its_observation(self) -> None:
+        """The guarantee is preserved, only relocated to the finish check."""
+
+        import inspect
+
+        from agent_retrospective_observation import recorded_observation_failures
+        from agent_skill_followup import skill_followup_failures
+
+        self.assertIn(
+            "recorded_observation_failures(",
+            inspect.getsource(skill_followup_failures),
+        )
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            project = root / "project"
-            rules = root / "rules"
-            state = root / "state"
-            evidence = project / ".tao" / "runs" / "one" / "preflight.json"
-            skill = rules / "workflows" / "skills" / "retrospective-learning" / "SKILL.md"
-            skill.parent.mkdir(parents=True)
-            skill.write_text("canonical\n", encoding="utf-8")
-            evidence.parent.mkdir(parents=True)
-            preflight = {
-                "agent_run_id": "opaque-runtime-run",
-                "route": {"command": "task", "gates": ["retrospective check"]},
-            }
-            evidence.write_text(json.dumps(preflight), encoding="utf-8")
-            reset_gate_evidence_ledger(evidence, preflight)
-            args = SimpleNamespace(
-                project=project,
-                rules=rules,
-                evidence=evidence,
+            failures = recorded_observation_failures(
+                preflight={"agent_run_id": "opaque-runtime-run"},
+                fields={
+                    "skills_checked": "retrospective-learning",
+                    "outcome": "reusable_gap",
+                    "observation": "recorded",
+                },
+                state_root=Path(directory),
             )
-            fields = {
-                "skills_checked": "retrospective-learning",
-                "outcome": "reusable_gap",
-                "observation": "recorded",
-            }
+        self.assertEqual(1, len(failures))
+        self.assertIn("matching stored observation", failures[0])
 
-            with patch("agent_hook_gate_records.state_home", return_value=state):
-                with self.assertRaisesRegex(ValueError, "matching stored observation"):
-                    record_hook_gate(
-                        args,
-                        "retrospective check",
-                        "",
-                        fields,
-                        "test",
-                    )
-                record_observation(
-                    state,
-                    occurrence_id="opaque-runtime-run",
-                    skill_id="retrospective_learning",
-                    signal="weak_verification",
-                )
-                entry = record_hook_gate(
-                    args,
-                    "retrospective check",
-                    "",
-                    fields,
-                    "test",
-                )
+    def test_persisted_noncanonical_signal_is_not_accepted_as_the_observation(self) -> None:
+        """A legacy signal must not satisfy the current occurrence at finish."""
 
-            self.assertEqual("SUCCESS", entry["status"])
+        from agent_retrospective_observation import recorded_observation_failures
+        from agent_skill_state import candidate_id, opaque_key
 
-    def test_recorded_gate_rejects_noncanonical_persisted_signal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            project = root / "project"
-            rules = root / "rules"
-            state = root / "state"
-            evidence = project / ".tao" / "runs" / "one" / "preflight.json"
-            skill = rules / "workflows" / "skills" / "retrospective-learning" / "SKILL.md"
-            skill.parent.mkdir(parents=True)
-            skill.write_text("canonical\n", encoding="utf-8")
-            evidence.parent.mkdir(parents=True)
-            preflight = {
-                "agent_run_id": "opaque-runtime-run",
-                "route": {"command": "task", "gates": ["retrospective check"]},
-            }
-            evidence.write_text(json.dumps(preflight), encoding="utf-8")
-            reset_gate_evidence_ledger(evidence, preflight)
-            record_observation(
-                state,
-                occurrence_id="opaque-runtime-run",
-                skill_id="retrospective_learning",
-                signal="weak_verification",
+            state = Path(directory)
+            occurrence = opaque_key("opaque-runtime-run")
+            candidate = candidate_id("retrospective_learning", "stale_cache_path_ids")
+            path = state / "skill-learning" / "observations" / f"{candidate}.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "observation_id": candidate,
+                        "candidate_id": candidate,
+                        "skill_id": "retrospective_learning",
+                        "signal": "stale_cache_path_ids",
+                        "occurrence_key": occurrence,
+                        "status": "observed",
+                        "privacy": "safe_slugs_and_opaque_ids_only",
+                    }
+                ),
+                encoding="utf-8",
             )
-            observation_path = next(
-                (state / "skill-learning" / "observations").glob("*.json")
+            failures = recorded_observation_failures(
+                preflight={"agent_run_id": "opaque-runtime-run"},
+                fields={
+                    "skills_checked": "retrospective-learning",
+                    "outcome": "reusable_gap",
+                    "observation": "recorded",
+                },
+                state_root=state,
             )
-            observation = json.loads(observation_path.read_text(encoding="utf-8"))
-            observation["signal"] = " weak_verification "
-            observation_path.write_text(json.dumps(observation), encoding="utf-8")
-            args = SimpleNamespace(project=project, rules=rules, evidence=evidence)
-
-            with patch("agent_hook_gate_records.state_home", return_value=state):
-                with self.assertRaisesRegex(ValueError, "matching stored observation"):
-                    record_hook_gate(
-                        args,
-                        "retrospective check",
-                        "",
-                        {
-                            "skills_checked": "retrospective-learning",
-                            "outcome": "reusable_gap",
-                            "observation": "recorded",
-                        },
-                        "test",
-                    )
+        self.assertEqual(1, len(failures))
+        self.assertIn("matching stored observation", failures[0])
 
     def test_project_local_skill_maintenance_is_allowlisted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -308,6 +298,18 @@ class RetrospectiveSkillBindingTests(unittest.TestCase):
             )
         queued = curate_observations(state)["queued"]
         candidate = queued[0]
+        bundle = state / "common" / "skills" / "local-skill"
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "SKILL.md").write_text("test skill\n", encoding="utf-8")
+        record_draft(
+            state,
+            project=state,
+            rules=state,
+            skill_id="local_skill",
+            signal="missing_rule",
+            proposal="A bounded test proposal describes the missing rule and its verification path.",
+            occurrence_id="draft-local-skill",
+        )
         review_candidate(
             state,
             candidate,

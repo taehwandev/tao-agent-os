@@ -901,6 +901,73 @@
         "android_module_compose_entry"
       ],
       "reason": "Compose and Activity entry-contract work needs the Compose-capable API boundary rules and the entry contract completion packet."
+    },
+    {
+      "name": "branch_worktree_cleanup",
+      "request_any": [
+        "\\b(branch cleanup|clean up branches|cleanup branches|prune branches)\\b",
+        "\\b(merged branch|merged branches|stale branch|stale worktree)\\b",
+        "\\bworktree (remove|prune|cleanup)\\b",
+        "브랜치.{0,20}(정리|삭제|지워|제거)",
+        "워크트리.{0,20}(정리|삭제|지워|제거)",
+        "(정리|삭제).{0,20}(브랜치|워크트리)"
+      ],
+      "docs": [
+        "common/skills/branch-cleanup/SKILL.md",
+        "common/skills/branch-strategy/SKILL.md",
+        "common/skills/worktree-hygiene/SKILL.md"
+      ],
+      "reason": "Branch and worktree deletion is destructive git-state work that needs the ownership, protected-branch, merge-ancestry, and dirty-worktree gates before anything is deleted."
+    },
+    {
+      "name": "bulk_mechanical_change",
+      "request_any": [
+        "\\b(bulk|mass|sweep|codemod|batch) (change|rename|edit|update|migration|replace)\\b",
+        "\\b(rename|replace|migrate) (them |these |all )?(across|in all|throughout) \\w+",
+        "\\ball (call ?sites|usages|occurrences|references)\\b",
+        "(일괄|전수|한꺼번에|모든 호출부|호출부 전체)"
+      ],
+      "docs": [
+        "common/skills/bulk-change-verification/SKILL.md",
+        "common/skills/change-size-policy/SKILL.md",
+        "common/skills/verification-policy/SKILL.md"
+      ],
+      "reason": "A repeated transform over many files can pass a check that never ran on every file; bulk work needs the transform and per-file verification-reliability rules."
+    },
+    {
+      "name": "git_history_investigation",
+      "request_any": [
+        "\\b(git )?blame\\b",
+        "\\bbisect\\b",
+        "\\b(why (does|is) this (line|code|function)|why was this)\\b",
+        "\\b(origin commit|when did this break|which commit broke|regressed|was this reverted)\\b",
+        "\\b(safe to (delete|remove)|dead code)\\b",
+        "(왜|어째서).{0,20}(있는지|존재|추가됐|넣었)",
+        "(언제|어느 커밋|어떤 커밋).{0,20}(깨졌|망가|되돌|추가|바뀌)",
+        "(삭제해도|지워도|제거해도).{0,10}(되는지|괜찮)"
+      ],
+      "docs": [
+        "common/skills/git-history-investigation/SKILL.md",
+        "common/skills/code-review/SKILL.md"
+      ],
+      "reason": "Last-touch blame usually points at a formatting or refactor commit; recovering why a line exists needs the noise-filtering and origin-commit tracing procedure."
+    },
+    {
+      "name": "multi_perspective_review",
+      "request_any": [
+        "\\bmulti[- ]perspective\\b",
+        "\\b(multiple|parallel|several) reviewers?\\b",
+        "\\b(persona|perspective)[- ]based review\\b",
+        "\\breview .{0,20}(from|with) (multiple|several|different) (angles|perspectives|lenses)\\b",
+        "(여러|다중|다).{0,4}(관점|시각|각도).{0,20}(리뷰|검토)",
+        "(리뷰어|검토자).{0,10}(여러|병렬|다중)",
+        "페르소나.{0,10}(리뷰|검토)"
+      ],
+      "docs": [
+        "workflows/skills/multi-perspective-review/SKILL.md",
+        "common/skills/code-review/SKILL.md"
+      ],
+      "reason": "Multi-reviewer review needs the structured-finding schema, dedupe key, read-only reviewer contract, and verify-then-fix rules so parallel findings can be merged mechanically without a reviewer acquiring mutation authority."
     }
   ],
   "path_surfaces": [

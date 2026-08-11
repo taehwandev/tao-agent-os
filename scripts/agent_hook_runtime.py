@@ -169,9 +169,9 @@ def hook_failure_policy(
             "recovery_required": "bounded_skill_review_or_verified_maintenance",
             "resume_scope": "finish",
         }, [
-            "closeout request: the current skill-learning occurrence reached the recurrence "
-            "threshold. Run the indicated skill-curate, skill-review, or skill-maintenance "
-            "step, then retry finish. This is expected closeout work, not a Tao repair cycle; "
+            "closeout request: the current task recorded a reusable skill gap. Run the "
+            "same-closeout skill-draft, skill-review, and verified skill-maintenance "
+            "steps, then retry finish. This is expected closeout work, not a Tao Agent OS repair cycle; "
             "do not run repair-verify",
         ]
     if repair_cycle < REPAIR_CYCLE_LIMIT:

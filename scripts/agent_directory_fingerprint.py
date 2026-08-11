@@ -34,6 +34,7 @@ EXCLUDED_DIRECTORY_NAMES = frozenset(
         "node_modules",
     }
 )
+EXCLUDED_ROOT_DIRECTORY_NAMES = frozenset({"local"})
 EXCLUDED_FILE_NAMES = frozenset({".DS_Store", ".coverage"})
 EXCLUDED_FILE_SUFFIXES = frozenset({".log", ".pyc", ".pyo"})
 
@@ -124,7 +125,10 @@ def _visit_directory(
             hash_component(signature, b"directory-raced", relative_bytes)
             continue
 
-        if stat.S_ISDIR(metadata.st_mode) and entry.name in EXCLUDED_DIRECTORY_NAMES:
+        if stat.S_ISDIR(metadata.st_mode) and (
+            entry.name in EXCLUDED_DIRECTORY_NAMES
+            or (current == root and entry.name in EXCLUDED_ROOT_DIRECTORY_NAMES)
+        ):
             continue
         if stat.S_ISREG(metadata.st_mode) and _is_excluded_file(entry.name):
             continue

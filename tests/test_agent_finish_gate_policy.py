@@ -1486,8 +1486,8 @@ class FinishGatePolicyTests(unittest.TestCase):
 
         self.assertEqual([], failures)
 
-    def test_retrospective_check_accepts_recorded_or_deferred_gap(self) -> None:
-        for observation in ("recorded", "deferred"):
+    def test_retrospective_check_accepts_recorded_gap(self) -> None:
+        for observation in ("recorded",):
             with self.subTest(observation=observation):
                 failures = validate_gate_evidence(
                     {
@@ -1512,7 +1512,7 @@ class FinishGatePolicyTests(unittest.TestCase):
             [RETROSPECTIVE_CHECK_GATE],
         )
 
-        self.assertTrue(any("must record or defer" in failure for failure in failures))
+        self.assertTrue(any("must record one skill observation" in failure for failure in failures))
 
     def test_retrospective_structured_fields_synthesize_valid_evidence(self) -> None:
         evidence, missing = synthesize_gate_evidence(
@@ -1533,6 +1533,101 @@ class FinishGatePolicyTests(unittest.TestCase):
                 [RETROSPECTIVE_CHECK_GATE],
             ),
         )
+
+
+class RefusalNamesAcceptedWordingTests(unittest.TestCase):
+    """A refusal that hides the wording it wants forces a source dive.
+
+    These gates pass or fail on substring match, so an agent whose truthful
+    sentence the matcher did not recognise had nowhere to look but the validator
+    source -- once per refusal, every time. Each message now carries the phrases
+    that decide it, and it reads them from the same constant the check uses so the
+    advertised wording cannot drift from the enforced wording.
+    """
+
+    def test_skip_refusal_names_the_wording_it_tripped_on(self) -> None:
+        from agent_finish_gate_skip_policy import (
+            _SKIP_PHRASES,
+            validate_required_gate_not_skipped,
+        )
+
+        failures = validate_required_gate_not_skipped("tests", "검증 미실행", set())
+        self.assertTrue(failures)
+        joined = " ".join(failures)
+        # The phrase that fired, not the first few candidates: this one sits last
+        # in the list, so a truncated listing would have shown none of the reason.
+        self.assertIn("미실행", joined)
+        self.assertIn("미실행", _SKIP_PHRASES)
+
+    def test_unresolved_refusal_names_the_wording_that_clears_it(self) -> None:
+        from agent_finish_gate_skip_policy import (
+            _RESOLVED_PHRASES,
+            validate_required_gate_not_skipped,
+        )
+
+        failures = validate_required_gate_not_skipped("handoff", "must fix later", set())
+        self.assertTrue(failures)
+        self.assertIn(_RESOLVED_PHRASES[0], " ".join(failures))
+
+    def test_tests_refusal_names_an_accepted_signal(self) -> None:
+        from agent_finish_gate_doc_test_validators import (
+            _TEST_SIGNAL_PHRASES,
+            validate_tests,
+        )
+
+        failures = validate_tests("결과만 기록했다")
+        self.assertTrue(failures)
+        self.assertIn(_TEST_SIGNAL_PHRASES[0], failures[0])
+
+    def test_alignment_brief_refusal_names_the_missing_parts(self) -> None:
+        from agent_finish_gate_core_validators import validate_alignment_brief
+
+        failures = validate_alignment_brief("Shared understanding: 원인은 라우팅 표다")
+        self.assertTrue(failures)
+        # Naming which of the four is absent is the only thing a rewrite needs.
+        self.assertIn("Missing:", failures[0])
+        self.assertIn("possible differences", failures[0])
+        self.assertNotIn("Missing: shared understanding", failures[0])
+
+    def test_a_satisfied_gate_still_passes_silently(self) -> None:
+        from agent_finish_gate_doc_test_validators import validate_tests
+
+        self.assertEqual([], validate_tests("unittest 1153건 통과"))
+
+    def test_a_pass_word_without_a_result_or_a_command_is_refused(self) -> None:
+        """A pass claim must be falsifiable by the person reading it.
+
+        Accepting "tests passed" is how a finish gate reported SUCCESS for work
+        whose suite was never run: the wording is identical either way.
+        """
+
+        from agent_finish_gate_doc_test_validators import validate_tests
+
+        for unfalsifiable in ("tests passed", "unit tests green", "unit test result: pass"):
+            with self.subTest(unfalsifiable):
+                failures = validate_tests(unfalsifiable)
+                self.assertTrue(failures, unfalsifiable)
+                self.assertIn("not falsifiable", failures[0])
+
+        # Either half of the requirement clears it on its own: a produced result,
+        # or the command a reader can rerun.
+        for falsifiable in (
+            "tests: 0 failures",
+            "1163 tests ok",
+            "unittest discover -s tests passed",
+            "./gradlew testDebugUnitTest 통과",
+            "regression tests -> exit 0",
+        ):
+            with self.subTest(falsifiable):
+                self.assertEqual([], validate_tests(falsifiable), falsifiable)
+
+    def test_an_approved_skip_owes_no_result(self) -> None:
+        from agent_finish_gate_doc_test_validators import validate_tests
+
+        self.assertEqual(
+            [], validate_tests("tests not run because docs-only change has no useful test")
+        )
+        self.assertEqual([], validate_tests("not applicable: no behavior change"))
 
 
 if __name__ == "__main__":

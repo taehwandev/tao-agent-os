@@ -24,7 +24,7 @@ from workflow_effect_policy import (
     effective_effect,
     route_minimum_effect,
 )
-from workflow_intent_envelope import EFFECT_RANK, validate_envelope
+from workflow_intent_envelope import EFFECT_RANK, EFFECTS, validate_envelope
 
 
 FINGERPRINT = "a1b2c3d4e5f60718"
@@ -81,6 +81,16 @@ class EnvelopeSchemaTests(unittest.TestCase):
         self.assertTrue(validate_envelope(envelope(requested_effects=["sudo"])))
         self.assertTrue(validate_envelope(envelope(prompt="raw user text")))
         self.assertTrue(validate_envelope(envelope(approval_ref=12345678)))
+
+    def test_runtime_guidance_names_every_allowed_effect(self) -> None:
+        guidance = (
+            ROOT
+            / "workflows/skills/scripted-agent-workflow/references/current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        for effect in EFFECTS:
+            with self.subTest(effect=effect):
+                self.assertIn(f"`{effect}`", guidance)
 
     def test_an_envelope_cannot_request_what_it_prohibits(self) -> None:
         contradictory = envelope(

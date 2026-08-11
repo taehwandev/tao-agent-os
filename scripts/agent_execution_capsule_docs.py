@@ -146,7 +146,7 @@ def _validate_off_route_required_doc_repair(
         rules=rules,
         evidence_path=evidence_path,
         preflight=preflight,
-        target=target,
+        target=str(contained_doc_path(rules, target)),
         checkpoint=checkpoint,
         receipt_path=receipt_path,
     )

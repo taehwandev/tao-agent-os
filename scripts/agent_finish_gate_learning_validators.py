@@ -15,7 +15,6 @@ RETROSPECTIVE_OUTCOMES = {
 RETROSPECTIVE_OBSERVATION_STATES = {
     "not_needed",
     "recorded",
-    "deferred",
 }
 
 
@@ -24,7 +23,7 @@ def validate_retrospective_check(
     *,
     allowed_skill_ids: set[str] | None = None,
 ) -> list[str]:
-    """Require an explicit skill check while keeping follow-up non-blocking."""
+    """Require an explicit skill check and same-closeout gap resolution."""
 
     text = evidence.strip()
     if not text:
@@ -55,14 +54,15 @@ def validate_retrospective_check(
         )
     if observation not in RETROSPECTIVE_OBSERVATION_STATES:
         failures.append(
-            "retrospective check observation must be not_needed, recorded, or deferred"
+            "retrospective check observation must be not_needed or recorded"
         )
     if failures:
         return failures
 
-    if outcome == "reusable_gap" and observation not in {"recorded", "deferred"}:
+    if outcome == "reusable_gap" and observation != "recorded":
         failures.append(
-            "retrospective check with reusable_gap must record or defer one skill observation"
+            "retrospective check with reusable_gap must record one skill observation "
+            "before same-closeout maintenance"
         )
     if outcome in {"no_reusable_gap", "no_skill_used"} and observation != "not_needed":
         failures.append(

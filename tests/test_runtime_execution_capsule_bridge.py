@@ -103,7 +103,12 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                     )
 
                 normalized = " ".join(block.split())
-                self.assertIn("let the classifier decide", normalized)
+                # The classifier no longer carries work authority: a work route
+                # is opened by the intent envelope, so pinning the old
+                # "let the classifier decide" wording here would require the
+                # bridge to teach a contract the runtime now refuses.
+                self.assertIn("--intent-envelope", normalized)
+                self.assertNotIn("let the classifier decide", normalized)
                 self.assertNotIn(
                     "For a classified or answered request, keep passing the current "
                     "--request and add --request-classified",

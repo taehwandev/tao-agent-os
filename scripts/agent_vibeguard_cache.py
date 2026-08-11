@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -55,11 +56,70 @@ def cached_vibeguard(
 
     result = run_command(command, project)
     result["overall"] = parse_overall(result["stdout"] + "\n" + result["stderr"])
+    result = _retry_with_changed_only_when_blocked_paths_are_ignored(
+        project=project,
+        command=command,
+        result=result,
+        run_command=run_command,
+        parse_overall=parse_overall,
+    )
     result["cached"] = False
     result["cache"] = {"hit": False, "path": str(_cache_path(project))}
     if signature and result.get("returncode") == 0:
         _write_cache(project, signature, _cacheable_result(result))
     return result
+
+
+def _retry_with_changed_only_when_blocked_paths_are_ignored(
+    *,
+    project: Path,
+    command: list[str],
+    result: dict[str, Any],
+    run_command: CommandRunner,
+    parse_overall: OverallParser,
+) -> dict[str, Any]:
+    if result.get("returncode") == 0 or "--changed-only" in command:
+        return result
+
+    blocking_paths = _blocking_finding_paths(result)
+    if not blocking_paths:
+        return result
+    if any(
+        run_command(["git", "check-ignore", "--quiet", "--", relative], project).get("returncode") != 0
+        for relative in blocking_paths
+    ):
+        return result
+
+    fallback = run_command([*command, "--changed-only"], project)
+    fallback["overall"] = parse_overall(fallback["stdout"] + "\n" + fallback["stderr"])
+    if fallback.get("returncode") != 0:
+        return result
+    fallback["fallback"] = {
+        "reason": "full audit blocked only on Git-ignored paths",
+        "ignored_path_count": len(blocking_paths),
+        "full_audit_returncode": result.get("returncode"),
+        "full_audit_overall": result.get("overall"),
+    }
+    return fallback
+
+
+def _blocking_finding_paths(result: dict[str, Any]) -> list[str]:
+    output = str(result.get("stdout", "")) + "\n" + str(result.get("stderr", ""))
+    blocking_lines = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip().startswith("- 🛑 ")
+    ]
+    if not blocking_lines:
+        return []
+
+    paths: list[str] = []
+    for line in blocking_lines:
+        match = re.match(r"^- 🛑 (?P<path>.+?):\d+\s", line)
+        if match is None:
+            return []
+        paths.append(match.group("path"))
+    return paths
 
 
 def _signature(

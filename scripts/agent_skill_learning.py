@@ -28,6 +28,7 @@ from agent_skill_state import (
     transition_record as _transition_record,
     valid_candidate_record as _valid_candidate_record,
 )
+from agent_skill_draft import draft_binding
 from agent_state_lock import state_lock
 
 
@@ -40,11 +41,17 @@ def record_observation(
     occurrence_id: str,
     skill_id: str,
     signal: str,
+    gap_type: str = "",
 ) -> dict[str, Any]:
+    """Record one observation, optionally preserving a safe gap slug."""
+
     if not _safe_slug(skill_id):
         return {"created": False, "reason": "unsafe_observation_fields"}
     if normalize_feedback_signal(signal) != signal:
         return {"created": False, "reason": "unknown_feedback_signal"}
+    gap_type = gap_type.strip()
+    if gap_type and not _safe_slug(gap_type):
+        return {"created": False, "reason": "unsafe_observation_fields"}
     occurrence_key = _opaque_key(occurrence_id)
     if not occurrence_key:
         return {"created": False, "reason": "missing_occurrence_id"}
@@ -65,6 +72,8 @@ def record_observation(
         "created_at": now,
         "privacy": "safe_slugs_and_opaque_ids_only",
     }
+    if gap_type:
+        payload["gap_type"] = gap_type
     try:
         # The occurrence, not the candidate, is the scope of the invariant: a
         # reusable gap may produce at most one observation per run. Locking per
@@ -128,6 +137,7 @@ def review_candidate(
     gap_type: str = "",
     change_type: str = "",
     promotion_target: str = "",
+    min_occurrences: int = DEFAULT_REVIEW_THRESHOLD,
 ) -> dict[str, Any]:
     if not CANDIDATE_ID_RE.fullmatch(candidate_id):
         return {"updated": False, "reason": "invalid_candidate_id"}
@@ -138,12 +148,15 @@ def review_candidate(
         queued = _read_json(queue_path)
         if not _valid_candidate_record(queued, candidate_id, expected_status="review_ready"):
             return {"updated": False, "reason": "candidate_not_found"}
-        if _candidate_occurrence_count(root, candidate_id) < DEFAULT_REVIEW_THRESHOLD:
+        if _candidate_occurrence_count(root, candidate_id) < max(1, int(min_occurrences)):
             return {"updated": False, "reason": "candidate_observations_missing"}
         if decision == "stage_patch" and not all(
             _safe_slug(value) for value in (gap_type, change_type, promotion_target)
         ):
             return {"updated": False, "reason": "unsafe_review_fields"}
+        reviewed_draft = draft_binding(root, candidate_id)
+        if decision == "stage_patch" and not reviewed_draft:
+            return {"updated": False, "reason": "skill_draft_required"}
         cap_lock = (
             state_lock(root / "skill-learning" / "locks" / "staged-cap.json")
             if decision == "stage_patch"
@@ -169,6 +182,7 @@ def review_candidate(
                     promotion_target=promotion_target,
                     next_action="separate_verified_skill_maintenance",
                 )
+                payload.update(reviewed_draft)
                 destination = root / _staged_path(candidate_id)
             else:
                 payload["next_action"] = "none"

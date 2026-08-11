@@ -447,6 +447,13 @@ creates or switches to a different Git worktree, run a fresh `start` from that
 worktree before project work; never combine a main-checkout preflight with
 worktree review or finish hooks.
 
+For a non-Git rules root, exclude the root `local/` personal-skill tree from
+the whole-root lifecycle fingerprint. Personal skills are independent owners
+that may be updated by another task, so unrelated local-skill drift must not
+invalidate an active project's review attestation. A task-critical personal
+skill must instead be named in that task's source evidence; required-document
+hashes still bind any local document that the route explicitly promotes.
+
 For local commit creation or commit preparation, use the lightweight `commit`
 route, or `git_commit` when the runtime labels the task that way. Do not route
 a clear commit request through `review`, `task`, or `triage` unless the request
@@ -635,25 +642,16 @@ Before finish on every route, run the required lightweight `retrospective
 check`: inspect the skills actually loaded and applied, then record
 the exact fields `skills_checked`, `outcome`, and `observation`. `outcome` is
 `no_reusable_gap`, `reusable_gap`, or `no_skill_used`; `observation` is
-`not_needed`, `recorded`, or `deferred`. Pair `no_reusable_gap` and
-`no_skill_used` with `not_needed`, and pair `reusable_gap` with `recorded` or
-`deferred`. The check is required finish evidence. Storing a first observation
-is non-blocking, but the follow-up is not unconditionally so: once the current
-occurrence reaches the recurrence threshold, that candidate must reach a
-terminal outcome before finish succeeds. If there is no reusable gap, do not
-create a ceremonial observation record. If there is one, the optional
-`skill-feedback` hook records only a
-content-free observation for a skill actually used; it does not let the task
-agent declare a patch candidate. Deterministic curation queues review only after
-the same structured signal recurs in distinct opaque runs. A separate bounded
-reviewer chooses `no_change` or `staged_patch`, and canonical guidance changes
-only during later verified maintenance. Below the threshold, missing storage,
-tokens, reviewers, or maintenance capacity never changes a successful finish
-result. At the threshold, finish returns pending closeout instead: it names the
-owed `skill-curate`, `skill-review`, or `skill-maintenance` step and keeps the
-run claim active so that work can proceed, and it is not a repair cycle — do
-not run `repair-verify` for it. Unrelated candidates queued by earlier runs do
-not block this one. Default review
+`not_needed` or `recorded`. Pair `no_reusable_gap` and `no_skill_used` with
+`not_needed`, and pair `reusable_gap` with `recorded`. The check is required
+finish evidence. If there is no reusable gap, do not create a ceremonial
+observation record. If there is one, the `skill-feedback` hook records a
+content-free observation for a skill actually used, then the same closeout
+must draft, review, stage, edit, and verify the canonical skill document.
+Canonical guidance changes only through the verified maintenance recorder;
+missing storage, tokens, reviewers, or maintenance capacity keeps finish
+pending rather than silently dropping the update. Unrelated historical
+candidates do not block this one. Default review
 to one capable agent and use additional reviewers only when impact and available
 budget justify them. The detailed decision and privacy rules are owned by
 `workflows/skills/retrospective-learning/SKILL.md`.
@@ -759,9 +757,9 @@ repair cycle is exhausted.
 
 Do not merge this failure path with successful-task skill feedback. Required
 hook or gate failure remains blocking and must use the repair-and-resume
-contract. Skill feedback is a separate path: storing an observation stays a
-non-blocking future-maintenance signal, and a threshold candidate holds finish
-as pending closeout, which is owed follow-up work rather than a repair cycle.
+contract. Skill feedback is a separate path: a reusable-gap observation starts
+the same-closeout draft/review/stage/maintenance sequence, which is owed
+closeout work rather than a repair cycle.
 Neither one is answered with `repair-verify`.
 
 VibeGuard `Needs review` is not completion unless the agent explicitly reports
