@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -21,8 +22,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from agent_skill_curator import MAX_QUEUED_GAP_TYPES, _observed_gap_types, curate_observations
-from agent_skill_learning import record_observation
-from agent_skill_state import candidate_id, review_queue_path
+from agent_skill_learning import record_observation, review_candidate
+from agent_skill_state import candidate_id, completed_path, review_queue_path
 
 
 class RecordObservationGapType(unittest.TestCase):
@@ -75,6 +76,17 @@ class RecordObservationGapType(unittest.TestCase):
         self.assertEqual(
             self._stored(result)["privacy"], "safe_slugs_and_opaque_ids_only"
         )
+
+    def test_candidate_order_disambiguates_equal_timestamps(self):
+        with patch(
+            "agent_skill_learning._now",
+            return_value="2026-08-11T00:00:00+00:00",
+        ):
+            first = self._record("occ-1", gap_type="gap_alpha")
+            second = self._record("occ-2", gap_type="gap_beta")
+
+        self.assertEqual(1, self._stored(first)["candidate_order"])
+        self.assertEqual(2, self._stored(second)["candidate_order"])
 
 
 class ObservedGapTypes(unittest.TestCase):
@@ -140,6 +152,83 @@ class CuratorCarriesGapTypes(unittest.TestCase):
             (self.root / review_queue_path(candidate)).read_text(encoding="utf-8")
         )
         self.assertEqual(queued["gap_types"], [])
+
+    def test_a_new_gap_reopens_a_completed_no_change_candidate(self):
+        candidate = candidate_id("branch_cleanup", "missing_rule")
+        record_observation(
+            self.root,
+            occurrence_id="occ-1",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_import_policy",
+        )
+        curate_observations(self.root, min_occurrences=1)
+        self.assertTrue(
+            review_candidate(
+                self.root,
+                candidate,
+                decision="no_change",
+                min_occurrences=1,
+            )["updated"]
+        )
+        self.assertTrue((self.root / completed_path(candidate)).exists())
+
+        record_observation(
+            self.root,
+            occurrence_id="occ-2",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_error_policy",
+        )
+        curated = curate_observations(self.root, min_occurrences=1)
+
+        self.assertEqual(curated["queued"], [candidate])
+        self.assertFalse((self.root / completed_path(candidate)).exists())
+        reopened = json.loads(
+            (self.root / review_queue_path(candidate)).read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            reopened["gap_types"],
+            ["missing_error_policy", "missing_import_policy"],
+        )
+
+    def test_a_fifth_gap_reopens_and_enters_the_bounded_queue(self):
+        candidate = candidate_id("branch_cleanup", "missing_rule")
+        covered_gaps = ("gap_alpha", "gap_beta", "gap_delta", "gap_gamma")
+        for index, gap_type in enumerate(covered_gaps, 1):
+            record_observation(
+                self.root,
+                occurrence_id=f"occ-{index}",
+                skill_id="branch_cleanup",
+                signal="missing_rule",
+                gap_type=gap_type,
+            )
+        curate_observations(self.root, min_occurrences=1)
+        self.assertTrue(
+            review_candidate(
+                self.root,
+                candidate,
+                decision="no_change",
+                min_occurrences=1,
+            )["updated"]
+        )
+
+        record_observation(
+            self.root,
+            occurrence_id="occ-5",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="gap_zeta",
+        )
+        curated = curate_observations(self.root, min_occurrences=1)
+
+        self.assertEqual(curated["queued"], [candidate])
+        self.assertFalse((self.root / completed_path(candidate)).exists())
+        reopened = json.loads(
+            (self.root / review_queue_path(candidate)).read_text(encoding="utf-8")
+        )
+        self.assertEqual(len(reopened["gap_types"]), MAX_QUEUED_GAP_TYPES)
+        self.assertIn("gap_zeta", reopened["gap_types"])
 
 
 if __name__ == "__main__":

@@ -12,8 +12,10 @@ from agent_skill_catalog import (
 from agent_skill_state import (
     DEFAULT_REVIEW_THRESHOLD,
     SCHEMA_VERSION,
+    candidate_gap_types,
     candidate_id,
     candidate_lock_path,
+    completed_path,
     json_count,
     now,
     observation_candidate_ids,
@@ -21,7 +23,10 @@ from agent_skill_state import (
     read_json,
     review_queue_path,
     safe_slug,
+    staged_path,
     terminal_candidate_exists,
+    transition_record,
+    valid_candidate_record,
 )
 from agent_state_lock import state_lock
 
@@ -35,15 +40,155 @@ MAX_REVIEW_QUEUE = 100
 MAX_QUEUED_GAP_TYPES = 4
 
 
-def _observed_gap_types(observations: list[dict[str, Any]]) -> list[str]:
-    """Return the distinct safe gap slugs named across this candidate's observations."""
+def _observed_gap_type_set(observations: list[dict[str, Any]]) -> set[str]:
+    """Return every distinct safe gap named across the candidate observations."""
 
-    seen = {
+    return {
         value
         for value in (str(item.get("gap_type") or "").strip() for item in observations)
         if value and safe_slug(value)
     }
-    return sorted(seen)[:MAX_QUEUED_GAP_TYPES]
+
+
+def _bounded_gap_types(
+    gap_types: set[str], *, priority: list[str] | None = None
+) -> list[str]:
+    """Bound a queue payload while retaining uncovered gaps before covered ones."""
+
+    prioritized = list(
+        dict.fromkeys(value for value in (priority or []) if value in gap_types)
+    )
+    ordered = prioritized + sorted(gap_types - set(prioritized))
+    return ordered[:MAX_QUEUED_GAP_TYPES]
+
+
+def _observed_gap_types(observations: list[dict[str, Any]]) -> list[str]:
+    """Return the bounded safe gap slugs carried by a new review item."""
+
+    return _bounded_gap_types(_observed_gap_type_set(observations))
+
+
+def _latest_gap_types(observations: list[dict[str, Any]]) -> list[str]:
+    """Return safe gaps from the newest occurrence so active follow-up can advance.
+
+    New observations carry a candidate-local order because wall-clock timestamps
+    may tie. Historical observations fall back to their existing timestamps.
+    """
+
+    orders = [
+        value
+        for item in observations
+        for value in [item.get("candidate_order")]
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 1
+    ]
+    if orders:
+        latest_order = max(orders)
+        latest = [
+            item for item in observations if item.get("candidate_order") == latest_order
+        ]
+    else:
+        latest_at = max(
+            (str(item.get("created_at") or "") for item in observations), default=""
+        )
+        latest = [
+            item
+            for item in observations
+            if str(item.get("created_at") or "") == latest_at
+        ]
+    return sorted(
+        {
+            value
+            for item in latest
+            for value in [str(item.get("gap_type") or "").strip()]
+            if value and safe_slug(value)
+        }
+    )
+
+
+def _valid_completed_candidate(payload: dict[str, Any], candidate: str) -> bool:
+    status = str(payload.get("status") or "")
+    return (
+        status in {"no_change", "applied", "rejected"}
+        and valid_candidate_record(payload, candidate, expected_status=status)
+        and payload.get("next_action") == "none"
+    )
+
+
+def _terminal_reopen_path(
+    root: Path,
+    compatible_candidates: set[str],
+    gap_types: set[str],
+) -> tuple[Path | None, bool]:
+    """Return one safe completed record to reopen, or whether state blocks queueing."""
+
+    if any(
+        (root / review_queue_path(candidate)).exists()
+        or (root / staged_path(candidate)).exists()
+        for candidate in compatible_candidates
+    ):
+        return None, True
+    completed = [
+        (candidate, root / completed_path(candidate), read_json(root / completed_path(candidate)))
+        for candidate in compatible_candidates
+        if (root / completed_path(candidate)).exists()
+    ]
+    if any(
+        not _valid_completed_candidate(payload, candidate)
+        for candidate, _path, payload in completed
+    ):
+        return None, True
+    if any(gap_types.issubset(candidate_gap_types(payload)) for _id, _path, payload in completed):
+        return None, True
+    # Multiple legacy aliases are ambiguous; one state may be reopened safely.
+    return (completed[0][1], False) if len(completed) == 1 else (None, bool(completed))
+
+
+def _queue_candidate(
+    root: Path,
+    candidate: str,
+    payload: dict[str, Any],
+    observed_gap_types: set[str],
+    latest_gap_types: list[str],
+    reopen_path: Path | None,
+) -> bool:
+    """Write a new queue state or atomically reopen one completed state."""
+
+    queue_path = root / review_queue_path(candidate)
+    try:
+        with state_lock(root / candidate_lock_path(candidate)):
+            if queue_path.exists() or (root / staged_path(candidate)).exists():
+                return False
+            if reopen_path is not None:
+                if not reopen_path.exists():
+                    return False
+                current = read_json(reopen_path)
+                if not _valid_completed_candidate(current, reopen_path.stem):
+                    return False
+                covered_gap_types = candidate_gap_types(current)
+                if observed_gap_types.issubset(covered_gap_types):
+                    return False
+                uncovered_gap_types = observed_gap_types - covered_gap_types
+                latest_uncovered = [
+                    gap_type
+                    for gap_type in latest_gap_types
+                    if gap_type in uncovered_gap_types
+                ]
+                payload = {
+                    **payload,
+                    "gap_types": _bounded_gap_types(
+                        observed_gap_types,
+                        priority=latest_uncovered
+                        + sorted(uncovered_gap_types - set(latest_uncovered)),
+                    ),
+                }
+                transition_record(reopen_path, queue_path, payload)
+            elif terminal_candidate_exists(root, candidate):
+                return False
+            else:
+                atomic_write_json(queue_path, payload)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def curate_observations(
@@ -101,20 +246,19 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
         eligible_count += 1
         if eligible_count > MAX_CURATED_GROUPS:
             break
-        queue_path = root / review_queue_path(candidate)
+        gap_type_set = _observed_gap_type_set(observations)
+        latest_gap_types = _latest_gap_types(observations)
+        gap_types = _bounded_gap_types(gap_type_set, priority=latest_gap_types)
         compatible_candidates = set().union(
             *(
                 set(item.get("_compatible_candidate_ids") or ())
                 for item in observations
             )
         )
-        if any(
-            terminal_candidate_exists(root, compatible_candidate)
-            for compatible_candidate in compatible_candidates
-        ) or any(
-            (root / review_queue_path(compatible_candidate)).exists()
-            for compatible_candidate in compatible_candidates
-        ):
+        reopen_path, blocked = _terminal_reopen_path(
+            root, compatible_candidates, gap_type_set
+        )
+        if blocked:
             continue
         if queue_count >= MAX_REVIEW_QUEUE:
             break
@@ -124,7 +268,7 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
             "candidate_id": candidate,
             "skill_id": representative["skill_id"],
             "signal": representative["signal"],
-            "gap_types": _observed_gap_types(observations),
+            "gap_types": gap_types,
             "distinct_occurrences": len(occurrence_keys),
             "threshold": threshold,
             "first_observed_at": min(str(item.get("created_at") or "") for item in observations),
@@ -134,14 +278,17 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
             "next_action": "bounded_skill_review",
             "privacy": "safe_slugs_and_opaque_ids_only",
         }
-        try:
-            with state_lock(root / candidate_lock_path(candidate)):
-                if not queue_path.exists() and not terminal_candidate_exists(root, candidate):
-                    atomic_write_json(queue_path, payload)
-                    queued.append(candidate)
-                    queue_count += 1
-        except (OSError, ValueError):
+        if not _queue_candidate(
+            root,
+            candidate,
+            payload,
+            gap_type_set,
+            latest_gap_types,
+            reopen_path,
+        ):
             continue
+        queued.append(candidate)
+        queue_count += 1
     return {
         "scanned": sum(len(items) for items in groups.values()),
         "queued": queued,

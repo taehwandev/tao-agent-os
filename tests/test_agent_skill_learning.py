@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -94,6 +95,36 @@ class AgentSkillLearningTests(unittest.TestCase):
             )
 
             self.assertTrue(later["created"])
+
+    def test_concurrent_candidate_observations_receive_unique_orders(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def observe(index: int) -> dict[str, object]:
+                return record_observation(
+                    root,
+                    occurrence_id=f"run-{index}",
+                    skill_id="verification_policy",
+                    signal="weak_verification",
+                    gap_type=f"gap_{index}",
+                )
+
+            with patch(
+                "agent_skill_learning._now",
+                return_value="2026-08-11T00:00:00+00:00",
+            ):
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    results = list(pool.map(observe, range(8)))
+
+            self.assertTrue(all(result["created"] for result in results))
+            payloads = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in (root / observation_dir()).glob("*.json")
+            ]
+            self.assertEqual(
+                list(range(1, 9)),
+                sorted(payload["candidate_order"] for payload in payloads),
+            )
 
     def test_observation_replay_is_idempotent_and_content_free(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

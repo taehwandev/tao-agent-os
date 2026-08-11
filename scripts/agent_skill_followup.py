@@ -11,6 +11,7 @@ from agent_skill_state import (
     CANDIDATE_ID_RE,
     CURRENT_TASK_REVIEW_THRESHOLD,
     SCHEMA_VERSION,
+    candidate_gap_types,
     candidate_id,
     candidate_occurrence_count,
     completed_path,
@@ -50,7 +51,7 @@ def skill_followup_failures(
             state_root=state_root,
         )
     )
-    candidates: set[str] = set()
+    candidates: dict[str, set[str]] = {}
     for path in (state_root / observation_dir()).glob("*.json"):
         payload = read_json(path)
         if payload.get("occurrence_key") != occurrence_key:
@@ -60,12 +61,17 @@ def skill_followup_failures(
             suffix = f": candidate={candidate}" if CANDIDATE_ID_RE.fullmatch(candidate) else ""
             failures.add(f"skill follow-up current observation invalid{suffix}")
             continue
-        candidates.add(candidate)
+        gap_type = str(payload.get("gap_type") or "").strip()
+        candidates.setdefault(candidate, set())
+        if gap_type:
+            candidates[candidate].add(gap_type)
 
     for candidate in sorted(candidates):
         if candidate_occurrence_count(state_root, candidate) < CURRENT_TASK_REVIEW_THRESHOLD:
             continue
-        failures.update(_candidate_failures(state_root, candidate))
+        failures.update(
+            _candidate_failures(state_root, candidate, candidates[candidate])
+        )
     return sorted(failures)
 
 
@@ -96,10 +102,18 @@ def _valid_current_observation(payload: dict[str, Any], occurrence_key: str) -> 
         and normalize_feedback_signal(signal) == signal
         and payload.get("candidate_id") == candidate
         and payload.get("observation_id") == observation
+        and (
+            not str(payload.get("gap_type") or "").strip()
+            or safe_slug(str(payload.get("gap_type") or "").strip())
+        )
     )
 
 
-def _candidate_failures(state_root: Path, candidate: str) -> set[str]:
+def _candidate_failures(
+    state_root: Path,
+    candidate: str,
+    required_gap_types: set[str],
+) -> set[str]:
     records = {
         "bounded review": state_root / review_queue_path(candidate),
         "verified maintenance": state_root / staged_path(candidate),
@@ -115,12 +129,16 @@ def _candidate_failures(state_root: Path, candidate: str) -> set[str]:
     payload = read_json(path)
     if state == "bounded review":
         if valid_candidate_record(payload, candidate, expected_status="review_ready"):
+            if not required_gap_types.issubset(candidate_gap_types(payload)):
+                return {f"skill follow-up curation pending: candidate={candidate}"}
             return {f"skill follow-up bounded review pending: candidate={candidate}"}
     elif state == "verified maintenance":
         if valid_candidate_record(payload, candidate, expected_status="staged_patch"):
             return {f"skill follow-up verified maintenance pending: candidate={candidate}"}
     elif _valid_completed_record(payload, candidate):
-        return set()
+        if required_gap_types.issubset(candidate_gap_types(payload)):
+            return set()
+        return {f"skill follow-up curation pending: candidate={candidate}"}
     return {f"skill follow-up state invalid: candidate={candidate}"}
 
 

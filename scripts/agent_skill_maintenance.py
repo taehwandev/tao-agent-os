@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import sha256_file
+from agent_skill_draft import draft_binding
 from agent_state_lock import state_lock
 from agent_verification_command import (
     run_verification_command,
@@ -144,8 +145,18 @@ def complete_verified_skill_maintenance(
 
 
 def _load_staged_candidate(root: Path, candidate_id: str) -> tuple[dict[str, Any], str]:
-    staged = _read_json(root / _staged_path(candidate_id))
-    if _valid_candidate_record(staged, candidate_id, expected_status="staged_patch"):
+    staged_path = root / _staged_path(candidate_id)
+    staged = _read_json(staged_path)
+    if staged_path.exists():
+        if not _valid_candidate_record(staged, candidate_id, expected_status="staged_patch"):
+            return {}, "staged_candidate_invalid"
+        current_binding = draft_binding(root, candidate_id)
+        reviewed_binding = {
+            "draft_id": str(staged.get("draft_id") or ""),
+            "draft_sha256": str(staged.get("draft_sha256") or ""),
+        }
+        if not current_binding or current_binding != reviewed_binding:
+            return {}, "skill_draft_stale"
         return staged, ""
     if (root / _completed_path(candidate_id)).exists():
         return {}, "candidate_not_staged"

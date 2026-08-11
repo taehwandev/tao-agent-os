@@ -138,11 +138,7 @@ def process_failure_learning(
     failures: list[str],
     rules: Path | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    repair_required_failures = [
-        failure
-        for failure in failures
-        if not _is_read_only_revision_drift(failure)
-    ]
+    repair_required_failures = list(failures)
     retrospective_required = requires_retrospective(
         missed_gates,
         gate_policy_failures,
@@ -176,17 +172,6 @@ def process_failure_learning(
         }
     )
     return retrospective_required, lesson
-
-
-def _is_read_only_revision_drift(failure: str) -> bool:
-    """Recognize the stale-input refresh path already owned by runtime guidance."""
-
-    return (
-        failure.startswith("read-only execution was declared but the ")
-        and "revision changed after start" in failure
-        and "worktree fingerprint stayed unchanged" in failure
-        and "regenerate start/preflight" in failure
-    )
 
 
 def _report_finish_failures(

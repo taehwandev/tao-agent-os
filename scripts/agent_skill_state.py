@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_execution_capsule_state import atomic_write_json
+from agent_execution_capsule_state import atomic_write_json, is_sha256
 from agent_skill_catalog import (
     LEGACY_FEEDBACK_SIGNAL_MAPPING_VERSION,
     normalize_feedback_signal,
@@ -102,6 +102,19 @@ def terminal_candidate_exists(root: Path, candidate: str) -> bool:
     return (root / staged_path(candidate)).exists() or (root / completed_path(candidate)).exists()
 
 
+def candidate_gap_types(payload: dict[str, Any]) -> set[str]:
+    """Return the safe gaps the candidate record actually carried into review."""
+
+    values = payload.get("gap_types")
+    if not isinstance(values, list):
+        return set()
+    return {
+        value.strip()
+        for value in values
+        if isinstance(value, str) and safe_slug(value.strip())
+    }
+
+
 def valid_candidate_record(
     payload: dict[str, Any], candidate: str, *, expected_status: str
 ) -> bool:
@@ -127,9 +140,14 @@ def valid_candidate_record(
             and count >= threshold
         )
     if expected_status == "staged_patch":
-        return payload.get("review_decision") == "stage_patch" and all(
-            safe_slug(str(payload.get(field) or ""))
-            for field in ("gap_type", "change_type", "promotion_target")
+        return (
+            payload.get("review_decision") == "stage_patch"
+            and all(
+                safe_slug(str(payload.get(field) or ""))
+                for field in ("gap_type", "change_type", "promotion_target")
+            )
+            and bool(CANDIDATE_ID_RE.fullmatch(str(payload.get("draft_id") or "")))
+            and is_sha256(payload.get("draft_sha256"))
         )
     return True
 

@@ -25,6 +25,7 @@ from agent_skill_draft import (  # noqa: E402
     valid_draft,
 )
 from agent_skill_learning import record_observation, curate_observations, review_candidate  # noqa: E402
+from agent_skill_maintenance import complete_verified_skill_maintenance  # noqa: E402
 from agent_skill_state import candidate_id  # noqa: E402
 
 SKILL = "code_conventions"
@@ -220,6 +221,74 @@ class DraftBindingTests(unittest.TestCase):
         self.assertFalse(
             (self.root / "skill-learning" / "staged" / f"{self.candidate}.json").exists()
         )
+
+    def test_maintenance_refuses_a_staged_record_without_its_draft_binding(self):
+        record_draft(
+            self.root, project=self.project, rules=ROOT, skill_id=SKILL,
+            signal=SIGNAL, proposal=PROPOSAL, occurrence_id="run-1",
+        )
+        self._reach_review_ready()
+        review_candidate(
+            self.root,
+            candidate_id=self.candidate,
+            decision="stage_patch",
+            gap_type="missing_decision_rule",
+            change_type="add_rule",
+            promotion_target=SKILL,
+        )
+        staged_path = (
+            self.root / "skill-learning" / "staged" / f"{self.candidate}.json"
+        )
+        staged = json.loads(staged_path.read_text(encoding="utf-8"))
+        staged.pop("draft_id")
+        staged.pop("draft_sha256")
+        staged_path.write_text(json.dumps(staged), encoding="utf-8")
+
+        result = complete_verified_skill_maintenance(
+            self.root,
+            project=self.project,
+            rules=ROOT,
+            candidate_id=self.candidate,
+            outcome="rejected",
+        )
+
+        self.assertFalse(result["updated"])
+        self.assertEqual(result["reason"], "staged_candidate_invalid")
+
+    def test_maintenance_refuses_a_draft_revised_after_review(self):
+        record_draft(
+            self.root, project=self.project, rules=ROOT, skill_id=SKILL,
+            signal=SIGNAL, proposal=PROPOSAL, occurrence_id="run-1",
+        )
+        self._reach_review_ready()
+        review_candidate(
+            self.root,
+            candidate_id=self.candidate,
+            decision="stage_patch",
+            gap_type="missing_decision_rule",
+            change_type="add_rule",
+            promotion_target=SKILL,
+        )
+        record_draft(
+            self.root,
+            project=self.project,
+            rules=ROOT,
+            skill_id=SKILL,
+            signal=SIGNAL,
+            proposal=PROPOSAL + " Also bind the exact negative control.",
+            occurrence_id="run-2",
+        )
+
+        result = complete_verified_skill_maintenance(
+            self.root,
+            project=self.project,
+            rules=ROOT,
+            candidate_id=self.candidate,
+            outcome="rejected",
+        )
+
+        self.assertFalse(result["updated"])
+        self.assertEqual(result["reason"], "skill_draft_stale")
 
 
 class RetrospectiveGateOrderingTests(unittest.TestCase):

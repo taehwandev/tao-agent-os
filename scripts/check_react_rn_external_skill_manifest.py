@@ -142,9 +142,14 @@ def main(argv: list[str] | None = None) -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
+    entries = payload["skills"]
+    installable = sum(
+        bool(entry.get("installable")) for entry in entries if isinstance(entry, dict)
+    )
     print(
         "OK: React/RN external skill manifest covers "
-        f"{len(payload['skills'])} SKILL.md files (32 installable, 9 nested)"
+        f"{len(entries)} SKILL.md files "
+        f"({installable} installable, {len(entries) - installable} nested)"
     )
     return 0
 

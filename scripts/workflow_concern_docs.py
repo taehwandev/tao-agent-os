@@ -26,7 +26,6 @@ PYTHON_WEB_SERVICE_DOCS = (
 )
 
 
-
 CONCERNS: Dict[str, Tuple[str, ...]] = {
     "security": ("common/skills/secure-development-baseline/SKILL.md", "common/skills/security-privacy-review/SKILL.md"),
     "runtime-url": ("common/skills/runtime-url-configuration/SKILL.md",),

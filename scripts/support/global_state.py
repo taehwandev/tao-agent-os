@@ -87,12 +87,16 @@ def is_host_config_dir(path: Path) -> bool:
     same case one level down.
 
     The rule is the shape rather than a list of vendor names, so a runtime this
-    file has never heard of is covered too: a hidden directory sitting directly
-    in ``$HOME`` is configuration. A project checkout is not kept there.
+    file has never heard of is covered too. A hidden directory sitting directly
+    in ``$HOME`` is configuration unless it is itself a Git checkout; ``.git``
+    may be either a directory or a linked-worktree file, and both prove project
+    ownership more strongly than the hidden-directory heuristic.
     """
     resolved = _resolved(path)
     home = _resolved(Path.home())
     if resolved is None or home is None:
+        return False
+    if (resolved / ".git").exists():
         return False
     return resolved.parent == home and resolved.name.startswith(".")
 
