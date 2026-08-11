@@ -101,6 +101,17 @@ class RuntimeFixture:
 
 
 class RuntimeEvidenceTests(unittest.TestCase):
+    def test_runtime_session_detects_codex_thread(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"CODEX_THREAD_ID": "codex-session"},
+            clear=True,
+        ):
+            self.assertEqual(
+                {"runtime": "codex", "session_id": "codex-session"},
+                agent_runtime_session.runtime_session(),
+            )
+
     def test_run_local_continuation_eligibility_rejects_custom_and_spoofed_paths(
         self,
     ) -> None:

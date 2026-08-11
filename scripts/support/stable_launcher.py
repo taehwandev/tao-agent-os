@@ -122,6 +122,7 @@ SCRIPT_ALIASES = {
     "claude-pretool-gate": "claude_pretool_gate.py",
     "claude-continuation-hook": "claude_continuation_hook.py",
     "claude-stop-gate": "claude_stop_gate.py",
+    "codex-stop-gate": "codex_stop_gate.py",
 }
 HOOK_ALIASES = {
     "start",

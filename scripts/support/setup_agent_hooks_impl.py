@@ -11,6 +11,7 @@ from pathlib import Path
 
 from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
+from support.codex_setup import merge_codex_stop_gate
 from support.graphify_setup import (
     CANONICAL_SKILL_PATH,
     configure_global_graphify,
@@ -30,7 +31,12 @@ from support.runtime_bridge import (
     runtime_bridge_block,
     runtime_bridge_required_phrases,
 )
-from support.setup_config_files import merge_codex_prefix_rules, merge_permissions_allow, print_results
+from support.setup_config_files import (
+    merge_codex_prefix_rules,
+    merge_permissions_allow,
+    print_results,
+    quote,
+)
 from support.stable_launcher import ensure_stable_launcher, stable_launcher_path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -255,6 +261,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         dry_run,
         cleanup_entries=codex_legacy_prefix_rule_entries(scripts_dir),
     )
+    hooks_target = Path.home() / ".codex" / "hooks.json"
+    stop_command = (
+        f"TAO_HOOK_SOFT_FAIL=1 {quote(str(stable_launcher_path()))} "
+        "codex-stop-gate"
+    )
+    stop_status = merge_codex_stop_gate(hooks_target, stop_command, dry_run)
     return [
         {
             "tool": "codex",
@@ -267,6 +279,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
             "hook": "rules.TaoAgentOSPython",
             "status": rules_status,
             "path": str(rules_target),
+        },
+        {
+            "tool": "codex",
+            "hook": "Stop_finish_gate",
+            "status": stop_status,
+            "path": str(hooks_target),
         },
     ]
 

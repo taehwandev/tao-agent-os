@@ -31,7 +31,10 @@ from agent_run_registry import (
 )
 from agent_worker_evidence import is_isolated_worker_evidence
 
-SESSION_ENV_VARS = (("claude", "CLAUDE_CODE_SESSION_ID"),)
+SESSION_ENV_VARS = (
+    ("claude", "CLAUDE_CODE_SESSION_ID"),
+    ("codex", "CODEX_THREAD_ID"),
+)
 WORKER_EVIDENCE_ENV = "TAO_WORKER_EVIDENCE"
 RUN_ID_LENGTH = 32
 
