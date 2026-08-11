@@ -101,6 +101,13 @@ build-logic                  convention plugins and shared build settings
 
 Keep the `app` module thin. Put reusable visual primitives in the design system, pure business data in model/domain, source coordination in data, and screen orchestration in feature implementations. Skip `api` modules, use cases, or repository splits until another module, test boundary, platform dependency, or replaceable implementation needs the contract.
 
+The baseline intentionally keeps Compose UI in `feature/<name>/impl`. Add an
+optional `feature/<name>/ui` only when a named consumer outside `impl` must reuse
+the concrete feature surface; keep Activity and navigation execution in
+`impl`. Add `api` independently for stable caller or navigation contracts. See
+`../../android-module-structure/references/module-boundaries.md` for the
+canonical ownership and dependency rules.
+
 When a repo intentionally uses `api` plus implementation modules as its baseline
 architecture, keep the same SOLID meaning: `api` exposes role-sized contracts,
 events, route keys, repository ports, and stable entities; implementation
@@ -490,6 +497,9 @@ Module decision:
 
 - Keep the feature in one module when no caller needs a stable route or contract.
 - Add `feature-api` when navigation, holder registration, route data, or another module needs the feature contract without implementation dependencies.
+- Add `feature-ui` only when another module must reuse the concrete Compose
+  surface without importing `impl`; an internal `compose/` package, preview, or
+  Activity wrapper is not sufficient reason.
 - Add repository `api`/implementation split when features need stable repository interfaces/entities but must not see DTOs, Retrofit/Room/DataStore, SDKs, or cache internals.
 - Add `assertions` modules only when reusable fakes, fixtures, recording helpers, or assertion DSLs need to compile against stable API contracts without importing production implementation modules.
 - Add `core-app` only for shared Android/Compose app-runtime helpers that are free of feature copy, route policy, analytics policy, repository calls, and screen-specific state.

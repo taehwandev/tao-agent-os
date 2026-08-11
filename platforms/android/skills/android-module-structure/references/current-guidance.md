@@ -28,6 +28,8 @@ References:
   `https://developer.android.com/training/dependency-injection/hilt-android`
 - Dagger set/map multibindings:
   `https://dagger.dev/dev-guide/multibindings.html`
+- Navigation 3 modularization:
+  `https://developer.android.com/guide/navigation/navigation-3/modularize`
 
 ## Default Rule
 
@@ -43,6 +45,13 @@ Use a single package or module unless a real caller, dependency, build,
 navigation, testing, or ownership boundary needs a split. Multi-module apps need
 clear dependency direction; otherwise the extra modules only move complexity into
 Gradle.
+
+For a feature, treat `impl` (or an unsplit feature module serving the same role)
+as the default owner of Compose UI. Add `api` only for a stable caller or
+navigation contract, and add `ui` only when a named consumer outside `impl` must
+reuse the concrete Compose surface. These are independent promotions, not three
+modules that every feature must create. The canonical ownership and dependency
+rules live in [`module-boundaries.md`](module-boundaries.md).
 
 ## File And Class Split
 

@@ -24,6 +24,7 @@ families:
 | `data` / `core-data` | Repository contracts, repository implementations, local/remote data sources, DTO mapping, DataStore/Room/cache ownership. | Compose UI, navigation decisions, screen state. |
 | `domain` | Optional use cases and product policies reused across screens or risky enough to test independently. | Pass-through wrappers around one repository call. |
 | `feature-api` | Navigation contracts, public entrypoints, route data, events, small caller-facing models. | Screens, ViewModels, repository implementations, DI bindings with heavy dependencies. |
+| `feature-ui` | Optional feature-specific Compose surfaces reused outside `impl`: stateless composables, UI models, callbacks or slots, previews, and UI tests. | ViewModels, use cases, repositories, feature DI, navigation execution, Activities, manifests, Intents, or result handling. |
 | `feature` / `feature-impl` | Route holders, stateless screens, ViewModels, feature-local components, UI mappers, feature DI. | Shared design primitives or cross-feature data contracts. |
 | `feature-common` / `holder` | Reused product UI or workflow holders with a named owner and stable caller contract. | Dumping ground for unrelated screen fragments. |
 | `dev` / `testing` / `assertions` | Dev-only screens, reusable fakes, recording adapters, fixture builders, assertion DSLs, and contract test helpers. | Production-only behavior that callers need at runtime, or dependencies on production implementation modules by default. |
@@ -54,6 +55,11 @@ Review should stop when a module is called `core`, `common`, `shared`,
 Kotlin, Android runtime, Compose runtime, tests, or app-shell code. Split the
 module, rename it, or keep the helper local until the import surface is clear.
 
+`feature` / `feature-impl` remains the default owner of a feature's Compose UI.
+Create `feature-ui` only as the externally reusable visual slice defined by
+[`module-boundaries.md`](module-boundaries.md), not as a mandatory sibling of
+every `feature-api` or implementation module.
+
 If the repo already uses convention plugins, apply the nearest plugin instead of
 copying dependency blocks by hand. If no convention exists, update or add one
 only when at least two modules will share the same setup.
@@ -77,9 +83,20 @@ core/designsystem
   -> platform primitives, resources, tokens, reusable UI contracts
 ```
 
+When a feature has a proven reusable Compose surface, add only these edges:
+
+```text
+feature implementation -> own feature-ui
+external Compose consumer -> feature-ui
+feature-ui -> own feature-api only for stable value/event types when necessary
+feature-ui -> design system and stable core UI/value contracts
+```
+
 Forbidden edges:
 
 - `feature-api -> feature implementation`
+- `feature-api -> feature-ui`
+- `feature-ui -> feature implementation`
 - `repository-api -> repository implementation`
 - `repository -> feature`
 - `core/designsystem -> feature`
@@ -121,6 +138,25 @@ Do not create one of these subpackages merely because a type has that name. A
 new boundary needs a caller, owner, dependency, release, or test seam that can
 be verified; otherwise keep the owners together and record the audit result.
 
+When another module must reuse the concrete feature Compose surface, extract
+only the visual contract and keep execution in `impl`:
+
+```text
+feature/<name>/ui/src/main/.../<name>/
+  <Name>Screen.kt           public stateless surface
+  model/                    reusable UI models only
+  component/                feature-specific reusable components
+  preview/                  previews for the exported surface
+
+feature/<name>/impl/src/main/.../<name>/
+  <Name>Route.kt            lifecycle, ViewModel, effects, navigation
+  <Name>ViewModel.kt        state and action owner
+  mapper/                   domain/repository -> UI model mapping
+  navigation/               entry provider or route registration
+  activity/                 Activity/Intent/result adapter when required
+  di/                       implementation bindings
+```
+
 ## Repository Package Layout
 
 Inside a repository implementation module, keep API contracts and transport
@@ -157,6 +193,9 @@ caller contract and repeated use:
   reused across features.
 - Use feature-common modules for product UI patterns shared by several feature
   owners.
+- Use a feature `ui` module for a feature-specific concrete Compose surface with
+  a named consumer outside its implementation. Keep it in `impl` when the only
+  consumers are that implementation's own screens, previews, or tests.
 - Use holder modules for reusable workflow entrypoints or embedded surfaces that
   own their own state/effects and have a clear lifecycle.
 - Keep analytics labels, permission policy, route decisions, and repository
@@ -167,4 +206,3 @@ caller contract and repeated use:
 
 If a shared module needs many feature flags, product-specific callbacks, or a
 full screen `UiState`, keep the code feature-local instead.
-

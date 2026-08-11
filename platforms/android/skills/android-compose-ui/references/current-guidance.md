@@ -698,6 +698,15 @@ feature/<name>/impl/src/main/.../<name>/
   preview/              shared preview providers only when reused across files
 ```
 
+This `impl` layout is the default even when it contains `compose/` or `ui/`
+packages. A separate `feature/<name>/ui` Gradle module is optional: create it
+only when a named consumer outside the implementation must reuse the concrete
+Compose surface. Move the stateless composables, their smallest visual models
+and callbacks or slots, previews, and UI tests; keep `Route`, `ViewModel`,
+loading/orchestration state, mapping, DI, navigation execution, Activity, and
+Intent/result handling in `impl`. The canonical module contract lives in
+`../../android-module-structure/references/module-boundaries.md`.
+
 Use `components/` for feature-local pieces and promote only stable visual
 contracts to a shared design-system module. Shared design-system modules can use:
 
@@ -745,6 +754,8 @@ feature-local one-off with a clear reason to avoid promotion.
 
 Before moving Compose UI into a shared package, ask:
 
+- Is there a named module outside the feature implementation that must import
+  this concrete Compose surface?
 - Is this a design-system primitive, a feature product component, or just a local
   screen section?
 - Can the component be named without the original screen or feature name?
@@ -757,6 +768,10 @@ Before moving Compose UI into a shared package, ask:
 
 If the answer is no, keep it local or in feature common rather than promoting it
 to the design system.
+
+When the surface remains feature-specific but has that outside consumer, put it
+in the feature `ui` module. When it is domain-free and broadly reusable, put it
+in the design system. When neither condition is true, keep it inside `impl`.
 
 ## Verification
 
