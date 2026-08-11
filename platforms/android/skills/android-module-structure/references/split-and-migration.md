@@ -40,12 +40,40 @@ Choose a `feature-api` plus `feature` implementation pair when:
 - a fake, dev, paid/free, flavor-specific, or replaceable implementation is
   realistic
 
+The feature implementation owns Compose UI by default. Its internal
+`compose/` or `ui/` package does not imply a separate Gradle module. Extract an
+optional `feature-ui` module only when a named module outside the implementation
+must reuse the concrete stateless surface without importing ViewModels, DI,
+repositories, navigation execution, or Android entry adapters.
+
+Use these extraction checks:
+
+- Name the outside consumer and the composable or visual contract it imports.
+- Keep reusable composables, UI models, callbacks or slots, previews, and UI
+  tests in `ui`.
+- Keep `Route`, `ViewModel`, loading/orchestration state, mappers, DI,
+  `NavEntry` or entry-provider registration, Activities, manifests, Intents,
+  and result handling in `impl`.
+- Let `impl` depend on `ui`; never let `ui` or `api` depend on `impl`.
+- Collapse `ui` back into `impl` when no outside Compose consumer remains.
+- Promote only domain-free, broadly shared primitives to the design system;
+  keep feature-specific reusable surfaces in feature `ui`.
+
+An Activity wrapper is not a reason to split `ui`. The Activity stays in
+`impl` and may render a composable exported by `ui` only when that composable
+already has a separate reuse reason.
+
 For Navigation 3-style apps, keep navigation keys, route data, deep-link
 contracts, and public route events in the feature `api` module. Keep `NavEntry`,
 entry-provider builders, composable content, and screen state holders in the
 feature implementation or app-shell module. The app module assembles entry
 providers, synthetic back stacks, host/scheme policy, and Activity task-stack
 behavior.
+
+That Navigation 3 shape is the default. When concrete content has a proven
+external Compose consumer and moves to `ui`, keep the keys in `api` and the
+`NavEntry` or provider execution in `impl`; the implementation invokes the
+reusable `ui` surface instead of moving navigation execution with it.
 
 Choose a repository `api` plus implementation pair when:
 
@@ -139,6 +167,11 @@ When modernizing an old Android feature:
 5. Add or update tests/previews for the moved boundary.
 6. Remove only old code that is no longer referenced.
 
+For a `ui` extraction, move the stateless surface and its smallest visual input
+contract first, compile the outside consumer against `ui`, then adapt the
+existing `impl` route holder to the new surface. Do not move the ViewModel,
+repository calls, DI binding, navigation provider, or Activity merely to make
+the new module appear self-contained.
+
 Do not combine broad module moves with behavior changes unless the behavior
 change is necessary to make the split correct.
-

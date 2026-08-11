@@ -256,5 +256,22 @@ class BundleShapeTests(unittest.TestCase):
                 self.assertIn(Path(path).name, text)
 
 
+class FeatureUiBoundaryContractTests(unittest.TestCase):
+    def test_canonical_contract_keeps_ui_in_impl_until_external_reuse(self) -> None:
+        text = (ROOT / BOUNDARIES).read_text()
+
+        self.assertIn("`impl` owns Compose UI by default", text)
+        self.assertIn("real named consumer outside the implementation", text)
+        self.assertIn("An Activity that wraps Compose remains in `impl`", text)
+
+    def test_dependent_guidance_preserves_ui_dependency_direction(self) -> None:
+        layout = (ROOT / LAYOUT).read_text()
+        entry = (ROOT / COMPOSE_ENTRY).read_text()
+
+        self.assertIn("`feature-ui -> feature implementation`", layout)
+        self.assertRegex(entry, r"Neither `api`\s+nor `ui` may depend on `impl`")
+        self.assertIn("Do not copy the same composable signature", entry)
+
+
 if __name__ == "__main__":
     unittest.main()

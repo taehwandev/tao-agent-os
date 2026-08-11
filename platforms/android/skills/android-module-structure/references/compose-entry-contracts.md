@@ -58,6 +58,42 @@ the build system, but do not expose Material, navigation, lifecycle, ViewModel,
 or feature implementation dependencies unless the contract actually requires
 them.
 
+## Dedicated Feature UI Module
+
+A Compose-capable `api` contract and a feature `ui` module solve different
+problems. Use the `api` contract when a host must discover, register, swap, or
+invoke an abstract entry without importing its implementation. Use `ui` when a
+named consumer outside `impl` must directly reuse the concrete Compose surface.
+
+When `ui` exists:
+
+- Put public stateless composables, visual UI models, callback or slot
+  contracts, previews, and UI tests in `ui`.
+- Keep route keys, arguments, deep-link specs, public route events, and abstract
+  registry entry contracts in `api` when callers need them.
+- Keep the entry object implementation, `NavEntry` or provider registration,
+  `Route`, `ViewModel`, state loading, mapping, DI, Activity, manifest, Intent,
+  and result handling in `impl`.
+- Let `impl` depend on `ui`; let `ui` depend on `api` only for stable value or
+  event types that are genuinely part of the visual contract. Neither `api`
+  nor `ui` may depend on `impl`.
+
+Do not copy the same composable signature into both `api` and `ui`. A dedicated
+`ui` module owns the concrete reusable Compose API. Keep a Compose-capable
+interface in `api` only when the host needs the abstract registry or replacement
+seam itself. An Activity wrapper remains in `impl`; it may call `ui`, but the
+wrapper does not make `ui` an Android entry module.
+
+The optional reusable-UI packet is:
+
+```text
+api navigation/entry identity (only when cross-module callers need it)
+  + ui concrete reusable Compose surface (only when an outside consumer exists)
+  -> impl route holder, entry-provider/DI registration, or Activity adapter
+  -> selected host depends on impl for execution
+  -> focused API compile + UI render + implementation integration verification
+```
+
 ## Entry Contract Completion Packet
 
 Do not call a new route, Compose entrypoint, Activity entrypoint, provider, or
@@ -152,4 +188,3 @@ Minimum verification for a new entry packet:
   Activity entry changed
 - confirm callers import the API/registry contract rather than the concrete
   screen or Activity class
-

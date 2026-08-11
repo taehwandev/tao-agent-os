@@ -63,6 +63,82 @@ how the feature runs. The `assertions` module owns reusable test helpers that
 compile against `api` and avoid pulling app, DI, network, database, WebView,
 camera, or other production implementations into tests.
 
+## Feature API, UI, And Implementation Contract
+
+`impl` owns Compose UI by default. It is the feature implementation boundary,
+not an Activity-only wrapper. Keep `Route`, `ViewModel`, `UiState`, mapping, DI,
+navigation execution, and the feature's `compose/` or `ui/` packages together in
+`impl` until a real import boundary proves that one part must move.
+
+Treat `api` and `ui` as independent optional promotions:
+
+| Proven Need | Smallest Feature Shape |
+| --- | --- |
+| No outside contract or Compose consumer | `impl` |
+| Stable caller or navigation contract only | `api` + `impl` |
+| Concrete Compose reuse outside the implementation only | `ui` + `impl` |
+| Both stable contracts and reusable Compose UI | `api` + `ui` + `impl` |
+
+Ownership rules:
+
+- `api` owns stable caller and navigation identity: route keys, arguments,
+  deep-link specs, public events, entrypoint interfaces, and the smallest value
+  types callers need. Keep it nonvisual by default. A Compose-capable abstract
+  entry contract is the explicit exception described in
+  [`compose-entry-contracts.md`](compose-entry-contracts.md); it must not become
+  a duplicate home for the concrete reusable UI API.
+- Extract `ui` only when a real named consumer outside the implementation must
+  render, embed, preview, or Compose-test the concrete feature surface without
+  importing `impl`. It owns reusable stateless composables, feature-specific UI
+  models, callback or slot contracts, previews, and UI tests.
+- `ui` must not own ViewModels, use cases, repositories, domain-to-UI loading
+  orchestration, DI registration, `NavEntry` or entry-provider execution,
+  Activities, manifests, `Intent` construction, or Activity result handling.
+- `impl` owns execution. When `ui` is absent, it also owns `Screen`, feature
+  components, and previews. When `ui` is present, `impl` adapts state and events
+  to that surface and still owns route holders, ViewModels, mappers, DI,
+  navigation registration, and Android entry adapters.
+- An Activity that wraps Compose remains in `impl`. The Activity may render a
+  surface from `ui`, but needing an Activity does not by itself justify a `ui`
+  module.
+
+Keep dependency direction explicit:
+
+```text
+app or navigation host -> feature api + selected feature impl
+external Compose consumer -> feature ui
+feature impl -> own feature api (when present) + own feature ui (when extracted)
+feature ui -> own feature api only for stable value/event types when necessary
+feature api -X-> feature ui or feature impl
+feature ui -X-> feature impl
+```
+
+Tests and previews inside `impl` do not count as outside consumers. If the named
+consumer disappears, collapse `ui` back into `impl`. If the reusable surface
+becomes domain-free and broadly shared, promote it to the design system; keep a
+feature-named or product-specific surface in the feature `ui` module.
+
+Optional extracted shape:
+
+```text
+feature/profile/api
+  ProfileRoute.kt
+  ProfileEvent.kt
+
+feature/profile/ui
+  ProfileScreen.kt
+  model/ProfileUiModel.kt
+  component/ProfileCard.kt
+
+feature/profile/impl
+  ProfileRouteHolder.kt
+  ProfileViewModel.kt
+  mapper/ProfileUiMapper.kt
+  navigation/ProfileEntryProvider.kt
+  activity/ProfileActivity.kt       only when an Activity entry is required
+  di/ProfileModule.kt
+```
+
 Example API contract:
 
 ```kotlin
@@ -234,4 +310,3 @@ Accept broad module names only when the next level is precise. For example, an
 existing `core-app` module may contain capability packages such as `activity`,
 `route`, `notice`, `permission`, `environment`, `webview`, or `launcher`, but it
 must not make all of them available through one grab-bag import.
-
