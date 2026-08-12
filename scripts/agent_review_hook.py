@@ -906,6 +906,9 @@ def review_failure_details(
         f"checked development source/style files: {format_checked_paths(structure.get('checked_paths', []))}",
     ]
     details.extend(f"failure detail: {failure}" for failure in failures)
+    repair_hint = structural_limit_repair_hint(failures)
+    if repair_hint:
+        details.append(repair_hint)
     details.append(
         "required recovery: run an actionable retrospective for this review failure, improve the "
         "owning Tao Agent OS doc, hook, validator, or test, and verify that repair outside the hook. "
@@ -915,6 +918,21 @@ def review_failure_details(
     )
     details.append("do not finalize with FAIL; ask only when recovery needs a scope decision, destructive action, credential change, external state, or a broader refactor")
     return details
+
+
+def structural_limit_repair_hint(failures: list[str]) -> str:
+    """Turn structural-size failures into an actionable review invocation."""
+
+    if not any(failure.startswith("structure review:") for failure in failures):
+        return ""
+    if not any("limit is" in failure or "hard limit is" in failure for failure in failures):
+        return ""
+    return (
+        "structure repair hint: split the oversized unit when it can be split; for an intentional "
+        "standalone artifact, measure and pass explicit --max-source-file-lines, "
+        "--max-function-lines, and --max-added-lines values, then name the artifact and why it "
+        "cannot be split in --structure-review-evidence"
+    )
 
 
 def review_prerequisite_failure_details(failures: list[str]) -> list[str]:
