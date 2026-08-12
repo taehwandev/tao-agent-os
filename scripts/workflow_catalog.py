@@ -350,7 +350,6 @@ PLATFORMS: Dict[str, Tuple[str, ...]] = {
     "web": (
         "platforms/web/skills/web-architecture/SKILL.md",
         "platforms/web/skills/web-code-structure/SKILL.md",
-        "platforms/web/skills/web-react-ui/SKILL.md",
         "platforms/web/skills/web-state-data/SKILL.md",
         "platforms/web/skills/web-review/SKILL.md",
     ),

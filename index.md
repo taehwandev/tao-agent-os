@@ -57,6 +57,7 @@ Pick the smallest relevant document set. Repo-local guidance wins over this shar
 - Local tools, AI CLIs, runtime, usage telemetry: `common/skills/local-tools/SKILL.md`
 - File editing safety, secrets, external state: `common/skills/agent-editing-safety/SKILL.md`
 - Design system or shared UI rules: `common/skills/design-system/SKILL.md`
+- Figma extraction, handoff bundles, and design-to-code implementation: `common/skills/figma-handoff/SKILL.md` (platform mapping: `platforms/android/skills/figma-to-android/SKILL.md`, `platforms/ios/skills/figma-to-ios/SKILL.md`, `platforms/web/skills/figma-to-web/SKILL.md`)
 - UI visual and interaction verification: `common/skills/ui-visual-verification/SKILL.md`
 - Secure development, secrets, client keys, open-source-safe setup: `common/skills/secure-development-baseline/SKILL.md`
 - Security/privacy/secrets/tenant risk: `common/skills/security-privacy-review/SKILL.md`

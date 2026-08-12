@@ -115,6 +115,41 @@ class RequiredDocMembershipTests(unittest.TestCase):
         self.assertIn("review hook", route["gates"])
         self.assertIn(REVIEW_AND_COMMIT_REFERENCE, route["required_docs"])
 
+    def test_explicit_figma_routes_require_common_and_platform_cards(self) -> None:
+        cases = (
+            (
+                "android",
+                "Implement this Figma handoff with Jetpack Compose.",
+                "platforms/android/skills/figma-to-android/SKILL.md",
+            ),
+            (
+                "ios",
+                "Implement this Figma handoff with UIKit.",
+                "platforms/ios/skills/figma-to-ios/SKILL.md",
+            ),
+            (
+                "web",
+                "Implement this Figma handoff in the Web application.",
+                "platforms/web/skills/figma-to-web/SKILL.md",
+            ),
+        )
+        common_guidance = (
+            "common/skills/figma-handoff/references/current-guidance.md"
+        )
+
+        for platform, request_text, platform_card in cases:
+            with self.subTest(platform=platform):
+                route = resolve_docs(
+                    "feature",
+                    platform,
+                    [],
+                    request_classified=True,
+                    request_text=request_text,
+                )
+
+                self.assertIn(common_guidance, route["required_docs"])
+                self.assertIn(platform_card, route["required_docs"])
+
     def test_named_concern_docs_are_never_budget_dropped(self) -> None:
         """An explicitly named concern is the strongest signal available."""
         route = resolve_docs("docs", None, ["branch"], request_classified=True)

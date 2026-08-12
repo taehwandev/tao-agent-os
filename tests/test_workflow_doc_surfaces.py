@@ -656,7 +656,8 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         )
 
     def test_surface_doc_sets_are_loaded_from_root_map(self) -> None:
-        docs, invalid_refs = surface_rule_doc_refs(load_doc_surface_rules())
+        rules = load_doc_surface_rules()
+        docs, invalid_refs = surface_rule_doc_refs(rules)
 
         self.assertEqual([], invalid_refs)
         self.assertIn("platforms/web/skills/web-react-ui/SKILL.md", docs)
@@ -666,6 +667,53 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("common/skills/react-rn-external-skill-source-coverage/SKILL.md", docs)
         self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", docs)
         self.assertIn("platforms/python/skills/python-web-service/SKILL.md", docs)
+        self.assertIn("common/skills/figma-handoff/SKILL.md", docs)
+        self.assertIn("platforms/android/skills/figma-to-android/SKILL.md", docs)
+        self.assertIn("platforms/ios/skills/figma-to-ios/SKILL.md", docs)
+        self.assertIn("platforms/web/skills/figma-to-web/SKILL.md", docs)
+        self.assertEqual(
+            ["platforms/web/skills/web-react-ui/SKILL.md"],
+            rules["doc_sets"]["web_react_ui"],
+        )
+
+    def test_figma_guidance_links_toolkit_neutral_platform_cards(self) -> None:
+        common = (
+            ROOT
+            / "common"
+            / "skills"
+            / "figma-handoff"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+        android = (
+            ROOT / "platforms" / "android" / "skills" / "figma-to-android" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        ios = (
+            ROOT / "platforms" / "ios" / "skills" / "figma-to-ios" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        web = (
+            ROOT / "platforms" / "web" / "skills" / "figma-to-web" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        for card in (
+            "platforms/android/skills/figma-to-android/SKILL.md",
+            "platforms/ios/skills/figma-to-ios/SKILL.md",
+            "platforms/web/skills/figma-to-web/SKILL.md",
+        ):
+            self.assertIn(card, common)
+        self.assertNotIn("figma-to-compose", common)
+        self.assertNotIn("figma-to-swiftui", common)
+        self.assertIn("Compose, Views/XML", android)
+        self.assertIn("Do not infer Compose", android)
+        self.assertIn("SwiftUI, UIKit", ios)
+        self.assertIn("Do not create a separate `figma-to-react` skill", web)
+        self.assertIn("Do not route `web-react-ui` from the Web platform name alone", web)
+        for product_specific_rule in (
+            "media-editing flow",
+            "polling-then-advance",
+            "expand/collapse animation",
+        ):
+            self.assertNotIn(product_specific_rule, android)
 
     def test_react_rn_external_skill_snapshot_request_promotes_complete_coverage(self) -> None:
         route = resolve_docs(
@@ -937,6 +985,105 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         )
         self.assertTrue(any(match["name"] == "android_compose_paths" for match in route["doc_surface_matches"]))
 
+    def test_figma_requests_route_common_and_matching_platform_cards(self) -> None:
+        cases = (
+            (
+                "android",
+                "Implement this Figma handoff in the existing Android Views screen.",
+                "figma_handoff_android",
+                "platforms/android/skills/figma-to-android/SKILL.md",
+            ),
+            (
+                "ios",
+                "Implement this Figma handoff in the existing UIKit screen.",
+                "figma_handoff_ios",
+                "platforms/ios/skills/figma-to-ios/SKILL.md",
+            ),
+            (
+                "web",
+                "Implement this Figma handoff in the existing Web application.",
+                "figma_handoff_web",
+                "platforms/web/skills/figma-to-web/SKILL.md",
+            ),
+        )
+        all_platform_cards = {
+            "platforms/android/skills/figma-to-android/SKILL.md",
+            "platforms/ios/skills/figma-to-ios/SKILL.md",
+            "platforms/web/skills/figma-to-web/SKILL.md",
+        }
+
+        for platform, request_text, match_name, expected_card in cases:
+            with self.subTest(platform=platform):
+                docs, matches = infer_surface_docs(
+                    command="feature",
+                    platform=platform,
+                    request_text=request_text,
+                )
+
+                self.assertIn("common/skills/figma-handoff/SKILL.md", docs)
+                self.assertIn(expected_card, docs)
+                self.assertTrue(any(match["name"] == "figma_handoff" for match in matches))
+                self.assertTrue(any(match["name"] == match_name for match in matches))
+                self.assertEqual(
+                    set(),
+                    (all_platform_cards - {expected_card}).intersection(docs),
+                )
+
+    def test_web_figma_routes_react_only_from_explicit_framework_evidence(self) -> None:
+        cases = (
+            (
+                "Implement this Figma handoff as a Vue page.",
+                False,
+            ),
+            (
+                "Implement this Figma handoff as a React page.",
+                True,
+            ),
+        )
+
+        for request_text, expects_react in cases:
+            with self.subTest(request_text=request_text):
+                docs, matches = infer_surface_docs(
+                    command="feature",
+                    platform="web",
+                    request_text=request_text,
+                )
+
+                self.assertIn("common/skills/figma-handoff/SKILL.md", docs)
+                self.assertIn("platforms/web/skills/figma-to-web/SKILL.md", docs)
+                self.assertEqual(
+                    expects_react,
+                    "platforms/web/skills/web-react-ui/SKILL.md" in docs,
+                )
+                self.assertTrue(
+                    any(match["name"] == "figma_handoff_web" for match in matches)
+                )
+
+    def test_generic_ui_requests_do_not_match_figma_handoff_rules(self) -> None:
+        for platform in ("android", "ios", "web"):
+            with self.subTest(platform=platform):
+                docs, matches = infer_surface_docs(
+                    command="feature",
+                    platform=platform,
+                    request_text="Implement the account settings design system update.",
+                )
+
+                self.assertFalse(
+                    any(str(match["name"]).startswith("figma_handoff") for match in matches)
+                )
+                self.assertFalse(any("/figma-to-" in doc for doc in docs))
+
+    def test_android_views_figma_request_never_routes_compose_only_card(self) -> None:
+        docs, matches = infer_surface_docs(
+            command="feature",
+            platform="android",
+            request_text="Implement the Figma handoff in Android Views and XML.",
+        )
+
+        self.assertIn("platforms/android/skills/figma-to-android/SKILL.md", docs)
+        self.assertNotIn("platforms/android/skills/figma-to-compose/SKILL.md", docs)
+        self.assertTrue(any(match["name"] == "figma_handoff_android" for match in matches))
+
     def test_query_expands_code_cleanup_natural_language_to_refactor_docs(self) -> None:
         results = search_docs(ROOT, "코드 정리해줘", max_results=8)
         paths = [str(item["path"]) for item in results]
@@ -1146,7 +1293,6 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                 "platforms/swift/skills/swift-code-structure/SKILL.md",
             ],
             "web": [
-                "platforms/web/skills/web-react-ui/SKILL.md",
                 "platforms/web/skills/web-state-data/SKILL.md",
                 "platforms/web/skills/web-design-system/SKILL.md",
             ],
@@ -1164,6 +1310,11 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
 
                 for doc in docs:
                     self.assertIn(guidance_area(doc), routed_areas(route))
+                if platform == "web":
+                    self.assertNotIn(
+                        required_doc("platforms/web/skills/web-react-ui/SKILL.md"),
+                        route["required_docs"],
+                    )
                 self.assertIn(guidance_area("common/skills/ui-visual-verification/SKILL.md"), routed_areas(route))
                 self.assertIn(guidance_area("common/skills/performance-verification/SKILL.md"), routed_areas(route))
 
