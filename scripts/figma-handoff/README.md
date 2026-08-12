@@ -1,0 +1,195 @@
+---
+keyflow_id: sys_figma_handoff_tool_readme
+status: review
+type: ai-generated
+---
+
+# Figma Handoff CLI
+
+`scripts/figma-handoff/` owns a standalone tool that extracts screen structure,
+frame renders, individual assets, and implementation measurements from the
+Figma REST API. It depends on no external CLI repository, sibling clone,
+installed skill, or specific AI runtime: Python standard library only, and one
+Tao Agent OS checkout carries both the executable code and its verification
+material.
+
+The CLI does not generate code. `common/skills/figma-handoff/SKILL.md` owns the
+procedure that selects the target repository and platform and applies the
+handoff this tool produces to a real implementation.
+
+## Requirements And Auth
+
+- Python 3.9 or newer
+- Network access to the Figma REST API for real extraction
+- A Figma personal access token with read permission
+
+The token is read only from the `FIGMA_TOKEN` environment variable by default;
+`--token-env` selects a different variable name. Never place a token value in
+arguments, documents, outputs, or commits.
+
+## Running
+
+From the repository root:
+
+```bash
+python3 scripts/figma-handoff/figma-handoff.py \
+  --url "https://www.figma.com/design/<FILE_KEY>/<FILE_NAME>?node-id=123-456" \
+  --name "feature-screen" \
+  --out "/path/to/work-output" \
+  --export-assets
+```
+
+The entrypoint loads its sibling modules directly regardless of the current
+working directory, including under Python isolated mode
+(`python3 -I scripts/figma-handoff/figma-handoff.py ...`). When `--out` is
+omitted, bundles are created under the hidden local workspace
+`.figma-handoff-work/` in the current working directory. That path is
+git-ignored and never promoted to a tracked repository asset.
+
+To resolve inputs and output locations without a network or token:
+
+```bash
+python3 scripts/figma-handoff/figma-handoff.py \
+  --url "https://www.figma.com/design/<FILE_KEY>/<FILE_NAME>?node-id=123-456" \
+  --name "feature-screen" \
+  --dry-run
+```
+
+Large SECTION nodes split into a full-structure pass and per-screen renders:
+
+```bash
+python3 scripts/figma-handoff/figma-handoff.py \
+  --file-key <KEY> --node-id <SECTION_NODE> --name flow --no-images
+
+python3 scripts/figma-handoff/figma-handoff.py \
+  --file-key <KEY> --node-id <SCREEN_NODE> --name flow-screen \
+  --max-flow-depth 0 --scale 1
+```
+
+## Option Contract
+
+| Option | Default | Description |
+|---|---|---|
+| `--url` | none | Figma design/file/proto URL containing a `node-id` |
+| `--file-key`, `--node-id` | none | Name the target directly instead of a URL |
+| `--name` | node-id based | Bundle name, normalized to a path-safe slug |
+| `--out` | `<cwd>/.figma-handoff-work` | Git-ignored local bundle workspace |
+| `--format` | `png` | Frame render format: png, jpg, svg, pdf |
+| `--scale` | `2.0` | png/jpg render scale; Figma allows 0.01-4 |
+| `--max-flow-depth` | `4` | Depth of prototype transitions to follow |
+| `--no-images` | off | Fetch JSON only, skip frame renders |
+| `--include-image-fills` | off | Also collect the file-level image-fill URL map |
+| `--export-assets` | off | Render vectors as SVG and image fills as PNG individually |
+| `--max-assets` | unlimited | Cap on unique assets rendered after dedup |
+| `--timeout` | `60` | Request timeout in seconds |
+| `--token-env` | `FIGMA_TOKEN` | Environment variable holding the token |
+| `--dry-run` | off | Resolve inputs and print the plan JSON only |
+
+## Output Contract
+
+```text
+<out>/<name>/
+├── frames/                   screen frame renders
+├── assets/                   --export-assets results
+├── raw/                      raw node/style payloads and render availability metadata
+├── summary/
+│   ├── design-handoff.md     human-readable, truncatable summary
+│   └── design-summary.json   source of truth for full implementation measurements
+└── manifest.json             schemaVersion, run options, item counts
+```
+
+`design-summary.json` fields and units are defined by the
+[design-summary schema](docs/design-summary-schema.md). `design-handoff.md`
+truncates long lists, so it is not the authoritative text for exact values.
+API and tool reproduction limits follow the
+[fidelity document](docs/fidelity-and-limits.md).
+
+`imagePath` and `assetPath` are recorded relative to the bundle root, so the
+whole bundle directory can move to another team, a CI workspace, or a
+file-reading AI without path rewrites.
+
+CLI exit status:
+
+- `0`: dry-run or bundle creation completed; some asset/Variables failures may
+  remain in `warnings`
+- `1`: execution failure during Figma calls or required node processing
+- `2`: missing input, invalid URL/node, or missing token environment variable
+- `130`: user interrupt
+
+## Package Layers And The Execution Boundary
+
+| Layer | Path | Role | Required to run the CLI |
+|---|---|---|---|
+| Executable code | `figma-handoff.py`, `figma_*.py`, `figma_validate.py` | Figma calls, analysis, bundle creation, in-flight validation | yes |
+| Usage procedure and contract | `../../common/skills/figma-handoff/`, `docs/` | Source text for AIs and humans selecting work and interpreting results | no |
+| Development and verification | repository `tests/test_figma_*`, `live_smoke.py` | Offline regression and optional real-API smoke | no |
+| Local workspace | `<cwd>/.figma-handoff-work/` | Raw payloads, frames, assets, and bundles created during runs | no |
+
+Executable code never imports tests, `live_smoke.py`, or Markdown. Real Figma
+extracts and intermediate outputs live only in the hidden local workspace and
+are never committed.
+
+### Executable Code Structure
+
+| File | Responsibility |
+|---|---|
+| `figma-handoff.py` | CLI arguments and overall orchestration |
+| `figma_api.py` | REST requests, downloads, retry |
+| `figma_fetch.py` | nodes, styles, variables, frame/asset fetch |
+| `figma_parse.py` | named/referenced style and variable parsing |
+| `figma_analyze.py` | color, gradient, text, effect, layout, component, asset analysis |
+| `figma_report.py` | summary, Markdown, and manifest generation |
+| `figma_util.py` | URL, node id, color, gradient, JSON helpers |
+| `figma_validate.py` | schema invariants and fidelity coverage validation |
+
+Only fetch and download own the network. parse/analyze/report stay
+deterministic and network-free. When the output schema changes, update the
+schema document, `figma_validate.py`, the synthetic fidelity fixture, and the
+manifest `schemaVersion` together.
+
+## Verification
+
+```bash
+python3 -m py_compile scripts/figma-handoff/figma-handoff.py \
+  scripts/figma-handoff/figma_*.py scripts/figma-handoff/live_smoke.py
+python3 -m unittest tests.test_figma_handoff tests.test_figma_standalone \
+  tests.test_figma_asset_dedup_parallel tests.test_figma_fidelity_harness \
+  tests.test_figma_secrets_boundary
+
+python3 scripts/figma-handoff/figma-handoff.py \
+  --url "https://www.figma.com/design/FILE/Name?node-id=1-2" \
+  --name standalone-check --dry-run
+```
+
+Validate a produced bundle with:
+
+```bash
+python3 scripts/figma-handoff/figma_validate.py \
+  /path/to/bundle/summary/design-summary.json
+```
+
+Run the real-API smoke only with an explicit token and a test frame URL your
+team owns:
+
+```bash
+FIGMA_TOKEN=... python3 scripts/figma-handoff/live_smoke.py \
+  --url "$FIGMA_SMOKE_URL" --scale 3
+```
+
+Detailed gates live in the [verification harness](docs/verification.md).
+
+## Safety Boundary
+
+- Tokens are read only from environment variables and never written to
+  outputs, manifests, or logs.
+- Produced bundles and `raw/` contain real design content; follow the target
+  team's storage and sharing policy.
+- The default `.figma-handoff-work/` and any explicit one-off output location
+  are local work artifacts and are never added to Git.
+- Signed render URLs are not stored in ordinary render metadata or error
+  messages. With `--include-image-fills`, the requested image-fill URL map IS
+  included under `raw/`; treat it as sensitive short-lived output.
+- Offline unit tests mock the network functions and never call the real
+  Figma API.
+- A full-frame image is a visual comparison reference, not an implementation
+  result.

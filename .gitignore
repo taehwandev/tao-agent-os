@@ -60,3 +60,6 @@ graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 # Bytecode caches, written whenever the test suite or a hook runs.
 __pycache__/
 *.pyc
+
+# figma-handoff local bundle workspace (never a tracked asset)
+**/.figma-handoff-work/

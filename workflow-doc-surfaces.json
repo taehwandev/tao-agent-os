@@ -160,6 +160,10 @@
     "android_module_compose_entry": [
       "platforms/android/skills/android-module-structure/references/current-guidance.md",
       "platforms/android/skills/android-module-structure/references/compose-entry-contracts.md"
+    ],
+    "figma_handoff": [
+      "common/skills/figma-handoff/SKILL.md",
+      "common/skills/figma-handoff/references/current-guidance.md"
     ]
   },
   "request_intents": [
@@ -968,6 +972,71 @@
         "common/skills/code-review/SKILL.md"
       ],
       "reason": "Multi-reviewer review needs the structured-finding schema, dedupe key, read-only reviewer contract, and verify-then-fix rules so parallel findings can be merged mechanically without a reviewer acquiring mutation authority."
+    },
+    {
+      "name": "figma_handoff",
+      "request_any": [
+        "figma\\.com/(design|file|proto)/",
+        "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
+        "\\b(design handoff|handoff bundle)\\b",
+        "피그마",
+        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+      ],
+      "docs": [
+        "common/skills/figma-handoff/SKILL.md"
+      ],
+      "reason": "A Figma link or handoff request routes through the shared extraction procedure instead of ad-hoc screenshot estimation."
+    },
+    {
+      "name": "figma_handoff_android",
+      "platforms": [
+        "android"
+      ],
+      "request_any": [
+        "figma\\.com/(design|file|proto)/",
+        "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
+        "\\b(design handoff|handoff bundle)\\b",
+        "피그마",
+        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+      ],
+      "docs": [
+        "platforms/android/skills/figma-to-compose/SKILL.md"
+      ],
+      "reason": "A Figma request on this platform also needs the platform mapping card that owns token, component, and state translation."
+    },
+    {
+      "name": "figma_handoff_ios",
+      "platforms": [
+        "ios"
+      ],
+      "request_any": [
+        "figma\\.com/(design|file|proto)/",
+        "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
+        "\\b(design handoff|handoff bundle)\\b",
+        "피그마",
+        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+      ],
+      "docs": [
+        "platforms/ios/skills/figma-to-swiftui/SKILL.md"
+      ],
+      "reason": "A Figma request on this platform also needs the platform mapping card that owns token, component, and state translation."
+    },
+    {
+      "name": "figma_handoff_web",
+      "platforms": [
+        "web"
+      ],
+      "request_any": [
+        "figma\\.com/(design|file|proto)/",
+        "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
+        "\\b(design handoff|handoff bundle)\\b",
+        "피그마",
+        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+      ],
+      "docs": [
+        "platforms/web/skills/figma-to-web/SKILL.md"
+      ],
+      "reason": "A Figma request on this platform also needs the platform mapping card that owns token, component, and state translation."
     }
   ],
   "path_surfaces": [
