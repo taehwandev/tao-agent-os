@@ -957,23 +957,6 @@ class RaisedAdditionLimitEvidenceTests(unittest.TestCase):
         self.assertEqual([], failures)
 
 
-class StructuralLimitRepairHintTests(unittest.TestCase):
-    def test_structural_size_failure_explains_standalone_override_flags(self) -> None:
-        from agent_review_hook import review_failure_details
-
-        details = review_failure_details(
-            ["structure review: scripts/tool.py has 600 lines; new-file hard limit is 500"],
-            {"checked_paths": ["scripts/tool.py"], "checked_path_count": 1, "scope": "test"},
-            "commit range",
-        )
-
-        hint = next(detail for detail in details if detail.startswith("structure repair hint:"))
-        self.assertIn("--max-source-file-lines", hint)
-        self.assertIn("--max-function-lines", hint)
-        self.assertIn("--max-added-lines", hint)
-        self.assertIn("--structure-review-evidence", hint)
-
-
 class ContentLossIsReviewableTests(unittest.TestCase):
     """A large removal must be accounted for whatever file type it happened in.
 

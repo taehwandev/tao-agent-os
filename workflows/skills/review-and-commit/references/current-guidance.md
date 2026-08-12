@@ -37,6 +37,11 @@ Use after implementation, before handing off or committing.
    or function block against the route's structural limits. A file below its
    line budget can still fail because one owner block exceeds the function
    limit; do not wait for the hook to discover that avoidable split.
+   Also count public and non-private top-level owners in every new runtime file,
+   and inspect every new package path for broad segments such as `utils`,
+   `helpers`, `common`, or `misc`. Move the implementation to a purpose-named
+   package and collapse private support behind one public owner before review;
+   existing legacy placement does not exempt a newly added runtime file.
    Use those exact literal labels followed by a colon (for example,
    `owner: domain; allowed imports: contracts`); grammatical variants such as
    `allowed imports remain ...` are still prose and will be rejected.
@@ -57,6 +62,12 @@ Use after implementation, before handing off or committing.
    Omit a field only when `tao-hook review --help` and the active route both
    confirm it is not required. A missing field is a failed checkpoint, not a
    prompt for the hook to perform that review.
+   Treat route startup's short evidence list as the universal minimum, not the
+   final invocation shape: inspect the exact staged or working-tree diff first,
+   and include conditional structure and side-effect evidence on the first
+   review attempt whenever file-size pressure, a new runtime boundary, or a net
+   deletion threshold applies. This also applies to the lightweight `commit`
+   route after an implementation lifecycle has already finished.
    The `review hook` gate is hook-owned. Generic `gate` and `gate-batch`
    commands must reject it even when the caller supplies `source=review`,
    because a caller-provided source label is not execution provenance. A
