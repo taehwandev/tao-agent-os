@@ -21,7 +21,7 @@ handoff this tool produces to a real implementation.
 
 - Python 3.9 or newer
 - Network access to the Figma REST API for real extraction
-- A Figma personal access token
+- A Figma personal access token with read access to the target file
 
 The CLI reads the token only from an environment variable. It sends read
 requests only, but a Figma personal access token can expose the Figma data
@@ -59,6 +59,13 @@ unset FIGMA_TOKEN
 
 Use `--dry-run` when you only need to validate the URL and output plan; it does
 not require a token or network access.
+
+Figma Dev Mode is not required for the base handoff. Node structure, frame
+renders, styles, components, and exportable assets use the ordinary REST API.
+Variable metadata is an optional enrichment: when `/variables/local` is denied
+by the account, plan, or file permission, the CLI records a warning and still
+produces the rest of the bundle. A token alone cannot prove file access, so use
+the live smoke only with a small file the token is actually allowed to read.
 
 ## Running
 
@@ -166,28 +173,30 @@ are never committed.
 
 | File | Responsibility |
 |---|---|
-| `figma-handoff.py` | CLI arguments and overall orchestration |
-| `figma_api.py` | REST requests, downloads, retry |
-| `figma_fetch.py` | nodes, styles, variables, frame/asset fetch |
-| `figma_parse.py` | named/referenced style and variable parsing |
-| `figma_analyze.py` | color, gradient, text, effect, layout, component, asset analysis |
-| `figma_report.py` | summary, Markdown, and manifest generation |
+| `figma-handoff.py` | stable executable entrypoint |
+| `figma_cli.py`, `figma_cli_arguments.py` | orchestration and argument validation |
+| `figma_api.py` | authenticated same-origin REST requests and credential-free public asset downloads |
+| `figma_flow_fetch.py`, `figma_metadata_fetch.py`, `figma_render.py` | flow traversal, optional metadata, and frame/asset rendering |
+| `figma_style_parse.py`, `figma_variable_parse.py` | named/referenced style and variable parsing |
+| `figma_*_analysis.py` | color, interaction, layout, component, and asset analysis by concern |
+| `figma_summary.py`, `figma_markdown.py`, `figma_manifest.py` | summary, Markdown, and manifest generation |
+| `figma_coverage.py`, `figma_summary_validate.py`, `figma_validation_report.py` | validation and fidelity reporting by concern |
 | `figma_util.py` | URL, node id, color, gradient, JSON helpers |
-| `figma_validate.py` | schema invariants and fidelity coverage validation |
+| `figma_validate.py` | stable validation CLI entrypoint |
 
-Only fetch and download own the network. parse/analyze/report stay
-deterministic and network-free. When the output schema changes, update the
-schema document, `figma_validate.py`, the synthetic fidelity fixture, and the
-manifest `schemaVersion` together.
+Only API/fetch/render modules own the network. Parse, analysis, summary, and
+validation stay deterministic and network-free. The small `figma_analyze.py`,
+`figma_parse.py`, and `figma_report.py` files are import-compatibility facades;
+they own no processing logic. When the output schema changes, update the schema
+document, summary validator, synthetic fidelity fixture, and manifest
+`schemaVersion` together.
 
 ## Verification
 
 ```bash
 python3 -m py_compile scripts/figma-handoff/figma-handoff.py \
   scripts/figma-handoff/figma_*.py scripts/figma-handoff/live_smoke.py
-python3 -m unittest tests.test_figma_handoff tests.test_figma_standalone \
-  tests.test_figma_asset_dedup_parallel tests.test_figma_fidelity_harness \
-  tests.test_figma_secrets_boundary
+python3 -m unittest discover -s tests -p 'test_figma*.py'
 
 python3 scripts/figma-handoff/figma-handoff.py \
   --url "https://www.figma.com/design/FILE/Name?node-id=1-2" \
@@ -215,6 +224,12 @@ Detailed gates live in the [verification harness](docs/verification.md).
 
 - Tokens are read only from environment variables and never written to
   outputs, manifests, or logs.
+- Authenticated requests are restricted to `https://api.figma.com`; redirects
+  cannot carry the token to another origin.
+- Signed render downloads never receive the token. Each HTTPS target and
+  redirect is checked against local/private addresses, streamed under a size
+  cap, and validated against its expected PNG/JPEG/SVG/PDF signature before an
+  atomic output replace.
 - Produced bundles and `raw/` contain real design content; follow the target
   team's storage and sharing policy.
 - The default `.figma-handoff-work/` and any explicit one-off output location

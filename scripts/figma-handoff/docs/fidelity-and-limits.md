@@ -48,10 +48,12 @@ API.
 
 ## Tier 3 — API Or Tool Limits
 
-- **Design-token names on non-Enterprise plans**: `/variables/local` may be
-  unavailable; the bundle can contain empty variable metadata or `VariableID:…`
-  references. Map those references manually to the target repository's semantic
-  tokens. Remote library variables may remain unavailable as well.
+- **Design-token variable metadata**: `/variables/local` may be unavailable
+  because of the current account, plan, Dev Mode entitlement, or file access.
+  This is an optional enrichment and does not stop the base handoff. The bundle
+  may contain empty variable metadata or `VariableID:…` references; map those
+  references manually to the target repository's semantic tokens. Remote
+  library variables may remain unavailable as well.
 - **Display P3**: P3 floats are recorded as sRGB hex values without profile
   conversion. Use the original floats in `raw/nodes.json` for precision work.
 - **Image-fill bitmaps**: `--include-image-fills` stores the URL map but does not

@@ -6,7 +6,9 @@ type: ai-generated
 
 # Web React UI
 
-Use when routed to `platforms/web/skills/web-react-ui/SKILL.md` or when work needs this Tao Agent OS guidance area.
+Use when the target Web repository is confirmed to use React, Next.js, Remix,
+JSX, or TSX and work changes or reviews React UI structure, state, rendering,
+interaction, or tests.
 
 ## Read
 
@@ -24,6 +26,9 @@ Use when routed to `platforms/web/skills/web-react-ui/SKILL.md` or when work nee
 
 ## Do Not
 
+- Do not load this card solely because the selected platform is Web. Confirm a
+  React-family framework from the request, target paths, manifests, or existing
+  source first.
 - Do not look for legacy flat compatibility paths; load this skill bundle as the canonical context-loading target.
 - Do not load broad references for unrelated work just because this skill was nearby in the route.
 

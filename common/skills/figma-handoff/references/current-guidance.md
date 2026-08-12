@@ -19,15 +19,24 @@ AI product, external CLI checkout, or team-private path.
 | Interpreting `design-summary.json` measurements | [schema](../../../../scripts/figma-handoff/docs/design-summary-schema.md) |
 | Implementing real UI from a handoff | [implementation playbook](implementation-guide.md) |
 | Mapping values to Android, iOS, Web, or another UI stack | [platform mapping](platform-mapping.md) |
+| Android implementation with Compose, Views, or a mixed UI | [Figma to Android](../../../../platforms/android/skills/figma-to-android/SKILL.md) |
+| iOS implementation with SwiftUI, UIKit, or a mixed UI | [Figma to iOS](../../../../platforms/ios/skills/figma-to-ios/SKILL.md) |
+| Web implementation and responsive/accessibility behavior | [Figma to Web](../../../../platforms/web/skills/figma-to-web/SKILL.md) |
 | AIs without execution rights or with upload-only access | [AI execution modes](ai-execution-modes.md) |
 | Adopting this canonical source in another team | [team adoption](team-adoption.md) |
 | Judging pixel-fidelity claims and API limits | [fidelity and limits](../../../../scripts/figma-handoff/docs/fidelity-and-limits.md) |
 | Tool changes, verification, live smoke | [verification harness](../../../../scripts/figma-handoff/docs/verification.md) |
 
-Read only the rows you need. Creating a new bundle requires the tool contract;
-an implementation request additionally requires the implementation playbook and
-the target platform mapping. Never route local run outputs as knowledge
-sources or regression material.
+Read only the rows you need. Creating a new bundle requires the tool contract.
+An implementation request additionally requires the implementation playbook,
+the general platform mapping, and the matching platform card when one is listed
+above. Platform cards choose toolkit- or framework-specific guidance only after
+inspecting the target repository; a platform name alone never implies Compose,
+Views, SwiftUI, UIKit, or React. For Web, load the framework-neutral Figma-to-Web
+card first and add React guidance only when the target actually uses React. For
+an unlisted stack, use the general platform mapping and the target repository's
+nearest instructions. Never route local run outputs as knowledge sources or
+regression material.
 
 ## 1. Classify The Request And Execution Capability
 
@@ -91,6 +100,13 @@ instructions. Enter the token through a hidden prompt or trusted secret
 manager, verify only that the variable is set, and unset it after the run. A
 token value must never appear in a repository, prompt, command argument, log,
 output, or commit.
+
+Dev Mode is not a prerequisite for the base bundle. Treat Variables metadata as
+optional enrichment: an account-, plan-, or file-permission denial from
+`/variables/local` becomes a warning, while node structure, renders, components,
+styles, and authorized asset exports continue. Do not claim the live boundary
+works merely because an environment variable exists; a live smoke also needs a
+small node URL the token is authorized to read.
 
 ## 5. Produce The Bundle For The Purpose
 

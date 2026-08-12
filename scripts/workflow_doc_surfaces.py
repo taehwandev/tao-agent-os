@@ -52,7 +52,9 @@ def infer_surface_docs(
     docs: list[str] = []
     matches: list[dict[str, object]] = []
 
-    for rule in rule_list(rules, "request_intents"):
+    request_rules = list(enumerate(rule_list(rules, "request_intents")))
+    request_rules.sort(key=lambda item: (-_required_priority(item[1]), item[0]))
+    for _, rule in request_rules:
         if not rule_matches_command(rule, command):
             continue
         if not rule_matches_platform(rule, platform):
@@ -96,9 +98,15 @@ def _append_request_match(
             "docs": docs,
             "platforms": string_list(rule.get("platforms")),
             "reason": str(rule.get("reason") or ""),
+            "required_priority": _required_priority(rule),
         }
     )
     return docs
+
+
+def _required_priority(rule: dict[str, Any]) -> int:
+    value = rule.get("required_priority", 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _append_path_match(

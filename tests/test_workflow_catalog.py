@@ -65,7 +65,7 @@ from support.runtime_bridge import (
     runtime_bridge_required_phrases,
 )
 from support.stable_launcher import stable_launcher_path
-from workflow_catalog import COMMANDS, CONCERNS, SPILL_ACTION_LABELS
+from workflow_catalog import COMMANDS, CONCERNS, PLATFORMS, SPILL_ACTION_LABELS
 from workflow_doc_resolution import resolve_guidance_docs
 from workflow_route import CORE_REQUIRED_DOCS
 from workflow_gate_policy import (
@@ -223,6 +223,26 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertIn("common/skills/verification-policy/SKILL.md", CONCERNS["testing"])
         self.assertIn("definition-of-done", CONCERNS)
         self.assertIn("common/skills/definition-of-done/SKILL.md", CONCERNS["definition-of-done"])
+
+    def test_figma_cards_are_not_unconditional_platform_docs(self) -> None:
+        figma_cards = {
+            "android": "platforms/android/skills/figma-to-android/SKILL.md",
+            "ios": "platforms/ios/skills/figma-to-ios/SKILL.md",
+            "web": "platforms/web/skills/figma-to-web/SKILL.md",
+        }
+
+        for platform, card in figma_cards.items():
+            with self.subTest(platform=platform):
+                self.assertNotIn(card, PLATFORMS[platform])
+                self.assertFalse(
+                    any("/figma-to-" in doc for doc in PLATFORMS[platform])
+                )
+
+    def test_web_platform_docs_do_not_assume_react(self) -> None:
+        self.assertNotIn(
+            "platforms/web/skills/web-react-ui/SKILL.md",
+            PLATFORMS["web"],
+        )
 
     def test_workflow_validate_ignores_generated_markdown_caches(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

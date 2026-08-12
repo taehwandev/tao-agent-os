@@ -96,7 +96,6 @@
       "common/skills/performance-verification/SKILL.md"
     ],
     "web_ui": [
-      "platforms/web/skills/web-react-ui/SKILL.md",
       "platforms/web/skills/web-code-structure/SKILL.md",
       "platforms/web/skills/web-state-data/SKILL.md",
       "platforms/web/skills/web-design-system/SKILL.md",
@@ -104,6 +103,9 @@
       "platforms/web/skills/web-review/SKILL.md",
       "common/skills/ui-visual-verification/SKILL.md",
       "common/skills/performance-verification/SKILL.md"
+    ],
+    "web_react_ui": [
+      "platforms/web/skills/web-react-ui/SKILL.md"
     ],
     "react_native_app": [
       "platforms/react-native/skills/react-native-app/SKILL.md",
@@ -623,7 +625,7 @@
       "doc_sets": [
         "web_ui"
       ],
-      "reason": "Web UI feature work should load React UI, code structure, state/data, design-system, accessibility, review, visual, and performance guidance."
+      "reason": "Web UI feature work should load framework-neutral structure, state/data, design-system, accessibility, review, visual, and performance guidance."
     },
     {
       "name": "web_react_self_selected",
@@ -642,6 +644,7 @@
         "\\b(react|tsx|jsx|next\\.js|nextjs|remix)\\b"
       ],
       "doc_sets": [
+        "web_react_ui",
         "web_ui"
       ],
       "reason": "React or TSX choices require React UI, web structure, state/data, design-system, accessibility, visual, and performance context."
@@ -975,20 +978,23 @@
     },
     {
       "name": "figma_handoff",
+      "required_priority": 100,
       "request_any": [
         "figma\\.com/(design|file|proto)/",
         "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
         "\\b(design handoff|handoff bundle)\\b",
         "피그마",
-        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+        "(figma|피그마).{0,20}(구현|추출|핸드오프|스펙|번들)",
+        "디자인.{0,20}(핸드오프|번들)"
       ],
       "docs": [
         "common/skills/figma-handoff/SKILL.md"
       ],
-      "reason": "A Figma link or handoff request routes through the shared extraction procedure instead of ad-hoc screenshot estimation."
+      "reason": "A Figma link or explicit design-handoff request routes through the shared extraction procedure instead of ad-hoc screenshot estimation."
     },
     {
       "name": "figma_handoff_android",
+      "required_priority": 100,
       "platforms": [
         "android"
       ],
@@ -997,15 +1003,17 @@
         "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
         "\\b(design handoff|handoff bundle)\\b",
         "피그마",
-        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+        "(figma|피그마).{0,20}(구현|추출|핸드오프|스펙|번들)",
+        "디자인.{0,20}(핸드오프|번들)"
       ],
       "docs": [
-        "platforms/android/skills/figma-to-compose/SKILL.md"
+        "platforms/android/skills/figma-to-android/SKILL.md"
       ],
-      "reason": "A Figma request on this platform also needs the platform mapping card that owns token, component, and state translation."
+      "reason": "An explicit Figma or design-handoff request on Android needs the toolkit-neutral platform card before Compose or Views guidance is selected."
     },
     {
       "name": "figma_handoff_ios",
+      "required_priority": 100,
       "platforms": [
         "ios"
       ],
@@ -1014,15 +1022,17 @@
         "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
         "\\b(design handoff|handoff bundle)\\b",
         "피그마",
-        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+        "(figma|피그마).{0,20}(구현|추출|핸드오프|스펙|번들)",
+        "디자인.{0,20}(핸드오프|번들)"
       ],
       "docs": [
-        "platforms/ios/skills/figma-to-swiftui/SKILL.md"
+        "platforms/ios/skills/figma-to-ios/SKILL.md"
       ],
-      "reason": "A Figma request on this platform also needs the platform mapping card that owns token, component, and state translation."
+      "reason": "An explicit Figma or design-handoff request on iOS needs the toolkit-neutral platform card before SwiftUI or UIKit guidance is selected."
     },
     {
       "name": "figma_handoff_web",
+      "required_priority": 100,
       "platforms": [
         "web"
       ],
@@ -1031,12 +1041,13 @@
         "\\bfigma\\b.{0,40}\\b(handoff|implement|extract|spec|bundle|asset)\\b",
         "\\b(design handoff|handoff bundle)\\b",
         "피그마",
-        "(figma|디자인).{0,20}(구현|추출|핸드오프|스펙|번들)"
+        "(figma|피그마).{0,20}(구현|추출|핸드오프|스펙|번들)",
+        "디자인.{0,20}(핸드오프|번들)"
       ],
       "docs": [
         "platforms/web/skills/figma-to-web/SKILL.md"
       ],
-      "reason": "A Figma request on this platform also needs the platform mapping card that owns token, component, and state translation."
+      "reason": "An explicit Figma or design-handoff request on Web needs the platform mapping card for framework, responsive, and accessibility translation."
     }
   ],
   "path_surfaces": [
@@ -1252,6 +1263,7 @@
         "**/*.android.tsx"
       ],
       "doc_sets": [
+        "web_react_ui",
         "web_ui"
       ],
       "reason": "Touched React page, route, screen, component, or feature paths imply web UI/state/design guidance should be read."

@@ -12,6 +12,7 @@ or the skill body into per-team copies.
 ## Role Separation
 
 - `common/skills/figma-handoff/`: when to extract and how to interpret and implement
+- `platforms/*/skills/figma-to-*/`: reusable platform and toolkit adaptation
 - `scripts/figma-handoff/`: Figma REST execution, output schema, and self-verification
 - The target team repository: product requirements, platform architecture, design tokens, assets, tests, and release rules
 
@@ -28,6 +29,11 @@ team-specific differences; they never restate the shared procedure.
 3. Identify the UI module, platform, design token, asset, accessibility, and test sources in the target repository's instructions.
 4. Decide whether the handoff output location is temporary or a delivery/retention target.
 5. Manage a small, stable, team-owned frame URL for real API smoke as a separate secret/config.
+
+Dev Mode access is optional. Teams without it can still use the base handoff;
+variable metadata may be absent and must be treated as a documented warning.
+Keep the authorized smoke file separate from production designs so a real API
+check does not depend on broad design access.
 
 ## AI-Neutral Contract
 

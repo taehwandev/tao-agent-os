@@ -26,7 +26,7 @@ structure version (currently `3`).
   value. Do not confuse it with zero.
 - **Paths**: `screens[].imagePath` and `assetCandidates[].assetPath` are POSIX
   relative paths from the bundle root. They never depend on a personal absolute
-  path or an Agent OS checkout location.
+  path or a Tao Agent OS checkout location.
 
 ## Top-Level Keys
 

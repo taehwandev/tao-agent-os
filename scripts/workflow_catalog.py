@@ -314,7 +314,6 @@ PLATFORMS: Dict[str, Tuple[str, ...]] = {
         "platforms/android/skills/android-viewmodel-state/SKILL.md",
         "platforms/android/skills/android-state-data/SKILL.md",
         "platforms/android/skills/android-review/SKILL.md",
-        "platforms/android/skills/figma-to-compose/SKILL.md",
     ),
     "kmp": (
         "platforms/kmp/skills/kmp-architecture/SKILL.md",
@@ -347,15 +346,12 @@ PLATFORMS: Dict[str, Tuple[str, ...]] = {
         "platforms/ios/skills/ios-module-structure/SKILL.md",
         "platforms/ios/skills/ios-state-concurrency/SKILL.md",
         "platforms/ios/skills/ios-review/SKILL.md",
-        "platforms/ios/skills/figma-to-swiftui/SKILL.md",
     ),
     "web": (
         "platforms/web/skills/web-architecture/SKILL.md",
         "platforms/web/skills/web-code-structure/SKILL.md",
-        "platforms/web/skills/web-react-ui/SKILL.md",
         "platforms/web/skills/web-state-data/SKILL.md",
         "platforms/web/skills/web-review/SKILL.md",
-        "platforms/web/skills/figma-to-web/SKILL.md",
     ),
     "react-native": (
         "platforms/react-native/skills/react-native-app/SKILL.md",
