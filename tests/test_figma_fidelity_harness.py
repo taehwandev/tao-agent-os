@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "figma-
 import unittest
 
 from figma_report import build_summary, render_markdown
-from figma_validate import coverage_report, validate_summary
+from figma_coverage import coverage_report
+from figma_summary_validate import validate_summary
 
 
 def _fixture_documents() -> dict[str, dict]:
@@ -218,7 +219,7 @@ class FidelityHarnessTests(unittest.TestCase):
         self.assertGreaterEqual(cov["layoutNodes"]["withOpacity"], 1)
         self.assertGreaterEqual(cov["layoutNodes"]["withRotation"], 1)
         self.assertGreaterEqual(cov["layoutNodes"]["withRenderBounds"], 1)
-        self.assertTrue(cov["variables"]["enterpriseAvailable"])
+        self.assertTrue(cov["variables"]["metadataAvailable"])
 
 
 class ComponentCatalogTests(unittest.TestCase):

@@ -28,7 +28,9 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from figma_validate import coverage_report, format_report, validate_summary  # noqa: E402
+from figma_coverage import coverage_report  # noqa: E402
+from figma_summary_validate import validate_summary  # noqa: E402
+from figma_validation_report import format_report  # noqa: E402
 
 TOOL = Path(__file__).parent / "figma-handoff.py"
 IMAGE_FILL_MIN_PCT = 100  # Image fills must be fully recovered as PNG files.
@@ -41,6 +43,30 @@ def _png_size(path: Path) -> tuple[int, int] | None:
         return None
     width, height = struct.unpack(">II", head[16:24])
     return width, height
+
+
+def _frame_scale_failures(summary: dict, bundle_root: Path, scale: float) -> list[str]:
+    failures: list[str] = []
+    for screen in summary.get("screens", []) or []:
+        image_path = screen.get("imagePath")
+        width = screen.get("width")
+        height = screen.get("height")
+        if not image_path or not str(image_path).endswith(".png"):
+            continue
+        if not isinstance(width, (int, float)) or not isinstance(height, (int, float)):
+            failures.append(f"screen dimensions unavailable for scale check: {screen.get('id')}")
+            continue
+        size = _png_size(bundle_root / str(image_path))
+        expected = (round(width * scale), round(height * scale))
+        if size is None or any(abs(actual - target) > 1 for actual, target in zip(size, expected)):
+            failures.append(f"frame scale mismatch for {screen.get('id')}: actual={size} expected={expected}")
+    return failures
+
+
+def _layout_coverage_failures(coverage: dict) -> list[str]:
+    if coverage["screens"] and coverage["layoutNodes"]["total"] == 0:
+        return ["layout coverage is empty for a non-empty handoff"]
+    return []
 
 
 def main() -> int:
@@ -102,6 +128,8 @@ def main() -> int:
             elif size[0] <= 0 or size[1] <= 0:
                 failures.append(f"empty PNG dimensions: {frame.name} {size}")
 
+        failures.extend(_frame_scale_failures(summary, out, args.scale))
+
         assets = out / "assets"
         svgs = list(assets.glob("*.svg")) if assets.exists() else []
         pngs = list(assets.glob("*.png")) if assets.exists() else []
@@ -110,6 +138,7 @@ def main() -> int:
                 failures.append("no vector SVG assets exported (asset split broken?)")
 
         cov = coverage_report(summary)
+        failures.extend(_layout_coverage_failures(cov))
         asset = cov["assets"]
         if not args.quick and asset["imageFillTotal"]:
             pct = asset["imageFillWithPath"] * 100 // asset["imageFillTotal"]

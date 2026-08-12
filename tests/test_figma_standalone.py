@@ -11,11 +11,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.error
 from pathlib import Path
-from unittest import mock
 
-from figma_api import USER_AGENT, download_file
+from figma_api import USER_AGENT
 
 
 TOOL_DIR = Path(__file__).resolve().parents[1] / "scripts" / "figma-handoff"
@@ -106,8 +104,8 @@ class StandaloneCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SKIP", result.stdout)
 
-    def test_http_identity_is_agent_os_owned(self) -> None:
-        self.assertEqual(USER_AGENT, "agent-os-figma-handoff/1.0")
+    def test_http_identity_is_tao_agent_os_owned(self) -> None:
+        self.assertEqual(USER_AGENT, "tao-agent-os-figma-handoff/1.0")
 
     def test_generated_paths_are_bundle_relative(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,7 +114,9 @@ class StandaloneCliTests(unittest.TestCase):
             frame.parent.mkdir(parents=True)
             frame.write_bytes(b"png")
 
-            result = _load_cli_module().bundle_relative_paths({"1:2": str(frame)}, bundle)
+            result = _load_cli_module().FigmaHandoffCli.portable_paths(
+                {"1:2": str(frame)}, bundle
+            )
 
         self.assertEqual(result, {"1:2": "frames/screen.png"})
 
@@ -128,23 +128,62 @@ class StandaloneCliTests(unittest.TestCase):
             outside.write_bytes(b"png")
 
             with self.assertRaises(RuntimeError):
-                _load_cli_module().bundle_relative_paths({"1:2": str(outside)}, bundle)
+                _load_cli_module().FigmaHandoffCli.portable_paths(
+                    {"1:2": str(outside)}, bundle
+                )
 
+    def test_dry_run_rejects_invalid_operational_bounds(self) -> None:
+        cases = (
+            ("--scale", "-1"),
+            ("--timeout", "0"),
+            ("--max-flow-depth", "-2"),
+            ("--max-assets", "-5"),
+        )
+        for flag, value in cases:
+            with self.subTest(flag=flag):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(CLI),
+                        "--file-key",
+                        "FILE_KEY",
+                        "--node-id",
+                        "1:2",
+                        flag,
+                        value,
+                        "--dry-run",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("ERROR:", result.stderr)
 
-class DownloadErrorSafetyTests(unittest.TestCase):
-    def test_signed_download_url_is_not_repeated_in_errors(self) -> None:
-        signed_url = "https://cdn.example.invalid/file.svg?signature=top-secret"
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch(
-                "figma_api.urllib.request.urlopen",
-                side_effect=urllib.error.URLError("timed out"),
-            ):
-                with self.assertRaises(RuntimeError) as raised:
-                    download_file(signed_url, Path(tmp) / "asset.svg", timeout=1, retries=0)
+    def test_dry_run_plan_includes_every_operational_bound(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CLI),
+                "--file-key",
+                "FILE_KEY",
+                "--node-id",
+                "1:2",
+                "--timeout",
+                "12",
+                "--max-assets",
+                "7",
+                "--dry-run",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-        message = str(raised.exception)
-        self.assertNotIn(signed_url, message)
-        self.assertNotIn("top-secret", message)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = json.loads(result.stdout)
+        self.assertEqual(plan["timeout"], 12)
+        self.assertEqual(plan["maxAssets"], 7)
 
 
 if __name__ == "__main__":

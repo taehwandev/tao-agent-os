@@ -11,8 +11,9 @@ import unittest
 import urllib.parse
 from types import SimpleNamespace
 
-import figma_fetch
 from figma_api import _retry_delay_seconds
+from figma_flow_fetch import FigmaFlowFetcher, _chunk_node_ids
+from figma_render import FigmaRenderer
 from figma_analyze import (
     summarize_colors,
     summarize_flow_interactions,
@@ -399,74 +400,31 @@ class FigmaHandoffRegressionTests(unittest.TestCase):
 
     def test_flow_node_fetch_batches_large_pending_sets(self) -> None:
         calls: list[list[str]] = []
-        original_request_json = figma_fetch.request_json
 
-        def fake_request_json(url: str, token: str, timeout: int) -> dict:
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            ids = query["ids"][0].split(",")
-            calls.append(ids)
-            nodes = {}
-            for node_id in ids:
-                if node_id == "1:1":
+        class FakeApi:
+            def get_json(self, url: str) -> dict:
+                ids = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["ids"][0].split(",")
+                calls.append(ids)
+                nodes = {}
+                for node_id in ids:
+                    children = []
+                    if node_id == "1:1":
+                        children = [
+                            {"id": "1:2", "name": "Button", "type": "FRAME", "transitionNodeID": "2:1"},
+                            {"id": "1:3", "name": "Button", "type": "FRAME", "transitionNodeID": "2:2"},
+                            {"id": "1:4", "name": "Button", "type": "FRAME", "transitionNodeID": "2:3"},
+                            {"id": "1:5", "name": "Complex", "type": "FRAME", "transitionNodeID": "I2:4;3:5"},
+                        ]
                     nodes[node_id] = {
-                        "document": {
-                            "id": "1:1",
-                            "name": "Start",
-                            "type": "FRAME",
-                            "children": [
-                                {
-                                    "id": "1:2",
-                                    "name": "Button",
-                                    "type": "FRAME",
-                                    "transitionNodeID": "2:1",
-                                },
-                                {
-                                    "id": "1:3",
-                                    "name": "Button",
-                                    "type": "FRAME",
-                                    "transitionNodeID": "2:2",
-                                },
-                                {
-                                    "id": "1:4",
-                                    "name": "Button",
-                                    "type": "FRAME",
-                                    "transitionNodeID": "2:3",
-                                },
-                                {
-                                    "id": "1:5",
-                                    "name": "Complex",
-                                    "type": "FRAME",
-                                    "transitionNodeID": "I2:4;3:5",
-                                },
-                            ],
-                        },
+                        "document": {"id": node_id, "name": node_id, "type": "FRAME", "children": children},
                         "styles": {},
                     }
-                else:
-                    nodes[node_id] = {
-                        "document": {
-                            "id": node_id,
-                            "name": node_id,
-                            "type": "FRAME",
-                            "children": [],
-                        },
-                        "styles": {},
-                    }
-            return {"nodes": nodes}
+                return {"nodes": nodes}
 
-        figma_fetch.request_json = fake_request_json
-        try:
-            warnings: list[str] = []
-            _, documents, edges, _, _ = figma_fetch.fetch_flow_nodes(
-                file_key="FILE123",
-                start_node_id="1:1",
-                token="token",
-                max_flow_depth=1,
-                timeout=1,
-                warnings=warnings,
-            )
-        finally:
-            figma_fetch.request_json = original_request_json
+        warnings: list[str] = []
+        _, documents, edges, _, _ = FigmaFlowFetcher(FakeApi()).fetch(
+            "FILE123", "1:1", 1, warnings
+        )
 
         self.assertEqual(warnings, [])
         self.assertEqual(calls, [["1:1"], ["2:1", "2:2", "2:3", "I2:4;3:5"]])
@@ -475,91 +433,68 @@ class FigmaHandoffRegressionTests(unittest.TestCase):
         self.assertEqual(len(edges), 4)
 
     def test_fetch_collects_file_level_component_maps(self) -> None:
-        original_request_json = figma_fetch.request_json
-
-        def fake_request_json(url: str, token: str, timeout: int) -> dict:
-            return {
-                "nodes": {
-                    "1:1": {
-                        "document": {
-                            "id": "1:1",
-                            "name": "Screen",
-                            "type": "FRAME",
-                            "children": [
-                                {"id": "1:2", "name": "Card", "type": "INSTANCE", "componentId": "10:100"},
-                            ],
-                        },
-                        "styles": {},
-                        "components": {
-                            "10:100": {"name": "Card/가로형", "componentSetId": "10:1"},
-                        },
-                        "componentSets": {"10:1": {"name": "Card"}},
+        class FakeApi:
+            def get_json(self, url: str) -> dict:
+                return {
+                    "nodes": {
+                        "1:1": {
+                            "document": {
+                                "id": "1:1",
+                                "name": "Screen",
+                                "type": "FRAME",
+                                "children": [
+                                    {"id": "1:2", "name": "Card", "type": "INSTANCE", "componentId": "10:100"},
+                                ],
+                            },
+                            "styles": {},
+                            "components": {"10:100": {"name": "Card/가로형", "componentSetId": "10:1"}},
+                            "componentSets": {"10:1": {"name": "Card"}},
+                        }
                     }
                 }
-            }
 
-        figma_fetch.request_json = fake_request_json
-        try:
-            warnings: list[str] = []
-            _, _, _, _, component_index = figma_fetch.fetch_flow_nodes(
-                file_key="FILE123",
-                start_node_id="1:1",
-                token="token",
-                max_flow_depth=0,
-                timeout=1,
-                warnings=warnings,
-            )
-        finally:
-            figma_fetch.request_json = original_request_json
+        warnings: list[str] = []
+        _, _, _, _, component_index = FigmaFlowFetcher(FakeApi()).fetch(
+            "FILE123", "1:1", 0, warnings
+        )
 
         self.assertEqual(warnings, [])
         self.assertEqual(component_index["components"]["10:100"]["name"], "Card/가로형")
         self.assertEqual(component_index["componentSets"]["10:1"]["name"], "Card")
 
     def test_render_nodes_writes_image_response_and_downloads_images(self) -> None:
-        original_request_json = figma_fetch.request_json
-        original_download_file = figma_fetch.download_file
+        class FakeApi:
+            def get_json(inner_self, url: str) -> dict:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                self.assertEqual(query["ids"], ["1:1"])
+                self.assertEqual(query["format"], ["png"])
+                return {"images": {"1:1": "https://example.com/frame.png"}}
 
-        def fake_request_json(url: str, token: str, timeout: int) -> dict:
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            self.assertEqual(query["ids"], ["1:1"])
-            self.assertEqual(query["format"], ["png"])
-            return {"images": {"1:1": "https://example.com/frame.png"}}
+            def download(inner_self, url: str, output_path: Path, expected_format: str) -> None:
+                self.assertEqual(url, "https://example.com/frame.png")
+                self.assertEqual(expected_format, "png")
+                output_path.write_bytes(b"image")
 
-        def fake_download_file(url: str, output_path, timeout: int) -> None:
-            self.assertEqual(url, "https://example.com/frame.png")
-            output_path.write_bytes(b"image")
-
-        figma_fetch.request_json = fake_request_json
-        figma_fetch.download_file = fake_download_file
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                from pathlib import Path
-
-                base = Path(tmp)
-                (base / "frames").mkdir()
-                (base / "raw").mkdir()
-                warnings: list[str] = []
-                result = figma_fetch.render_nodes(
-                    file_key="FILE123",
-                    node_ids=["1:1"],
-                    documents={"1:1": {"name": "Frame"}},
-                    token="token",
-                    output_dir=base / "frames",
-                    raw_dir=base / "raw",
-                    image_format="png",
-                    scale=2.0,
-                    timeout=1,
-                    warnings=warnings,
-                )
-                self.assertTrue((base / "raw" / "image-response.json").exists())
-                image_metadata = json.loads((base / "raw" / "image-response.json").read_text(encoding="utf-8"))
-                self.assertEqual(image_metadata["1:1"], {"rendered": True})
-                self.assertNotIn("https://", json.dumps(image_metadata))
-                self.assertTrue((base / "frames" / "frame__1-1.png").exists())
-        finally:
-            figma_fetch.request_json = original_request_json
-            figma_fetch.download_file = original_download_file
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "frames").mkdir()
+            (base / "raw").mkdir()
+            warnings: list[str] = []
+            result = FigmaRenderer(FakeApi()).render_nodes(
+                "FILE123",
+                ["1:1"],
+                {"1:1": {"name": "Frame"}},
+                base / "frames",
+                base / "raw",
+                "png",
+                2.0,
+                warnings,
+            )
+            self.assertTrue((base / "raw" / "image-response.json").exists())
+            image_metadata = json.loads((base / "raw" / "image-response.json").read_text(encoding="utf-8"))
+            self.assertEqual(image_metadata["1:1"], {"rendered": True})
+            self.assertNotIn("https://", json.dumps(image_metadata))
+            self.assertTrue((base / "frames" / "frame__1-1.png").exists())
 
         self.assertEqual(warnings, [])
         self.assertTrue(result["1:1"].endswith("frame__1-1.png"))
@@ -628,55 +563,44 @@ class FigmaHandoffRegressionTests(unittest.TestCase):
         self.assertEqual(style["maxLines"], 2)
 
     def test_render_asset_nodes_splits_vector_svg_and_image_png(self) -> None:
-        original_request_json = figma_fetch.request_json
-        original_download_file = figma_fetch.download_file
         formats_by_id: dict[str, str] = {}
 
-        def fake_request_json(url: str, token: str, timeout: int) -> dict:
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            image_format = query["format"][0]
-            if image_format == "png":
-                self.assertEqual(query["scale"], ["3.0"])
-            else:
-                self.assertNotIn("scale", query)
-            images = {}
-            for node_id in query["ids"][0].split(","):
-                formats_by_id[node_id] = image_format
-                images[node_id] = f"https://example.com/{node_id}.{image_format}"
-            return {"images": images}
+        class FakeApi:
+            def get_json(inner_self, url: str) -> dict:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                image_format = query["format"][0]
+                if image_format == "png":
+                    self.assertEqual(query["scale"], ["3.0"])
+                else:
+                    self.assertNotIn("scale", query)
+                images = {}
+                for node_id in query["ids"][0].split(","):
+                    formats_by_id[node_id] = image_format
+                    images[node_id] = f"https://example.com/{node_id}.{image_format}"
+                return {"images": images}
 
-        def fake_download_file(url: str, output_path, timeout: int) -> None:
-            output_path.write_text("data", encoding="utf-8")
+            def download(inner_self, url: str, output_path: Path, expected_format: str) -> None:
+                output_path.write_text("data", encoding="utf-8")
 
-        figma_fetch.request_json = fake_request_json
-        figma_fetch.download_file = fake_download_file
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                from pathlib import Path
-
-                base = Path(tmp)
-                (base / "assets").mkdir()
-                (base / "raw").mkdir()
-                warnings: list[str] = []
-                result = figma_fetch.render_asset_nodes(
-                    file_key="FILE123",
-                    asset_candidates=[
-                        {"id": "1:2", "name": "ic_player", "type": "VECTOR"},
-                        {"id": "1:2", "name": "dup-ignored", "type": "VECTOR"},
-                        {"id": "1:3", "name": "avatar", "type": "RECTANGLE", "imageRefs": ["ref1"]},
-                    ],
-                    token="token",
-                    output_dir=base / "assets",
-                    raw_dir=base / "raw",
-                    timeout=1,
-                    warnings=warnings,
-                    scale=3.0,
-                )
-                self.assertTrue((base / "assets" / "ic_player__1-2.svg").exists())
-                self.assertTrue((base / "assets" / "avatar__1-3.png").exists())
-        finally:
-            figma_fetch.request_json = original_request_json
-            figma_fetch.download_file = original_download_file
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "assets").mkdir()
+            (base / "raw").mkdir()
+            warnings: list[str] = []
+            result = FigmaRenderer(FakeApi()).render_assets(
+                "FILE123",
+                [
+                    {"id": "1:2", "name": "ic_player", "type": "VECTOR"},
+                    {"id": "1:2", "name": "dup-ignored", "type": "VECTOR"},
+                    {"id": "1:3", "name": "avatar", "type": "RECTANGLE", "imageRefs": ["ref1"]},
+                ],
+                base / "assets",
+                base / "raw",
+                warnings,
+                3.0,
+            )
+            self.assertTrue((base / "assets" / "ic_player__1-2.svg").exists())
+            self.assertTrue((base / "assets" / "avatar__1-3.png").exists())
 
         self.assertEqual(warnings, [])
         self.assertEqual(formats_by_id["1:2"], "svg")
@@ -685,57 +609,45 @@ class FigmaHandoffRegressionTests(unittest.TestCase):
         self.assertTrue(result["1:3"].endswith("avatar__1-3.png"))
 
     def test_render_asset_nodes_falls_back_to_renderable_ancestor(self) -> None:
-        original_request_json = figma_fetch.request_json
-        original_download_file = figma_fetch.download_file
+        class FakeApi:
+            def get_json(self, url: str) -> dict:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                images = {
+                    node_id: None if node_id == "1:9" else f"https://example.com/{node_id}.svg"
+                    for node_id in query["ids"][0].split(",")
+                }
+                return {"images": images}
 
-        def fake_request_json(url: str, token: str, timeout: int) -> dict:
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            images = {}
-            for node_id in query["ids"][0].split(","):
-                # leaf(1:9)는 단독 렌더 불가(null), 조상(1:8)은 렌더됨
-                images[node_id] = None if node_id == "1:9" else f"https://example.com/{node_id}.svg"
-            return {"images": images}
+            def download(self, url: str, output_path: Path, expected_format: str) -> None:
+                output_path.write_text("<svg/>", encoding="utf-8")
 
-        def fake_download_file(url: str, output_path, timeout: int) -> None:
-            output_path.write_text("<svg/>", encoding="utf-8")
-
-        figma_fetch.request_json = fake_request_json
-        figma_fetch.download_file = fake_download_file
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                from pathlib import Path
-
-                base = Path(tmp)
-                (base / "assets").mkdir()
-                (base / "raw").mkdir()
-                warnings: list[str] = []
-                result = figma_fetch.render_asset_nodes(
-                    file_key="FILE123",
-                    asset_candidates=[
-                        {
-                            "id": "1:9",
-                            "name": "IconLeaf",
-                            "type": "VECTOR",
-                            "renderFallbackIds": [{"id": "1:8", "name": "IconBox"}],
-                        }
-                    ],
-                    token="token",
-                    output_dir=base / "assets",
-                    raw_dir=base / "raw",
-                    timeout=1,
-                    warnings=warnings,
-                    scale=3.0,
-                )
-                self.assertTrue((base / "assets" / "iconbox__1-8.svg").exists())
-        finally:
-            figma_fetch.request_json = original_request_json
-            figma_fetch.download_file = original_download_file
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "assets").mkdir()
+            (base / "raw").mkdir()
+            warnings: list[str] = []
+            result = FigmaRenderer(FakeApi()).render_assets(
+                "FILE123",
+                [
+                    {
+                        "id": "1:9",
+                        "name": "IconLeaf",
+                        "type": "VECTOR",
+                        "renderFallbackIds": [{"id": "1:8", "name": "IconBox"}],
+                    }
+                ],
+                base / "assets",
+                base / "raw",
+                warnings,
+                3.0,
+            )
+            self.assertTrue((base / "assets" / "iconbox__1-8.svg").exists())
 
         self.assertEqual(warnings, [])
         self.assertTrue(result["1:9"].endswith("iconbox__1-8.svg"))
 
     def test_chunk_node_ids_respects_query_length_and_retry_after_is_robust(self) -> None:
-        chunks = figma_fetch.chunk_node_ids(
+        chunks = _chunk_node_ids(
             ["I1:" + "x" * 40, "I2:" + "y" * 40, "I3:" + "z" * 40],
             max_batch_size=100,
             max_query_chars=70,

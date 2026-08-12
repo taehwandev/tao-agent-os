@@ -1,21 +1,15 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL_DIR = REPO_ROOT / "scripts" / "figma-handoff"
-RUNTIME_FILES = (
-    "figma-handoff.py",
-    "figma_analyze.py",
-    "figma_api.py",
-    "figma_fetch.py",
-    "figma_parse.py",
-    "figma_report.py",
-    "figma_util.py",
-    "figma_validate.py",
+RUNTIME_FILES = tuple(
+    path.name for path in TOOL_DIR.glob("*.py") if path.name != "live_smoke.py"
 )
 
 
@@ -23,6 +17,20 @@ class FigmaSecretsBoundaryTests(unittest.TestCase):
     def test_local_work_directory_is_hidden_and_ignored(self) -> None:
         ignore_rules = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("**/.figma-handoff-work/", ignore_rules.splitlines())
+        ignored = REPO_ROOT / "nested" / ".figma-handoff-work" / "bundle" / "raw.json"
+        visible = REPO_ROOT / "nested" / "figma-handoff-work" / "raw.json"
+        self.assertEqual(
+            subprocess.run(
+                ["git", "check-ignore", "-q", str(ignored)], cwd=REPO_ROOT, check=False
+            ).returncode,
+            0,
+        )
+        self.assertNotEqual(
+            subprocess.run(
+                ["git", "check-ignore", "-q", str(visible)], cwd=REPO_ROOT, check=False
+            ).returncode,
+            0,
+        )
 
     def test_tool_text_has_no_local_paths_or_token_material(self) -> None:
         # The docs may NAME the X-Figma-Token header; a header assignment with a
@@ -51,6 +59,18 @@ class FigmaSecretsBoundaryTests(unittest.TestCase):
                     imported_roots.add(node.module.split(".")[0])
             with self.subTest(filename=filename):
                 self.assertEqual(imported_roots & forbidden_roots, set())
+
+    def test_figma_token_header_never_uses_a_literal_credential(self) -> None:
+        tree = ast.parse((TOOL_DIR / "figma_api.py").read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == "X-Figma-Token":
+                    self.assertFalse(
+                        isinstance(value, ast.Constant) and bool(value.value),
+                        "credential header value must come from runtime configuration",
+                    )
 
 
 if __name__ == "__main__":
