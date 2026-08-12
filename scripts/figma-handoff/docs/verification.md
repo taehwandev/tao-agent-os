@@ -4,66 +4,92 @@ status: review
 type: ai-generated
 ---
 
-# 검증 하네스
+# Verification Harness
 
-Figma handoff는 네트워크 없는 회귀, 생성 bundle 검증, 선택적 live smoke의 세 층으로 검증한다. 특정 팀의 token이나 Figma file을 기본 fixture로 요구하지 않는다.
+Figma handoff verification has three layers: offline regression, generated
+bundle validation, and optional live smoke testing. It does not require a
+specific team's token or Figma file as a default fixture.
 
-## 1. 오프라인 회귀
+## 1. Offline Regression
 
-`tests/`는 `request_json`과 `download_file`을 mock해 실제 네트워크를 사용하지 않는다.
+The tests mock `request_json` and `download_file`; they do not use the network.
 
-- `test_figma_handoff.py`: URL/node, fetch batch, flow, style, variable, asset format과 fallback 단위 회귀
-- `test_asset_dedup_parallel.py`: asset signature dedup, batch와 상한 회귀
-- `test_fidelity_harness.py`: 회전, opacity, stroke, mask, blend, gradient, variable alias와 text run을 포함한 합성 golden fixture
-- `test_discovery_detail_example.py`: 추천 Web sample의 결정적 생성과 로컬 asset 연결
-- `test_example_boundaries.py`: 정식 Web sample만 남는 예제 경계, 숨김 로컬 작업 공간의 ignore 규칙과 실행 코드 독립성
-- `test_standalone.py`: 다른 작업 디렉터리와 Python isolated mode에서의 dry-run, 기본 출력과 오류 정보 안전성
+- `test_figma_handoff.py`: URL/node parsing, fetch batching, prototype flow,
+  styles, variables, asset formats, and fallback behavior
+- `test_figma_asset_dedup_parallel.py`: asset-signature deduplication, batching,
+  and asset caps
+- `test_figma_fidelity_harness.py`: synthetic golden coverage for rotation,
+  opacity, strokes, masks, blend modes, gradients, variable aliases, and text runs
+- `test_figma_standalone.py`: dry-run behavior from another working directory,
+  Python isolated mode, default output, and safe error information
+- `test_figma_secrets_boundary.py`: local-path, token-material, and runtime
+  import boundaries
+
+Run from the repository root:
 
 ```bash
-cd tools/figma-handoff
-python3 -m py_compile figma-handoff.py figma_*.py live_smoke.py
-python3 -m unittest discover -s tests
+python3 -m py_compile scripts/figma-handoff/figma-handoff.py \
+  scripts/figma-handoff/figma_*.py scripts/figma-handoff/live_smoke.py
+python3 -m unittest \
+  tests.test_figma_handoff \
+  tests.test_figma_standalone \
+  tests.test_figma_asset_dedup_parallel \
+  tests.test_figma_fidelity_harness \
+  tests.test_figma_secrets_boundary
 ```
 
-모든 offline test는 token과 Bitbucket/Figma 네트워크 없이 통과해야 한다. 새 fetch 기능도 network mock을 경유한다.
+Every offline test must pass without a token or Figma network access. New fetch
+behavior must go through the existing network mocks.
 
-## 2. Bundle 검증기
+## 2. Bundle Validator
 
-`figma_validate.py`는 임의의 `design-summary.json`을 읽어 schema 불변식과 충실도 coverage를 계산한다.
+`figma_validate.py` reads any `design-summary.json` and checks schema invariants
+and fidelity coverage.
 
 ```bash
-python3 tools/figma-handoff/figma_validate.py \
+python3 scripts/figma-handoff/figma_validate.py \
   <bundle>/summary/design-summary.json
 ```
 
-- 종료 `0`: schema 위반 없음
-- 종료 `1`: schema 불변식 위반
-- 종료 `2`: 인자 또는 파일 읽기 실패
+- Exit `0`: no schema violations
+- Exit `1`: schema invariant violation
+- Exit `2`: argument or file-read failure
 
-CLI는 생성 도중에도 같은 validator를 호출하고 문제를 `warnings`와 stderr에 남긴다. 새 summary 필드를 추가하거나 의미를 바꾸면 validator, schema 문서와 합성 fixture를 함께 갱신한다.
+The CLI runs the same validator during bundle creation and reports problems in
+`warnings` and stderr. When adding or changing summary fields, update the
+validator, schema document, and synthetic fidelity fixture together.
 
-## 3. Live smoke
+## 3. Live Smoke
 
-`live_smoke.py`는 실제 Figma API를 사용해 frame download, asset format 분기와 image-fill recovery를 확인한다. 재사용 가능한 공개 기본 URL을 내장하지 않으며 팀이 소유한 작은 frame URL을 명시해야 한다.
+`live_smoke.py` calls the real Figma API to check frame downloads, asset format
+selection, and image-fill recovery. It has no embedded default URL; provide a
+small frame URL that the caller is authorized to use.
 
 ```bash
-FIGMA_TOKEN=... python3 tools/figma-handoff/live_smoke.py \
+python3 scripts/figma-handoff/live_smoke.py \
   --url "$FIGMA_SMOKE_URL" --scale 3
 ```
 
-`--quick`은 asset export를 생략하고 schema, frame PNG와 layout coverage만 확인한다. `--token-env`로 별도 token 환경변수를 선택할 수 있다.
+Use `--quick` to skip asset export and check only the schema, frame PNG, and
+layout coverage. Use `--token-env` to select a different environment variable.
 
-- token 환경변수가 없으면 `SKIP`과 종료 `0`
-- token이 있는데 URL이 없으면 사용 오류
-- 실제 산출물은 임시 디렉터리에 만들고 종료 시 제거
-- signed render URL과 token은 출력하지 않음
+- If the token environment variable is missing, the harness prints `SKIP` and exits `0`.
+- If a token is present but the URL is missing, it reports a usage error.
+- It writes real artifacts to a temporary directory and removes them on exit.
+- It does not print tokens or signed render URLs.
 
-실제 API가 필요한 기능을 바꿨다면 offline test 통과만으로 live 동작을 확정하지 않는다. 반대로 token이 없는 CI에서는 live smoke skip을 실패로 처리하지 않는다.
+Offline tests do not prove behavior that requires the real API. Conversely, a
+token-less CI environment should not treat the intentional live-smoke skip as a
+failure.
 
-## 4. 문서와 독립성 검증
+## 4. Documentation And Independence Checks
 
-릴리스 전에는 다음도 확인한다.
+Before release, also verify that:
 
-- skill과 tool의 Markdown link가 Agent OS 내부 존재 파일을 가리키는지
-- 범용 실행 문서에 외부 CLI 저장소, 개인 절대경로, 특정 AI runtime fallback이 없는지
-- `.figma-handoff-work/`, legacy `output/`, token, signed URL 또는 Python cache가 추적 대상에 들어오지 않았는지
+- Markdown links in the skill and tool point to files that exist in this checkout
+- shared execution docs contain no external CLI checkout, personal absolute
+  path, company identifier, or AI-runtime-specific fallback
+- `.figma-handoff-work/`, legacy output directories, tokens, signed URLs, and
+  Python caches are not tracked
+- the token setup instructions use an environment variable or secret manager,
+  never a command-line argument or checked-in file

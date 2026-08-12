@@ -17,15 +17,48 @@ The CLI does not generate code. `common/skills/figma-handoff/SKILL.md` owns the
 procedure that selects the target repository and platform and applies the
 handoff this tool produces to a real implementation.
 
-## Requirements And Auth
+## Requirements And Token Setup
 
 - Python 3.9 or newer
 - Network access to the Figma REST API for real extraction
-- A Figma personal access token with read permission
+- A Figma personal access token
 
-The token is read only from the `FIGMA_TOKEN` environment variable by default;
-`--token-env` selects a different variable name. Never place a token value in
-arguments, documents, outputs, or commits.
+The CLI reads the token only from an environment variable. It sends read
+requests only, but a Figma personal access token can expose the Figma data
+available to its account, so treat it as a high-sensitivity secret. Figma's
+current account-settings flow is documented in [Manage personal access tokens]
+(https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens).
+
+For a local interactive run, create the token in Figma and enter it only at a
+hidden prompt. The value is not stored in this repository or in shell history:
+
+```bash
+read -r -s FIGMA_TOKEN
+export FIGMA_TOKEN
+```
+
+Paste the token when prompted, then run the CLI. To use a different variable
+name, repeat the same pattern and pass `--token-env`:
+
+```bash
+read -r -s FIGMA_READ_TOKEN
+export FIGMA_READ_TOKEN
+python3 scripts/figma-handoff/figma-handoff.py \
+  --url "https://www.figma.com/design/<FILE_KEY>/<FILE_NAME>?node-id=123-456" \
+  --name "feature-screen" \
+  --token-env FIGMA_READ_TOKEN
+```
+
+Do not put a token value in arguments, documents, prompts, logs, outputs, or
+commits. Check presence without printing the value and clear it after use:
+
+```bash
+test -n "${FIGMA_TOKEN:-}" && echo "FIGMA_TOKEN is set"
+unset FIGMA_TOKEN
+```
+
+Use `--dry-run` when you only need to validate the URL and output plan; it does
+not require a token or network access.
 
 ## Running
 
@@ -168,11 +201,11 @@ python3 scripts/figma-handoff/figma_validate.py \
   /path/to/bundle/summary/design-summary.json
 ```
 
-Run the real-API smoke only with an explicit token and a test frame URL your
-team owns:
+Run the real-API smoke only with a token already loaded in the environment and
+a test frame URL that the caller is authorized to use:
 
 ```bash
-FIGMA_TOKEN=... python3 scripts/figma-handoff/live_smoke.py \
+python3 scripts/figma-handoff/live_smoke.py \
   --url "$FIGMA_SMOKE_URL" --scale 3
 ```
 

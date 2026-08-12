@@ -478,8 +478,8 @@ def _layout_node_entry(node: dict[str, Any], parent_id: str | None, depth: int) 
         "constraints",
         "clipsContent",
         "overflowDirection",
-        # 시각 충실도(1:1 재현)에 필요하지만 이전엔 summary에서 누락되던 필드들.
-        # 값 자체는 raw/nodes.json에 항상 존재했다.
+        # Visual-fidelity fields that were previously omitted from the summary.
+        # The raw values were already present in raw/nodes.json.
         "opacity",
         "blendMode",
         "isMask",
@@ -496,8 +496,8 @@ def _layout_node_entry(node: dict[str, Any], parent_id: str | None, depth: int) 
         if field in node:
             entry[field] = _round_layout_value(node[field])
 
-    # 인스턴스 정체성: 이 노드가 어느 컴포넌트의 인스턴스인지 + variant/텍스트 등 속성.
-    # 값은 raw/nodes.json에 항상 있었지만 summary에서 누락되던 정보다.
+    # Preserve the referenced component identity and instance properties such as
+    # variants and text values that are present in raw/nodes.json.
     component_id = node.get("componentId")
     if isinstance(component_id, str) and component_id:
         entry["componentId"] = normalize_node_id(component_id)
@@ -509,9 +509,9 @@ def _layout_node_entry(node: dict[str, Any], parent_id: str | None, depth: int) 
 
 
 def _flatten_component_properties(value: Any, variant_only: bool = False) -> dict[str, Any]:
-    """Figma componentProperties(`{name: {value, type}}`)를 `{name: value}`로 평탄화.
+    """Flatten Figma componentProperties to ``{name: value}``.
 
-    variant_only=True면 VARIANT 타입만 남긴다(카탈로그 variant 표기용).
+    With ``variant_only=True``, keep only VARIANT properties for catalog labels.
     """
     if not isinstance(value, dict):
         return {}
@@ -529,11 +529,10 @@ def summarize_components(
     node_documents: dict[str, dict[str, Any]],
     component_index: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
-    """화면에서 실제 사용된 컴포넌트 인벤토리(= 컴포넌트화 work-list).
+    """Build a usage-ordered work list of components used by the screens.
 
-    인스턴스를 componentId로 묶어 사용 횟수·사용 화면·variant를 집계하고,
-    file-level components/componentSets 맵으로 이름·컴포넌트셋을 보강한다.
-    사용 횟수 내림차순 정렬 → 상위부터 하나씩 코드 컴포넌트로 정의하면 된다.
+    Group instances by component id, count usage and screens, preserve variants,
+    and enrich names from the file-level component and component-set maps.
     """
     index = component_index or {}
     norm_components = {
@@ -612,12 +611,13 @@ def summarize_component_blueprints(
     asset_dedup_by_id: dict[str, str] | None = None,
     max_nodes: int = 80,
 ) -> list[dict[str, Any]]:
-    """각 컴포넌트를 어떻게 조립하는지 알려주는 청사진(대표 인스턴스의 내부 서브트리).
+    """Describe how each component is assembled from its representative subtree.
 
-    구현자가 화면을 범용 레이아웃으로 손으로 재구성하지 않도록, "이 카드 = Slot/image +
-    title + LeftActions(avatar·name·HeartToggle+Count)" 같은 실제 내부 구조를 넘긴다.
-    중첩 인스턴스(예 Icon/HeartToggle)는 경계에서 멈추고 componentId 참조만 남겨(각자 자기
-    청사진이 있으므로) 조합형으로 유지하고 크기 폭발을 막는다.
+    This preserves concrete structure such as ``Slot/image + title +
+    LeftActions(avatar, name, HeartToggle, Count)`` instead of asking an
+    implementer to reconstruct a generic layout by eye. Nested instances stop at
+    their component boundary and remain component-id references so each has its
+    own blueprint and the tree does not expand without limit.
     """
     asset_dedup_by_id = asset_dedup_by_id or {}
     instances: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -668,7 +668,7 @@ def summarize_component_blueprints(
                     item["text"] = chars[:40]
             structure.append(item)
             if nested_instance:
-                return  # 중첩 인스턴스는 경계 — 내부로 재귀하지 않음
+                return  # Nested instances are boundaries; do not recurse inside.
             for child in node.get("children") or []:
                 if isinstance(child, dict):
                     emit(child, depth + 1)
@@ -678,7 +678,7 @@ def summarize_component_blueprints(
                 emit(child, 1)
 
         if not structure:
-            continue  # 내부 구조 없는 순수 아이콘 리프는 청사진 불필요
+            continue  # A pure icon leaf with no internal structure needs no blueprint.
 
         catalog_entry = catalog_by_id.get(cid, {})
         rep_bounds = representative.get("absoluteBoundingBox") or {}
@@ -769,12 +769,12 @@ def _append_text_run(
     })
 
 def _asset_dedup_key(node: dict[str, Any], image_refs: list[str]) -> str:
-    """같은 asset을 한 번만 렌더/다운로드하기 위한 dedup 키.
+    """Return a deduplication key for one render/download of an asset.
 
-    - 이미지 fill: imageRef가 같으면 확실히 같은 비트맵 → "img:<refs>".
-    - 벡터/불리언 등: 렌더 결과를 결정하는 시각 필드(+name)가 모두 같을 때만 병합한다.
-      name·색·기하(fillGeometry)까지 포함하므로 시각적으로 다른 아이콘이 잘못 합쳐지지 않는다.
-      기하 데이터가 없으면 type/name/size/fills/strokes/effects 조합으로 보수적으로 병합한다.
+    Image fills use the image reference. Vectors and boolean operations include
+    every visual field that determines the render, including the name, color,
+    and geometry. When geometry is absent, the key falls back to a conservative
+    combination of type, name, size, fills, strokes, and effects.
     """
     if image_refs:
         return "img:" + ",".join(sorted(image_refs))
@@ -799,7 +799,7 @@ _GENERIC_NAME_PREFIXES = (
 
 
 def _is_generic_name(name: Any) -> bool:
-    """`Vector`, `Rectangle 12`, `Group 5`처럼 의미 없는 자동 생성 이름인가."""
+    """Return whether a name is a meaningless generated label."""
     text = str(name or "").strip().lower()
     return not text or any(text.startswith(prefix) for prefix in _GENERIC_NAME_PREFIXES)
 
@@ -814,10 +814,9 @@ def _pick_representative_name(names: list[str], nearest_names: list[str]) -> str
 
 
 def build_asset_inventory(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """assetCandidates를 dedupKey로 묶은 고유 아이콘 인벤토리(반복 구현 방지용).
+    """Group asset candidates into a unique inventory by deduplication key.
 
-    동일 시그니처(geometry+색+name 또는 imageRef) asset은 한 항목으로 묶고,
-    이름이 generic이면 `nearestComponentName`(포함된 컴포넌트 이름)으로 대표 이름을 복구한다.
+    Generic names use the nearest enclosing component name when available.
     """
     groups: dict[str, dict[str, Any]] = {}
     order: list[str] = []

@@ -96,8 +96,8 @@ def fetch_flow_nodes(
                 if isinstance(payload_styles, dict):
                     file_styles.update({normalize_node_id(k): v for k, v in payload_styles.items()})
 
-                # file-level 컴포넌트 정의는 node_payload에 오지만 이전엔 버려졌다.
-                # componentId → {name, componentSetId, description, remote}, componentSetId → {name, ...}.
+                # File-level component definitions are included in node_payload.
+                # Keep componentId -> metadata and componentSetId -> metadata.
                 payload_components = node_payload.get("components")
                 if isinstance(payload_components, dict):
                     file_components.update(payload_components)
@@ -335,17 +335,16 @@ def render_asset_nodes(
     scale: float = 3.0,
     max_assets: int | None = None,
 ) -> dict[str, str]:
-    """아이콘/벡터/이미지 asset candidate를 개별 파일로 렌더한다.
+    """Render icon, vector, and image-fill candidates as individual files.
 
-    화면 프레임 렌더(render_nodes)와 달리 프레임 내부 노드를 id 단위로 뽑는다.
-    포맷은 타입에 따라 나눈다:
-    - 이미지 fill(imageRef) 노드 → PNG (Figma가 SVG로는 렌더하지 못함).
-    - 순수 벡터/불리언 등 → SVG.
-    깊이 중첩된 leaf 벡터·SF Symbol 글리프는 Figma가 단독 렌더를 지원하지 않아
-    null로 돌아올 수 있으며, 이 경우 warnings에 기록된다(도구 한계).
+    Unlike screen-frame rendering, this extracts nodes inside a frame by id.
+    Image-fill nodes become PNG because Figma may not render them as SVG; pure
+    vectors and boolean operations become SVG. Deeply nested leaf vectors and
+    system glyphs can return null because Figma does not support standalone
+    rendering; the tool records those cases as warnings.
     """
-    # dedupKey별로 대표 노드 1개만 렌더/다운로드하고, 같은 키의 나머지 인스턴스는
-    # 대표의 결과 파일로 매핑한다(같은 아이콘 50개 인스턴스 → 다운로드 1회).
+    # Render one representative per dedupKey and map the remaining instances to
+    # its result, avoiding repeated downloads of the same icon.
     uniq: list[tuple[str, dict[str, Any]]] = []
     seen_nodes: set[str] = set()
     rep_by_key: dict[str, str] = {}
@@ -366,7 +365,7 @@ def render_asset_nodes(
         name_by_id[node_id] = str(candidate.get("name", node_id))
         origin_format[node_id] = "png" if candidate.get("imageRefs") else "svg"
 
-    # 상한(--max-assets): 고유 asset이 너무 많으면 잘라내되, 잘린 수를 경고로 남긴다(무음 절단 금지).
+    # Cap unique assets when requested and report every skipped item.
     if max_assets is not None and max_assets >= 0 and len(uniq) > max_assets:
         skipped = len(uniq) - max_assets
         warnings.append(
@@ -390,7 +389,7 @@ def render_asset_nodes(
             response_filename=response_filename,
         )
 
-    # Pass 1: 후보 노드 자체 렌더 (벡터→svg, 이미지 fill→png). null 경고는 아직 확정 아님.
+    # Pass 1: render each candidate in its native format; null is not final yet.
     discard: list[str] = []
     result: dict[str, str] = {}
     result.update(render_group(
@@ -402,7 +401,7 @@ def render_asset_nodes(
         name_by_id, "png", "asset-image-response-png.json", discard,
     ))
 
-    # Pass 2: 렌더 실패 후보는 조상 폴백 체인을 원본 포맷으로 시도(조상은 dedup).
+    # Pass 2: try the ancestor fallback chain for candidates that did not render.
     fallback_name: dict[str, str] = {}
     fallback_ids: dict[str, list[str]] = {"svg": [], "png": []}
     for node_id, candidate in uniq:
@@ -432,7 +431,7 @@ def render_asset_nodes(
                 result[node_id] = fallback_result[ancestor_id]
                 break
 
-    # 대표 렌더 결과를 같은 dedupKey의 모든 인스턴스 node_id로 전파(소비자는 node_id로 조회).
+    # Propagate the representative result to every node id in the dedup group.
     for key, members in members_by_key.items():
         rep_path = result.get(rep_by_key[key])
         if rep_path is None:
@@ -441,7 +440,7 @@ def render_asset_nodes(
             if member_id != rep_by_key[key]:
                 result[member_id] = rep_path
 
-    # 최종 미복구 노드만 한 줄씩 경고 (leaf 벡터/글리프 등 Figma 단독 렌더 미지원).
+    # Report only nodes that remain unavailable after fallback attempts.
     for node_id, _ in uniq:
         if node_id not in result:
             warnings.append(
@@ -486,8 +485,8 @@ def _render_image_ids(
             return {}, f"Render API failed for batch {batch_no}: {error}"
         return response.get("images", {}), None
 
-    # /images 배치 호출은 Figma 서버측 렌더를 기다리므로 순차 시 배치 수만큼 대기가 쌓인다.
-    # 호출 자체를 병렬화한다(다운로드 병렬화와 별개 단계). rate limit 대비 동시성은 낮게.
+    # Figma server-side render calls are latency-bound, so run batches in parallel
+    # with deliberately low concurrency to leave room for rate limits.
     all_image_urls: dict[str, str | None] = {}
     if batches:
         with concurrent.futures.ThreadPoolExecutor(
@@ -525,7 +524,7 @@ def _render_image_ids(
         except RuntimeError as error:
             return node_id, None, f"Image download failed for node {node_id}: {error}"
 
-    # 파일 다운로드는 I/O 바운드라 직렬 시 후보 수만큼 왕복이 쌓여 병목이 된다. 스레드 풀로 병렬화.
+    # Downloads are I/O-bound; use a small thread pool to avoid serial round trips.
     result: dict[str, str] = {}
     if downloadable:
         with concurrent.futures.ThreadPoolExecutor(

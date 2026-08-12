@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""design-summary.json 검증기 + 충실도 커버리지 리포트.
+"""Validator and fidelity coverage report for design-summary.json.
 
-두 가지를 제공한다:
-- validate_summary(summary): 스키마/불변식 위반 목록 (빈 리스트 = 통과)
-- coverage_report(summary): 1:1 충실도 정량 지표 (이미지/asset 복구율, 필드 채움, 경고 분류)
+Provides:
+- validate_summary(summary): schema and invariant violations (empty means pass)
+- coverage_report(summary): quantitative fidelity metrics and warning groups
 
-네트워크 없이 동작하며, 오프라인 테스트·라이브 스모크·CLI에서 공용으로 쓴다.
-CLI: python3 figma_validate.py <design-summary.json>  (위반 있으면 exit 1)
+The module is network-free and shared by offline tests, live smoke, and the CLI.
+CLI: python3 figma_validate.py <design-summary.json>  (exit 1 on violations)
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _is_number(value: Any) -> bool:
 
 
 def validate_summary(summary: dict[str, Any]) -> list[str]:
-    """구조/불변식 위반을 문자열 목록으로 반환. 빈 리스트면 통과."""
+    """Return structural and invariant violations; an empty list means pass."""
     problems: list[str] = []
 
     def require(cond: bool, message: str) -> None:
@@ -134,7 +134,7 @@ def validate_summary(summary: dict[str, Any]) -> list[str]:
 
 
 def coverage_report(summary: dict[str, Any]) -> dict[str, Any]:
-    """1:1 충실도 정량 지표. render 후(assetPath 존재)면 복구율까지 의미가 있다."""
+    """Return quantitative fidelity metrics, including rendered asset recovery."""
     layout_nodes = summary.get("layoutNodes", []) or []
 
     def count_with(field: str) -> int:
@@ -206,14 +206,14 @@ def coverage_report(summary: dict[str, Any]) -> dict[str, Any]:
 
 
 def format_report(problems: list[str], coverage: dict[str, Any]) -> str:
-    lines: list[str] = ["# figma-handoff 검증 리포트", ""]
+    lines: list[str] = ["# Figma Handoff Validation Report", ""]
     if problems:
-        lines.append(f"## ❌ 스키마 위반 {len(problems)}건")
+        lines.append(f"## ❌ Schema Violations ({len(problems)})")
         lines.extend(f"- {p}" for p in problems)
     else:
-        lines.append("## ✅ 스키마 위반 없음")
+        lines.append("## ✅ No Schema Violations")
     lines.append("")
-    lines.append("## 충실도 커버리지")
+    lines.append("## Fidelity Coverage")
     a = coverage["assets"]
     ln = coverage["layoutNodes"]
     w = coverage["warnings"]
@@ -221,18 +221,18 @@ def format_report(problems: list[str], coverage: dict[str, Any]) -> str:
     asset_pct = (a["withPath"] * 100 // a["total"]) if a["total"] else 0
     c = coverage["components"]
     lines.extend([
-        f"- 화면(screens): {coverage['screens']}",
-        f"- 컴포넌트: {c['total']}종 (인스턴스 {c['instances']}개 / variant 보유 {c['withVariant']}종 / 청사진 {c['blueprints']}개)",
+        f"- Screens: {coverage['screens']}",
+        f"- Components: {c['total']} (instances {c['instances']} / variants {c['withVariant']} / blueprints {c['blueprints']})",
         f"- layoutNodes: {ln['total']} (opacity {ln['withOpacity']} / stroke {ln['withStrokeWeight']} "
         f"/ rotation {ln['withRotation']} / renderBounds {ln['withRenderBounds']})",
-        f"- 색 {coverage['colors']} / 그라데이션 {coverage['gradients']} / 텍스트 {coverage['textStyles']} "
-        f"/ textRun {coverage['textRuns']} / effect {coverage['effects']}",
-        f"- 이미지 fill 복구: {a['imageFillWithPath']}/{a['imageFillTotal']} ({img_pct}%)",
-        f"- 전체 asset 복구: {a['withPath']}/{a['total']} ({asset_pct}%), fallback 체인 보유 {a['withFallbackChain']}",
-        f"- 고유 아이콘: {coverage['iconInventory']['unique']}개 (이름불명확 {coverage['iconInventory']['nameUnclear']} / "
-        f"그중 컴포넌트명 복구 {coverage['iconInventory']['namedByComponent']}), asset의 컴포넌트 연결 {a['withNearestComponent']}",
-        f"- variables: {coverage['variables']['count']} (Enterprise 접근 {'O' if coverage['variables']['enterpriseAvailable'] else 'X'})",
-        f"- warnings: 총 {w['total']} (asset 미렌더 {w['assetNotRenderable']} / variables {w['variables']} / 기타 {w['other']})",
+        f"- Colors {coverage['colors']} / gradients {coverage['gradients']} / text styles {coverage['textStyles']} "
+        f"/ text runs {coverage['textRuns']} / effects {coverage['effects']}",
+        f"- Image-fill recovery: {a['imageFillWithPath']}/{a['imageFillTotal']} ({img_pct}%)",
+        f"- Overall asset recovery: {a['withPath']}/{a['total']} ({asset_pct}%), fallback chains {a['withFallbackChain']}",
+        f"- Unique icons: {coverage['iconInventory']['unique']} (name unclear {coverage['iconInventory']['nameUnclear']} / "
+        f"named by component {coverage['iconInventory']['namedByComponent']}), assets linked to components {a['withNearestComponent']}",
+        f"- Variables: {coverage['variables']['count']} (metadata {'available' if coverage['variables']['enterpriseAvailable'] else 'unavailable'})",
+        f"- Warnings: {w['total']} (asset not renderable {w['assetNotRenderable']} / variables {w['variables']} / other {w['other']})",
     ])
     return "\n".join(lines) + "\n"
 

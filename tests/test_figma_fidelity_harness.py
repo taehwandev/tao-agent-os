@@ -331,7 +331,7 @@ class ComponentCatalogTests(unittest.TestCase):
 
     def test_markdown_renders_component_worklist(self) -> None:
         md = render_markdown(self.summary)
-        self.assertIn("## Components (사용 빈도 기준", md)
+        self.assertIn("## Components (usage order", md)
         self.assertIn("Card", md)  # variant 멤버는 componentSetName을 주 라벨로 노출
         self.assertIn("x3", md)  # 최상위 Card 사용횟수
 

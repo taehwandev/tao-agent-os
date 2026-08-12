@@ -134,14 +134,15 @@ def _asset_candidates_with_fallback(
     node_documents: dict[str, dict[str, Any]],
     component_label: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """asset 후보에 조상 폴백 체인 + 가장 가까운 컴포넌트 이름을 붙인다.
+    """Attach an ancestor fallback chain and nearest component name to each asset.
 
-    깊이 중첩된 아이콘 노드는 단독 렌더가 null이지만, 조상 컨테이너를 위로 올라가면
-    렌더되는 노드가 나온다. render 단계에서 후보가 null이면 이 체인을 순서대로 시도한다.
-    화면 프레임(node_documents 키)은 전체 화면이라 폴백 대상에서 제외한다.
+    A deeply nested icon node may render as null on its own, while an ancestor
+    container can render successfully. The render stage tries this chain when a
+    candidate is unavailable. Screen frames are excluded because they are the
+    full-screen render targets.
 
-    또한 이름 없는 벡터라도 대개 이름 있는 컴포넌트(`Icon/Search`) 안에 있으므로,
-    조상 인스턴스의 componentId를 찾아 `nearestComponentName`을 backfill한다.
+    An unnamed vector is often inside a named component such as `Icon/Search`;
+    the nearest ancestor instance supplies `nearestComponentName` when possible.
     """
     component_label = component_label or {}
     parent_by_id: dict[str, str | None] = {}
@@ -195,7 +196,7 @@ def _asset_candidates_with_fallback(
             candidate["nearestComponentName"] = nearest_name
     return candidates
 
-def _format_effect_list(effects: list[dict[str, Any]], fallback: str = "(상세 없음)") -> str:
+def _format_effect_list(effects: list[dict[str, Any]], fallback: str = "(no details)") -> str:
     parts: list[str] = []
     for eff in effects:
         eff_type = eff.get("type", "")
@@ -251,7 +252,7 @@ def _format_interaction(interaction: dict[str, Any]) -> str:
 def _format_text_style_inline(style: dict[str, Any]) -> str:
     family = style.get("fontFamily") or style.get("fontPostScriptName")
     if not family:
-        return " (font 정보 없음)"
+        return " (font information unavailable)"
     line_height, line_height_unit = _text_style_line_height(style)
     letter_spacing = style.get("letterSpacing")
     letter_unit = style.get("letterSpacingUnit", "")
@@ -307,7 +308,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines: list[str] = [
         "# Figma Handoff",
         "",
-        "이 파일은 Figma REST API로 생성한 공통 구현 기준입니다. 자동 변환 결과가 아니라 iOS/Android 구현자가 같은 화면 구조와 토큰 후보를 보도록 만드는 handoff 산출물입니다.",
+        "This file is a shared implementation reference generated from the Figma REST API. It is not an automatic conversion; it gives iOS and Android implementers a common view of the screen structure and token candidates.",
         "",
         "## Source",
         "",
@@ -332,16 +333,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
             to_name = f" {edge['toName']}" if edge.get("toName") else ""
             lines.append(f"- `{edge['fromNodeId']}` {edge.get('fromName', '')} -> `{edge['toNodeId']}`{to_name}")
     else:
-        lines.append("- Figma JSON에서 prototype transition을 찾지 못했습니다. prototype 연결이 없거나 API payload에 포함되지 않은 경우일 수 있습니다.")
+        lines.append("- No prototype transition was found in the Figma JSON. The prototype may have no connection or the API payload may not include it.")
 
     lines.extend(["", "## Prototype Interaction Details", ""])
     if summary.get("flowInteractions"):
         for interaction in summary["flowInteractions"][:120]:
             lines.append(f"- {_format_interaction(interaction)}")
         if len(summary["flowInteractions"]) > 120:
-            lines.append(f"- ... 외 {len(summary['flowInteractions']) - 120}개")
+            lines.append(f"- ... and {len(summary['flowInteractions']) - 120} more")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     tokens = summary.get("designTokens", {})
 
@@ -353,10 +354,10 @@ def render_markdown(summary: dict[str, Any]) -> str:
             hexes = " ".join(f"`{h}`" for h in s.get("hexValues", []))
             gradients = "; ".join(_format_gradient(g) for g in s.get("gradientValues", []))
             color_parts = " ".join(part for part in (hexes, gradients) if part)
-            color_part = f" {color_parts}" if color_parts else " (색상 상세 없음)"
+            color_part = f" {color_parts}" if color_parts else " (color details unavailable)"
             lines.append(f"- `{s['name']}`{color_part}{desc}")
     else:
-        lines.append("- 없음 (파일에 named color style이 없거나 API 접근 불가)")
+        lines.append("- None (the file has no named color style or the API was inaccessible)")
 
     lines.extend(["", "## Design Tokens — Text Styles", ""])
     text_styles_named = tokens.get("textStyles", [])
@@ -366,7 +367,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             font_part = _format_text_style_inline(s)
             lines.append(f"- `{s['name']}`{font_part}{desc}")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Design Tokens — Effect Styles", ""])
     effect_styles = tokens.get("effectStyles", [])
@@ -375,7 +376,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             desc = f" — {s['description']}" if s.get("description") else ""
             lines.append(f"- `{s['name']}` {_format_effect_list(s.get('effects', []))}{desc}")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Design Tokens — Variables", ""])
     var_data = tokens.get("variables", {})
@@ -390,14 +391,14 @@ def render_markdown(summary: dict[str, Any]) -> str:
             display_value = _format_variable_value(first_value)
             lines.append(f"- `{coll_name}/{var['name']}` ({resolved_type}) = {display_value}")
         if len(all_vars) > 60:
-            lines.append(f"- ... 외 {len(all_vars) - 60}개 (raw/variables.json 참조)")
+            lines.append(f"- ... and {len(all_vars) - 60} more (see raw/variables.json)")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     ref_styles = summary.get("referencedStyles", {})
 
     ref_colors = ref_styles.get("colorStyles", [])
-    lines.extend(["", "## Referenced Color Styles (노드 payload 기준)", ""])
+    lines.extend(["", "## Referenced Color Styles (from node payload)", ""])
     if ref_colors:
         for s in ref_colors:
             remote_tag = " [remote]" if s.get("remote") else ""
@@ -411,35 +412,35 @@ def render_markdown(summary: dict[str, Any]) -> str:
             elif s.get("gradient"):
                 color_part = f" {_format_gradient(s['gradient'])}"
             else:
-                color_part = " (색상 상세 없음)"
+                color_part = " (color details unavailable)"
             lines.append(f"- `{s['name']}`{color_part}{remote_tag}")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     ref_texts = ref_styles.get("textStyles", [])
-    lines.extend(["", "## Referenced Text Styles (노드 payload 기준)", ""])
+    lines.extend(["", "## Referenced Text Styles (from node payload)", ""])
     if ref_texts:
         for s in ref_texts:
             remote_tag = " [remote]" if s.get("remote") else ""
             font_part = _format_text_style_inline(s)
             lines.append(f"- `{s['name']}`{font_part}{remote_tag}")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     ref_effects = ref_styles.get("effectStyles", [])
-    lines.extend(["", "## Referenced Effect Styles (노드 payload 기준)", ""])
+    lines.extend(["", "## Referenced Effect Styles (from node payload)", ""])
     if ref_effects:
         for s in ref_effects:
             remote_tag = " [remote]" if s.get("remote") else ""
             lines.append(f"- `{s['name']}` {_format_effect_list(s.get('effects', []))}{remote_tag}")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
-    lines.extend(["", "## Components (사용 빈도 기준 — 컴포넌트화 work-list)", ""])
+    lines.extend(["", "## Components (usage order — implementation work list)", ""])
     component_catalog = summary.get("components", [])
     if component_catalog:
         for comp in component_catalog[:60]:
-            # variant 멤버는 컴포넌트셋 이름이 진짜 이름(name은 variant 문자열)이라 셋 이름을 우선.
+            # A component-set name is the canonical label for variant members.
             label = comp.get("componentSetName") or comp.get("name", "")
             variant = comp.get("variantProperties") or {}
             variant_part = ""
@@ -449,14 +450,14 @@ def render_markdown(summary: dict[str, Any]) -> str:
             screens = len(comp.get("usedInScreens", []))
             lines.append(
                 f"- `{comp['componentId']}` {label}{variant_part}"
-                f" x{comp['usageCount']} ({screens}개 화면)"
+                f" x{comp['usageCount']} ({screens} screens)"
             )
         if len(component_catalog) > 60:
-            lines.append(f"- ... 외 {len(component_catalog) - 60}개")
+            lines.append(f"- ... and {len(component_catalog) - 60} more")
     else:
-        lines.append("- 없음 (인스턴스가 없거나 컴포넌트 정의 payload 미포함)")
+        lines.append("- None (no instances or component definitions in the payload)")
 
-    lines.extend(["", "## Component Blueprints (컴포넌트별 내부 구조 — 이대로 조립)", ""])
+    lines.extend(["", "## Component Blueprints (internal structure — assemble from this)", ""])
     blueprints = summary.get("componentBlueprints", [])
     if blueprints:
         for bp in blueprints[:8]:
@@ -471,13 +472,13 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 dims = f" {item['w']}x{item['h']}" if item.get("w") is not None and item.get("h") is not None else ""
                 lines.append(f"  {indent}- {item.get('name', '')} ({item.get('type', '')}){dims}{ref}{asset}{text}")
             if len(bp.get("structure", [])) > 24:
-                lines.append(f"    - ... 외 {len(bp['structure']) - 24}개 노드")
+                lines.append(f"    - ... and {len(bp['structure']) - 24} more nodes")
         if len(blueprints) > 8:
-            lines.append(f"- ... 외 {len(blueprints) - 8}개 컴포넌트 (design-summary.json 참조)")
+            lines.append(f"- ... and {len(blueprints) - 8} more components (see design-summary.json)")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
-    lines.extend(["", "## Color Candidates (사용 빈도 기준)", ""])
+    lines.extend(["", "## Color Candidates (usage order)", ""])
     for color in summary["colors"][:20]:
         source = ", ".join(color.get("sources", [])[:3])
         var_names = color.get("boundVariableNames", [])
@@ -486,16 +487,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
         var_hint = f" [var: {var_hint_value}]" if var_hint_value else ""
         lines.append(f"- `{color['hex']}` x{color['count']}{var_hint} ({source})")
     if not summary["colors"]:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Gradient Candidates", ""])
     for gradient in summary.get("gradients", [])[:20]:
         source = ", ".join(gradient.get("sources", [])[:3])
         lines.append(f"- {_format_gradient(gradient)} x{gradient['count']} ({source})")
     if not summary.get("gradients"):
-        lines.append("- 없음")
+        lines.append("- None")
 
-    lines.extend(["", "## Text Style Candidates (사용 빈도 기준)", ""])
+    lines.extend(["", "## Text Style Candidates (usage order)", ""])
     for style in summary["textStyles"][:20]:
         family = style.get("fontFamily") or style.get("fontPostScriptName") or "unknown"
         size = style.get("fontSize")
@@ -511,7 +512,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"{letter_part} align={align} x{style['count']} ({samples})"
         )
     if not summary["textStyles"]:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Text Override Runs", ""])
     if summary.get("textRuns"):
@@ -524,9 +525,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"{range_info.get('start')}..{range_info.get('end')} `{text}`{style}"
             )
         if len(summary["textRuns"]) > 60:
-            lines.append(f"- ... 외 {len(summary['textRuns']) - 60}개")
+            lines.append(f"- ... and {len(summary['textRuns']) - 60} more")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Effect Candidates", ""])
     for effect in summary.get("effects", [])[:20]:
@@ -534,61 +535,61 @@ def render_markdown(summary: dict[str, Any]) -> str:
         src = ", ".join(effect.get("sources", [])[:2])
         lines.append(f"- {detail} x{effect['count']} ({src})")
     if not summary.get("effects"):
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Layout Metric Candidates", ""])
     for key, values in summary["layoutMetrics"].items():
         top_values = ", ".join(f"{item['value']}({item['count']})" for item in values[:10])
         lines.append(f"- {key}: {top_values}")
     if not summary["layoutMetrics"]:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Layout Nodes", ""])
     if summary.get("layoutNodes"):
         for node in summary["layoutNodes"][:120]:
             lines.append(f"- {_format_layout_node(node)}")
         if len(summary["layoutNodes"]) > 120:
-            lines.append(f"- ... 외 {len(summary['layoutNodes']) - 120}개")
+            lines.append(f"- ... and {len(summary['layoutNodes']) - 120} more")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
-    lines.extend(["", "## Unique Icon Inventory (dedup 기준 — 반복 구현 방지)", ""])
+    lines.extend(["", "## Unique Icon Inventory (deduplication — avoid duplicate implementations)", ""])
     inventory = summary.get("assetInventory", [])
     if inventory:
         for icon in inventory[:60]:
             near = icon.get("nearestComponentName")
-            unclear = " ⚠️이름불명확" if icon.get("nameUnclear") else ""
-            near_part = f" (컴포넌트: {near})" if near else ""
+            unclear = " ⚠️name unclear" if icon.get("nameUnclear") else ""
+            near_part = f" (component: {near})" if near else ""
             lines.append(
                 f"- {icon.get('name', '')}{near_part} ({icon.get('type', '')}) x{icon['usageCount']}{unclear}"
             )
         if len(inventory) > 60:
-            lines.append(f"- ... 외 {len(inventory) - 60}개")
+            lines.append(f"- ... and {len(inventory) - 60} more")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(["", "## Asset Candidates", ""])
     if summary["assetCandidates"]:
         for asset in summary["assetCandidates"][:50]:
-            near = f" [컴포넌트: {asset['nearestComponentName']}]" if asset.get("nearestComponentName") else ""
+            near = f" [component: {asset['nearestComponentName']}]" if asset.get("nearestComponentName") else ""
             lines.append(f"- `{asset['id']}` {asset.get('name', '')} ({asset.get('type', '')}){near}")
     else:
-        lines.append("- 없음")
+        lines.append("- None")
 
     lines.extend(
         [
             "",
             "## Platform-neutral Implementation Checklist",
             "",
-            "- 대상 저장소의 지침과 기존 화면 진입점, 내비게이션, 상태 소유권을 먼저 확인합니다.",
-            "- Figma 값을 직접 복제하기 전에 대상 제품의 기존 색상·타이포그래피·간격 토큰에 매핑합니다.",
-            "- `componentBlueprints`와 `components`를 기준으로 재사용 컴포넌트를 먼저 구현합니다.",
-            "- 전체 프레임 이미지는 비교 reference로만 쓰고 실제 UI 구조와 개별 asset으로 구현합니다.",
-            "- 접근성, 반응형 동작, 테스트와 preview는 대상 저장소의 현재 규칙을 따릅니다.",
+            "- Read the target repository's instructions, screen entry points, navigation, and state ownership first.",
+            "- Map Figma values to the target product's existing color, typography, and spacing tokens before copying values directly.",
+            "- Implement reusable components from `componentBlueprints` and `components` first.",
+            "- Use the full-frame image only as a comparison reference; implement the actual structure and individual assets.",
+            "- Follow the target repository's current accessibility, responsive behavior, tests, and preview rules.",
             "",
             "## Missing State Log",
             "",
-            "- Figma에 명시되지 않은 상태는 구현 중 이 섹션에 추가합니다.",
+            "- Add states that Figma does not specify to this section during implementation.",
         ]
     )
 

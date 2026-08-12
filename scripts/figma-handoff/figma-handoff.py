@@ -214,8 +214,8 @@ def main() -> int:
         write_json(output_dir / "manifest.json", build_manifest(summary, args))
         return problems
 
-    # asset 렌더는 오래 걸릴 수 있으므로, 그 전에 summary/handoff/manifest를 먼저 기록한다.
-    # 이후 단계가 중단돼도 구현 기준 산출물은 유효하게 남는다(부분 성공).
+    # Asset rendering can be slow, so write summary, handoff, and manifest first.
+    # If the later stage stops, the implementation reference remains usable.
     persist_summary()
 
     asset_paths: dict[str, str] = {}

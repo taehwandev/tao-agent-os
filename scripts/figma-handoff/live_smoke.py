@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""라이브 스모크 하네스 — 실제 Figma 호출로 1:1 파이프라인을 빽빽하게 검증한다.
+"""Live smoke harness for a real Figma API handoff pipeline.
 
-unittest 대상이 아니며(파일명이 test*.py 아님) 네트워크·토큰이 필요하다.
-토큰 환경변수가 없으면 SKIP(exit 0)해서 오프라인 CI를 깨지 않는다.
+This is not an unittest target (the filename does not start with ``test``) and
+requires network access plus a token. It returns SKIP (exit 0) when the token
+environment variable is missing so offline CI remains independent.
 
-검증 항목:
-1. 도구 실행 성공(exit 0)
-2. design-summary.json 스키마 통과(figma_validate)
-3. 프레임이 유효한 PNG로 다운로드됨(--scale 배율 반영 확인)
-4. asset이 벡터→SVG / 이미지 fill→PNG로 분기 export됨
-5. 이미지 fill(사진/아바타) 복구율이 임계치 이상
-6. 충실도 커버리지 리포트 출력
+Checks:
+1. the tool exits successfully
+2. design-summary.json passes figma_validate
+3. frame downloads are valid PNGs at the requested scale
+4. vectors export as SVG and image fills as PNG
+5. image-fill recovery meets the configured threshold
+6. the fidelity coverage report is produced
 
-usage: FIGMA_TOKEN=... python3 live_smoke.py --url <frame url> [--scale 3]
+Usage: python3 live_smoke.py --url <frame-url> [--scale 3]
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from figma_validate import coverage_report, format_report, validate_summary  # noqa: E402
 
 TOOL = Path(__file__).parent / "figma-handoff.py"
-IMAGE_FILL_MIN_PCT = 100  # 사진/아바타는 PNG로 항상 복구되어야 한다.
+IMAGE_FILL_MIN_PCT = 100  # Image fills must be fully recovered as PNG files.
 
 
 def _png_size(path: Path) -> tuple[int, int] | None:
@@ -119,7 +120,7 @@ def main() -> int:
                 )
 
         print(format_report(problems, cov))
-        print(f"frames={len(frames)} (예: {_png_size(frames[0]) if frames else None}) "
+        print(f"frames={len(frames)} (for example: {_png_size(frames[0]) if frames else None}) "
               f"assets: svg={len(svgs)} png={len(pngs)}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
