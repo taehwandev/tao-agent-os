@@ -80,6 +80,20 @@ worker-specific evidence paths whenever they must run the normal lifecycle,
 including after an invalid handoff fallback.
 The capsule itself does not prove that a gate passed.
 
+The same rule applies to a clean session continuation. When the common resume
+transaction returns `ready`, its strong drift check authorizes reuse of the
+packet's bounded inspected-scope, accepted-decision, and current-state
+successful-verification evidence. Required-document reading is reusable only
+after the authoritative source-doc gate passes. A completed mutation
+checkpoint invalidates earlier verification successes, so adapters never carry
+a pre-edit pass across new bytes. Runtime adapters must render the common
+ready-only reuse and rerun-condition fields rather than duplicate that policy,
+and must not make the agent reread or rerun identical work merely to rebuild
+conversation context. External freshness requirements or a different
+acceptance boundary require affected new evidence; additional confidence should
+use an orthogonal check rather than an identical rerun. Any refusal renders
+neither saved work nor reuse advice.
+
 Runtime bridges and workers use `agent-hook.py handoff` through the same
 approved wrapper or stable-launcher path as the other lifecycle hooks. A direct
 capsule-core CLI is diagnostic only; do not make each runtime integrate a
@@ -240,6 +254,22 @@ clear the pending mutation after success or failure and block the next agentic
 step when reconciliation is required. Non-edit tools and directories outside
 Tao Agent OS remain outside this gate. Tune the freshness window with
 `TAO_CLAUDE_GATE_MAX_AGE_SECONDS` (default 8 hours).
+
+After a new parent `start` has atomically promoted its claim to `running`, it
+may self-heal same-session ambiguity by cancelling older active parent claims
+for that exact runtime session. The registry performs that cancellation as a
+compare-and-set on evidence key, run id, run-instance start time, active state,
+and resume generation. If an older run finishes, fails, is rebound, or its
+terminal id is adopted by a new start before the transaction acquires the
+registry lock, its newer state wins and the start must not report it as settled.
+Claims from another runtime session and isolated worker claims are never
+superseded by this path.
+
+On a `ready` SessionStart resume, Claude receives the bounded objective,
+decisions, remaining work, reusable inspected scope, and successful
+verification ids. The injected brief explicitly distinguishes trusted reuse
+from invalidation conditions. It never includes command text or output and is
+not emitted for drift, ownership, integrity, or local-boundary refusals.
 
 Claude's file tools expose one exact `file_path`, so they can be bracketed
 automatically. Arbitrary `Bash` commands do not expose a trustworthy changed

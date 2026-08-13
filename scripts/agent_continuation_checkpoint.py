@@ -95,9 +95,22 @@ def write_continuation_checkpoint(
     binding_payload = _binding_payload(project, run_id, binding_path)
     work_update = dict(work or {})
     if kind == "post_mutation":
+        if "verification" in work_update:
+            raise ContinuationPacketError(
+                [
+                    failure(
+                        "post_mutation_verification_not_allowed",
+                        "/work/verification",
+                    )
+                ]
+            )
         work_update = MutationCheckpointState.merge_changed_scope(
             project, run_id, base, work_update
         )
+        # A successful check describes the bytes that existed before this
+        # mutation.  The refreshed packet is authoritative for the new bytes,
+        # so it must not carry those successes forward as reusable evidence.
+        work_update["verification"] = []
     drift = capture_drift_state(
         project,
         rules,

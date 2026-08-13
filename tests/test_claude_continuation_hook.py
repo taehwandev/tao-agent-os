@@ -194,12 +194,79 @@ class ClaudeSessionResumeTests(unittest.TestCase):
             context = output["hookSpecificOutput"]["additionalContext"]
             self.assertIn("resume safe work", context)
             self.assertNotIn("runtime fixture request", context)
+            self.assertIn("Reuse [reuse_unchanged_evidence]", context)
+            self.assertIn("do not rerun identical checks", context)
             self.assertIsNotNone(
                 resolve_runtime_evidence(
                     fixture.project,
                     {"runtime": "claude", "session_id": "new-session"},
                 )
             )
+
+    def test_ready_context_reuses_bounded_analysis_and_successful_checks(self) -> None:
+        result = {
+            "checkpoint": "review",
+            "work": {
+                "objective": "resume safe work",
+                "decisions": [
+                    {"id": "keep_boundary", "status": "accepted", "text": "Keep the boundary."}
+                ],
+                "remaining_work": [],
+                "blockers": [],
+                "inspected_scope": [
+                    {"path": "src/module.py", "role": "inspected"}
+                ],
+            },
+            "reuse": {
+                "decision": "reuse_unchanged_evidence",
+                "required_docs": "reuse",
+                "inspected_scope_count": 1,
+                "accepted_decisions": [
+                    {"id": "keep_boundary", "status": "accepted"}
+                ],
+                "successful_verification": [
+                    {"id": "focused-unit", "kind": "unit"}
+                ],
+                "rerun_when": [
+                    "state_changed",
+                    "external_freshness_required",
+                    "different_acceptance_boundary",
+                ],
+            },
+        }
+
+        context = claude_continuation_hook._resume_brief(result)
+
+        self.assertIn("Reuse [reuse_unchanged_evidence]", context)
+        self.assertIn("accepted_decisions=1; successful_checks=1", context)
+        self.assertIn("Recorded analysis, accepted decisions", context)
+        self.assertIn("Unchanged required docs are reusable", context)
+        self.assertIn("do not rerun identical checks", context)
+        self.assertIn("state changed", context)
+        self.assertIn("external freshness required", context)
+        self.assertIn("different acceptance boundary", context)
+        self.assertIn("Accepted [accepted]: keep_boundary", context)
+        self.assertIn("Inspected [inspected]: src/module.py", context)
+        self.assertIn("Verified [unit]: focused-unit", context)
+
+    def test_ready_context_does_not_claim_unrecorded_doc_reading(self) -> None:
+        result = {
+            "checkpoint": "source docs",
+            "work": {"objective": "resume safely"},
+            "reuse": {
+                "decision": "reuse_unchanged_evidence",
+                "required_docs": "not_recorded",
+                "inspected_scope_count": 0,
+                "accepted_decisions": [],
+                "successful_verification": [],
+                "rerun_when": ["state_changed"],
+            },
+        }
+
+        context = claude_continuation_hook._resume_brief(result)
+
+        self.assertIn("Required-doc reading is not recorded reusable", context)
+        self.assertNotIn("Unchanged required docs are reusable", context)
 
     def test_session_start_refuses_drift_without_rendering_saved_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -221,6 +288,71 @@ class ClaudeSessionResumeTests(unittest.TestCase):
             context = output["hookSpecificOutput"]["additionalContext"]
             self.assertIn("drift_refused", context)
             self.assertNotIn("resume safe work", context)
+            self.assertNotIn("Unchanged required docs", context)
+            self.assertNotIn("do not rerun identical checks", context)
+            self.assertNotIn("reuse", context.lower())
+
+    def test_binding_refusal_renders_neither_saved_work_nor_reuse_advice(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            ready = {
+                "result": "ready",
+                "evidence_path": str(fixture.evidence),
+                "run_id": fixture.run_id,
+                "resume_generation": 1,
+                "work": {"objective": "must stay hidden"},
+                "reuse": {"decision": "reuse_unchanged_evidence"},
+                "checkpoint": "review",
+            }
+            with patch.object(
+                claude_continuation_hook, "resume_last", return_value=ready
+            ), patch.object(
+                claude_continuation_hook,
+                "bind_resumed_runtime_session",
+                side_effect=RuntimeError("binding refused"),
+            ):
+                output = ClaudeContinuationAdapter.session_start(
+                    {
+                        "hook_event_name": "SessionStart",
+                        "cwd": str(fixture.project),
+                        "session_id": "new-session",
+                    }
+                )
+
+            context = output["hookSpecificOutput"]["additionalContext"]
+            self.assertNotIn("must stay hidden", context)
+            self.assertNotIn("reuse", context.lower())
+
+    def test_every_common_refusal_omits_saved_work_and_reuse_advice(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            for code in (
+                "live_owner_refused",
+                "owner_unproven_wait",
+                "drift_refused",
+                "invalid_packet",
+                "local_boundary_failed",
+                "claim_lost",
+            ):
+                with self.subTest(code=code), patch.object(
+                    claude_continuation_hook,
+                    "resume_last",
+                    return_value={
+                        "result": code,
+                        "work": {"objective": "must stay hidden"},
+                        "reuse": {"decision": "reuse_unchanged_evidence"},
+                    },
+                ):
+                    output = ClaudeContinuationAdapter.session_start(
+                        {
+                            "hook_event_name": "SessionStart",
+                            "cwd": str(fixture.project),
+                            "session_id": "new-session",
+                        }
+                    )
+                context = output["hookSpecificOutput"]["additionalContext"]
+                self.assertNotIn("must stay hidden", context)
+                self.assertNotIn("reuse", context.lower())
 
 
 class ClaudeContinuationSetupTests(unittest.TestCase):

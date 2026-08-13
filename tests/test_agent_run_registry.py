@@ -16,6 +16,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import agent_run_registry
 from agent_run_registry import (
     active_run_bindings,
     active_run_conflict,
@@ -109,6 +110,84 @@ class AgentRunRegistryTests(unittest.TestCase):
             completed = transition_run(project, evidence, "completed", run_id=first["run_id"])
             self.assertEqual(first["run_id"], completed["run_id"])
             self.assertEqual("running", [run for run in active_runs(project) if run["run_id"] == second["run_id"]][0]["state"])
+
+    def test_conditional_cancel_preserves_a_run_that_already_completed(self) -> None:
+        """A superseding caller must not rewrite a terminal result."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            run = register_run(project, evidence, {"command": "task"}, {})
+            transition_run(project, evidence, "completed", run_id=run["run_id"])
+
+            cancelled = agent_run_registry.cancel_active_run_if_current(
+                project,
+                evidence,
+                run_id=run["run_id"],
+                expected_resume_generation=run["resume_generation"],
+                expected_started_at=run["started_at"],
+            )
+
+            self.assertIsNone(cancelled)
+            payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+            self.assertEqual("completed", payload["runs"][0]["state"])
+
+    def test_conditional_cancel_preserves_a_rebound_active_generation(self) -> None:
+        """A snapshot from before takeover cannot cancel the new holder."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            run = register_run(project, evidence, {"command": "task"}, {})
+            registry = registry_path(project)
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            payload["runs"][0]["state"] = "resuming"
+            payload["runs"][0]["resume_generation"] = 1
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+
+            cancelled = agent_run_registry.cancel_active_run_if_current(
+                project,
+                evidence,
+                run_id=run["run_id"],
+                expected_resume_generation=run["resume_generation"],
+                expected_started_at=run["started_at"],
+            )
+
+            self.assertIsNone(cancelled)
+            current = json.loads(registry.read_text(encoding="utf-8"))["runs"][0]
+            self.assertEqual("resuming", current["state"])
+            self.assertEqual(1, current["resume_generation"])
+
+    def test_conditional_cancel_preserves_a_new_run_that_reuses_the_id(self) -> None:
+        """Terminal-id adoption must not create an ABA cancellation."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            run_id = uuid.uuid4().hex
+            evidence = project / ".tao" / "runs" / run_id / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            first = register_run(project, evidence, {"command": "task"}, {})
+            registry = registry_path(project)
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            payload["runs"][0]["started_at"] = "first-run-instance"
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+            transition_run(project, evidence, "completed", run_id=run_id)
+
+            second = register_run(project, evidence, {"command": "task"}, {})
+            self.assertEqual(first["run_id"], second["run_id"])
+
+            cancelled = agent_run_registry.cancel_active_run_if_current(
+                project,
+                evidence,
+                run_id=run_id,
+                expected_resume_generation=first["resume_generation"],
+                expected_started_at="first-run-instance",
+            )
+
+            self.assertIsNone(cancelled)
+            current = json.loads(registry.read_text(encoding="utf-8"))["runs"][0]
+            self.assertEqual("running", current["state"])
+            self.assertEqual(second["started_at"], current["started_at"])
 
     def test_stale_run_is_recovered_and_can_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

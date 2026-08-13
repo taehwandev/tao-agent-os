@@ -120,6 +120,7 @@ def _resume_last(args: argparse.Namespace) -> int:
                 "reason": "incomplete_runtime_binding",
                 "work": None,
                 "checkpoint": None,
+                "reuse": None,
             }
             ready = False
         else:
@@ -139,6 +140,7 @@ def _resume_last(args: argparse.Namespace) -> int:
                     "reason": "runtime_binding_refused",
                     "work": None,
                     "checkpoint": None,
+                    "reuse": None,
                 }
                 ready = False
     details = [f"resume result: {result['result']}"]
@@ -156,6 +158,14 @@ def _resume_last(args: argparse.Namespace) -> int:
 
 def _ready_lines(result: dict[str, Any]) -> list[str]:
     work = result["work"] or {}
+    reuse = result["reuse"] or {}
+    decisions = ", ".join(
+        record["id"] for record in reuse.get("accepted_decisions") or []
+    )
+    verification = ", ".join(
+        f"{record['id']}({record['kind']})"
+        for record in reuse.get("successful_verification") or []
+    )
     return [
         f"run: {result['run_id']}",
         f"route command: {result['route_command']}",
@@ -165,6 +175,14 @@ def _ready_lines(result: dict[str, Any]) -> list[str]:
         f"objective: {work.get('objective', '')}",
         f"remaining work items: {len(work.get('remaining_work') or [])}",
         f"blockers: {len(work.get('blockers') or [])}",
+        f"reuse decision: {reuse.get('decision', '')}",
+        (
+            f"reuse evidence: required_docs={reuse.get('required_docs', '')} "
+            f"inspected_scope={reuse.get('inspected_scope_count', 0)} "
+            f"decisions={decisions or 'none'} "
+            f"verification={verification or 'none'}"
+        ),
+        f"rerun when: {', '.join(reuse.get('rerun_when') or [])}",
     ]
 
 

@@ -175,3 +175,46 @@ the new module appear self-contained.
 
 Do not combine broad module moves with behavior changes unless the behavior
 change is necessary to make the split correct.
+
+## Split Hazards
+
+These failures show up while performing a file split, not while deciding it.
+
+Dedupe before widening visibility. A helper that was file-private has to widen
+to `internal` when it moves into its own file. If a sibling file in the same
+package already declares a private helper with the same name and receiver, both
+are top-level in that package and Kotlin reports overload ambiguity at the
+existing call sites; the same-file declaration does not win. Before widening,
+search the destination package for top-level private declarations with that
+name and receiver. Duplicates are usually copies that have already drifted, so
+fold them into one shared `internal` file as part of the same change and delete
+every copy. Plan a split that crosses a package boundary as dedupe-then-move,
+not move-then-discover.
+
+Relocation and rewrite are one unit. When a split also moves a file to another
+package, stage the move and the content rewrite together and treat both the old
+and the new path as in scope. Git rename tracking, review tooling, and
+mutation-scope guards all see both records change, so a scope naming only the
+destination path is incomplete and can be rejected. Rewriting the file after
+the move was already recorded separately leaves a rename record that matches
+neither declared path.
+
+Two more apply when the split is mechanised rather than typed out by hand, and
+both are silent.
+
+Key extracted blocks by position, not by declaration name. Overloaded top-level
+functions share one name, so a name-keyed extraction keeps only the last and
+deletes the rest. A file holding ten `toUi` overloads lost nine of them this
+way. Nothing failed loudly: a dropped private helper still compiles whenever no
+surviving code calls it. Verify a split by comparing the declaration count
+before and after, not by the build alone, and keep the original until that
+count matches.
+
+Treat conventionally-bound and aliased imports as used. Pruning imports by
+scanning the moved code for each import's name removes two kinds that are
+genuinely needed. Kotlin property delegation resolves `getValue` and `setValue`
+by convention, so those names never appear as identifiers and every
+`by`-delegated property breaks once the import is dropped — including
+`mutableStateOf` and `rememberUpdatedState` in Compose. And an aliased import
+binds its alias, not the last segment of its path, so matching on the path tail
+finds nothing and drops the alias the code actually uses.

@@ -261,6 +261,49 @@ class MutationBracketTests(unittest.TestCase):
             )
             self.assertFalse((fixture.binding_path.parent / ".mutation-baseline.json").exists())
 
+    def test_post_mutation_rejects_caller_verification_without_rewriting_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            prior_verification = [
+                {
+                    "id": "before_edit",
+                    "kind": "unit",
+                    "result": "success",
+                    "evidence_sha256": "a" * 64,
+                    "completed_at": "2026-08-13T00:00:00+00:00",
+                }
+            ]
+            fixture.checkpoint(
+                "initial",
+                work={"objective": "edit after checking", "verification": prior_verification},
+            )
+            pending = fixture.checkpoint(
+                "pre_mutation", mutation={"kind": "update", "paths": ["src/module.py"]}
+            )
+            (fixture.project / "src" / "module.py").write_text(
+                "value = 2\n", encoding="utf-8"
+            )
+
+            with self.assertRaises(ContinuationPacketError) as raised:
+                fixture.checkpoint("post_mutation", work={"verification": []})
+
+            self.assertEqual(
+                [
+                    {
+                        "rule": "post_mutation_verification_not_allowed",
+                        "pointer": "/work/verification",
+                    }
+                ],
+                raised.exception.failures,
+            )
+            self.assertEqual(pending, fixture.packet())
+            self.assertTrue((fixture.binding_path.parent / ".mutation-baseline.json").is_file())
+
+            completed = fixture.checkpoint("post_mutation")
+
+            self.assertEqual([], completed["work"]["verification"])
+            self.assertIsNone(completed["checkpoint"]["mutation_pending"])
+
     def test_an_undeclared_changed_path_fails_the_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)

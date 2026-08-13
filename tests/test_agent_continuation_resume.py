@@ -7,14 +7,17 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 
+import agent_continuation_resume
 from agent_continuation_resume import resume_last, resume_list
 from agent_continuation_store import continuation_path
 from agent_execution_capsule_state import git_states_for_paths
+from agent_hook_resume import _ready_lines
 from agent_run_owner import process_owner
 from agent_run_registry import registry_path, transition_run
 from test_agent_continuation_checkpoint import Fixture
@@ -191,6 +194,128 @@ class LastResumeTests(unittest.TestCase):
 
             self.assertEqual(process_owner(), run_state(fixture, fixture.run_id)["owner"])
 
+    def test_ready_claim_exposes_only_content_free_reusable_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            route = {
+                "command": "task",
+                "gates": ["source docs", "act", "verify"],
+                "required_docs": ["guidance.md"],
+            }
+            with patch("test_agent_continuation_checkpoint.ROUTE", route):
+                fixture = Fixture(directory)
+            fixture.gate("source docs")
+            fixture.checkpoint(
+                "initial",
+                work={
+                    "objective": "saved prose must stay outside the reuse summary",
+                    "decisions": [
+                        {"id": "keep_boundary", "status": "accepted", "text": "private prose"},
+                        {"id": "old_option", "status": "rejected", "text": "more private prose"},
+                    ],
+                    "inspected_scope": [
+                        {"path": "src/module.py", "role": "inspected"},
+                        {"path": "tests/module_test.py", "role": "inspected"},
+                    ],
+                    "verification": [
+                        {
+                            "id": "focused_unit",
+                            "kind": "unit",
+                            "result": "success",
+                            "evidence_sha256": None,
+                            "completed_at": None,
+                        },
+                        {
+                            "id": "stale_lint",
+                            "kind": "lint",
+                            "result": "fail",
+                            "evidence_sha256": None,
+                            "completed_at": None,
+                        },
+                        {
+                            "id": "manual_skip",
+                            "kind": "manual",
+                            "result": "skipped",
+                            "evidence_sha256": None,
+                            "completed_at": None,
+                        },
+                    ],
+                },
+            )
+            age(fixture, minutes=0, owner_pid=dead_pid(), run_id=fixture.run_id)
+
+            result = resume_last(fixture.project)
+
+            self.assertEqual(
+                {
+                    "decision": "reuse_unchanged_evidence",
+                    "required_docs": "reuse",
+                    "inspected_scope_count": 2,
+                    "accepted_decisions": [
+                        {"id": "keep_boundary", "status": "accepted"}
+                    ],
+                    "successful_verification": [
+                        {"id": "focused_unit", "kind": "unit"}
+                    ],
+                    "rerun_when": [
+                        "state_changed",
+                        "external_freshness_required",
+                        "different_acceptance_boundary",
+                    ],
+                },
+                result["reuse"],
+            )
+            rendered = json.dumps(result["reuse"])
+            self.assertNotIn("saved prose", rendered)
+            self.assertNotIn("private prose", rendered)
+            self.assertNotIn("src/module.py", rendered)
+            self.assertNotIn("old_option", rendered)
+            self.assertNotIn("stale_lint", rendered)
+            reuse_lines = "\n".join(
+                line for line in _ready_lines(result) if line.startswith(("reuse ", "rerun "))
+            )
+            self.assertIn(
+                "required_docs=reuse inspected_scope=2 decisions=keep_boundary",
+                reuse_lines,
+            )
+            self.assertIn("verification=focused_unit(unit)", reuse_lines)
+            self.assertNotIn("src/module.py", reuse_lines)
+            self.assertNotIn("stale_lint", reuse_lines)
+
+    def test_ready_claim_with_no_prior_analysis_still_has_a_reuse_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "continue without repeated analysis")
+
+            result = resume_last(fixture.project)
+
+            self.assertEqual(0, result["reuse"]["inspected_scope_count"])
+            self.assertEqual("not_recorded", result["reuse"]["required_docs"])
+            self.assertEqual([], result["reuse"]["accepted_decisions"])
+            self.assertEqual([], result["reuse"]["successful_verification"])
+
+    def test_a_post_mutation_checkpoint_invalidates_earlier_successes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            verification = [{
+                "id": "before_edit",
+                "kind": "unit",
+                "result": "success",
+                "evidence_sha256": None,
+                "completed_at": None,
+            }]
+            fixture.checkpoint("initial", work={"objective": "edit after checking", "verification": verification})
+            fixture.checkpoint(
+                "pre_mutation", mutation={"kind": "update", "paths": ["src/module.py"]}
+            )
+            (fixture.project / "src" / "module.py").write_text("value = 2\n", encoding="utf-8")
+            fixture.checkpoint("post_mutation")
+            age(fixture, minutes=0, owner_pid=dead_pid(), run_id=fixture.run_id)
+
+            result = resume_last(fixture.project)
+
+            self.assertEqual("ready", result["result"])
+            self.assertEqual([], result["work"]["verification"])
+            self.assertEqual([], result["reuse"]["successful_verification"])
+
 
 class RefusesRatherThanSkipsTests(unittest.TestCase):
     """The property the whole command depends on.
@@ -199,6 +324,41 @@ class RefusesRatherThanSkipsTests(unittest.TestCase):
     which to notice they were handed a different, older task instead. Naming the
     blocker is the honest answer; substituting another run is not.
     """
+
+    def test_boundary_and_claim_loss_refusals_expose_no_reusable_work(self) -> None:
+        boundary_entry = {
+            "status": "local_boundary_failed",
+            "run_id": "opaque-run",
+            "route_command": "task",
+            "holder_state": "dead_proven",
+            "changed_signals": [],
+            "affected_paths": [],
+        }
+        with patch.object(
+            agent_continuation_resume,
+            "resume_list",
+            return_value={"result": "ok", "entries": [boundary_entry]},
+        ):
+            boundary = resume_last(Path("/unused"))
+        self.assertIsNone(boundary["work"])
+        self.assertIsNone(boundary["checkpoint"])
+        self.assertIsNone(boundary["reuse"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "claim race")
+            refusal = {
+                "result": "claim_lost",
+                "resume_generation": 0,
+                "holder_state": "dead_proven",
+                "changed_signals": [],
+                "affected_paths": [],
+                "packet": None,
+            }
+            with patch.object(agent_continuation_resume, "claim_resume", return_value=refusal):
+                lost = resume_last(fixture.project)
+        self.assertIsNone(lost["work"])
+        self.assertIsNone(lost["checkpoint"])
+        self.assertIsNone(lost["reuse"])
 
     def test_a_held_newest_packet_refuses_instead_of_resuming_an_older_task(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -212,6 +372,7 @@ class RefusesRatherThanSkipsTests(unittest.TestCase):
             self.assertEqual(newer.run_id, result["run_id"])
             self.assertIsNone(result["work"])
             self.assertIsNone(result["checkpoint"])
+            self.assertIsNone(result["reuse"])
             self.assertEqual(0, run_state(older, older.run_id).get("resume_generation", 0))
             self.assertEqual(
                 "the older task",
@@ -234,6 +395,9 @@ class RefusesRatherThanSkipsTests(unittest.TestCase):
 
             self.assertEqual("owner_unproven_wait", result["result"])
             self.assertEqual(newer.run_id, result["run_id"])
+            self.assertIsNone(result["work"])
+            self.assertIsNone(result["checkpoint"])
+            self.assertIsNone(result["reuse"])
             self.assertEqual(0, run_state(older, older.run_id).get("resume_generation", 0))
 
     def test_a_drifted_newest_packet_refuses_and_names_the_signal(self) -> None:
@@ -248,6 +412,7 @@ class RefusesRatherThanSkipsTests(unittest.TestCase):
             self.assertEqual(newer.run_id, result["run_id"])
             self.assertEqual(["project_worktree"], result["changed_signals"])
             self.assertIsNone(result["work"])
+            self.assertIsNone(result["reuse"])
             self.assertEqual("reconcile_required", run_state(newer, newer.run_id)["state"])
             self.assertEqual("running", run_state(older, older.run_id)["state"])
 
@@ -265,6 +430,7 @@ class RefusesRatherThanSkipsTests(unittest.TestCase):
             self.assertEqual("invalid_packet", result["result"])
             self.assertEqual(newer.run_id, result["run_id"])
             self.assertIsNone(result["work"])
+            self.assertIsNone(result["reuse"])
             self.assertNotIn("the newer task", json.dumps(result))
             self.assertEqual(0, run_state(older, older.run_id).get("resume_generation", 0))
 

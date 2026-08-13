@@ -20,6 +20,7 @@ from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
 from agent_hook_gate_records import preflight_evidence_path
 from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import register_run, registry_path
+import agent_run_registry
 import agent_runtime_session
 from agent_runtime_session import (
     bind_resumed_runtime_session,
@@ -528,6 +529,157 @@ class RuntimeEvidenceTests(unittest.TestCase):
             self.assertEqual("preflight.json", first.name)
             self.assertEqual(project / ".tao" / "runs", first.parent.parent)
             self.assertEqual(32, len(first.parent.name))
+
+
+class SupersededSessionRunTests(unittest.TestCase):
+    """A session that leaks runs must not deny its own next edit."""
+
+    @staticmethod
+    def _extra_run(fixture: RuntimeFixture, *, session_id: str) -> str:
+        run_id = uuid.uuid4().hex
+        evidence = fixture.project / ".tao" / "runs" / run_id / "preflight.json"
+        evidence.parent.mkdir(parents=True)
+        register_run(fixture.project, evidence, ROUTE, INTAKE)
+        preflight = dict(fixture.preflight)
+        preflight["runtime_session"] = {
+            "runtime": "claude",
+            "session_id": session_id,
+        }
+        evidence.write_text(json.dumps(preflight), encoding="utf-8")
+        return run_id
+
+    @staticmethod
+    def _states(project: Path) -> dict[str, str]:
+        payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+        return {run["run_id"]: run["state"] for run in payload["runs"]}
+
+    def test_second_run_in_one_session_denies_the_edit_gate_until_settled(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="claude-session")
+            kept = self._extra_run(fixture, session_id="claude-session")
+            session = {"runtime": "claude", "session_id": "claude-session"}
+
+            # Two matching claims are the reported bug: the single-match rule
+            # cannot tell which one owns an edit, so it denies every edit.
+            self.assertIsNone(resolve_runtime_evidence(fixture.project, session))
+
+            with patch.dict(
+                os.environ, {"CLAUDE_CODE_SESSION_ID": "claude-session"}, clear=True
+            ):
+                settled = agent_runtime_session.settle_superseded_session_runs(
+                    fixture.project, keep_run_id=kept
+                )
+
+            self.assertEqual([fixture.run_id], settled)
+            self.assertEqual("cancelled", self._states(fixture.project)[fixture.run_id])
+            self.assertEqual(
+                (
+                    fixture.project / ".tao" / "runs" / kept / "preflight.json"
+                ).resolve(),
+                resolve_runtime_evidence(fixture.project, session),
+            )
+
+    def test_another_runtime_session_keeps_its_active_run(self) -> None:
+        """Settling is session-scoped; a concurrent runtime must survive it."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="codex-session")
+            kept = self._extra_run(fixture, session_id="claude-session")
+
+            with patch.dict(
+                os.environ, {"CLAUDE_CODE_SESSION_ID": "claude-session"}, clear=True
+            ):
+                settled = agent_runtime_session.settle_superseded_session_runs(
+                    fixture.project, keep_run_id=kept
+                )
+
+            self.assertEqual([], settled)
+            self.assertEqual("running", self._states(fixture.project)[fixture.run_id])
+
+    def test_run_completed_after_selection_is_not_overwritten_or_reported(self) -> None:
+        """A concurrent finish wins over the later supersession attempt."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="claude-session")
+            kept = self._extra_run(fixture, session_id="claude-session")
+            real_cancel = agent_run_registry.cancel_active_run_if_current
+
+            def complete_then_try_cancel(
+                project: Path,
+                evidence: Path,
+                *,
+                run_id: str,
+                expected_resume_generation: int,
+                expected_started_at: str,
+            ) -> dict | None:
+                agent_run_registry.transition_run(
+                    project, evidence, "completed", run_id=run_id
+                )
+                return real_cancel(
+                    project,
+                    evidence,
+                    run_id=run_id,
+                    expected_resume_generation=expected_resume_generation,
+                    expected_started_at=expected_started_at,
+                )
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CLAUDE_CODE_SESSION_ID": "claude-session"},
+                    clear=True,
+                ),
+                patch.object(
+                    agent_runtime_session,
+                    "cancel_active_run_if_current",
+                    side_effect=complete_then_try_cancel,
+                ),
+            ):
+                settled = agent_runtime_session.settle_superseded_session_runs(
+                    fixture.project, keep_run_id=kept
+                )
+
+            self.assertEqual([], settled)
+            self.assertEqual("completed", self._states(fixture.project)[fixture.run_id])
+
+    def test_worker_start_settles_nothing(self) -> None:
+        """A worker's claim runs alongside its parent's, so neither cancels it."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="claude-session")
+            kept = self._extra_run(fixture, session_id="claude-session")
+
+            with patch.dict(
+                os.environ,
+                {
+                    "CLAUDE_CODE_SESSION_ID": "claude-session",
+                    "TAO_WORKER_EVIDENCE": str(fixture.evidence),
+                },
+                clear=True,
+            ):
+                settled = agent_runtime_session.settle_superseded_session_runs(
+                    fixture.project, keep_run_id=kept
+                )
+
+            self.assertEqual([], settled)
+            self.assertEqual("running", self._states(fixture.project)[fixture.run_id])
+
+    def test_no_runtime_session_settles_nothing(self) -> None:
+        """Without a session id there is no claim this start supersedes."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="claude-session")
+            kept = self._extra_run(fixture, session_id="claude-session")
+
+            with patch.dict(os.environ, {}, clear=True):
+                settled = agent_runtime_session.settle_superseded_session_runs(
+                    fixture.project, keep_run_id=kept
+                )
+
+            self.assertEqual([], settled)
+            self.assertEqual("running", self._states(fixture.project)[fixture.run_id])
 
 
 if __name__ == "__main__":

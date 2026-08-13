@@ -81,6 +81,7 @@ from agent_run_registry import (
     touch_run,
     transition_run,
 )
+from agent_runtime_session import settle_superseded_session_runs
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
     context_snapshot_failures_are_replaceable,
@@ -429,10 +430,29 @@ def _register_started_run(
         if run.get("run_id") != claimed_run_id or run.get("state") != "running":
             raise ValueError("start claim was not promoted atomically")
         details.append("agent run registry: running")
-        return True
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         details.append("agent run registry: unavailable; start refused")
         return False
+    # After promotion, never before: settling the earlier claims is only correct
+    # once this run is the one that supersedes them. A failure here leaves extra
+    # active claims, which costs this session its edit gate but not the start
+    # itself, so it reports rather than refuses.
+    try:
+        superseded = settle_superseded_session_runs(
+            args.project, keep_run_id=claimed_run_id
+        )
+    except (OSError, RuntimeError, ValueError, TypeError):
+        details.append(
+            "agent run registry: superseded-run settle failed; "
+            "earlier runs in this session may still deny edits"
+        )
+        return True
+    if superseded:
+        details.append(
+            f"agent run registry: settled {len(superseded)} superseded run(s) "
+            "from this runtime session"
+        )
+    return True
 
 
 def _bind_read_only_execution_state(
