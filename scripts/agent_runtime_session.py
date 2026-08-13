@@ -26,6 +26,7 @@ from agent_run_owner import process_owner
 from agent_run_registry import (
     active_run_bindings,
     active_runs,
+    cancel_active_run_if_current,
     evidence_binding_key,
     latest_run_id,
 )
@@ -151,6 +152,80 @@ def resolve_runtime_evidence(
     if not complete and resolved_keys != set(bindings):
         return None
     return matches[0] if len(matches) == 1 else None
+
+
+def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[str]:
+    """Cancel this session's earlier unfinished runs so one claim stays resolvable.
+
+    The single-match rule above returns a path only when exactly one active run
+    matches the session, so every run an agent starts and then abandons denies
+    the next edit: the agent blocks itself with its own leaked claims. The
+    registry's stale sweep cannot clear them either, because it deliberately
+    protects a run whose owning process is still alive -- and an agent's
+    abandoned run is owned by the very process still working. Starting again in
+    the same session is the moment that supersedes the earlier claims, so it is
+    the one place their intent is known well enough to settle them.
+
+    They are `cancelled` rather than `failed`: a superseded run owes no recovery
+    work, and a settled state is what stops it from collecting further evidence.
+    Cancellation is conditional under the registry lock: if the candidate has
+    already finished, its resume generation changed, or a new run adopted its
+    id since discovery, that newer state wins and the run is not reported as
+    settled here.
+
+    Isolated worker runs are untouched in both directions. A worker's claim is
+    legitimately open while its parent's claim is too, so settling either from
+    the other's start would break the handoff that worker evidence exists to
+    support. Worker files already fall outside the candidate scan, and a start
+    running as a worker returns before settling anything.
+    """
+
+    identity = runtime_session()
+    runtime = str(identity.get("runtime") or "")
+    session_id = str(identity.get("session_id") or "")
+    if not runtime or not session_id or not keep_run_id:
+        return []
+    if os.environ.get(WORKER_EVIDENCE_ENV, "").strip():
+        return []
+    bindings = active_run_bindings(project)
+    evidence_names = {
+        str(run.get("evidence_name") or "")
+        for run in bindings.values()
+        if _safe_evidence_name(run)
+    }
+    if not evidence_names:
+        return []
+    candidates, _out_of_scope, _complete = _runtime_evidence_candidates(
+        project, evidence_names
+    )
+    settled: list[str] = []
+    for candidate in candidates:
+        run = bindings.get(evidence_binding_key(project, candidate))
+        if run is None:
+            continue
+        run_id = str(run.get("run_id") or "")
+        if not run_id or run_id == keep_run_id:
+            continue
+        if not _session_binding_matches(
+            candidate, run, runtime=runtime, session_id=session_id
+        ):
+            continue
+        try:
+            cancelled = cancel_active_run_if_current(
+                project,
+                candidate,
+                run_id=run_id,
+                expected_resume_generation=int(run.get("resume_generation") or 0),
+                expected_started_at=str(run.get("started_at") or ""),
+            )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            # One unsettleable claim must not stop the others: leaving the rest
+            # active is what reproduces the block this exists to prevent.
+            continue
+        if cancelled is None:
+            continue
+        settled.append(run_id)
+    return settled
 
 
 def bind_resumed_runtime_session(

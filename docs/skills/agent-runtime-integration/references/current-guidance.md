@@ -255,6 +255,16 @@ step when reconciliation is required. Non-edit tools and directories outside
 Tao Agent OS remain outside this gate. Tune the freshness window with
 `TAO_CLAUDE_GATE_MAX_AGE_SECONDS` (default 8 hours).
 
+After a new parent `start` has atomically promoted its claim to `running`, it
+may self-heal same-session ambiguity by cancelling older active parent claims
+for that exact runtime session. The registry performs that cancellation as a
+compare-and-set on evidence key, run id, run-instance start time, active state,
+and resume generation. If an older run finishes, fails, is rebound, or its
+terminal id is adopted by a new start before the transaction acquires the
+registry lock, its newer state wins and the start must not report it as settled.
+Claims from another runtime session and isolated worker claims are never
+superseded by this path.
+
 On a `ready` SessionStart resume, Claude receives the bounded objective,
 decisions, remaining work, reusable inspected scope, and successful
 verification ids. The injected brief explicitly distinguishes trusted reuse

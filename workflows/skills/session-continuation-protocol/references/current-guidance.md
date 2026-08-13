@@ -516,6 +516,7 @@ Required transitions:
 | dead/stale owner claim | `resuming`, new owner, generation + 1 | unchanged during capture | one claimant owns validation |
 | clean resume validation | `running`, new owner | phase preserved; an unchanged pending mutation is atomically cleared | `ready` with first unfinished checkpoint |
 | drift or changed pending mutation | `reconcile_required`, new owner | last valid packet unchanged | no automatic resume |
+| newer same-session parent start, after claim promotion | older exact active run instance becomes `cancelled`; terminal, rebound, or newly adopted run stays unchanged | unchanged | old leaked parent claim is omitted without overwriting a newer result |
 | finish | `completed` | `done`, no unfinished checkpoint | omitted from candidates |
 | cancel | `cancelled` | unchanged or local tombstone | omitted from candidates |
 
@@ -670,6 +671,16 @@ resume transaction and injects work prose only for `ready`;
 drift and owner refusals render no saved work. `PreToolUse` brackets
 `Edit|Write|MultiEdit|NotebookEdit` before execution, and `PostToolUse` plus
 `PostToolUseFailure` close the same mutation after the tool outcome.
+
+Once a new parent start is fully promoted to `running`, it may settle older
+active parent claims bound to the same runtime session so a leaked custom
+evidence path does not make the exact-session resolver permanently ambiguous.
+This is a registry compare-and-set, not a generic terminal transition: the
+evidence key, run id, run-instance start time, active state, and captured resume
+generation must still match under the registry lock. A concurrently completed,
+failed, cancelled, reconcile-required, rebound, or newly adopted run is
+preserved and is not reported as settled. Other runtime sessions and isolated
+workers remain outside this supersession.
 
 Claude does not expose a trustworthy changed-path set for arbitrary `Bash`
 commands. A shell command, formatter, or generator that may write files must

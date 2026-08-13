@@ -178,6 +178,52 @@ def transition_run(
     return target
 
 
+def cancel_active_run_if_current(
+    project: Path,
+    evidence_path: Path,
+    *,
+    run_id: str,
+    expected_resume_generation: int,
+    expected_started_at: str,
+) -> dict[str, Any] | None:
+    """Cancel one exact active generation without overwriting a newer result.
+
+    Session-level supersession first discovers candidates from a registry
+    snapshot, then reads their evidence files. The run can finish or be rebound
+    before that caller asks to cancel it, or a new run can adopt the terminal
+    id. The run-instance, active-state, and generation checks therefore belong
+    in the same registry transaction as the write.
+    """
+
+    if not run_id or not expected_started_at:
+        return None
+    path = registry_path(project)
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        target = next(
+            (
+                run
+                for run in payload["runs"]
+                if run.get("run_id") == run_id
+                and _matches_evidence(run, project, evidence_path)
+            ),
+            None,
+        )
+        if target is None:
+            return None
+        if target.get("state") not in ACTIVE_RUN_STATES:
+            return None
+        if int(target.get("resume_generation") or 0) != expected_resume_generation:
+            return None
+        if target.get("started_at") != expected_started_at:
+            return None
+        target["state"] = "cancelled"
+        target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _write_registry(path, payload)
+    _safe_event(project, "run.transitioned", run_id=run_id, state="cancelled")
+    return target
+
+
 # A pending closeout may revive the run that owes the work, and nothing else.
 # Reviving from a settled state would resurrect a run that already reported its
 # outcome, so only a run that is still active or that failed with work owed can
