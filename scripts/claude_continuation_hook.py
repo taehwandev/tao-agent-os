@@ -115,7 +115,7 @@ class ClaudeContinuationAdapter:
         if result["result"] != "ready":
             return _context(
                 f"Tao continuation was not resumed: {result['result']}. "
-                "Do not reuse earlier work decisions until the refusal is reconciled."
+                "Resolve the named refusal before continuing this run."
             )
         try:
             bind_resumed_runtime_session(
@@ -129,7 +129,7 @@ class ClaudeContinuationAdapter:
         except (OSError, RuntimeError, ValueError):
             return _context(
                 "Tao continuation claimed the run but could not bind this exact "
-                "Claude session. Do not continue from the saved work summary."
+                "Claude session. Resolve the session binding before continuing."
             )
         return _context(_resume_brief(result))
 
@@ -228,6 +228,7 @@ def _opts_in(path: Path) -> bool:
 
 def _resume_brief(result: dict[str, Any]) -> str:
     work = result.get("work") or {}
+    reuse = result.get("reuse") or {}
     lines = [
         "Tao continuation resumed this unfinished project-local run.",
         f"Objective: {work.get('objective', '')}",
@@ -242,6 +243,47 @@ def _resume_brief(result: dict[str, Any]) -> str:
         for item in work.get("remaining_work") or []
     )
     lines.extend(f"Blocker: {item}" for item in work.get("blockers") or [])
+    if reuse.get("decision") == "reuse_unchanged_evidence":
+        accepted = reuse.get("accepted_decisions") or []
+        successful = reuse.get("successful_verification") or []
+        lines.extend(
+            [
+                f"Reuse [{reuse['decision']}]: required_docs={reuse.get('required_docs')}; "
+                f"inspected_scope_count={reuse.get('inspected_scope_count')}; "
+                f"accepted_decisions={len(accepted)}; successful_checks={len(successful)}.",
+                "Recorded analysis, accepted decisions, and successful checks are reusable; "
+                "do not rerun identical checks merely to rebuild context.",
+                "Rerun evidence only when: "
+                + ", ".join(item.replace("_", " ") for item in reuse.get("rerun_when") or []),
+            ]
+        )
+        if reuse.get("required_docs") == "reuse":
+            lines.append("Unchanged required docs are reusable.")
+        elif reuse.get("required_docs") == "not_recorded":
+            lines.append("Required-doc reading is not recorded reusable; complete that gate before continuing.")
+        inspected = work.get("inspected_scope") or []
+        lines.extend(
+            f"Inspected [{item.get('role')}]: "
+            f"{item.get('path') or item.get('to') or item.get('from')}"
+            for item in inspected[:8]
+        )
+        lines.extend(
+            f"Accepted [{item.get('status')}]: {item.get('id')}"
+            for item in accepted[:8]
+        )
+        lines.extend(
+            f"Verified [{item.get('kind')}]: {item.get('id')}"
+            for item in successful[:8]
+        )
+        omitted = len(inspected) - 8
+        if omitted > 0:
+            lines.append(f"Inspected: {omitted} additional bounded records omitted.")
+        omitted = len(accepted) - 8
+        if omitted > 0:
+            lines.append(f"Accepted: {omitted} additional accepted records omitted.")
+        omitted = len(successful) - 8
+        if omitted > 0:
+            lines.append(f"Verified: {omitted} additional successful records omitted.")
     return "\n".join(lines)
 
 

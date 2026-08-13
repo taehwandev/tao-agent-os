@@ -39,6 +39,11 @@ DRIFT_LABELS = (
     ("required_docs", "required_doc_drift"),
 )
 UNRESUMABLE_STATUSES = ("invalid_packet", "local_boundary_failed")
+RERUN_CONDITIONS = (
+    "state_changed",
+    "external_freshness_required",
+    "different_acceptance_boundary",
+)
 
 
 def resume_list(
@@ -122,6 +127,11 @@ def _claimed(
         # resume from; only a completed claim does.
         work=claim["packet"]["work"] if ready else None,
         checkpoint=entry["first_unfinished"] if ready else None,
+        reuse=_reuse_summary(
+            claim["packet"]["work"],
+            binding_path=Path(claim["evidence_path"]),
+            first_unfinished=entry["first_unfinished"],
+        ) if ready else None,
     )
 
 
@@ -135,12 +145,61 @@ def _result(result: str, entry: dict[str, Any], **overrides: Any) -> dict[str, A
         "resume_generation": None,
         "checkpoint": None,
         "work": None,
+        "reuse": None,
         "holder_state": entry.get("holder_state", ""),
         "changed_signals": entry.get("changed_signals", []),
         "affected_paths": entry.get("affected_paths", []),
     }
     payload.update(overrides)
     return payload
+
+
+def _reuse_summary(
+    work: dict[str, Any],
+    *,
+    binding_path: Path,
+    first_unfinished: str | None,
+) -> dict[str, Any]:
+    """Expose only content-free proof that unchanged work need not be repeated."""
+
+    accepted = [
+        {"id": record["id"], "status": record["status"]}
+        for record in work.get("decisions") or []
+        if record.get("status") == "accepted"
+    ]
+    successful = [
+        {"id": record["id"], "kind": record["kind"]}
+        for record in work.get("verification") or []
+        if record.get("result") == "success"
+    ]
+    return {
+        "decision": "reuse_unchanged_evidence",
+        "required_docs": _required_docs_reuse(binding_path, first_unfinished),
+        "inspected_scope_count": len(work.get("inspected_scope") or []),
+        "accepted_decisions": accepted,
+        "successful_verification": successful,
+        "rerun_when": list(RERUN_CONDITIONS),
+    }
+
+
+def _required_docs_reuse(binding_path: Path, first_unfinished: str | None) -> str:
+    """Reuse doc reading only after the authoritative source-doc gate passed."""
+
+    binding = read_json_object(binding_path)
+    if not binding_required_docs(binding):
+        return "not_applicable"
+    gates = [str(gate) for gate in (binding.get("route") or {}).get("gates") or []]
+    if "source docs" not in gates:
+        return "not_recorded"
+    if first_unfinished == "finish":
+        return "reuse"
+    if first_unfinished not in gates:
+        return "not_recorded"
+    return (
+        "reuse"
+        if gates.index(first_unfinished) > gates.index("source docs")
+        else "not_recorded"
+    )
 
 
 def _entry(

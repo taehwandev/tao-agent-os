@@ -94,6 +94,14 @@ vibeguard evidence install-claude-hook .
 
 - Existing managed VibeGuard guardrails should be refreshed with `vibeguard update . --rules <TAO_ROOT>` only when that mode is selected, then checked with `vibeguard audit . --rules <TAO_ROOT>`. Use the package command only if no trusted binary is installed or the user explicitly requests the latest published package.
 
+- If an audit-only run reports `Needs review` solely because the managed
+  guardrails exceeded their refresh interval, do not turn that advisory into
+  an unauthorized `update`. A review or finish hook may accept that exact
+  advisory with `--allow-vibeguard-review` and a concrete reason stating that
+  refresh was not selected. This accepts the already executed audit; it does
+  not skip it. Any additional security, cost, data, structure, repository, or
+  environment finding remains blocking and requires its own resolution.
+
 - Normal Tao Agent OS maintenance should run audit-only before editing and before finishing.
 
 - Use `--fix` only after audit output shows low-risk safety fixes such as env ignore rules, value-free `.env.example` updates, or simple secret quarantine.

@@ -58,6 +58,7 @@ its binding fingerprint.
 | --- | --- | --- |
 | Write initial, pre/post-mutation, and lifecycle checkpoints; Stop is optional | correctness cannot depend on an exit path that may never run | `kill -9` leaves no useful state or a gate-only packet hides hours of edits |
 | Refuse every HEAD/worktree/rules/required-doc drift | decisions are valid only against the bytes that produced them | stale reasoning is silently reused as current |
+| Surface reusable inspected scope and current-state verification on `ready` | a clean drift check proves the saved premises still match, while post-mutation invalidation prevents an older pass from crossing an edit | a resumed agent rereads the same docs, repeats the same analysis, and reruns the same tests only to rebuild context |
 | Reuse `agent_run_owner` and the registry claim transaction | owner death has one meaning system-wide | two sessions steal one run under divergent timeout rules |
 | Enforce a closed, bounded local-only schema and outbound deny class | prose instructions cannot prevent dumps or exports | `notes` becomes a transcript and a generic exporter uploads it |
 
@@ -77,7 +78,9 @@ The common checkpoint writer is invoked at these points:
 3. **After mutation:** after that tool or batch succeeds. Refresh the strong
    project/rules state, compare actual changed paths with the declared bounded
    set, update changed scope and semantic work summary, then clear
-   `mutation_pending`. An undeclared changed path fails the checkpoint.
+   `mutation_pending`. An undeclared changed path fails the checkpoint. The
+   close rejects any caller-supplied `work.verification` field and clears
+   inherited verification; fresh checks belong to a later lifecycle checkpoint.
 4. **Material decision:** after each accepted, rejected, or superseded decision
    that changes remaining work, even when no file changed.
 5. **Lifecycle transition:** after each successful `gate`, `gate-batch`,
@@ -521,6 +524,35 @@ unfinished checkpoint and the resumed session re-enters the existing
 retrospective/repair contract with its current repair-cycle count. A terminal or
 unsafe failure remains blocked.
 
+### Fresh Evidence Reuse
+
+A `ready` resume is also a positive reuse decision. The common result must
+derive a content-free reuse summary from the already validated packet and state
+that recorded inspected scope, accepted decisions, and current-state successful
+verification remain reusable. Required-document reading is reusable only when
+the authoritative `source docs` gate already passed; otherwise the summary
+marks it `not_recorded` (or `not_applicable` when the route has no required
+documents). Runtime adapters must surface that summary instead of showing only
+the objective and remaining work.
+
+Reuse means "do not repeat work merely to reconstruct context." It does not
+turn historical evidence into a permanent pass. Every successful verification
+record is invalidated by the next completed mutation checkpoint; a later check
+must explicitly repopulate it against the new bytes. A `post_mutation` work
+update containing `verification`, including an empty list, is rejected rather
+than silently discarded; the caller closes the mutation first and records a
+later completed check separately. Rerun or replace affected evidence when
+required docs or HEAD drift, an external system has its own freshness
+requirement, or the remaining acceptance boundary requires a different check.
+A request for additional confidence should prefer an orthogonal check or
+negative control over an identical test-suite run against identical bytes.
+
+The reuse summary contains only bounded counts, safe ids and enums already
+accepted by the continuation schema. It never adds commands, output, prompts,
+responses, logs, diffs, or inferred verification. A refusal returns neither the
+work object nor reuse advice, so no adapter can accidentally render stale saved
+work after drift.
+
 ## Discovery And CLI Contract
 
 The logical CLI surface is:
@@ -573,8 +605,11 @@ Completed and cancelled runs are not unfinished candidates and never appear as
 then attempts `claim_resume`. It never skips a blocked newest packet to resume
 an older task. On success it returns a closed machine-readable result containing
 the opaque run id, canonical evidence locator, route command, bounded work
-object, recomputed checkpoint, new generation, and `ready`. On refusal it
-returns no semantic work object.
+object, recomputed checkpoint, new generation, a ready-only content-free reuse
+summary, and `ready`. Human output reports required-document status, reusable
+inspected scope, accepted-decision ids, and current-state
+successful-verification ids so an agent does not repeat them to rebuild context.
+On refusal it returns no semantic work object or reuse advice.
 
 Stable result codes:
 
@@ -604,7 +639,10 @@ An adapter supplies three pieces of wiring and nothing else:
 2. **Mutation hook wiring.** Call the common pre-mutation command with a bounded
    path set and mutation enum, then the post-mutation command after success.
 3. **Session-start invocation.** Call the common resume command. Inject a work
-   brief into the conversation only when the common result is `ready`.
+   brief into the conversation only when the common result is `ready`. Include
+   the common reuse decision, required-document status, bounded inspected
+   scope, accepted-decision ids, and current-state successful-verification ids
+   so the resumed agent continues from evidence instead of recreating it.
 
 Adapters must not: define schema, choose the storage path, implement drift
 checks, decide takeover, select a different packet, weaken result codes, read
@@ -702,6 +740,13 @@ non-negotiable, because they are the reason this feature exists:
   parent discovery so the registry and candidate tree are each traversed once.
 - **Read-only discovery.** `--list`, including drift and liveness inspection,
   leaves registry, packet, ledger, and worktree bytes unchanged.
+- **Reuse rendering.** A clean resume with completed source-doc reading,
+  inspected scope, accepted decisions, and successful verification returns and
+  renders each as reusable evidence. A source-doc gate that has not passed is
+  marked `not_recorded`. A success followed by mutation is invalidated and is
+  not rendered after a clean resume; failed or skipped verification is never
+  promoted to success. Every owner, drift, invalid-packet, local-boundary, and
+  claim-loss refusal renders neither saved work nor reuse advice.
 
 ## Implementation Sequencing
 
