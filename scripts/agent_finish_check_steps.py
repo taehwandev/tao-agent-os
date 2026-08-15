@@ -412,6 +412,7 @@ def check_read_only_execution(
     failures: list[str],
     *,
     read_only: bool,
+    intrinsically_read_only: bool = False,
     state_reader: Any = git_states_for_paths,
 ) -> None:
     """Hold a read-only run to the claim that bought it the VibeGuard skip.
@@ -472,9 +473,15 @@ def check_read_only_execution(
                 if head_changed and not worktree_changed
                 else "the recorded worktree state no longer matches, so "
             )
+            recovery = (
+                "the analysis route is intrinsically read-only; wait for concurrent writers "
+                "to settle, then rerun start and finish with refreshed workspace fingerprints"
+                if intrinsically_read_only
+                else "read-only skips VibeGuard; rerun the lifecycle without --read-only"
+            )
             failures.append(
                 f"read-only execution was declared but the {root} root changed after start; "
-                f"{attribution}read-only skips VibeGuard; rerun the lifecycle without --read-only"
+                f"{attribution}{recovery}"
             )
 
 

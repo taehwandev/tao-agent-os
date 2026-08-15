@@ -439,46 +439,32 @@ def main() -> int:
     preflight = read_preflight(evidence_path, failures)
     route = preflight.get("route") or {}
     delegation_plan = read_delegation_plan(project)
-    gate_evidence, gate_evidence_ledger = _validated_gate_evidence(
+    (
+        gate_evidence,
+        gate_evidence_ledger,
+        gate_signals,
+        required_gates,
+        missed_gates,
+        gate_policy_failures,
+        grill_me_required,
+    ) = _evaluate_route_gates(
         route=route,
         project=project,
         rules=rules,
         evidence_path=evidence_path,
+        preflight=preflight,
+        delegation_plan=delegation_plan,
         failures=failures,
-    )
-    gate_signals: list[dict[str, str]] = []
-    required_gates, missed_gates, gate_policy_failures = check_required_gates(
-        route,
-        gate_evidence,
-        gate_signals,
-        failures,
-        delegation_plan,
-        allowed_skill_ids=canonical_skill_ids(project, rules),
-    )
-    capsule_binding_failures = route_gate_capsule_binding_failures(
-        route,
-        project,
-        rules,
-        evidence_path,
-        gate_evidence,
-        gate_evidence_ledger,
-    )
-    for failure in capsule_binding_failures:
-        add_gate_signal(gate_signals, "FAIL", "execution capsule", "failed", failure)
-        failures.append(failure)
-    gate_policy_failures.extend(capsule_binding_failures)
-    grill_me_required = check_request_intake(
-        route,
-        preflight.get("request_intake") or {},
-        route.get("request_classification") or {},
-        gate_evidence,
-        gate_signals,
-        missed_gates,
-        failures,
     )
     read_only = effective_read_only(preflight, route)
     check_preflight_vibeguard(preflight, failures, read_only=read_only)
-    check_read_only_execution(preflight, project, failures, read_only=read_only)
+    check_read_only_execution(
+        preflight,
+        project,
+        failures,
+        read_only=read_only,
+        intrinsically_read_only=route.get("command") == "analysis",
+    )
     validate, diff_check, vibeguard, overall = run_final_checks(
         tao_root,
         project,
@@ -487,6 +473,7 @@ def main() -> int:
         gate_signals,
         failures,
         read_only=read_only,
+        intrinsically_read_only=route.get("command") == "analysis",
     )
     _revalidate_review_attestation_after_final_checks(
         route, project, rules, evidence_path, gate_evidence,
@@ -542,6 +529,66 @@ def main() -> int:
         evidence_path=evidence_path,
         preflight=preflight,
         pending_closeout=bool(skill_followup),
+    )
+
+
+def _evaluate_route_gates(
+    *,
+    route: dict,
+    project: Path,
+    rules: Path,
+    evidence_path: Path,
+    preflight: dict,
+    delegation_plan: dict | None,
+    failures: list[str],
+) -> tuple:
+    """Run the route's gate-evidence checks and return their combined state."""
+
+    gate_evidence, gate_evidence_ledger = _validated_gate_evidence(
+        route=route,
+        project=project,
+        rules=rules,
+        evidence_path=evidence_path,
+        failures=failures,
+    )
+    gate_signals: list[dict[str, str]] = []
+    required_gates, missed_gates, gate_policy_failures = check_required_gates(
+        route,
+        gate_evidence,
+        gate_signals,
+        failures,
+        delegation_plan,
+        allowed_skill_ids=canonical_skill_ids(project, rules),
+    )
+    capsule_binding_failures = route_gate_capsule_binding_failures(
+        route,
+        project,
+        rules,
+        evidence_path,
+        gate_evidence,
+        gate_evidence_ledger,
+    )
+    for failure in capsule_binding_failures:
+        add_gate_signal(gate_signals, "FAIL", "execution capsule", "failed", failure)
+        failures.append(failure)
+    gate_policy_failures.extend(capsule_binding_failures)
+    grill_me_required = check_request_intake(
+        route,
+        preflight.get("request_intake") or {},
+        route.get("request_classification") or {},
+        gate_evidence,
+        gate_signals,
+        missed_gates,
+        failures,
+    )
+    return (
+        gate_evidence,
+        gate_evidence_ledger,
+        gate_signals,
+        required_gates,
+        missed_gates,
+        gate_policy_failures,
+        grill_me_required,
     )
 
 

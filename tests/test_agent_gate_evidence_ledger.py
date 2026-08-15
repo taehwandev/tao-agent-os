@@ -429,7 +429,10 @@ class GateEvidenceLedgerTests(unittest.TestCase):
                     {
                         "gate": BOUNDARY_PLAN_GATE,
                         "fields": {
-                            "scope": "gate evidence batching",
+                            "scope": (
+                                "gate evidence batching; review budget: one public "
+                                "owner per runtime file"
+                            ),
                             "verification": "unit test",
                         },
                     },
@@ -944,7 +947,10 @@ class GateEvidenceLedgerTests(unittest.TestCase):
                 {
                     "gate": BOUNDARY_PLAN_GATE,
                     "fields": {
-                        "scope": "gate evidence batch cli",
+                        "scope": (
+                            "gate evidence batch cli; review budget: one public "
+                            "owner per runtime file"
+                        ),
                         "verification": "subprocess test",
                     },
                 },

@@ -679,7 +679,7 @@ class FinishGatePolicyTests(unittest.TestCase):
                 BOUNDARY_PLAN_GATE: (
                     "boundary/scope: finish-check skip validation policy; nearest "
                     "verification/check: unit tests and workflow validate covered the "
-                    "gate evidence validator"
+                    "gate evidence validator; review budget: one public owner per runtime file"
                 )
             },
             [BOUNDARY_PLAN_GATE],
@@ -710,7 +710,7 @@ class FinishGatePolicyTests(unittest.TestCase):
                 BOUNDARY_PLAN_GATE: (
                     "boundary/scope: regression reproduction notes; nearest "
                     "verification/check: unable to reproduce further edge cases "
-                    "after unit tests and workflow validate"
+                    "after unit tests and workflow validate; no runtime source change"
                 )
             },
             [BOUNDARY_PLAN_GATE],
@@ -806,7 +806,10 @@ class FinishGatePolicyTests(unittest.TestCase):
                     "acceptance criteria: given valid credentials when submit then navigate home"
                 ),
                 TEST_GATE: "unittest tests/test_workflow_routing.py passed",
-                BOUNDARY_PLAN_GATE: "existing workflow gate policy boundary; verification via unittest",
+                BOUNDARY_PLAN_GATE: (
+                    "existing workflow gate policy boundary; review budget: one public owner "
+                    "per runtime file; verification via unittest"
+                ),
                 MULTI_AGENT_GATE: (
                     "no subagent split: serial single-agent because small same-file policy change "
                     "with same-file scope"
@@ -836,6 +839,31 @@ class FinishGatePolicyTests(unittest.TestCase):
         )
 
         self.assertEqual([], failures)
+
+    def test_boundary_plan_requires_runtime_structure_decision(self) -> None:
+        missing = validate_gate_evidence(
+            {
+                BOUNDARY_PLAN_GATE: (
+                    "boundary/scope: feature UI owner migration; nearest verification/check: "
+                    "focused unit tests and compile"
+                )
+            },
+            [BOUNDARY_PLAN_GATE],
+        )
+
+        self.assertTrue(any("top-level-owner review budget" in failure for failure in missing))
+
+        accepted = validate_gate_evidence(
+            {
+                BOUNDARY_PLAN_GATE: (
+                    "boundary/scope: feature UI owner migration; file split: one public owner "
+                    "per runtime file; nearest verification/check: focused unit tests and compile"
+                )
+            },
+            [BOUNDARY_PLAN_GATE],
+        )
+
+        self.assertEqual([], accepted)
 
     def test_source_docs_evidence_requires_source_artifact_discovery_before_work(self) -> None:
         failures = validate_gate_evidence(
