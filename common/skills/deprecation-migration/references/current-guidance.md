@@ -165,6 +165,24 @@ fixtures or compatibility fallbacks with an explicit owner.
   auth, permissions, or deployment without rollback.
 - Required usage evidence is unavailable and the old path could still be active.
 
+## Serialization And Converter Migrations
+
+When a migration moves request or response models onto a different serialization
+stack, the converter is part of the contract being migrated.
+
+- Declare on every moved model whatever annotation the target converter requires.
+  A reflective converter tolerates a missing annotation; a compile-time converter
+  fails only when a real call runs, so the omission survives compilation.
+- Do not treat repository-level tests built on fake service doubles as coverage for
+  this. Those doubles bypass the converter entirely, so a missing annotation passes
+  every such test. Completion requires a check that exercises the real converter,
+  or an explicit note that this risk is unverified.
+- When moving from a reflective converter to a compile-time one, reproduce every
+  default the old mapping applied to absent fields as a nullable field with an
+  explicit default. The old stack turned missing fields into nulls that mappers
+  defended; the new stack raises instead, so a field-for-field move silently turns
+  previously tolerated responses into failures.
+
 ## Verification
 
 Use caller-focused tests, contract tests, migration tests, compatibility checks,

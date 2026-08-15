@@ -63,6 +63,12 @@ Use for Android app, Compose/ViewModel, permission, and UI flow review.
   structure review evidence. Never use the raised limit to hide existing debt
   or admit new oversized owners; if the block grew or a responsibility was
   added, split the responsibility instead of raising the limit.
+- A wrapper insertion can re-indent a large lifecycle body without adding a new
+  responsibility. Before treating that whitespace churn as structural growth,
+  compare the block with whitespace ignored and measure its final span. When
+  the semantic diff is only the wrapper boundary, use that measured span as the
+  smallest `--max-function-lines` exception and name both the wrapper and the
+  unchanged responsibility in the structure review evidence.
 - For `api` / `impl` / `assertions`, verify that `api` exposes caller-facing
   contracts only, `impl` owns execution details, and `assertions` depends on
   `api` rather than production `impl` by default.
@@ -90,6 +96,15 @@ Use for Android app, Compose/ViewModel, permission, and UI flow review.
   `platforms/android/skills/source-coverage/SKILL.md` and
   `android-module-structure.md` was applied before accepting the
   implementation.
+- When a call is moved onto a contract whose delivery depends on a host component
+  installed by a base class — user-visible notices, screen-navigation dispatch, and
+  similar app-wide contracts — name the base class each touched screen extends and
+  confirm that screen installs the host. Several contracts often share one host, so a
+  screen has all of them or none; checking one contract does not clear the others.
+- Treat contracts that enqueue and return as silent on failure. A missing host makes
+  the call a no-op with no exception, so unit tests and static analysis stay green.
+  A change of that shape is not verified until the affected transitions are exercised
+  on a device or emulator.
 
 ## Tools
 

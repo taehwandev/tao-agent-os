@@ -188,6 +188,15 @@ Before finishing:
   `<TAO_LAUNCHER> finish` before final report, handoff, commit, or
   release. Use `agent-finish-check.py` directly only as a lower-level diagnostic
   or compatibility fallback when the finish hook is unavailable.
+- If a read-only finish reports that a non-Git rules root changed after start,
+  treat the mismatch as real stale-input evidence. Do not revert an authorized
+  concurrent change, weaken the fingerprint check, or reuse the old preflight.
+  Follow
+  `workflows/skills/retrospective-learning/references/failure-repair.md`: wait
+  for the writer to settle, re-read the current required guidance, revalidate
+  the original task, generate a fresh start/preflight snapshot, and resume at
+  the failed checkpoint. Keep the original evidence path for the repair receipt
+  when the changed guidance is outside the product checkout.
 - Confirm every required workflow route gate has structured ledger evidence
   when a scripted route was used. Treat missing fields as missing work or
   missing evidence to complete, not as a prompt to write vague pass-through

@@ -66,6 +66,31 @@ State what the check can and cannot prove. Geometry does not prove contrast or
 copy quality. A screenshot does not prove that the command executed. A visible
 button does not prove that the trusted boundary behind it was reached.
 
+## Figma parity gate
+
+When a Figma frame or screenshot is part of the requirement, visual parity is a
+blocking check rather than optional polish.
+
+- Capture the full, uncropped surface on the requested device and flavor. The
+  card boundary, surrounding inset, next section, system chrome, and relevant
+  state must be visible.
+- Compare the implementation with the exact frame side by side or by overlay.
+  Record outer bounds, outer-edge insets, media ratio, title line count and
+  ellipsis, title/footer gap, icon and button size, metadata slot separation,
+  and unchanged caller variants.
+- Check each meaningful variant independently. A passing default variant does
+  not prove the other media types, states, or header/footer variants of the
+  same component.
+- Text containers must grow from content and padding. Do not force a Figma
+  sample height with `height()` or `size()` to hide clipping; use padding and
+  an explicit minimum only when the component contract requires one.
+- Build, unit tests, semantic assertions, and JSON measurements are supporting
+  evidence. None of them replaces the full-frame visual comparison.
+
+If the reference is cropped, the implementation route is uncertain, or a
+caller/variant cannot be identified, mark visual verification incomplete and
+stop the completion report instead of filling the gap by inference.
+
 ## Do Not Accept
 
 - Do not treat a build, typecheck, or unit test as proof that a UI is readable,

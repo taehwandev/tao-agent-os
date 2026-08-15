@@ -360,6 +360,22 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
         self.assertNotIn("docs-read", guidance.lower())
         self.assertNotIn("receipt", guidance.lower())
 
+    def test_agent_operating_guidance_preserves_non_git_rules_drift_recovery(self) -> None:
+        guidance = (
+            ROOT
+            / "common"
+            / "skills"
+            / "agent-operating-skill"
+            / "references"
+            / "current-guidance.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("non-Git rules root changed after start", guidance)
+        self.assertIn("real stale-input evidence", guidance)
+        self.assertIn("Do not revert an authorized", guidance)
+        self.assertIn("generate a fresh start/preflight snapshot", guidance)
+        self.assertIn("failure-repair.md", guidance)
+
     def test_direct_required_docs_reading_uses_existing_source_docs_evidence(self) -> None:
         for relative in (
             "AGENTS.md",

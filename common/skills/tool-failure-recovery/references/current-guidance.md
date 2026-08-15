@@ -54,6 +54,29 @@ service state:
   manager supports it.
 - Report the blocker when the needed condition cannot be changed safely.
 
+### Do Not Misdiagnose A Gate Refusal
+
+A workspace gate refuses on the invocation's working directory, not on the
+executable being run. Before concluding that an interpreter, a network path, or
+a credential is unavailable:
+
+- Check the working directory first. When the session's cwd is the main
+  checkout of a worktree-gated project, every mutating tool is refused,
+  including read-only invocations such as `git ls-remote`. Passing an explicit
+  target path (`git -C <worktree>`) does not help because the gate reads the
+  invocation's cwd. Move the cwd itself (`cd <worktree>`) instead.
+- Run a control command before blaming the environment. If the same binary
+  succeeds against a known-good target, the refusal is a gate decision, not a
+  missing tool, a network outage, or an authentication failure.
+- Run the command the gate prescribes verbatim. Appending a pipe or
+  redirection (`... 2>&1 | head`, or a bare `--help`) can make the start hook
+  itself fail the gate's own allowlist match, so the gate returns the same
+  "run the start hook" message that the hook was meant to clear. That reads as
+  a deadlock in which the gate blocks its own remedy; dropping the pipe
+  resolves it.
+- Correct an earlier wrong diagnosis explicitly when the real cause is found,
+  because a reported blocker changes what the requester does next.
+
 ## Common Scenarios
 
 Hook failure:

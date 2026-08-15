@@ -31,6 +31,25 @@ contracts, API or schema compatibility, persistence, auth, permissions,
 payments, filesystem, network, accessibility-critical UI, platform integration,
 deployment, migration, or release packaging.
 
+## Before The First Check In A Fresh Checkout
+
+A new worktree or clone is missing every ignored local file the build needs. Collect
+that list from the build configuration before the first run, not from failure
+messages.
+
+- Read the build scripts and their signing, credential, and environment blocks, and
+  collect every referenced local file: `*.properties`, keystores and certificates,
+  service-account keys, and local SDK or path config.
+- Check that list against the source checkout in one pass, then copy only what is
+  missing. Do not print the contents, and confirm afterwards that each copied file
+  is still ignored.
+- Do not infer which files are needed from the build type or variant. A debug
+  variant can still run a signing-config validation step that demands the release
+  keystore.
+- When a run fails with "file not found", copy that file **and** re-check the rest of
+  its kind in the same pass. Fixing one file per run turns a single setup step into
+  a failure-and-copy loop as long as the file list.
+
 ## Choose Checks By Change Type
 
 Use repo-local commands and names. This table defines the minimum evidence shape,
