@@ -46,10 +46,13 @@ STRICT_CARD_REQUIRED_HEADINGS = (
     "## Verification",
 )
 MARKDOWN_VALIDATE_IGNORED_DIRS = {
-    ".tao",
-    # Personal skills are loaded directly by runtimes and do not own Tao's
-    # runtime-card frontmatter contract.
+    # `local/` holds the user's personal skills, not runtime-owned documents.
+    # The frontmatter contract (keyflow_id/status/type) describes runtime
+    # bundles; personal skills are also loaded by Claude and Codex directly, so
+    # forcing runtime metadata on them would make this validator the owner of
+    # files RUNTIME-OWNERSHIP.md explicitly excludes from reference import.
     "local",
+    ".tao",
     ".git",
     ".mypy_cache",
     ".pytest_cache",

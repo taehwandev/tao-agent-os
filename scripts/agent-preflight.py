@@ -616,12 +616,20 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
     if route_payload:
         print(f"Route: {route_payload.get('command')} gates={route_payload.get('gates')}")
     print(f"VibeGuard overall: {vibeguard['overall']['status']}")
-    print(
+    lessons_line = (
         "Global lessons: "
         f"accepted={len(global_lessons['accepted'])} "
         f"promoted={len(global_lessons['promoted'])} "
         f"candidates={global_lessons['candidate_count']}"
     )
+    top_recurrence = global_lessons.get("top_recurrence") or {}
+    if top_recurrence:
+        lessons_line += (
+            f"; unrepaired recurrence: {top_recurrence['failure_type']} "
+            f"x{top_recurrence['occurrence_count']} "
+            f"({top_recurrence['promotion_status']}, lesson {top_recurrence['lesson_id']})"
+        )
+    print(lessons_line)
     for warning in hook_warnings:
         print(f"WARN: {warning}", file=sys.stderr)
     for failure in failures:

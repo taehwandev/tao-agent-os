@@ -393,9 +393,9 @@ CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE = {
 # let the operating contract crowd out the documents actually matched to this
 # request.  Total mandatory reading is therefore roughly core + this budget.
 REQUIRED_DOC_BUDGET_BYTES = 30_000
-# Core and guaranteed review contracts consume six slots on code routes. Ten
-# leaves room for the route's own command card plus three request-specific
-# branch cards, which is the smallest useful combined-runtime surface.
+# 10, not 9: a platform pack that routes one router card plus two platform cards
+# on top of the core and gate contracts legitimately needs the tenth slot; the
+# selection budget still bounds total bytes.
 MAX_REQUIRED_DOCS = 10
 
 # STOPGAP -- not a permanent policy.  A single reference larger than this would
@@ -700,6 +700,10 @@ def _review_hook_command(command: str) -> str:
         "--code-review-evidence \"<evidence>\" "
         "--docs-freshness-evidence \"<evidence>\" "
         "[--allow-vibeguard-review \"<reason for acceptable Needs review>\"] "
+        "[for destructive no-diff branch/worktree cleanup replace the scope with: "
+        "--review-scope repo-hygiene] "
+        "[for an existing commit replace the scope with: --review-scope commit-range "
+        "--review-base <base-ref> --review-head <head-ref>] "
     )
     if command in {"commit", "git_commit"}:
         return base + "[--review-path <commit-owned-path>]"

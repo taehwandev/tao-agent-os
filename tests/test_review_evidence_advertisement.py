@@ -11,7 +11,9 @@ reintroducing the round trip.
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -78,6 +80,33 @@ class RequiredReviewEvidenceFlags(unittest.TestCase):
     def test_flags_are_unique(self):
         flags = required_review_evidence_flags(ALL_GATES)
         self.assertEqual(len(flags), len(set(flags)))
+
+
+class StructureReviewEvidenceAdvisory(unittest.TestCase):
+    def test_start_summary_advertises_conditional_structure_evidence(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "agent_hook_main_for_review_summary", SCRIPTS / "agent-hook.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        payload = {
+            "route": {
+                "gates": [],
+                "hooks": [{"hook": "review", "required": True}],
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            preflight = Path(directory) / "preflight.json"
+            preflight.write_text(json.dumps(payload), encoding="utf-8")
+            lines = module._hook_summary_from_preflight(preflight)
+
+        self.assertIn(
+            "Review hook conditionally requires --structure-review-evidence when changed "
+            "development files exceed review-pressure or source-size limits.",
+            lines,
+        )
 
 
 class AdvertisementMatchesEnforcement(unittest.TestCase):
@@ -195,6 +224,29 @@ class StructuredGateFieldAdvertisement(unittest.TestCase):
         for line in self.lines(["retrospective check", "tests"])[1:]:
             self.assertFalse(line.lstrip().startswith("-"))
             self.assertTrue(line.startswith("  "))
+
+
+class CloseoutGateAdvertisement(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "agent_hook_main_for_closeout_summary", SCRIPTS / "agent-hook.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.lines = module._closeout_gate_lines
+
+    def test_handoff_gate_is_advertised_before_finish(self):
+        rendered = self.lines(["tests", "handoff"])
+
+        self.assertEqual(len(rendered), 1)
+        self.assertIn("user-facing handoff gate", rendered[0])
+        self.assertIn("before finish", rendered[0])
+        self.assertIn("worker handoff hook does not satisfy it", rendered[0])
+
+    def test_route_without_handoff_has_no_closeout_reminder(self):
+        self.assertEqual(self.lines(["tests", "report"]), [])
 
 
 if __name__ == "__main__":
