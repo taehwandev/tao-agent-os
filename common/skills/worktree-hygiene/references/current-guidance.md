@@ -103,6 +103,47 @@ overlapping `owned_scope` with another concurrent writer.
   --porcelain` and the `.tao/worktrees` filesystem state return to their
   pre-dispatch baseline while the integrated result remains in the lead checkout.
 
+## Repo-Declared Root-Session Isolation
+
+A repository that requires every root agent task to use a linked worktree may
+track `.agents/shared/worktree-policy.json` with this closed contract:
+
+```json
+{
+  "schema_version": 1,
+  "require_linked_worktree": true,
+  "protected_branches": ["develop", "main"]
+}
+```
+
+Runtime adapters must treat this declaration as an executable boundary, not as
+advisory prose. Discrete file edits and Bash commands that are not provably
+read-only or limited to worktree bootstrap must fail closed in the main checkout
+and on a listed protected branch. A read-only status check, `git fetch`, and
+`git worktree add` remain available so the agent can reach the compliant
+checkout, but workflow `start` is denied there: opening a run before relocation
+leaves a second unfinished lifecycle behind. Do not auto-create a worktree from
+the pretool hook: branch, base, ticket, path, and ignored local-file copy
+decisions belong to the repository workflow. After selecting the linked
+worktree, run `start` with that path as the project root before any mutating tool.
+
+Two environment variables bridge and override this declaration, and both must
+stay rare and explicit. During a transition window where the tracked
+`worktree-policy.json` has not yet reached the current checkout,
+`TAO_REQUIRE_LINKED_WORKTREE=1` in project-local runtime configuration applies
+the same boundary to that one Git repository; its meaning must stay identical
+to the tracked declaration once the shared file merges.
+`TAO_ALLOW_MAIN_CHECKOUT_EDIT=1` disables the main-checkout denial for a
+user-approved exception only; it is never a default and never set by tooling.
+
+If an older session already opened a clean main-checkout run before relocating,
+settle it with `tao-hook cancel --evidence <SOURCE> --replacement-evidence
+<COMPLETED_LINKED_WORKTREE_RUN>`. Cancellation is fail-closed: both runs must
+share the request, runtime session, route, rules root, and Git common directory;
+the replacement must be a completed linked worktree and the source checkout
+must have no tracked or untracked changes. The command preserves both evidence
+directories and writes a content-free cancellation receipt.
+
 ## Before Reporting
 
 - Re-check the final diff or touched files.

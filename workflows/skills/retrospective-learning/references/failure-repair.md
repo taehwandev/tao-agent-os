@@ -38,6 +38,13 @@ not yet satisfy its execution contract.
    restart unrelated earlier work.
 7. Re-run the failed scope once. Stop if the same failure signature remains.
 
+When a failed finish lists multiple missing route gates, preserve the earliest
+failed checkpoint and repair the complete ordered set before resuming. Record
+each missing gate with `gate` or `gate-batch`, rerun any required hook such as
+`review`, then record the remaining closeout gates (`retrospective check` and
+`report`) before invoking `finish` again. Do not treat one successful gate or a
+second finish attempt as evidence for the other missing gates.
+
 The successful-task observation threshold does not apply to this blocking
 flow. A user-confirmed wrong completion repairs the current task immediately;
 it is not queued as a first passive occurrence while the incorrect result
@@ -61,6 +68,26 @@ Review Hook but before finish: the review attestation is correctly stale. Do
 not weaken or rewrite the attestation. Wait for the writer to settle when
 necessary, re-read the current guidance, refresh start/preflight, rerun the
 affected review, and only then rerun finish.
+
+When the task itself creates the new commit after a successful working-tree
+Review Hook, treat the commit as the changed revision even when no concurrent
+writer exists. Do not carry the working-tree attestation into finish. Record
+the commit/push/report state, then rerun review with `--review-scope
+commit-range`, an immutable base, and the committed head under the same fresh
+preflight binding. This makes the review subject and the finish-time worktree
+binding refer to the same bytes.
+
+When the changed guidance is outside the product checkout, keep the original
+task's evidence path and failed checkpoint, verify this repair against the
+current runtime guidance/test surface, then start a fresh preflight before
+rerunning the affected review. Do not repair the stale attestation in place or
+bind the new review to the old runtime snapshot.
+
+If the stale attestation belongs to a run that is already terminal, do not try
+to revive or refresh that run in place. Treat the terminal run as historical
+evidence, record the stale-binding failure on the new active run, and perform
+the review against a newly started run/preflight binding. This keeps a finished
+run immutable while still requiring the current worktree to pass a fresh review.
 
 ## Executable Contract
 

@@ -73,12 +73,99 @@ Use after implementation, before handing off or committing.
    because a caller-provided source label is not execution provenance. A
    successful `tao-hook review` writes a run-local review attestation and binds
    the ledger entry to that attestation's current run, preflight hash, route
-   fingerprint, full worktree fingerprint, exact review pathspec, and changed
-   path count. Finish accepts the gate only while those bindings still match.
+   fingerprint, full worktree fingerprint, exact review pathspec or commit
+   subject, and changed path count. Finish accepts the gate only while those
+   bindings still match. For commit ranges, finish re-resolves both commit
+   objects and recomputes the exact changed-path list before accepting the
+   attestation.
+   The Review Hook defaults to working-tree changes. Run that form before
+   commit in the worktree that owns the uncommitted diff. A clean checkout or
+   pathspec is not evidence for an already committed range. When the requested
+   subject is an existing commit, first apply the commit-review workflow, then
+   attest the same exact range through the hook:
+
+   On a checkout that concurrent sessions share, the default working-tree scope
+   often does not describe this task's change, and the fix is the scope flag
+   rather than the evidence text. Two shapes recur:
+
+   - **The tree holds changes this task did not make.** The hook then demands
+     structure-review evidence for files this run neither wrote nor read. Scope
+     to your own paths instead:
+     `--review-scope pathspec --review-path <path> [--review-path <path> ...]`.
+     Never attest structure review for a foreign path; if the demanded evidence
+     covers one, the scope is wrong, not the evidence. Passing merely because
+     unrelated modified files satisfied the scope guard is the right answer for
+     the wrong reason.
+   - **The task route only prepares external task state** (for example, a tracked
+     work item plus a sibling branch/worktree) and deliberately keeps the protected
+     checkout clean. Use `--review-scope pathspec` with the exact existing task
+     workflow `.../task/SKILL.md` that was followed. The hook accepts this clean
+     scope only when the bound preflight route is `task` and its effective effect is
+     `git_write` or `external_write`; boundary-plan and side-effect-audit evidence
+     must still name the protected checkout and the created state. The implementation
+     worktree starts and closes its own review lifecycle. Do not manufacture a diff.
+   - **Another task changes no files at all** (repo hygiene: removing merged
+     worktrees, branches or stashes without a task-setup preflight). Use
+     `--review-scope repo-hygiene` without `--review-path`. The hook accepts this
+     scope only when the bound preflight records destructive authority, routes a
+     `branch` or `worktree` concern, and the protected checkout is clean. Review
+     and report the exact post-action Git state re-reads in the evidence fields;
+     the attestation binds the clean checkout and current runtime state through
+     finish. Do not manufacture a diff, reuse this scope for source changes, or
+     attest another session's cleanup.
+   - **The run is explicitly read-only and inspects existing source files.** A
+     clean checkout has no diff, but the route may still require review evidence
+     for the inspected boundary. Use `--review-scope pathspec` with one or more
+     exact existing repo-relative files or directories. The hook accepts this
+     only when the bound preflight declares `execution_mode.read_only=true`, the
+     checkout is clean, every path exists inside the project, and no glob is
+     used. This attests the named inspection surface; it is not a substitute for
+     working-tree or commit-range review of a mutation.
+   - **The task changes an ignored local agent adapter.** Use
+     `--review-scope local-config --review-path <exact-path>` only for the
+     allowlisted project-root files `.codex/hooks.json`,
+     `.claude/settings.json`, and `.claude/settings.local.json`. The hook
+     requires each path to be an existing, non-symlink, Git-ignored file; it
+     rejects globs, tracked files, and every other ignored path. Because Git has
+     no diff for this boundary, review the current configuration bytes and
+     report that scope in the evidence fields. The attestation binds each file's
+     path, size, and SHA-256 and finish recomputes them, so a post-review edit
+     invalidates the gate. Never manufacture a staged diff or use this scope for
+     secrets, arbitrary ignored files, product source, or committed changes.
+
+   ```text
+   tao-hook review --project <TARGET_REPO> --rules <TAO_ROOT> \
+     --review-scope commit-range \
+     --review-base <BASE_COMMIT> --review-head <HEAD_COMMIT> \
+     --review-outcome pass \
+     --code-review-evidence "<exact committed diff and request/rule review>" \
+     --docs-freshness-evidence "<updated or grounded unchanged docs>" \
+     --structure-review-evidence "<runtime size and ownership review>" \
+     --boundary-plan-evidence "<owned scope and nearest verification>" \
+     --side-effect-audit-evidence "<committed diff and side-effect audit>"
+   ```
+
+   Commit-range review resolves both refs to immutable commit SHAs, requires
+   the base to be an ancestor of the head, and rejects an empty range. It reads
+   changed paths and line counts from that exact Git diff, materializes the
+   head commit in an isolated local clone for structural and VibeGuard checks,
+   and runs `git diff --check <base-sha> <head-sha> --`. It never substitutes
+   the clean checkout's current file bytes for the committed subject.
+   When the target branch is rebased onto a newer integration base, treat the
+   rebase as a new committed subject: resolve the new base and head to
+   immutable SHAs, rerun commit-range review, and re-record the route's
+   retrospective check and remaining closeout gates before pushing. Do not
+   carry a review attestation or finish evidence across that rebase.
    Finish must revalidate the review attestation after all final checks and
    immediately before it reports completion. The initial validation establishes
    eligibility to run those checks; it is not permission to accept a worktree
    that changed while they ran.
+   A successful finish settles the run and closes its gate ledger. If any
+   tracked or untracked worktree byte changes afterward (for example, a rebase
+   or conflict-resolution merge), do not reuse that run's preflight evidence or
+   invoke review against its closed ledger. Carry the same bounded objective and
+   approvals into a fresh start, then record source-doc, review, readiness, and
+   finish evidence for the new worktree snapshot.
    Copying an attestation to another run, changing any tracked or untracked
    worktree byte after review, or claiming a broader ledger scope than the
    attested pathspec must fail closed. Pathspec review remains valid for an
@@ -102,7 +189,13 @@ Use after implementation, before handing off or committing.
    When recovery changes a document that the active route already lists in
    `required_docs`, record its `documentation` SUCCESS artifact receipt before
    rerunning review or finish. A repair receipt alone does not bind required-doc
-   drift to the execution snapshot.
+   drift to the execution snapshot. First compare the current bytes with the
+   preflight snapshot: if the drift predates this task and the task did not own
+   that document, preserve the canonical bytes and bind them with the exact
+   required-doc receipt; do not rewrite the document merely to clear the
+   snapshot. Run `repair-verify` only when the current task actually changed the
+   required document or when the failed checkpoint identifies a runtime repair
+   target.
 6. Run or record the nearest useful verification.
 7. Remove only unused code created by the change.
 8. Split unrelated work before committing.

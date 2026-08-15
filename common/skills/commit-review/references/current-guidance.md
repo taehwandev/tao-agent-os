@@ -22,6 +22,13 @@ and verification must describe one coherent change. If the commit is too broad
 to reason about, that is itself a finding because rollback and ownership are
 unclear.
 
+When the active route requires the hook-owned `review hook` gate, the prose
+review is necessary but not sufficient. Invoke the hook with
+`--review-scope commit-range --review-base <base> --review-head <head>` for the
+same reviewed subject. The hook resolves immutable commit SHAs and rejects
+unrelated, reversed, invalid, or empty subjects rather than treating a clean
+working tree as evidence for the commit.
+
 ## Check
 
 - Does the commit do what the message claims?
