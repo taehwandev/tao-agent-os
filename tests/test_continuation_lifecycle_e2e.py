@@ -34,6 +34,7 @@ from agent_run_registry import registry_path
 from agent_route_state import request_fingerprint
 
 REQUEST = "implement the resume list command in src/module.py with a unit test"
+CLASSIFICATION_EVIDENCE = "clear-scoped; blockers resolved"
 SAFE_OBJECTIVE = "finish the bounded continuation resume wiring"
 GATE = "source docs"
 POLL_SECONDS = 0.005
@@ -79,7 +80,7 @@ start = hook(
     "--intent-envelope", {envelope!r},
     "--runtime-session-id", {session_id!r},
     "--request-classified",
-    "--classification-evidence", "clear-scoped; blockers resolved",
+    "--classification-evidence", {classification_evidence!r},
 )
 gate = hook(
     "gate",
@@ -186,7 +187,15 @@ class Checkout:
         envelope = json.dumps(
             {
                 "schema_version": 1,
-                "request_fingerprint": request_fingerprint({"request": REQUEST}),
+                # The envelope binds the whole request intake, and the child
+                # start below passes --request-classified with its evidence.
+                "request_fingerprint": request_fingerprint(
+                    {
+                        "request": REQUEST,
+                        "request_classified": True,
+                        "classification_evidence": CLASSIFICATION_EVIDENCE,
+                    }
+                ),
                 "runtime_session_id": session_id,
                 "mode": "work",
                 "intent": "implement",
@@ -209,6 +218,7 @@ class Checkout:
         script.write_text(
             CHILD.format(
                 request=REQUEST,
+                classification_evidence=CLASSIFICATION_EVIDENCE,
                 envelope=envelope,
                 session_id=session_id,
                 gate=GATE,
@@ -297,10 +307,10 @@ class KillNineResumeTests(unittest.TestCase):
             self.assertIn("resume result: ready", resumed.stdout)
             self.assertIn(f"objective: {SAFE_OBJECTIVE}", resumed.stdout)
             self.assertNotIn(REQUEST, resumed.stdout)
-            # The gate the dead child recorded is complete, so the resumed
-            # checkpoint is the next one -- proof the gate checkpoint ran too,
-            # not only the initial one written by start.
-            self.assertIn("resume checkpoint: documentation impact", resumed.stdout)
+            # The gate the dead child recorded is complete, so resume selects
+            # the first unfinished route gate. Owner proof now precedes source
+            # and documentation work, which also proves the gate checkpoint ran.
+            self.assertIn("resume checkpoint: work surface resolution", resumed.stdout)
 
     def test_without_the_lifecycle_checkpoint_the_resume_finds_nothing(self) -> None:
         """The negative control: same run, same kill, no checkpoint call."""

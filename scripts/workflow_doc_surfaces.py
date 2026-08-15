@@ -1,4 +1,4 @@
-"""Route required docs from request intent and touched path surfaces."""
+"""Route docs from semantic intent and repository-verified owner paths."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from workflow_common import ROOT, unique
 from workflow_doc_surface_rules import (
+    # Re-export candidate extractors for launchers and compatibility callers.
     extract_request_surface_paths,
     git_status_surface_paths,
     normalize_path,
@@ -47,7 +48,7 @@ def infer_surface_docs(
     surface_paths: Iterable[str] | None = None,
     root: Path = ROOT,
 ) -> tuple[list[str], list[dict[str, object]]]:
-    """Return docs promoted by command intent and request/touched paths."""
+    """Return docs from semantic intent and explicitly verified owner paths."""
     rules = load_doc_surface_rules(root)
     docs: list[str] = []
     matches: list[dict[str, object]] = []
@@ -65,7 +66,7 @@ def infer_surface_docs(
 
     paths = unique(
         normalize_path(path)
-        for path in [*extract_request_surface_paths(request_text), *(surface_paths or [])]
+        for path in (surface_paths or [])
         if normalize_path(path)
     )
     for rule in rule_list(rules, "path_surfaces"):

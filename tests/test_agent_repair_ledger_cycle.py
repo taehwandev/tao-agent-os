@@ -910,9 +910,21 @@ class RepairLedgerCycleTests(unittest.TestCase):
 
             request = "fix the stale ledger hash in scripts/agent_gate_evidence.py"
             intent_session_id = "ledger-cycle-session" if has_session else "ledger-no-session-test"
+            classification_evidence = (
+                "clear-scoped: rehearsal bug reproduced with exact scope; no blockers; "
+                "scope clarified"
+            )
+            # The envelope binds the whole request intake, so a classified start
+            # has to hash the flag and its evidence, not the request text alone.
             envelope = {
                 "schema_version": 1,
-                "request_fingerprint": request_fingerprint({"request": request}),
+                "request_fingerprint": request_fingerprint(
+                    {
+                        "request": request,
+                        "request_classified": True,
+                        "classification_evidence": classification_evidence,
+                    }
+                ),
                 "runtime_session_id": intent_session_id,
                 "mode": "work",
                 "intent": "repair",
@@ -931,7 +943,7 @@ class RepairLedgerCycleTests(unittest.TestCase):
                 "bugfix",
                 "--request-classified",
                 "--classification-evidence",
-                "clear-scoped: rehearsal bug reproduced with exact scope; no blockers; scope clarified",
+                classification_evidence,
                 # The request must classify cleanly on its own: --request-classified
                 # no longer suppresses classification without a parent capsule.
                 "--request",

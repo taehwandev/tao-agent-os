@@ -530,18 +530,31 @@ Before editing, reviewing, committing, or reporting completion:
 ```
 
 The route may promote additional `required_docs` from the root
-`workflow-doc-surfaces.json` map when the request text or known/touched paths
-show a specific work surface. Rules may match route command, selected platform,
-request text, request path references, explicit `--surface-path` values, and
-paths from `git status --short --untracked-files=all`. UI-capable platform
+`workflow-doc-surfaces.json` map when semantic request intent or a verified
+owner path shows a specific work surface. Rules may match route command,
+selected platform, semantic request text, and explicit `--surface-path` values.
+Path-like request references and paths from
+`git status --short --untracked-files=all` remain `surface_candidates`; they do
+not promote path guidance until bounded repository evidence proves the owner.
+UI-capable platform
 work must be covered as a matrix, not as a one-off Android rule: Android
 Compose, Application desktop UI, Flutter widgets, iOS SwiftUI/UIKit, KMP
 Compose, Swift design-system UI, and Web React UI should each promote the
 matching UI, state, structure, review, visual verification, and performance
-guidance. This surface routing is for document selection only: it does not
+guidance. Literal framework-name shortcuts are test fixtures rather than policy
+keys. This surface routing is for document selection only: it does not
 replace request classification, command/profile selection, repo-local
 instructions, or the requirement to read every routed `required_docs` entry
 before edits.
+
+Code-work routes place `work surface resolution` before `source docs`. Record a
+structured `resolved` result with the owner, anchors, repository evidence chain,
+verified surface paths, evidence-backed concerns, one to four search hops, and
+the nearest falsifying verification. A direct local owner may use one hop.
+`ambiguous` and `not_found` are terminal failed-gate results: report what was
+checked, ask for one behavior-distinguishing clue, and stop before task-specific
+reading or edits. Screenshots are first-class anchors, not a separate routing
+branch, and sensitive visual contents must not be persisted in route metadata.
 
 The route/search layer uses the repository-pinned Wikimap source for
 deterministic, incremental section retrieval over Tao Agent OS guidance. It

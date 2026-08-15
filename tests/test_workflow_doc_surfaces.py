@@ -253,7 +253,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             route["reference_docs"],
         )
         self.assertTrue(
-            any("dirty-path surfaces" in note for note in route["notes"])
+            any("surface-inferred docs" in note for note in route["notes"])
         )
 
     def test_android_performance_route_loads_external_skill_manifest(self) -> None:
@@ -345,9 +345,22 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
     def test_classified_graphify_evidence_still_infers_route_concern(self) -> None:
         request = "apply the confirmed change in scripts/workflow_doc_surfaces.py"
         session_id = "workflow-doc-surfaces-session"
+        classification_evidence = (
+            "answered direct question; separate actionable clear-scoped Graphify "
+            "project install and readiness workflow"
+        )
+        # The envelope binds the whole request intake, not the request text
+        # alone, so a delegated-worker call has to hash the classified flag and
+        # its evidence too.
         envelope = {
             "schema_version": 1,
-            "request_fingerprint": request_fingerprint({"request": request}),
+            "request_fingerprint": request_fingerprint(
+                {
+                    "request": request,
+                    "request_classified": True,
+                    "classification_evidence": classification_evidence,
+                }
+            ),
             "runtime_session_id": session_id,
             "mode": "work",
             "intent": "configure",
@@ -374,7 +387,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                 session_id,
                 "--request-classified",
                 "--classification-evidence",
-                "answered direct question; separate actionable clear-scoped Graphify project install and readiness workflow",
+                classification_evidence,
                 "--format",
                 "json",
             ],
@@ -583,7 +596,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("project-state -> run-registry -> gate-ledger", guidance)
         self.assertIn("second unlocked claim check", guidance)
 
-    def test_request_path_surface_promotes_docs_without_explicit_keyword(self) -> None:
+    def test_request_path_surface_requires_explicit_owner_verification(self) -> None:
         route = resolve_docs(
             "task",
             None,
@@ -592,8 +605,12 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             request_text="`scripts/workflow_route.py` 수정해줘",
         )
 
-        self.assertIn(guidance_area("workflows/skills/scripted-agent-workflow/SKILL.md"), routed_areas(route))
-        self.assertIn(guidance_area("common/skills/ci-cd-automation/SKILL.md"), routed_areas(route))
+        self.assertFalse(
+            any(
+                match["type"] == "path_surface"
+                for match in route.get("doc_surface_matches", [])
+            )
+        )
 
     def test_test_path_surface_promotes_testing_docs_to_required_docs(self) -> None:
         route = resolve_docs(
@@ -788,20 +805,41 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                 self.assertNotIn("web_service_rn_python_pack", names)
                 self.assertNotIn("web_service_rn_python_skill_pack", names)
 
-    def test_react_native_and_python_web_service_requests_promote_branch_cards(self) -> None:
-        rn_docs, rn_matches = infer_surface_docs(
-            command="feature",
-            request_text="React Native Expo screen을 추가해줘",
-        )
-        py_docs, py_matches = infer_surface_docs(
-            command="feature",
-            request_text="FastAPI endpoint를 Python web service에 추가해줘",
+    def test_react_native_and_python_framework_phrases_do_not_select_branch_cards(self) -> None:
+        cases = (
+            ("React Native Expo로 만들어줘", "platforms/react-native/"),
+            ("Python FastAPI endpoint를 만들어줘", "platforms/python/"),
         )
 
-        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", rn_docs)
-        self.assertTrue(any(match["name"] == "react_native_self_selected" for match in rn_matches))
-        self.assertIn("platforms/python/skills/python-web-service/SKILL.md", py_docs)
-        self.assertTrue(any(match["name"] == "python_web_service_self_selected" for match in py_matches))
+        for request_text, forbidden_prefix in cases:
+            with self.subTest(request_text=request_text):
+                docs, matches = infer_surface_docs(
+                    command="feature",
+                    request_text=request_text,
+                )
+
+                self.assertFalse(
+                    any(str(match["name"]).endswith("_self_selected") for match in matches)
+                )
+                self.assertFalse(any(doc.startswith(forbidden_prefix) for doc in docs))
+
+    def test_semantic_multi_signal_intent_and_verified_path_surfaces_remain_active(self) -> None:
+        semantic_docs, semantic_matches = infer_surface_docs(
+            command="feature",
+            request_text="React Native Python web service endpoint를 추가해줘",
+        )
+        verified_docs, verified_matches = infer_surface_docs(
+            command="feature",
+            surface_paths=["packages/mobile/src/screens/HomeScreen.tsx"],
+        )
+
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", semantic_docs)
+        self.assertIn("platforms/python/skills/python-web-service/SKILL.md", semantic_docs)
+        self.assertTrue(
+            any(match["name"] == "web_service_rn_python_pack" for match in semantic_matches)
+        )
+        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", verified_docs)
+        self.assertTrue(any(match["name"] == "react_native_paths" for match in verified_matches))
 
     def test_react_native_android_native_work_combines_platform_cards(self) -> None:
         mixed_docs, mixed_matches = infer_surface_docs(
@@ -823,7 +861,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             request_text="React Native Expo screen을 추가해줘",
         )
 
-        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", pure_docs)
+        self.assertNotIn("platforms/react-native/skills/react-native-app/SKILL.md", pure_docs)
         self.assertFalse(any(doc.startswith("platforms/android/") for doc in pure_docs))
         self.assertFalse(
             any(match["name"] == "react_native_android_native_implementation" for match in pure_matches)
@@ -834,7 +872,10 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             request_text="React Native Android screen을 추가해줘",
         )
 
-        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", android_screen_docs)
+        self.assertNotIn(
+            "platforms/react-native/skills/react-native-app/SKILL.md",
+            android_screen_docs,
+        )
         self.assertFalse(any(doc.startswith("platforms/android/") for doc in android_screen_docs))
         self.assertFalse(
             any(
@@ -848,7 +889,10 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             request_text="React Native native module을 수정해줘",
         )
 
-        self.assertIn("platforms/react-native/skills/react-native-app/SKILL.md", ambiguous_native_docs)
+        self.assertNotIn(
+            "platforms/react-native/skills/react-native-app/SKILL.md",
+            ambiguous_native_docs,
+        )
         self.assertFalse(any(doc.startswith("platforms/android/") for doc in ambiguous_native_docs))
         self.assertFalse(
             any(
@@ -1029,7 +1073,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                     (all_platform_cards - {expected_card}).intersection(docs),
                 )
 
-    def test_web_figma_routes_react_only_from_explicit_framework_evidence(self) -> None:
+    def test_web_figma_does_not_treat_framework_phrase_as_owner_evidence(self) -> None:
         cases = (
             (
                 "Implement this Figma handoff as a Vue page.",
@@ -1037,7 +1081,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             ),
             (
                 "Implement this Figma handoff as a React page.",
-                True,
+                False,
             ),
         )
 
@@ -1331,53 +1375,56 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertNotIn(required_doc("common/skills/ui-visual-verification/SKILL.md"), route["required_docs"])
         self.assertNotIn(required_doc("platforms/web/skills/web-react-ui/SKILL.md"), route["required_docs"])
 
-    def test_self_selected_ui_frameworks_promote_platform_docs(self) -> None:
+    def test_framework_phrases_do_not_use_self_selected_policy_rules(self) -> None:
         cases = [
             (
                 "android",
                 "Compose로 목록 화면을 구현해줘",
                 "android_compose_self_selected",
-                "platforms/android/skills/android-compose-ui/SKILL.md",
             ),
             (
                 "application",
                 "Tauri React renderer로 목록 화면을 구현해줘",
                 "application_react_self_selected",
-                "platforms/application/skills/application-react-desktop/SKILL.md",
             ),
             (
                 "flutter",
                 "Flutter Widget으로 목록 화면을 구현해줘",
                 "flutter_widget_self_selected",
-                "platforms/flutter/skills/flutter-widget-ui/SKILL.md",
             ),
             (
                 "ios",
                 "SwiftUI로 목록 화면을 구현해줘",
                 "ios_swiftui_self_selected",
-                "platforms/ios/skills/ios-swiftui-ui/SKILL.md",
             ),
             (
                 "ios",
                 "UIKit ViewController로 목록 화면을 구현해줘",
                 "ios_uikit_self_selected",
-                "platforms/ios/skills/ios-uikit-ui/SKILL.md",
             ),
             (
                 "kmp",
                 "Compose Multiplatform으로 목록 화면을 구현해줘",
                 "kmp_compose_self_selected",
-                "platforms/kmp/skills/kmp-compose-ui/SKILL.md",
             ),
             (
                 "web",
                 "React TSX로 목록 화면을 구현해줘",
                 "web_react_self_selected",
-                "platforms/web/skills/web-react-ui/SKILL.md",
+            ),
+            (
+                None,
+                "React Native Expo로 만들어줘",
+                "react_native_self_selected",
+            ),
+            (
+                None,
+                "Python FastAPI endpoint를 만들어줘",
+                "python_web_service_self_selected",
             ),
         ]
 
-        for platform, request, match_name, doc in cases:
+        for platform, request, match_name in cases:
             with self.subTest(platform=platform, match_name=match_name):
                 route = resolve_docs(
                     "feature",
@@ -1387,8 +1434,12 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                     request_text=request,
                 )
 
-                self.assertIn(guidance_area(doc), routed_areas(route))
-                self.assertTrue(any(match["name"] == match_name for match in route["doc_surface_matches"]))
+                self.assertFalse(
+                    any(
+                        match["name"] == match_name
+                        for match in route.get("doc_surface_matches", [])
+                    )
+                )
 
     def test_ui_path_surfaces_promote_platform_docs_without_cross_platform_leak(self) -> None:
         cases = [

@@ -35,7 +35,7 @@ from agent_workspace_policy import is_git_status_review_only, non_git_writing_wo
 from support.global_state import project_scoped_state_error
 from workflow_catalog import COMMANDS, CONCERNS, PLATFORM_CONCERNS, PLATFORMS
 from workflow_common import unique
-from workflow_doc_surfaces import git_status_surface_paths
+from workflow_doc_surfaces import extract_request_surface_paths, git_status_surface_paths
 from workflow_classified_exemption import (
     classified_intake_decision,
     parent_evidence_path,
@@ -187,7 +187,7 @@ def route_payload(
         args.command,
         read_intent_envelope(getattr(args, "intent_envelope", "")),
         approval=read_approval_record(getattr(args, "approval_record", "")),
-        request_fingerprint=request_fingerprint({"request": args.request or ""}),
+        request_fingerprint=request_fingerprint(request_intake(args)),
         runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
     )
     if failures:
@@ -231,12 +231,19 @@ def route_payload(
         )
     concerns = unique([*args.concern, *inferred_concerns])
     newly_inferred = [concern for concern in inferred_concerns if concern not in args.concern]
-    surface_paths = unique(
-        [
-            *args.surface_path,
-            *git_status_surface_paths((git_status or {}).get("stdout", "")),
-        ]
-    )
+    surface_paths = unique(args.surface_path)
+    surface_candidates = {
+        "request_paths": [
+            path
+            for path in extract_request_surface_paths(intent_text)
+            if path not in surface_paths
+        ],
+        "dirty_paths": [
+            path
+            for path in git_status_surface_paths((git_status or {}).get("stdout", ""))
+            if path not in surface_paths
+        ],
+    }
     route = resolve_docs(
         args.command,
         args.platform[-1] if args.platform else None,
@@ -254,6 +261,14 @@ def route_payload(
         if isinstance(notes, list):
             joined = ", ".join(f"`{concern}`" for concern in newly_inferred)
             notes.append(f"Inferred concern(s) from request keywords: {joined}.")
+    if any(surface_candidates.values()):
+        route["surface_candidates"] = surface_candidates
+        notes = route.get("notes")
+        if isinstance(notes, list):
+            notes.append(
+                "Request and dirty paths are discovery candidates only. Verify the change "
+                "owner before passing a path through --surface-path."
+            )
     return route, "", 1 if route["missing"] or route.get("blocking") else 0
 
 
@@ -319,7 +334,10 @@ def build_parser(tao_root: Path) -> argparse.ArgumentParser:
         "--surface-path",
         action="append",
         default=[],
-        help="path already known to be in scope; can be repeated",
+        help=(
+            "repository-verified change-owner path; can be repeated. Request and "
+            "dirty paths remain candidates until owner proof is recorded"
+        ),
     )
     parser.add_argument(
         "--concern",

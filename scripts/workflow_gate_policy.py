@@ -71,6 +71,7 @@ MULTI_AGENT_GATE = "multi-agent split decision"
 SIDE_EFFECT_AUDIT_GATE = "side-effect audit"
 AGENTIC_RUN_STATE_GATE = "agentic run state"
 SOURCE_DOCS_GATE = "source docs"
+WORK_SURFACE_RESOLUTION_GATE = "work surface resolution"
 PRODUCT_REENTRY_GATE = "product route re-entry"
 RETROSPECTIVE_CHECK_GATE = "retrospective check"
 SKILL_FEEDBACK_HOOK = "skill-feedback"
@@ -112,6 +113,8 @@ RETROSPECTIVE_CHECK_COMMANDS = SOURCE_DOCS_COMMANDS | LIGHTWEIGHT_ANALYSIS_COMMA
 
 def automatic_gates(command: str) -> list[str]:
     gates: list[str] = []
+    if command in CODE_WORK_COMMANDS:
+        gates.append(WORK_SURFACE_RESOLUTION_GATE)
     if command in SOURCE_DOCS_COMMANDS:
         gates.append(SOURCE_DOCS_GATE)
     if command in WORK_PRODUCING_COMMANDS:
@@ -162,6 +165,8 @@ def automatic_docs(command: str) -> list[str]:
                 "common/skills/source-driven-development/SKILL.md",
             ]
         )
+    if WORK_SURFACE_RESOLUTION_GATE in gates:
+        docs.append("common/skills/source-driven-development/SKILL.md")
     if TEST_GATE in gates:
         docs.extend(
             [
@@ -203,8 +208,10 @@ def add_automatic_gates(command: str, gates: list[str]) -> list[str]:
             _insert_after_any(
                 result,
                 gate,
-                anchors=("orient",),
+                anchors=(WORK_SURFACE_RESOLUTION_GATE, "orient"),
             )
+        elif gate == WORK_SURFACE_RESOLUTION_GATE:
+            _insert_after_any(result, gate, anchors=("orient",))
         elif gate == AMBIGUITY_GATE:
             _insert_after_any(
                 result,
