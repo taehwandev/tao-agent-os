@@ -39,6 +39,9 @@ RUN_STATES = frozenset(
         "reconcile_required",
     }
 )
+TRANSFER_CANCELLABLE_RUN_STATES = frozenset(
+    {*ACTIVE_RUN_STATES, "failed", "reconcile_required"}
+)
 # States whose owner may still append gate evidence. Recovery happens after a
 # run stops being active: a failed finish must be answered by recording the
 # gates it named, and a repair cycle parks the run at reconcile_required for
@@ -115,14 +118,24 @@ def claim_run(
             stale_after_seconds=stale_after_seconds,
             evidence_path=evidence_path,
         )
-        conflict = _has_active_binding(
+        refresh = _refreshable_active_run(
+            payload,
+            project,
+            evidence_path,
+            command=str(route.get("command") or "task"),
+            expected_request=request_fingerprint(request_intake),
+        )
+        conflict = refresh is None and _has_active_binding(
             payload,
             project,
             evidence_path,
         )
         run: dict[str, Any] | None = None
         is_new = False
-        if not conflict:
+        if refresh is not None:
+            run = _claim_active_run_for_refresh(refresh)
+            is_new = True
+        elif not conflict:
             run, is_new = _register_locked(
                 payload,
                 project,
@@ -139,6 +152,41 @@ def claim_run(
     if is_new and run is not None:
         _safe_event(project, "run.claimed", run_id=run["run_id"], state=CLAIMING_RUN_STATE)
     return {"run": run, "conflict": conflict, "recovered": recovered, "held": held}
+
+
+def release_run_claim(
+    project: Path,
+    evidence_path: Path,
+    run_id: str,
+    *,
+    restore_refresh: bool = True,
+) -> dict[str, Any] | None:
+    """Release a failed start claim, restoring a preflight refresh owner."""
+
+    path = registry_path(project)
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        target = _reusable_run(payload, project, evidence_path, run_id)
+        if target is None:
+            return None
+        _require_current_process_claim_owner(target)
+        previous_state = str(target.pop("refresh_previous_state", "") or "")
+        previous_owner = target.pop("refresh_previous_owner", None)
+        target.pop("claim_owner", None)
+        if (
+            restore_refresh
+            and previous_state in ACTIVE_RUN_STATES
+            and is_recorded_owner(previous_owner)
+        ):
+            target["state"] = previous_state
+            target["owner"] = previous_owner
+        else:
+            target["state"] = "cancelled"
+            target.pop("owner", None)
+        target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _write_registry(path, payload)
+    _safe_event(project, "run.transitioned", run_id=target["run_id"], state=target["state"])
+    return target
 
 
 def transition_run(
@@ -175,6 +223,38 @@ def transition_run(
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
         _write_registry(path, payload)
     _safe_event(project, "run.transitioned", run_id=target["run_id"], state=state)
+    return target
+
+
+def cancel_run(
+    project: Path,
+    evidence_path: Path,
+    *,
+    run_id: str,
+) -> dict[str, Any] | None:
+    """Atomically settle one still-owned, non-terminal transferred run."""
+
+    path = registry_path(project)
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        candidates = [
+            run
+            for run in payload["runs"]
+            if run.get("run_id") == run_id
+            and _matches_evidence(run, project, evidence_path)
+        ]
+        if not candidates:
+            return None
+        target = candidates[-1]
+        if (
+            target.get("state") not in TRANSFER_CANCELLABLE_RUN_STATES
+            or not _closeout_owner_matches(target)
+        ):
+            return None
+        target["state"] = "cancelled"
+        target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _write_registry(path, payload)
+    _safe_event(project, "run.transitioned", run_id=run_id, state="cancelled")
     return target
 
 
@@ -487,6 +567,25 @@ def latest_run_id(project: Path, evidence_path: Path) -> str | None:
         return str(matches[-1]["run_id"]) if matches and matches[-1].get("run_id") else None
 
 
+def registered_run(
+    project: Path,
+    evidence_path: Path,
+    *,
+    run_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return a copy of one exact registry binding under the registry lock."""
+
+    path = registry_path(project)
+    with project_state_lock(project), state_lock(path):
+        matches = [
+            run
+            for run in _read_registry(path)["runs"]
+            if _matches_evidence(run, project, evidence_path)
+            and (not run_id or run.get("run_id") == run_id)
+        ]
+        return dict(matches[-1]) if matches else None
+
+
 def active_run_conflict(
     project: Path,
     evidence_path: Path,
@@ -673,6 +772,8 @@ def _register_locked(
         existing["state"] = "running"
         existing["owner"] = process_owner()
         existing.pop("claim_owner", None)
+        existing.pop("refresh_previous_state", None)
+        existing.pop("refresh_previous_owner", None)
         existing["updated_at"] = run["updated_at"]
         return existing, True
     # An adopted id can only come from a terminal record for the same isolated
@@ -834,6 +935,43 @@ def _has_active_binding(
         and _matches_evidence(run, project, evidence_path)
         for run in payload["runs"]
     )
+
+
+def _refreshable_active_run(
+    payload: dict[str, Any],
+    project: Path,
+    evidence_path: Path,
+    *,
+    command: str,
+    expected_request: str,
+) -> dict[str, Any] | None:
+    """Return the current owner's exact active run for preflight refresh."""
+
+    owner = process_owner()
+    if not is_recorded_owner(owner):
+        return None
+    return next(
+        (
+            run
+            for run in reversed(payload["runs"])
+            if run.get("state") in ACTIVE_RUN_STATES
+            and _matches_evidence(run, project, evidence_path)
+            and run.get("command") == command
+            and run.get("request_fingerprint") == expected_request
+            and run.get("owner") == owner
+        ),
+        None,
+    )
+
+
+def _claim_active_run_for_refresh(run: dict[str, Any]) -> dict[str, Any]:
+    run["refresh_previous_state"] = run["state"]
+    run["refresh_previous_owner"] = run["owner"]
+    run["state"] = CLAIMING_RUN_STATE
+    run["claim_owner"] = process_owner(current_process=True)
+    run.pop("owner", None)
+    run["updated_at"] = datetime.now(timezone.utc).isoformat()
+    return run
 
 
 def _sweep_stale_runs(
