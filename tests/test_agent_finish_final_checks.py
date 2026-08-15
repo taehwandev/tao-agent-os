@@ -68,6 +68,36 @@ class AgentFinishFinalChecksTests(unittest.TestCase):
         self.assertIn("not inside a Git repository", diff_check["review_note"])
         self.assertEqual([], failures)
 
+    def test_intrinsically_read_only_git_workspace_skips_preexisting_diff_check(self) -> None:
+        failures: list[str] = []
+        with patch(
+            "agent_finish_final_checks.run_workflow_validate",
+            return_value={"returncode": 0, "stdout": "", "stderr": ""},
+        ), patch(
+            "agent_finish_final_checks.is_writing_workspace",
+            return_value=False,
+        ), patch(
+            "agent_finish_final_checks.is_non_git_workspace",
+            return_value=False,
+        ), patch(
+            "agent_finish_final_checks.run_command",
+            side_effect=AssertionError("intrinsically read-only analysis must not run git diff"),
+        ):
+            _, diff_check, _, _ = run_final_checks(
+                ROOT,
+                ROOT,
+                ROOT,
+                None,
+                [],
+                failures,
+                read_only=True,
+                intrinsically_read_only=True,
+            )
+
+        self.assertTrue(diff_check["skipped"])
+        self.assertIn("intrinsically read-only analysis", diff_check["review_note"])
+        self.assertEqual([], failures)
+
     def test_writing_non_git_workspace_keeps_diff_check_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             failures: list[str] = []

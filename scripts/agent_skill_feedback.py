@@ -117,7 +117,12 @@ def record_skill_draft(
     signal: str,
     proposal: str,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Store the observing run's bounded proposal without write authority."""
+    """Store the observing run's patch proposal for a candidate.
+
+    Kept separate from `record_skill_feedback` so the observation hook still
+    only records facts. The draft is the run's reasoning, and it carries no
+    authority to change canonical guidance.
+    """
 
     try:
         result = record_draft(
