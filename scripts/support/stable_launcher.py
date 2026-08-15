@@ -126,6 +126,7 @@ SCRIPT_ALIASES = {
 }
 HOOK_ALIASES = {
     "start",
+    "cancel",
     "handoff",
     "resume",
     "checkpoint",

@@ -109,6 +109,52 @@ class CheckpointCommandTests(unittest.TestCase):
         self.assertEqual("checkpoint", parsed.hook)
         self.assertEqual(["src/module.py"], parsed.mutation_path)
 
+    def test_parser_exposes_exact_commit_range_review_arguments(self) -> None:
+        parser = agent_hook.build_parser()
+        parsed = parser.parse_args(
+            [
+                "review",
+                "--review-scope",
+                "commit-range",
+                "--review-base",
+                "base-ref",
+                "--review-head",
+                "head-ref",
+            ]
+        )
+
+        self.assertEqual("commit-range", parsed.review_scope)
+        self.assertEqual("base-ref", parsed.review_base)
+        self.assertEqual("head-ref", parsed.review_head)
+
+    def test_parser_exposes_local_config_review_scope(self) -> None:
+        parser = agent_hook.build_parser()
+        parsed = parser.parse_args(
+            [
+                "review",
+                "--review-scope",
+                "local-config",
+                "--review-path",
+                ".codex/hooks.json",
+            ]
+        )
+
+        self.assertEqual("local-config", parsed.review_scope)
+        self.assertEqual([".codex/hooks.json"], parsed.review_path)
+
+    def test_parser_exposes_repo_hygiene_review_scope_without_paths(self) -> None:
+        parser = agent_hook.build_parser()
+        parsed = parser.parse_args(
+            [
+                "review",
+                "--review-scope",
+                "repo-hygiene",
+            ]
+        )
+
+        self.assertEqual("repo-hygiene", parsed.review_scope)
+        self.assertEqual([], parsed.review_path)
+
 
 if __name__ == "__main__":
     unittest.main()
