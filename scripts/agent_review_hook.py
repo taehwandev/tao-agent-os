@@ -17,8 +17,22 @@ from agent_finish_final_checks import record_successful_review_workflow_validati
 from agent_inprocess import run_workflow_validate
 from agent_review_boundary import format_boundary_note_requirements, missing_boundary_note_fields
 from agent_review_attestation import ReviewAttestation
+from agent_review_commit_range import create_commit_snapshot, resolve_commit_range_subject
 from agent_review_structure import REVIEW_ADDED_LINE_LIMIT, structure_review
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
+from agent_review_subjects import (  # noqa: F401
+    REPO_HYGIENE_CONCERNS,
+    SETTLED_RUN_STATES,
+    clean_read_only_pathspec_review,
+    clean_repo_hygiene_review,
+    clean_task_setup_pathspec_review,
+    empty_review_scope_invocation_failure_details,
+    explicit_existing_review_paths,
+    invalid_review_subject_details,
+    settled_review_run_invocation_failure_details,
+    settled_review_run_state,
+    unavailable_structure_review,
+)
 from agent_vibeguard_cache import cached_vibeguard
 from agent_workspace_policy import is_git_status_review_only, is_writing_workspace, non_git_writing_workspace_note
 
@@ -55,6 +69,7 @@ def required_review_evidence_flags(route_gates: list[str]) -> list[str]:
     )
     return flags
 
+
 def review_hook(
     args: Any,
     run_command: CommandRunner,
@@ -80,33 +95,133 @@ def review_hook(
             invocation_error=True,
         )
 
-    review_paths = review_pathspec(args)
-    review_scope = review_scope_label(args, review_paths)
+    settled_state = settled_review_run_state(args)
+    if settled_state:
+        checks["review_lifecycle"] = {
+            "state": settled_state,
+            "next_action": "fresh_start",
+        }
+        if on_invocation_error is not None:
+            on_invocation_error()
+        return finish_with_result(
+            "review",
+            False,
+            settled_review_run_invocation_failure_details(settled_state),
+            args.output,
+            checks,
+            args.repair_cycle,
+            fresh_start_required=True,
+        )
+
+    requested_review_paths = review_pathspec(args)
+    try:
+        review_subject = resolve_review_subject(
+            args,
+            run_command,
+            requested_review_paths,
+        )
+    except ValueError as error:
+        if on_invocation_error is not None:
+            on_invocation_error()
+        return finish_with_result(
+            "review",
+            False,
+            invalid_review_subject_details(str(error)),
+            args.output,
+            checks,
+            args.repair_cycle,
+            invocation_error=True,
+        )
+
+    review_paths = (
+        list(review_subject["changed_paths"])
+        if review_subject["kind"] == "commit-range"
+        else requested_review_paths
+    )
+    review_scope = review_scope_label(args, review_paths, review_subject)
     checks["review_scope"] = review_scope
     checks["review_paths"] = review_paths
+    checks["review_subject"] = review_subject_record(review_subject)
     full_status_before, full_status_before_lines = git_status(args.project)
     if is_git_status_review_only(args.project, full_status_before):
         full_status_before["review_only"] = True
         full_status_before["review_note"] = non_git_writing_workspace_note(args.project)
         full_status_before_lines = []
     checks["full_git_status_before"] = full_status_before
-    status_before, status_before_lines = git_status_for_review(
-        args.project,
-        run_command,
-        git_status,
-        review_paths,
-    )
+    if review_subject["kind"] == "commit-range":
+        status_before = review_subject["path_discovery"]
+        status_before_lines = list(review_subject["changed_paths"])
+    else:
+        status_before, status_before_lines = git_status_for_review(
+            args.project,
+            run_command,
+            git_status,
+            review_paths,
+        )
     if is_git_status_review_only(args.project, status_before):
         status_before["review_only"] = True
         status_before["review_note"] = non_git_writing_workspace_note(args.project)
         status_before_lines = []
     checks["git_status_before"] = status_before
-    checks["changed_path_count"] = len(status_before_lines)
+    local_config_scope = review_subject["kind"] == "local-config"
+    checks["changed_path_count"] = (
+        len(review_paths) if local_config_scope else len(status_before_lines)
+    )
     checks["changed_path_limit"] = args.max_changed_paths
+    clean_read_only_scope = clean_read_only_pathspec_review(args, review_subject, review_paths)
+    clean_task_setup_scope = clean_task_setup_pathspec_review(args, review_subject, review_paths)
+    clean_repo_hygiene_scope = clean_repo_hygiene_review(args, review_subject, review_paths)
     if status_before["returncode"] != 0 and not status_before.get("review_only"):
         failures = ["git status failed"]
     elif full_status_before["returncode"] != 0 and not full_status_before.get("review_only"):
         failures = ["git status failed"]
+    elif (
+        not status_before_lines
+        and not status_before.get("review_only")
+        and not clean_read_only_scope
+        and not clean_task_setup_scope
+        and not clean_repo_hygiene_scope
+        and not local_config_scope
+    ):
+        scope_failure = (
+            "review scope has no changed paths; the working-tree review hook cannot "
+            "attest a clean checkout or a committed diff"
+        )
+        checks["review_scope_failure"] = scope_failure
+        if on_invocation_error is not None:
+            on_invocation_error()
+        return finish_with_result(
+            "review",
+            False,
+            empty_review_scope_invocation_failure_details(scope_failure, review_scope),
+            args.output,
+            checks,
+            args.repair_cycle,
+            invocation_error=True,
+        )
+    elif not status_before_lines and not status_before.get("review_only"):
+        clean_scope_key = "local_config_scope" if local_config_scope else (
+            "repo_hygiene_clean_scope" if clean_repo_hygiene_scope else (
+                "task_setup_clean_scope" if clean_task_setup_scope else "read_only_clean_scope"
+            )
+        )
+        checks[clean_scope_key] = {
+            "accepted": True,
+            "reason": (
+                "explicit Git-ignored local agent configuration is bound by current file hashes"
+                if local_config_scope
+                else (
+                    "destructive branch/worktree cleanup was reviewed from a clean checkout"
+                    if clean_repo_hygiene_scope
+                    else (
+                        "task setup inspected its explicit workflow policy on a clean protected checkout"
+                        if clean_task_setup_scope
+                        else "read-only run inspected explicit existing pathspecs on a clean checkout"
+                    )
+                )
+            ),
+        }
+        failures = []
     elif len(status_before_lines) > args.max_changed_paths:
         scope_failure = (
             f"review scope has {len(status_before_lines)} changed paths; "
@@ -133,14 +248,31 @@ def review_hook(
 
     record_review_input_evidence(args, checks, failures)
 
-    structure = structure_review(
-        args.project,
-        args.max_source_file_lines,
-        args.max_function_lines,
-        run_command,
-        review_paths,
-        max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
-    )
+    snapshot: Any | None = None
+    source_project = args.project
+    try:
+        if review_subject["kind"] == "commit-range":
+            snapshot, source_project, snapshot_check = create_commit_snapshot(
+                args.project,
+                review_subject["head_sha"],
+                run_command,
+            )
+            checks["commit_snapshot"] = snapshot_check
+        structure = structure_review(
+            args.project,
+            args.max_source_file_lines,
+            args.max_function_lines,
+            run_command,
+            None if review_subject["kind"] == "commit-range" else review_paths,
+            max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
+            source_project=source_project,
+            review_commits=(review_subject["base_sha"], review_subject["head_sha"])
+            if review_subject["kind"] == "commit-range"
+            else None,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        failures.append(f"commit snapshot materialization failed: {error}")
+        structure = unavailable_structure_review(str(error))
     checks["structure_review"] = structure
     failures.extend(f"structure review: {failure}" for failure in structure["failures"])
     failures.extend(
@@ -150,8 +282,10 @@ def review_hook(
         net_deletion_failures(structure, (args.side_effect_audit_evidence or "").strip())
     )
 
-    diff_check = (
-        {
+    if local_config_scope:
+        diff_check = local_config_diff_check(args.project, review_paths)
+    elif status_before.get("review_only"):
+        diff_check = {
             "command": ["git", "diff", "--check"],
             "cwd": str(args.project),
             "returncode": 0,
@@ -160,24 +294,33 @@ def review_hook(
             "skipped": True,
             "review_note": non_git_writing_workspace_note(args.project),
         }
-        if status_before.get("review_only")
-        else run_command(diff_check_command(review_paths), args.project)
-    )
+    else:
+        diff_check = run_command(diff_check_command(review_paths, review_subject), args.project)
     checks["diff_check"] = diff_check
     if diff_check["returncode"] != 0:
         failures.append("git diff --check failed")
 
-    record_review_base_drift(args, run_command, structure, checks, failures)
+    record_review_base_drift(
+        args,
+        run_command,
+        structure,
+        checks,
+        failures,
+        review_subject=review_subject,
+    )
     record_review_workflow_validation(args, checks, failures)
     record_review_vibeguard(
         args,
         run_command,
         vibeguard_command,
         parse_overall,
-        review_paths,
+        [] if review_subject["kind"] in {"commit-range", "local-config"} else review_paths,
         checks,
         failures,
+        audit_project=source_project,
     )
+    if snapshot is not None:
+        snapshot.cleanup()
     record_review_worktree_stability(
         args,
         run_command,
@@ -187,6 +330,7 @@ def review_hook(
         full_status_before_lines,
         checks,
         failures,
+        review_subject=review_subject,
     )
 
     # A correctable invocation (a stale base, a missing evidence field) is not a
@@ -370,9 +514,11 @@ def record_review_vibeguard(
     review_paths: list[str],
     checks: dict[str, Any],
     failures: list[str],
+    audit_project: Path | None = None,
 ) -> None:
+    selected_project = audit_project or args.project
     scoped_command = review_vibeguard_command(
-        args.project,
+        selected_project,
         args.rules,
         run_command,
         vibeguard_command,
@@ -383,7 +529,7 @@ def record_review_vibeguard(
         "path_option_supported": bool(getattr(scoped_command, "path_option_supported", False)),
     }
     vibeguard = cached_vibeguard(
-        project=args.project,
+        project=selected_project,
         rules=args.rules,
         run_command=run_command,
         vibeguard_command=scoped_command,
@@ -395,7 +541,7 @@ def record_review_vibeguard(
         return
     failure = vibeguard_review_failure(
         str(vibeguard["overall"]),
-        args.project,
+        selected_project,
         str(getattr(args, "allow_vibeguard_review", "") or ""),
     )
     if failure:
@@ -417,7 +563,47 @@ def record_review_worktree_stability(
     full_status_before_lines: list[str],
     checks: dict[str, Any],
     failures: list[str],
+    review_subject: dict[str, Any] | None = None,
 ) -> None:
+    if (review_subject or {}).get("kind") == "local-config":
+        try:
+            current = ReviewAttestation.local_config_subject(args.project, review_paths)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            failures.append(f"reviewed local config is no longer verifiable: {error}")
+            current = {}
+        checks["local_config_after"] = current
+        full_status_after, full_status_after_lines = git_status(args.project)
+        checks["git_status_after"] = full_status_after
+        checks["full_git_status_after"] = full_status_after
+        if full_status_after["returncode"] != 0:
+            failures.append("git status failed")
+        elif current != review_subject:
+            failures.append("reviewed local config changed while the review hook was running")
+        elif full_status_after_lines != full_status_before_lines:
+            failures.append(
+                "review hook changed files outside the local config scope; review hooks must stay read-only"
+            )
+        return
+
+    if (review_subject or {}).get("kind") == "commit-range":
+        current = resolve_commit_range_subject(
+            args.project,
+            str(review_subject["base_sha"]),
+            str(review_subject["head_sha"]),
+            run_command,
+        )
+        checks["commit_range_after"] = current["path_discovery"]
+        checks["git_status_after"] = current["path_discovery"]
+        full_status_after, full_status_after_lines = git_status(args.project)
+        checks["full_git_status_after"] = full_status_after
+        if full_status_after["returncode"] != 0:
+            failures.append("git status failed")
+        elif current["changed_paths"] != status_before_lines:
+            failures.append("reviewed commit range changed while the review hook was running")
+        elif full_status_after_lines != full_status_before_lines:
+            failures.append("review hook changed the worktree; review hooks must stay read-only")
+        return
+
     status_after, status_after_lines = git_status_for_review(
         args.project,
         run_command,
@@ -495,6 +681,7 @@ def record_review_gate(args: Any, checks: dict[str, Any]) -> None:
         review_paths=[str(path) for path in (checks.get("review_paths") or [])],
         changed_path_count=int(checks.get("changed_path_count") or 0),
         checks=checks,
+        review_subject=dict(checks.get("review_subject") or {}),
     )
     record_gate_evidence(
         evidence_path=evidence_path,
@@ -535,7 +722,6 @@ def structure_evidence_failures(structure: dict[str, Any], structure_evidence: s
     return failures
 
 
-
 def resolve_base_ref(project: Path, run_command: CommandRunner) -> str:
     """Resolve the ref this branch is supposed to be current with.
 
@@ -569,6 +755,7 @@ def record_review_base_drift(
     structure: dict[str, Any],
     checks: dict[str, Any],
     failures: list[str],
+    review_subject: dict[str, Any] | None = None,
 ) -> None:
     """Fail review when the change rewrites paths that already moved on the base.
 
@@ -581,6 +768,12 @@ def record_review_base_drift(
 
     drift: dict[str, Any] = {"base_ref": "", "behind": 0, "drifted_paths": []}
     checks["base_drift"] = drift
+    if (review_subject or {}).get("kind") == "commit-range":
+        drift["skipped"] = "immutable commit-range subject"
+        return
+    if (review_subject or {}).get("kind") == "local-config":
+        drift["skipped"] = "Git-ignored local configuration has no integration-base diff"
+        return
     base_ref = resolve_base_ref(args.project, run_command)
     if not base_ref:
         drift["skipped"] = "no upstream or conventional base ref is available"
@@ -647,6 +840,7 @@ def record_review_base_drift(
 
 def review_input_invocation_failure(failures: list[str]) -> bool:
     invocation_failure_prefixes = (
+        "structure review evidence is required: ",
         "structure boundary note evidence is required for ",
         "per-file addition limit was raised to ",
         "net deletion of ",
@@ -687,6 +881,7 @@ def review_input_invocation_failure_details(
     if any(
         failure.startswith(
             (
+                "structure review evidence is required: ",
                 "structure boundary note evidence is required for ",
                 "per-file addition limit was raised to ",
             )
@@ -802,7 +997,53 @@ def review_pathspec(args: Any) -> list[str]:
     return [path.strip() for path in getattr(args, "review_path", []) if path.strip()]
 
 
-def review_scope_label(args: Any, review_paths: list[str]) -> str:
+def resolve_review_subject(
+    args: Any,
+    run_command: CommandRunner,
+    review_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    scope = getattr(args, "review_scope", "working-tree")
+    if scope == "local-config":
+        return ReviewAttestation.local_config_subject(
+            args.project,
+            list(review_paths or review_pathspec(args)),
+        )
+    if scope != "commit-range":
+        return {"kind": "working-tree"}
+    return resolve_commit_range_subject(
+        args.project,
+        str(getattr(args, "review_base", "") or ""),
+        str(getattr(args, "review_head", "") or ""),
+        run_command,
+    )
+
+
+def review_subject_record(subject: dict[str, Any]) -> dict[str, Any]:
+    if subject.get("kind") == "local-config":
+        return {
+            "kind": "local-config",
+            "files": [dict(record) for record in subject.get("files") or []],
+        }
+    if subject.get("kind") != "commit-range":
+        return {"kind": "working-tree"}
+    return {
+        "kind": "commit-range",
+        "base_sha": str(subject["base_sha"]),
+        "head_sha": str(subject["head_sha"]),
+    }
+
+
+def review_scope_label(
+    args: Any,
+    review_paths: list[str],
+    review_subject: dict[str, Any] | None = None,
+) -> str:
+    if (review_subject or {}).get("kind") == "commit-range":
+        return (
+            f"commit-range: {review_subject['base_sha']}..{review_subject['head_sha']}"
+        )
+    if (review_subject or {}).get("kind") == "local-config":
+        return "local-config: " + ", ".join(review_paths)
     if review_paths:
         return "pathspec: " + ", ".join(review_paths)
     return getattr(args, "review_scope", "working-tree")
@@ -824,10 +1065,36 @@ def git_status_for_review(
     return result, lines
 
 
-def diff_check_command(review_paths: list[str]) -> list[str]:
+def diff_check_command(
+    review_paths: list[str],
+    review_subject: dict[str, Any] | None = None,
+) -> list[str]:
+    if (review_subject or {}).get("kind") == "commit-range":
+        return [
+            "git",
+            "diff",
+            "--check",
+            str(review_subject["base_sha"]),
+            str(review_subject["head_sha"]),
+            "--",
+        ]
     if not review_paths:
         return ["git", "diff", "--check"]
     return ["git", "diff", "--check", "--", *review_paths]
+
+
+def local_config_diff_check(project: Path, review_paths: list[str]) -> dict[str, Any]:
+    """Represent byte-snapshot validation without claiming an ignored Git diff exists."""
+
+    return {
+        "command": ["local-config-byte-snapshot", *review_paths],
+        "cwd": str(project),
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "skipped": True,
+        "review_note": "Git-ignored local config integrity is enforced by attestation hashes",
+    }
 
 
 def review_vibeguard_command(

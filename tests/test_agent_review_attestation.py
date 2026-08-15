@@ -127,6 +127,193 @@ class ReviewAttestationTests(unittest.TestCase):
         self.assertEqual([], failures)
         self.assertTrue(diagnostics["review_attestation"]["valid"])
 
+    def test_commit_range_subject_is_bound_to_attestation_and_ledger(self) -> None:
+        (self.project / "tracked.txt").write_text("second\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.project, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "second"],
+            cwd=self.project,
+            check=True,
+        )
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD^"],
+            cwd=self.project,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.project,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        attestation = ReviewAttestation.record(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            review_scope=f"commit-range: {base}..{head}",
+            review_paths=["tracked.txt"],
+            changed_path_count=1,
+            checks={
+                "review_outcome": "pass",
+                "workflow_validate": {"returncode": 0},
+                "diff_check": {"returncode": 0},
+                "vibeguard": {"returncode": 0, "overall": "Ready"},
+            },
+            review_subject={
+                "kind": "commit-range",
+                "base_sha": base,
+                "head_sha": head,
+            },
+        )
+
+        fields = ReviewAttestation.ledger_fields(attestation)
+        failures = ReviewAttestation.failures(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            route=self.route,
+            ledger_fields=fields,
+            ledger_source="review",
+        )
+
+        self.assertEqual([], failures)
+        self.assertIn("review_subject_fingerprint", fields)
+
+        record = json.loads(ReviewAttestation.path(self.evidence_path).read_text(encoding="utf-8"))
+        record["review_subject"]["base_sha"] = "0" * 40
+        ReviewAttestation.path(self.evidence_path).write_text(json.dumps(record), encoding="utf-8")
+        tampered = ReviewAttestation.failures(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            route=self.route,
+            ledger_fields=fields,
+            ledger_source="review",
+        )
+        self.assertTrue(any("integrity" in failure or "subject" in failure for failure in tampered))
+
+    def test_schema_one_worktree_attestation_remains_finish_compatible(self) -> None:
+        attestation = self._record_real_review()
+        legacy = dict(attestation)
+        legacy["schema_version"] = 1
+        legacy.pop("review_subject")
+        legacy.pop("review_subject_fingerprint")
+        legacy["attestation_id"] = ""
+        from agent_review_attestation import _attestation_id
+
+        legacy["attestation_id"] = _attestation_id(legacy)
+        ReviewAttestation.path(self.evidence_path).write_text(
+            json.dumps(legacy),
+            encoding="utf-8",
+        )
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        record_gate_evidence(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            gate="review hook",
+            evidence="legacy real review",
+            fields=ReviewAttestation.ledger_fields(legacy),
+            status="SUCCESS",
+            source="review",
+        )
+
+        _gate_evidence, _diagnostics, failures = self._finish_merge()
+
+        self.assertEqual([], failures)
+
+    def test_schema_two_worktree_attestation_remains_finish_compatible(self) -> None:
+        attestation = self._record_real_review()
+        legacy = dict(attestation)
+        legacy["schema_version"] = 2
+        legacy["attestation_id"] = ""
+        from agent_review_attestation import _attestation_id
+
+        legacy["attestation_id"] = _attestation_id(legacy)
+        ReviewAttestation.path(self.evidence_path).write_text(
+            json.dumps(legacy),
+            encoding="utf-8",
+        )
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        record_gate_evidence(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            gate="review hook",
+            evidence="schema two real review",
+            fields=ReviewAttestation.ledger_fields(legacy),
+            status="SUCCESS",
+            source="review",
+        )
+
+        _gate_evidence, _diagnostics, failures = self._finish_merge()
+
+        self.assertEqual([], failures)
+
+    def test_finish_rejects_a_resigned_but_unavailable_commit_subject(self) -> None:
+        (self.project / "tracked.txt").write_text("second\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.project, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "second"], cwd=self.project, check=True)
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD^"],
+            cwd=self.project,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.project,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        attestation = ReviewAttestation.record(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            review_scope=f"commit-range: {base}..{head}",
+            review_paths=["tracked.txt"],
+            changed_path_count=1,
+            checks={
+                "review_outcome": "pass",
+                "workflow_validate": {"returncode": 0},
+                "diff_check": {"returncode": 0},
+                "vibeguard": {"returncode": 0, "overall": "Ready"},
+            },
+            review_subject={"kind": "commit-range", "base_sha": base, "head_sha": head},
+        )
+        from agent_review_attestation import _attestation_id, _subject_fingerprint
+
+        attestation["review_subject"]["head_sha"] = "0" * 40
+        attestation["review_subject_fingerprint"] = _subject_fingerprint(
+            attestation["review_subject"]
+        )
+        attestation["attestation_id"] = _attestation_id(attestation)
+        ReviewAttestation.path(self.evidence_path).write_text(
+            json.dumps(attestation),
+            encoding="utf-8",
+        )
+
+        failures = ReviewAttestation.failures(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            route=self.route,
+            ledger_fields=ReviewAttestation.ledger_fields(attestation),
+            ledger_source="review",
+        )
+
+        self.assertIn(
+            "review hook attestation commit range is no longer verifiable",
+            failures,
+        )
+
     def test_review_cannot_attest_an_unbound_legacy_preflight(self) -> None:
         preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
         preflight.pop("agent_run_id")
@@ -147,6 +334,33 @@ class ReviewAttestationTests(unittest.TestCase):
                     "vibeguard": {"returncode": 0, "overall": "Ready"},
                 },
             )
+
+    def test_review_rejects_evidence_from_another_project(self) -> None:
+        with tempfile.TemporaryDirectory() as foreign_directory:
+            foreign_evidence = Path(foreign_directory) / ".tao" / "preflight.json"
+            foreign_evidence.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.evidence_path, foreign_evidence)
+            preflight = json.loads(foreign_evidence.read_text(encoding="utf-8"))
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "evidence path must be inside the review project .tao root",
+            ):
+                ReviewAttestation.record(
+                    project=self.project,
+                    rules=self.project,
+                    evidence_path=foreign_evidence,
+                    preflight=preflight,
+                    review_scope="pathspec: tracked.txt",
+                    review_paths=["tracked.txt"],
+                    changed_path_count=0,
+                    checks={
+                        "review_outcome": "pass",
+                        "workflow_validate": {"returncode": 0},
+                        "diff_check": {"returncode": 0},
+                        "vibeguard": {"returncode": 0, "overall": "Ready"},
+                    },
+                )
 
     def test_manual_review_success_without_attestation_is_removed_before_finish(self) -> None:
         preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
@@ -180,15 +394,118 @@ class ReviewAttestationTests(unittest.TestCase):
         self.assertNotIn("review hook", gate_evidence)
         self.assertTrue(any("worktree" in failure for failure in failures))
 
-    def test_staging_after_review_invalidates_the_gate_without_changing_file_bytes(self) -> None:
-        (self.project / "tracked.txt").write_text("ready to stage\n", encoding="utf-8")
+    def test_local_config_attestation_rejects_post_review_byte_changes(self) -> None:
+        gitignore = self.project / ".gitignore"
+        gitignore.write_text(".tao/\n.codex/\n", encoding="utf-8")
+        config = self.project / ".codex/hooks.json"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"hooks": {}}\n', encoding="utf-8")
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        subject = ReviewAttestation.local_config_subject(
+            self.project,
+            [".codex/hooks.json"],
+        )
+        attestation = ReviewAttestation.record(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            review_scope="local-config: .codex/hooks.json",
+            review_paths=[".codex/hooks.json"],
+            changed_path_count=1,
+            checks={
+                "review_outcome": "pass",
+                "workflow_validate": {"returncode": 0},
+                "diff_check": {"returncode": 0},
+                "vibeguard": {"returncode": 0, "overall": "Ready"},
+            },
+            review_subject=subject,
+        )
+        fields = ReviewAttestation.ledger_fields(attestation)
+
+        self.assertEqual(
+            [],
+            ReviewAttestation.failures(
+                project=self.project,
+                rules=self.project,
+                evidence_path=self.evidence_path,
+                route=self.route,
+                ledger_fields=fields,
+                ledger_source="review",
+            ),
+        )
+
+        config.write_text('{"hooks": {"changed": true}}\n', encoding="utf-8")
+        failures = ReviewAttestation.failures(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            route=self.route,
+            ledger_fields=fields,
+            ledger_source="review",
+        )
+
+        self.assertIn(
+            "review hook attestation local config bytes changed after review",
+            failures,
+        )
+
+    def test_committed_change_requires_a_commit_range_review(self) -> None:
         self._record_real_review()
-
+        (self.project / "tracked.txt").write_text("committed after review\n", encoding="utf-8")
         subprocess.run(["git", "add", "tracked.txt"], cwd=self.project, check=True)
-        gate_evidence, _, failures = self._finish_merge()
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "committed change"],
+            cwd=self.project,
+            check=True,
+        )
 
-        self.assertNotIn("review hook", gate_evidence)
+        _gate_evidence, _diagnostics, failures = self._finish_merge()
+
         self.assertTrue(any("worktree" in failure for failure in failures))
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD^"],
+            cwd=self.project,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.project,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        attestation = ReviewAttestation.record(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            review_scope=f"commit-range: {base}..{head}",
+            review_paths=["tracked.txt"],
+            changed_path_count=1,
+            checks={
+                "review_outcome": "pass",
+                "workflow_validate": {"returncode": 0},
+                "diff_check": {"returncode": 0},
+                "vibeguard": {"returncode": 0, "overall": "Ready"},
+            },
+            review_subject={"kind": "commit-range", "base_sha": base, "head_sha": head},
+        )
+
+        self.assertEqual(
+            [],
+            ReviewAttestation.failures(
+                project=self.project,
+                rules=self.project,
+                evidence_path=self.evidence_path,
+                route=self.route,
+                ledger_fields=ReviewAttestation.ledger_fields(attestation),
+                ledger_source="review",
+            ),
+        )
 
     def test_rules_drift_after_review_is_reported_separately(self) -> None:
         with tempfile.TemporaryDirectory() as rules_directory:
