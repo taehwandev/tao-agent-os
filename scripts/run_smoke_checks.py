@@ -43,8 +43,11 @@ def test_start_hook(temp_dir: str) -> None:
     )
     print("SUCCESS: Start hook completed successfully.")
 
-    preflight_path = Path(temp_dir) / ".tao" / "preflight.json"
-    assert preflight_path.exists(), "preflight.json was not created!"
+    # Start now claims a run-scoped evidence path; the legacy flat path remains
+    # valid for direct preflight callers, so accept either location.
+    state_dir = Path(temp_dir) / ".tao"
+    candidates = [state_dir / "preflight.json", *state_dir.glob("runs/*/preflight.json")]
+    assert any(path.exists() for path in candidates), "preflight.json was not created!"
     print("SUCCESS: preflight.json exists.")
 
 
