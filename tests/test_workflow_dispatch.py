@@ -91,7 +91,7 @@ from workflow_request import infer_concerns_from_request
 from workflow_request import classify_request
 from workflow_request import classified_route_block_reason
 from workflow_request import route_block_reason
-from agent_route_state import request_fingerprint
+from agent_route_state import request_fingerprint, request_intake_from_args
 from workflow_dispatch import (
     build_dispatch_manifest as _build_dispatch_manifest,
     execute_dispatch_manifest,
@@ -147,11 +147,13 @@ _AGENT_HOOK_SPEC.loader.exec_module(agent_hook)
 _RUNTIME_SESSION_ID = "workflow-dispatch-test-session"
 
 
-def _intent_cli_args(request: str, command: str) -> list[str]:
+def _intent_cli_args(request: str, command: str, intake: dict | None = None) -> list[str]:
     requested_effect = "read" if command in {"analysis", "review", "plan", "planning"} else "local_write"
+    # The envelope binds the whole request intake, so a caller that also passes
+    # --request-classified or --continuation-scope must hash those too.
     envelope = {
         "schema_version": 1,
-        "request_fingerprint": request_fingerprint({"request": request}),
+        "request_fingerprint": request_fingerprint(intake or {"request": request}),
         "runtime_session_id": _RUNTIME_SESSION_ID,
         "mode": "work",
         "intent": "dispatch",
@@ -167,7 +169,9 @@ def _intent_cli_args(request: str, command: str) -> list[str]:
 
 def _authorize_dispatch_args(args: argparse.Namespace) -> argparse.Namespace:
     request = str(args.request or "")
-    intent_args = _intent_cli_args(request, args.command)
+    intent_args = _intent_cli_args(
+        request, args.command, request_intake_from_args(args)
+    )
     args.intent_envelope = intent_args[1]
     args.runtime_session_id = _RUNTIME_SESSION_ID
     return args

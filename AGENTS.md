@@ -221,6 +221,13 @@ envelope from the full conversation, binds it to the exact request fingerprint
 and current opaque session id, and declares intent, bounded target, effects,
 prohibited effects, and ambiguity. Tao validates that contract and applies the
 route effect floor; it never reconstructs work authority from request words.
+`request_fingerprint` is the SHA-256 of the canonical JSON object holding
+`request`, `continuation_scope`, `request_classified`, and
+`classification_evidence`, with absent fields as `""`/`false` — the whole
+request intake, not the request text alone. Hashing only `--request` made an
+envelope minted for a terse follow-up such as `y` stay valid when the
+continuation scope changed, and for a terse follow-up the scope is what carries
+the meaning.
 The only valid effect names are `read`, `local_write`, `git_write`,
 `external_write`, and `destructive`; choose the highest reusable risk class the
 request needs rather than operation names such as `commit`, `push`, `merge`, or

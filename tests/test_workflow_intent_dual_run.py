@@ -185,6 +185,7 @@ class EnvelopeWiringTests(unittest.TestCase):
         request="Fix the commit parser",
         approval_record=None,
         approval_option="--approval-record",
+        continuation_scope="",
     ):
         argv = [
             sys.executable, "scripts/workflow.py", "route", command,
@@ -192,6 +193,8 @@ class EnvelopeWiringTests(unittest.TestCase):
             "--intent-envelope", json.dumps(envelope),
             "--runtime-session-id", envelope.get("runtime_session_id", ""),
         ]
+        if continuation_scope:
+            argv.extend(["--continuation-scope", continuation_scope])
         if approval_record is not None:
             argv.extend([approval_option, json.dumps(approval_record)])
         return subprocess.run(
@@ -431,6 +434,52 @@ class EnvelopeWiringTests(unittest.TestCase):
         )
 
 
+    def _scoped(self, request, continuation_scope, **overrides):
+        from agent_route_state import request_fingerprint
+
+        return envelope(
+            request_fingerprint=request_fingerprint(
+                {"request": request, "continuation_scope": continuation_scope}
+            ),
+            **overrides,
+        )
+
+    def test_the_route_refuses_an_envelope_bound_to_another_continuation_scope(
+        self,
+    ) -> None:
+        """A terse follow-up carries its meaning in the scope, not the request.
+
+        The binding hashed the request text alone, so an envelope minted for
+        "y" about one target stayed valid for "y" about the next one -- the
+        replay the binding exists to refuse, at the one place the request text
+        cannot distinguish two tasks.
+        """
+
+        result = self._route(
+            "bugfix",
+            self._scoped("y", "publish the approved release"),
+            request="y",
+            continuation_scope="delete the production database",
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("different request", result.stderr)
+
+    def test_the_route_accepts_an_envelope_bound_to_its_own_continuation_scope(
+        self,
+    ) -> None:
+        """The tightened binding must still admit the matching scope."""
+
+        result = self._route(
+            "bugfix",
+            self._scoped("y", "publish the approved release"),
+            request="y",
+            continuation_scope="publish the approved release",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+
+
 class NoEnvelopeWorkRouteTests(unittest.TestCase):
     def _route(self, command, request):
         return subprocess.run(
@@ -465,7 +514,6 @@ class NoEnvelopeWorkRouteTests(unittest.TestCase):
 
         self.assertEqual(2, result.returncode)
         self.assertIn("intent envelope", result.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()

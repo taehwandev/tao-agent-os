@@ -187,7 +187,7 @@ def route_payload(
         args.command,
         read_intent_envelope(getattr(args, "intent_envelope", "")),
         approval=read_approval_record(getattr(args, "approval_record", "")),
-        request_fingerprint=request_fingerprint({"request": args.request or ""}),
+        request_fingerprint=request_fingerprint(request_intake(args)),
         runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
     )
     if failures:

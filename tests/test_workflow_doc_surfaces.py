@@ -345,9 +345,22 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
     def test_classified_graphify_evidence_still_infers_route_concern(self) -> None:
         request = "apply the confirmed change in scripts/workflow_doc_surfaces.py"
         session_id = "workflow-doc-surfaces-session"
+        classification_evidence = (
+            "answered direct question; separate actionable clear-scoped Graphify "
+            "project install and readiness workflow"
+        )
+        # The envelope binds the whole request intake, not the request text
+        # alone, so a delegated-worker call has to hash the classified flag and
+        # its evidence too.
         envelope = {
             "schema_version": 1,
-            "request_fingerprint": request_fingerprint({"request": request}),
+            "request_fingerprint": request_fingerprint(
+                {
+                    "request": request,
+                    "request_classified": True,
+                    "classification_evidence": classification_evidence,
+                }
+            ),
             "runtime_session_id": session_id,
             "mode": "work",
             "intent": "configure",
@@ -374,7 +387,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                 session_id,
                 "--request-classified",
                 "--classification-evidence",
-                "answered direct question; separate actionable clear-scoped Graphify project install and readiness workflow",
+                classification_evidence,
                 "--format",
                 "json",
             ],
