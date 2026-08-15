@@ -7,7 +7,7 @@ import json
 import os
 import stat
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agent_continuation_fields import failure
@@ -23,7 +23,7 @@ class _MutationPathState:
     """Own the sidecar path and its project-local containment check."""
 
     FILENAME = ".mutation-baseline.json"
-    MAX_BYTES = 1024 * 1024
+    MAX_BYTES = 2 * 1024 * 1024
 
     @classmethod
     def path(cls, project: Path, run_id: str) -> Path:
@@ -54,6 +54,40 @@ class _MutationCaptureState:
     def capture(cls, project: Path) -> dict[str, str]:
         """Capture a bounded baseline without storing project-relative paths."""
 
+        states, _ = cls._capture_with_paths(project)
+        return states
+
+    @classmethod
+    def capture_baseline(
+        cls,
+        project: Path,
+        declared_paths: list[str],
+    ) -> dict[str, Any]:
+        """Capture states plus path-opaque ownership for declared boundaries."""
+
+        states, paths = cls._capture_with_paths(project)
+        path_boundaries: dict[str, str] = {}
+        for key, path in paths.items():
+            matching = [
+                boundary
+                for boundary in declared_paths
+                if cls._within_boundary(path, boundary)
+            ]
+            if matching:
+                owner = max(
+                    matching,
+                    key=lambda boundary: len(PurePosixPath(boundary).parts),
+                )
+                path_boundaries[key] = cls._path_key(owner)
+        return {"states": states, "path_boundaries": path_boundaries}
+
+    @classmethod
+    def _capture_with_paths(
+        cls,
+        project: Path,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Capture hashed states while retaining paths only for this call."""
+
         records = (
             cls._git_changed_records(project)
             if not is_non_git_workspace(project)
@@ -63,6 +97,7 @@ class _MutationCaptureState:
             raise WorktreeFingerprintLimitExceeded("mutation baseline path count exceeds limit")
         total = 0
         states: dict[str, str] = {}
+        paths: dict[str, str] = {}
         for relative, record in records.items():
             candidate = project / relative
             try:
@@ -88,8 +123,38 @@ class _MutationCaptureState:
                     payload = record + b"\0file\0" + mode + b"\0" + candidate.read_bytes()
                 else:
                     payload = record + b"\0mode:" + mode
-            states[cls._path_key(relative.as_posix())] = hashlib.sha256(payload).hexdigest()
-        return states
+            relative_path = relative.as_posix()
+            key = cls._path_key(relative_path)
+            states[key] = hashlib.sha256(payload).hexdigest()
+            paths[key] = relative_path
+        return states, paths
+
+
+def _boundary_changed(
+    boundary_key: str,
+    boundary: str,
+    changed: set[str],
+    current_paths: dict[str, str],
+    path_boundaries: dict[str, str],
+) -> bool:
+    """Return whether changed bytes belong to one declared boundary."""
+
+    return any(
+        key == boundary_key
+        or path_boundaries.get(key) == boundary_key
+        or _within_boundary(current_paths.get(key, ""), boundary)
+        for key in changed
+    )
+
+
+def _within_boundary(path: str, boundary: str) -> bool:
+    """Compare normalized POSIX paths without sibling-prefix confusion."""
+
+    if not path or not boundary:
+        return False
+    path_parts = PurePosixPath(path).parts
+    boundary_parts = PurePosixPath(boundary).parts
+    return path_parts[: len(boundary_parts)] == boundary_parts
 
 
 class _MutationScopeState:
@@ -112,11 +177,23 @@ class _MutationScopeState:
         before = baseline.get("states")
         if not isinstance(before, dict):
             return update
-        current = cls.capture(project)
+        current, current_paths = cls._capture_with_paths(project)
+        changed = {
+            key
+            for key in set(before) | set(current)
+            if before.get(key) != current.get(key)
+        }
+        path_boundaries = baseline.get("path_boundaries") or {}
         changed_paths = [
             str(path)
             for path in pending.get("paths") or []
-            if before.get(cls._path_key(str(path))) != current.get(cls._path_key(str(path)))
+            if _boundary_changed(
+                cls._path_key(str(path)),
+                str(path),
+                changed,
+                current_paths,
+                path_boundaries,
+            )
         ]
         existing = list((base.get("work") or {}).get("changed_scope") or [])
         supplied = update.get("changed_scope")
@@ -148,7 +225,9 @@ class _MutationScopeState:
         known = cls._scope_paths((base.get("work") or {}).get("changed_scope") or [])
         changed_scope = cls._scope_paths((packet.get("work") or {}).get("changed_scope") or [])
         for index, path in enumerate(changed_scope):
-            if path not in known and path not in declared:
+            if path not in known and not any(
+                _within_boundary(path, boundary) for boundary in declared
+            ):
                 raise ContinuationPacketError(
                     [failure("undeclared_changed_path", f"/work/changed_scope/{index}")]
                 )
@@ -160,18 +239,28 @@ class _MutationScopeState:
             raise ContinuationPacketError(
                 [failure("missing_mutation_baseline", "/checkpoint/mutation_pending")]
             )
-        current = cls.capture(project)
+        current, current_paths = cls._capture_with_paths(project)
         changed = {
             key
             for key in set(baseline["states"]) | set(current)
             if baseline["states"].get(key) != current.get(key)
         }
-        allowed = {cls._path_key(path) for path in declared}
+        declared_keys = {cls._path_key(path) for path in declared}
+        allowed = {
+            key
+            for key, boundary_key in (baseline.get("path_boundaries") or {}).items()
+            if boundary_key in declared_keys
+        }
+        allowed.update(declared_keys)
+        allowed.update(
+            key
+            for key, path in current_paths.items()
+            if any(_within_boundary(path, boundary) for boundary in declared)
+        )
         if changed - allowed:
             raise ContinuationPacketError(
                 [failure("undeclared_changed_path", "/checkpoint/mutation_pending/paths")]
             )
-
 
 class _MutationStorageState:
     """Read and validate the owner-only baseline sidecar."""
@@ -200,10 +289,14 @@ class _MutationStorageState:
             payload = json.loads(encoded.decode("utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return {}
-        if not isinstance(payload, dict) or set(payload) != {"packet_generation", "states"}:
+        if not isinstance(payload, dict) or set(payload) not in (
+            {"packet_generation", "states"},
+            {"packet_generation", "states", "path_boundaries"},
+        ):
             return {}
         generation = payload.get("packet_generation")
         states = payload.get("states")
+        path_boundaries = payload.get("path_boundaries") or {}
         if (
             not isinstance(generation, int)
             or isinstance(generation, bool)
@@ -211,9 +304,20 @@ class _MutationStorageState:
             or not isinstance(states, dict)
             or len(states) > MAX_UNTRACKED_FILES
             or any(not is_sha256(key) or not is_sha256(value) for key, value in states.items())
+            or not isinstance(path_boundaries, dict)
+            or len(path_boundaries) > MAX_UNTRACKED_FILES
+            or not set(path_boundaries).issubset(states)
+            or any(
+                not is_sha256(key) or not is_sha256(value)
+                for key, value in path_boundaries.items()
+            )
         ):
             return {}
-        return payload
+        return {
+            "packet_generation": generation,
+            "states": states,
+            "path_boundaries": path_boundaries,
+        }
 
     @staticmethod
     def _scope_paths(records: Any) -> list[str]:
