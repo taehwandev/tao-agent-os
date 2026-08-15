@@ -57,6 +57,7 @@ from agent_review_structure import structure_review
 from agent_vibeguard_cache import cached_vibeguard
 from support.agy_setup import AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES, _agy_runtime_bridge_block
 from support.claude_setup import (
+    _PRETOOL_GATE_MATCHER,
     _merge_claude_pre_tool_gate,
     _merge_claude_user_prompt_submit,
 )
@@ -217,7 +218,7 @@ class RuntimeSetupTests(unittest.TestCase):
                 "tao-hook claude-pretool-gate",
                 "tao-hook claude-pretool-gate",
                 _merge_claude_pre_tool_gate,
-                "Edit|Write|MultiEdit|NotebookEdit",
+                _PRETOOL_GATE_MATCHER,
             ),
         )
         for hook_name, old_command, new_command, merge, matcher in cases:

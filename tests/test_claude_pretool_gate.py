@@ -25,6 +25,7 @@ gate = importlib.util.module_from_spec(_GATE_SPEC)
 _GATE_SPEC.loader.exec_module(gate)
 
 from support.claude_setup import (
+    _EDIT_TOOL_MATCHER,
     _PRETOOL_GATE_ALIAS,
     _PRETOOL_GATE_MATCHER,
     _merge_claude_pre_tool_gate,
@@ -35,6 +36,7 @@ from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
 from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import register_run
 from agent_runtime_session import resolve_runtime_evidence
+import claude_worktree_gate as worktree_gate
 
 
 def _decide(payload: dict) -> tuple[int, str]:
@@ -53,6 +55,26 @@ def _opt_in_project(base: Path) -> Path:
     (project / ".tao").mkdir(parents=True)
     (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
     return project
+
+
+def _require_linked_worktree(project: Path, *, linked: bool = False) -> None:
+    git_marker = project / ".git"
+    if linked:
+        git_marker.write_text("gitdir: ../common/worktrees/proj\n", encoding="utf-8")
+    else:
+        git_marker.mkdir()
+    policy = project / gate.WORKTREE_POLICY_PATH
+    policy.parent.mkdir(parents=True, exist_ok=True)
+    policy.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "require_linked_worktree": True,
+                "protected_branches": ["develop", "main"],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _write_preflight(project: Path, session_id: str | None = None) -> None:
@@ -151,8 +173,332 @@ _satisfy_workflow_entry = _write_preflight
 
 
 class ClaudePreToolGateTests(unittest.TestCase):
-    def test_non_edit_tool_is_allowed(self) -> None:
+    def test_bash_outside_tao_project_is_allowed(self) -> None:
         code, out = _decide({"tool_name": "Bash", "cwd": "/tmp", "session_id": "s"})
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_read_only_bash_in_required_main_checkout_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "s",
+                    "tool_input": {"command": "git status -sb"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_print_only_sed_is_allowed_in_required_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "sed-read",
+                    "tool_input": {"command": "sed -n '1,420p' AGENTS.md"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_sed_write_program_is_denied_in_required_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "sed-write",
+                    "tool_input": {"command": "sed -n '1w output.txt' AGENTS.md"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_vibeguard_audit_is_allowed_but_fix_is_denied_in_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            read_code, read_out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "audit-read",
+                    "tool_input": {"command": "vibeguard audit ."},
+                }
+            )
+            write_code, write_out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "audit-fix",
+                    "tool_input": {"command": "vibeguard audit . --fix"},
+                }
+            )
+        self.assertEqual(0, read_code)
+        self.assertEqual("", read_out)
+        self.assertEqual(0, write_code)
+        self.assertIn("worktree gate", _reason(write_out))
+
+    def test_npx_vibeguard_audit_is_allowed_but_fix_is_denied_in_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            read_code, read_out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "npx-audit-read",
+                    "tool_input": {
+                        "command": "npx --yes @taehwandev/vibeguard@latest audit ."
+                    },
+                }
+            )
+            write_code, write_out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "npx-audit-fix",
+                    "tool_input": {
+                        "command": "npx --yes @taehwandev/vibeguard@latest audit . --fix"
+                    },
+                }
+            )
+        self.assertEqual(0, read_code)
+        self.assertEqual("", read_out)
+        self.assertEqual(0, write_code)
+        self.assertIn("worktree gate", _reason(write_out))
+
+    def test_worktree_bootstrap_bash_is_allowed_in_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "s",
+                    "tool_input": {"command": "git worktree add ../task origin/develop"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_exact_runtime_launcher_start_is_denied_in_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "s",
+                    "tool_input": {
+                        "command": f"{gate.stable_launcher_path()} start --project {project}"
+                    },
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_exact_runtime_launcher_start_is_allowed_in_linked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "s",
+                    "tool_input": {
+                        "command": f"{gate.stable_launcher_path()} start --project {project}"
+                    },
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_runtime_cancel_remains_available_in_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "s",
+                    "tool_input": {
+                        "command": f"{gate.stable_launcher_path()} cancel --project {project}"
+                    },
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_mutating_bash_is_denied_in_required_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "bash-main",
+                    "tool_input": {"command": "python3 mutate.py"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_local_environment_can_bridge_policy_until_the_tracked_marker_arrives(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            (project / ".git").mkdir()
+            with patch.dict(
+                os.environ,
+                {
+                    gate.REQUIRE_LINKED_WORKTREE_ENV: "1",
+                    "CLAUDE_PROJECT_DIR": str(project),
+                },
+            ):
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "local-policy",
+                        "tool_input": {"command": "python3 mutate.py"},
+                    }
+                )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_read_command_cannot_hide_mutation_in_a_shell_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "shell-chain",
+                    "tool_input": {"command": "git status && python3 mutate.py"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_read_command_cannot_hide_mutation_after_a_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "newline-chain",
+                    "tool_input": {"command": "git status\npython3 mutate.py"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_fake_runtime_launcher_name_is_not_a_bootstrap_bypass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "fake-launcher",
+                    "tool_input": {"command": "./tao-hook start"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_malformed_tracked_policy_still_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            (project / ".git").mkdir()
+            policy = project / gate.WORKTREE_POLICY_PATH
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            policy.write_text("{}", encoding="utf-8")
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "bad-policy",
+                    "tool_input": {"command": "python3 mutate.py"},
+                }
+            )
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_protected_branch_is_denied_even_in_a_linked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            with patch.object(worktree_gate, "current_branch", return_value="develop"):
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "protected-branch",
+                        "tool_input": {"command": "python3 mutate.py"},
+                    }
+                )
+        self.assertEqual(0, code)
+        self.assertIn("protected branch", _reason(out))
+
+    def test_mutating_bash_in_linked_worktree_requires_its_own_start(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            payload = {
+                "tool_name": "Bash",
+                "cwd": str(project),
+                "session_id": "bash-linked",
+                "tool_input": {"command": "python3 mutate.py"},
+            }
+            code, out = _decide(payload)
+            self.assertIn("start hook", _reason(out))
+            with (
+                patch.object(gate, "workflow_entry_allows", return_value=True),
+                patch.object(gate, "session_evidence", return_value=project / "preflight.json"),
+                patch.object(gate, "is_run_local_continuation_evidence", return_value=False),
+            ):
+                code_after_start, out_after_start = _decide(payload)
+        self.assertEqual(0, code)
+        self.assertEqual(0, code_after_start)
+        self.assertEqual("", out_after_start)
+
+    def test_main_checkout_override_requires_the_explicit_environment_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            with (
+                patch.dict(os.environ, {gate.MAIN_CHECKOUT_OVERRIDE_ENV: "1"}),
+                patch.object(gate, "workflow_entry_allows", return_value=True),
+                patch.object(gate, "session_evidence", return_value=project / "preflight.json"),
+                patch.object(gate, "is_run_local_continuation_evidence", return_value=False),
+            ):
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "bash-override",
+                        "tool_input": {"command": "python3 mutate.py"},
+                    }
+                )
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
@@ -594,6 +940,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
 
 class ClaudePreToolGateSetupTests(unittest.TestCase):
+    def test_bash_is_added_only_to_the_workflow_gate_matcher(self) -> None:
+        self.assertIn("Bash", _PRETOOL_GATE_MATCHER.split("|"))
+        self.assertNotIn("Bash", _EDIT_TOOL_MATCHER.split("|"))
+
     def test_merge_installs_pre_tool_use_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "settings.json"
@@ -689,7 +1039,7 @@ class ProjectRootIsTheRepositoryTests(unittest.TestCase):
     @staticmethod
     def _repo(root: Path) -> None:
         (root / ".git").mkdir(parents=True)
-        (root / "AGENTS.md").write_text("# tao project\n")
+        (root / "AGENTS.md").write_text("# tao-agent project\n")
 
     def test_docs_subdirectory_resolves_to_the_repository(self) -> None:
         stop_gate = _load_stop_gate()
@@ -702,7 +1052,7 @@ class ProjectRootIsTheRepositoryTests(unittest.TestCase):
             self._repo(repo)
             docs = repo / ".agents"
             docs.mkdir()
-            (docs / "AGENTS.md").write_text("# tao shared docs\n")
+            (docs / "AGENTS.md").write_text("# tao-agent shared docs\n")
             deep = docs / "shared" / "llm-skills" / "task"
             deep.mkdir(parents=True)
 
@@ -721,11 +1071,11 @@ class ProjectRootIsTheRepositoryTests(unittest.TestCase):
 
             repo = home / "git" / "project"
             self._repo(repo)
-            worktree = repo / ".tao" / "worktrees" / "task-1"
+            worktree = repo / ".tao" / "worktrees" / "TASK-1"
             worktree.mkdir(parents=True)
             # A linked worktree records .git as a file.
-            (worktree / ".git").write_text("gitdir: ../../../.git/worktrees/task-1\n")
-            (worktree / "AGENTS.md").write_text("# tao project\n")
+            (worktree / ".git").write_text("gitdir: ../../../.git/worktrees/TASK-1\n")
+            (worktree / "AGENTS.md").write_text("# tao-agent project\n")
             inside = worktree / "app" / "src"
             inside.mkdir(parents=True)
 
@@ -743,7 +1093,7 @@ class ProjectRootIsTheRepositoryTests(unittest.TestCase):
 
             plain = home / "tools" / "runtime"
             plain.mkdir(parents=True)
-            (plain / "AGENTS.md").write_text("# tao runtime\n")
+            (plain / "AGENTS.md").write_text("# tao-agent runtime\n")
             inside = plain / "scripts"
             inside.mkdir()
 
@@ -793,6 +1143,97 @@ class SessionProjectIndexFollowsStateHomeTests(unittest.TestCase):
                 roots = stop_gate.session_projects("probe-session", None)
 
             self.assertIn(project, roots)
+
+
+class CompoundShellCommandTests(unittest.TestCase):
+    """A compound command is judged by its parts, not by its punctuation.
+
+    Treating every pipeline as mutating blocked plain inspection inside a
+    protected checkout, so diagnosing the gate meant rewriting each command as a
+    single call. It also ignored a `cd <worktree> &&` prefix once anything
+    followed it, which left a session working in a linked worktree judged
+    against the checkout it was launched from.
+    """
+
+    @staticmethod
+    def _kind(command: str, cwd: Path | None = None) -> str:
+        payload = {"tool_input": {"command": command}}
+        base = cwd or Path("/tmp")
+        _, tokens, simple = worktree_gate.bash_invocation(payload, base)
+        return worktree_gate.bash_command_kind(tokens, simple)
+
+    def test_read_only_pipeline_is_read_only(self) -> None:
+        self.assertEqual(self._kind("grep -rn needle . | head -20"), "read_only")
+        self.assertEqual(self._kind("ls -la | wc -l"), "read_only")
+        self.assertEqual(self._kind("cat notes.txt | grep todo | tail -3"), "read_only")
+
+    def test_one_mutating_part_makes_the_whole_command_mutating(self) -> None:
+        self.assertEqual(self._kind("ls | rm -rf build"), "mutating")
+        self.assertEqual(self._kind("grep -c x file && npm install"), "mutating")
+
+    def test_redirection_to_a_file_is_never_read_only(self) -> None:
+        self.assertEqual(self._kind("grep -rn needle . > findings.txt"), "mutating")
+        self.assertEqual(self._kind("echo hi >> log.txt"), "mutating")
+
+    def test_discarded_and_input_redirections_do_not_write(self) -> None:
+        self.assertEqual(self._kind("grep -rn needle . 2>/dev/null"), "read_only")
+        self.assertEqual(self._kind("ls -la 2>/dev/null | wc -l"), "read_only")
+        self.assertEqual(self._kind("grep todo < notes.txt"), "read_only")
+
+    def test_a_dangling_redirection_stays_mutating(self) -> None:
+        self.assertEqual(self._kind("grep -rn needle . >"), "mutating")
+
+    def test_chained_runtime_control_hook_does_not_bootstrap(self) -> None:
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(self._kind(f"{launcher} finish && rm -rf build"), "mutating")
+
+    def test_chaining_read_only_parts_keeps_the_bootstrap_allowance(self) -> None:
+        """The deny message asks for a worktree; chaining must not void it.
+
+        `git fetch && git worktree add` is the documented way out of a
+        main-checkout denial. Treating the chain itself as the smuggling risk
+        made the gate refuse its own instructions, while the case it guards
+        against -- a control hook next to a write -- is still caught by the
+        write's own `mutating` verdict.
+        """
+        self.assertEqual(
+            self._kind("git fetch -p origin develop && git worktree add ../task develop"),
+            "bootstrap",
+        )
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(self._kind(f"{launcher} finish | tail -20"), "bootstrap")
+
+    def test_workflow_start_is_the_strictest_allowance_in_a_chain(self) -> None:
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(self._kind(f"{launcher} start --project . | tail -5"), "workflow_start")
+        self.assertEqual(
+            self._kind(f"git fetch origin && {launcher} start --project ."),
+            "workflow_start",
+        )
+
+    def test_cd_prefix_still_names_the_directory_for_a_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp).resolve()
+            payload = {"tool_input": {"command": f"cd {target} && grep -rn x . | head -3"}}
+            effective_cwd, tokens, simple = worktree_gate.bash_invocation(payload, Path("/"))
+
+            self.assertEqual(effective_cwd, target)
+            self.assertFalse(simple)
+            self.assertEqual(worktree_gate.bash_command_kind(tokens, simple), "read_only")
+
+    def test_cd_prefix_with_a_single_command_is_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp).resolve()
+            payload = {"tool_input": {"command": f"cd {target} && ls -la"}}
+            effective_cwd, tokens, simple = worktree_gate.bash_invocation(payload, Path("/"))
+
+            self.assertEqual(effective_cwd, target)
+            self.assertTrue(simple)
+            self.assertEqual(worktree_gate.bash_command_kind(tokens, simple), "read_only")
+
+    def test_unparseable_syntax_stays_mutating(self) -> None:
+        self.assertEqual(self._kind("python3 - <<'PY'\nprint(1)\nPY"), "mutating")
+        self.assertEqual(self._kind("echo $(rm -rf build)"), "mutating")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Claude Code PreToolUse gate for Tao Agent OS.
 
-This gate enforces two things a purely advisory bridge cannot, at the only point
-that actually stops the model -- the moment it calls an edit tool:
+This gate enforces three things a purely advisory bridge cannot, at the only point
+that actually stops the model -- the moment it calls a mutating tool:
 
 1. Workflow entry. Nothing otherwise stops a file edit when the agent skipped the
    ``start`` hook, so the workflow is easy to ignore. The gate denies a file-edit
@@ -15,13 +15,19 @@ that actually stops the model -- the moment it calls an edit tool:
    collapsed or justified per file before more files are written. A recorded
    justification (the ack file) unlocks the rest of the session; the gate never
    hard-bricks and always fails open.
+3. Repo-declared worktree isolation. A project can track
+   ``.agents/shared/worktree-policy.json`` to require a linked worktree and
+   protect integration branches. The same rule applies to discrete edit tools
+   and to Bash commands that are not provably read-only or worktree bootstrap
+   commands.
 
 Contract (Claude Code PreToolUse hook):
 - Reads a JSON payload from stdin with ``tool_name``, ``cwd``, ``session_id``,
   and ``tool_input`` (``file_path`` for Write).
 - Prints a ``permissionDecision`` JSON object to allow or deny.
-- Only file-edit tools are gated; everything else and every unexpected error
-  fails open (exit 0, no output) so the gate can never brick ordinary editing.
+- File-edit tools and potentially mutating Bash calls are gated; everything else
+  and every unexpected error fails open (exit 0, no output) so the gate can never
+  brick ordinary editing.
 
 Requires a Claude Code that puts ``CLAUDE_CODE_SESSION_ID`` in the Bash
 subprocess environment (v2.1.128-v2.1.136, Week 19 2026), because that is what
@@ -50,6 +56,16 @@ try:  # The gate must never fail to load; the import is only used for a message.
         is_host_config_dir,
         is_project_state_dir,
         prefer_git_root,
+    )
+    from claude_worktree_gate import (
+        BASH_TOOLS,
+        MAIN_CHECKOUT_OVERRIDE_ENV,
+        REQUIRE_LINKED_WORKTREE_ENV,
+        WORKTREE_POLICY_PATH,
+        bash_command_kind,
+        bash_invocation,
+        path_arguments,
+        worktree_denial,
     )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
@@ -82,8 +98,22 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
         return False
 
     ClaudeContinuationAdapter = None
+    BASH_TOOLS = {"Bash"}
+    MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
+    REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
+    WORKTREE_POLICY_PATH = Path(".agents/shared/worktree-policy.json")
+
+    def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
+        return cwd, [], False
+
+    def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
+        return "mutating"
+
+    def worktree_denial(root: Path) -> str | None:
+        return None
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+GATED_TOOLS = EDIT_TOOLS | BASH_TOOLS
 # Only Write creates a file from nothing; Edit/MultiEdit require an existing
 # file, so new-file sprawl flows through Write.
 NEW_FILE_TOOLS = {"Write"}
@@ -438,17 +468,30 @@ def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
     tool = payload.get("tool_name")
-    if tool not in EDIT_TOOLS:
+    if tool not in GATED_TOOLS:
         return allow()
     cwd_raw = payload.get("cwd") or os.getcwd()
     try:
         cwd = Path(cwd_raw).resolve()
     except OSError:
         return allow()
-    root = find_edit_project_root(payload, cwd)
+    bash_kind = ""
+    if tool in BASH_TOOLS:
+        effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
+        root = find_project_root(effective_cwd)
+        bash_kind = bash_command_kind(tokens, syntax_is_simple)
+    else:
+        root = find_edit_project_root(payload, cwd)
     if root is None:
         # Not an Tao Agent OS project; never block ordinary editing.
         return allow()
+    if tool in BASH_TOOLS and bash_kind in {"read_only", "bootstrap"}:
+        return allow()
+    worktree_reason = worktree_denial(root)
+    if tool in BASH_TOOLS and bash_kind == "workflow_start":
+        return deny(worktree_reason) if worktree_reason else allow()
+    if worktree_reason:
+        return deny(worktree_reason)
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
         return deny(deny_reason(root, session_id))
@@ -465,6 +508,8 @@ def decide(payload: dict) -> int:
         # uncheckpointed edit.
         return deny(deny_reason(root, session_id))
     if (
+        tool in EDIT_TOOLS
+        and
         ClaudeContinuationAdapter is not None
         and is_run_local_continuation_evidence(root, evidence)
     ):
