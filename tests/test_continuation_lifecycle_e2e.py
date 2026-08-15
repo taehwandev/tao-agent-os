@@ -307,10 +307,10 @@ class KillNineResumeTests(unittest.TestCase):
             self.assertIn("resume result: ready", resumed.stdout)
             self.assertIn(f"objective: {SAFE_OBJECTIVE}", resumed.stdout)
             self.assertNotIn(REQUEST, resumed.stdout)
-            # The gate the dead child recorded is complete, so the resumed
-            # checkpoint is the next one -- proof the gate checkpoint ran too,
-            # not only the initial one written by start.
-            self.assertIn("resume checkpoint: documentation impact", resumed.stdout)
+            # The gate the dead child recorded is complete, so resume selects
+            # the first unfinished route gate. Owner proof now precedes source
+            # and documentation work, which also proves the gate checkpoint ran.
+            self.assertIn("resume checkpoint: work surface resolution", resumed.stdout)
 
     def test_without_the_lifecycle_checkpoint_the_resume_finds_nothing(self) -> None:
         """The negative control: same run, same kill, no checkpoint call."""

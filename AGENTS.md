@@ -273,21 +273,25 @@ before continuing. Use `index.md` as a fallback only for simple answer-only work
 or after the user explicitly accepts the fallback.
 
 The workflow router also promotes required docs from
-`workflow-doc-surfaces.json` when request intent or known/touched paths reveal a
-specific work surface. This is the root-level document routing map for common
+`workflow-doc-surfaces.json` when semantic request intent or verified owner
+paths reveal a specific work surface. This is the root-level document routing
+map for common
 agent tasks such as workflow script changes, request classifier work, tests,
 skill cards, agent instruction files, UI-capable platform work, and shared
 Tao Agent OS docs. Request-intent rules may match the route command, selected
 platform, request text, and reusable document sets; for example screen, list,
-favorites, or explicit framework choices on Android, Application, Flutter, iOS,
-KMP, Swift, and Web surface the matching UI, state, structure, review, visual
-verification, and performance guidance, of which the best-matched cards are
-promoted and the rest stay reachable in `reference_docs`. `<TAO_LAUNCHER> workflow route`
-automatically extracts path-like references from `--request`, and
-`<TAO_LAUNCHER> agent-preflight` also adds paths from
-`git status --short --untracked-files=all`. Use
-`--surface-path <path>` only when a launcher already knows an in-scope path that
-does not appear in the request or current git status. Surface promotion may
+favorites, or navigation intent on Android, Application, Flutter, iOS, KMP,
+Swift, and Web surfaces the matching UI, state, structure, review, visual
+verification, and performance guidance. Literal framework-name shortcuts are
+test fixtures, not durable routing policy. `<TAO_LAUNCHER> workflow route`
+extracts path-like references from `--request`, and `<TAO_LAUNCHER> agent-preflight`
+extracts paths from `git status --short --untracked-files=all`, but both remain
+`surface_candidates`. Use `--surface-path <path>` only after bounded read-only
+repository inspection proves that path owns the requested behavior and names
+the nearest check that would fail if the owner claim were wrong. Code routes
+record this through the existing `work surface resolution` gate with one to
+four evidence hops; `ambiguous` and `not_found` stop before task-specific
+reading or edits. Surface promotion may
 move a document from `reference_docs` to `required_docs`; it is best-effort
 under the selection budget below, and it never replaces repo-local instructions
 or the normal route command/profile selection.

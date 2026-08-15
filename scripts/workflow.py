@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--surface-path",
         action="append",
         default=[],
-        help="Path already known to be in scope; can be repeated. Used to promote required docs from workflow-doc-surfaces.json.",
+        help="Repository-verified owner path; repeat to promote docs after owner proof.",
     )
     route.add_argument(
         "--request-classified",

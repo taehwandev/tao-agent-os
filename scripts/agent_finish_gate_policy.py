@@ -27,6 +27,7 @@ from agent_finish_gate_cycle_validators import (
 )
 from agent_finish_gate_learning_validators import validate_retrospective_check
 from agent_finish_gate_skip_policy import validate_required_gate_not_skipped
+from agent_finish_gate_surface_validators import validate_work_surface_resolution
 from agent_finish_gate_validators import (
     validate_documentation_impact_evidence,
     validate_documentation_source_to_artifact_evidence,
@@ -53,6 +54,7 @@ SOURCE_DOCS_GATE = "source docs"
 PRODUCT_REENTRY_GATE = "product route re-entry"
 RETROSPECTIVE_CHECK_GATE = "retrospective check"
 GRAPHIFY_READINESS_GATE = "graphify readiness"
+WORK_SURFACE_RESOLUTION_GATE = "work surface resolution"
 PLATFORM_SELECTION_GATE = "platform selection"
 REVIEW_READINESS_GATE = "review readiness"
 PRD_DRAFT_GATE = "PRD draft"
@@ -87,6 +89,7 @@ VALIDATED_GATES = {
     PRODUCT_REENTRY_GATE,
     RETROSPECTIVE_CHECK_GATE,
     GRAPHIFY_READINESS_GATE,
+    WORK_SURFACE_RESOLUTION_GATE,
     PLATFORM_SELECTION_GATE,
     REVIEW_READINESS_GATE,
     PRD_DRAFT_GATE,
@@ -146,6 +149,12 @@ def validate_gate_evidence(
         )
     if GRAPHIFY_READINESS_GATE in required:
         failures.extend(_validate_graphify_readiness(gate_evidence.get(GRAPHIFY_READINESS_GATE, "")))
+    if WORK_SURFACE_RESOLUTION_GATE in required:
+        failures.extend(
+            validate_work_surface_resolution(
+                gate_evidence.get(WORK_SURFACE_RESOLUTION_GATE, "")
+            )
+        )
     if SOURCE_DOCS_GATE in required and DOCUMENTATION_IMPACT_GATE in required:
         failures.extend(
             validate_documentation_source_to_artifact_evidence(

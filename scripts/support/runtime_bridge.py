@@ -98,7 +98,8 @@ RUNTIME_CAPSULE_BRIDGE_PHRASES = [
 
 RUNTIME_BRIDGE_GRAPH_PHRASES = [
     "Use the route/search output from that start hook for the user's current request; route/search owns natural-language document discovery.",
-    "Do not wait for the user to name document keywords; infer the work surface from the request, platform, concern, and touched files, then read the route required_docs before editing or reviewing.",
+    "Do not wait for the user to name document keywords; use request artifacts and paths as candidates, then verify the change-owning work surface with bounded read-only repository evidence before task-specific reading or edits.",
+    "Only repository-verified owner paths may be passed through --surface-path; request path references and dirty Git paths remain surface_candidates until owner proof succeeds.",
     "Use workflow-doc-surfaces.json and the local document graph as routing/search inputs; treat graph neighbors as reference_docs unless the route marks them as required_docs.",
     "If routing/search misses a clearly relevant platform, concern, or document surface, stop and report the gap instead of proceeding from memory.",
 ]
@@ -152,7 +153,8 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         "- Read project-root instructions before Tao Agent OS shared guidance.",
         f"- {RUNTIME_START_BRIDGE_PHRASE}",
         "- Use the route/search output from that start hook for the user's current request; route/search owns natural-language document discovery.",
-        "- Do not wait for the user to name document keywords; infer the work surface from the request, platform, concern, and touched files, then read the route required_docs before editing or reviewing.",
+        "- Do not wait for the user to name document keywords; use request artifacts and paths as candidates, then verify the change-owning work surface with bounded read-only repository evidence before task-specific reading or edits.",
+        "- Only repository-verified owner paths may be passed through --surface-path; request path references and dirty Git paths remain surface_candidates until owner proof succeeds.",
         "- Use workflow-doc-surfaces.json and the local document graph as routing/search inputs; treat graph neighbors as reference_docs unless the route marks them as required_docs.",
         "- If routing/search misses a clearly relevant platform, concern, or document surface, stop and report the gap instead of proceeding from memory.",
         *[f"- {phrase}" for phrase in RUNTIME_CAPSULE_BRIDGE_PHRASES],

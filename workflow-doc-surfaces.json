@@ -339,34 +339,6 @@
       "reason": "Android screen, list, favorite, navigation, or tab feature work should load Compose UI, state, review, source coverage, visual verification, and Compose performance guidance before code generation."
     },
     {
-      "name": "android_compose_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "platforms": [
-        "android"
-      ],
-      "request_any": [
-        "jetpack\\s+compose",
-        "compose",
-        "\\ucef4\\ud3ec\\uc988",
-        "lifecycle",
-        "memory\\s+leak",
-        "resource\\s+cleanup",
-        "\\ub77c\\uc774\\ud504\\uc0ac\\uc774\\ud074",
-        "\\uba54\\ubaa8\\ub9ac"
-      ],
-      "doc_sets": [
-        "android_compose_ui"
-      ],
-      "reason": "When the agent or user selects Jetpack Compose for Android work, Compose architecture, source coverage, and performance guidance become required context."
-    },
-    {
       "name": "application_ui_feature",
       "commands": [
         "feature",
@@ -390,27 +362,6 @@
         "application_ui"
       ],
       "reason": "Desktop/application UI requests need command, window/panel, state, system integration, visual, and performance guidance."
-    },
-    {
-      "name": "application_react_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "platforms": [
-        "application"
-      ],
-      "request_any": [
-        "\\b(react|renderer|tauri|electron|webview)\\b"
-      ],
-      "doc_sets": [
-        "application_react_desktop"
-      ],
-      "reason": "React renderer or desktop shell choices need desktop command/IPC and web React UI guidance together."
     },
     {
       "name": "flutter_ui_feature",
@@ -438,29 +389,6 @@
       "reason": "Flutter UI feature work should load widget, project structure, state/data, review, visual, and performance guidance."
     },
     {
-      "name": "flutter_widget_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "platforms": [
-        "flutter"
-      ],
-      "request_any": [
-        "\\b(flutter|widget|widgets|dart)\\b",
-        "\\ud50c\\ub7ec\\ud130",
-        "\\uc704\\uc82f"
-      ],
-      "doc_sets": [
-        "flutter_ui"
-      ],
-      "reason": "Flutter or Widget choices require Flutter widget UI, state, review, visual, and performance context."
-    },
-    {
       "name": "ios_ui_feature",
       "commands": [
         "feature",
@@ -486,51 +414,6 @@
       "reason": "Generic iOS UI requests need SwiftUI, UIKit, state/concurrency, module, review, Swift design-system, visual, and performance guidance until the repo-local UI stack is confirmed."
     },
     {
-      "name": "ios_swiftui_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "platforms": [
-        "ios"
-      ],
-      "request_any": [
-        "swiftui",
-        "\\bswift\\s+ui\\b"
-      ],
-      "doc_sets": [
-        "ios_swiftui"
-      ],
-      "reason": "SwiftUI choices require SwiftUI UI, state/concurrency, module, Swift design-system, visual, and performance context."
-    },
-    {
-      "name": "ios_uikit_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "platforms": [
-        "ios"
-      ],
-      "request_any": [
-        "uikit",
-        "viewcontroller",
-        "\\bview controller\\b"
-      ],
-      "doc_sets": [
-        "ios_uikit"
-      ],
-      "reason": "UIKit choices require UIKit UI, state/concurrency, module, Swift design-system, visual, and performance context."
-    },
-    {
       "name": "kmp_compose_ui_feature",
       "commands": [
         "feature",
@@ -554,28 +437,6 @@
         "kmp_compose_ui"
       ],
       "reason": "KMP UI feature work should load Compose Multiplatform, source-set/module, state/data, review, visual, and performance guidance."
-    },
-    {
-      "name": "kmp_compose_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "platforms": [
-        "kmp"
-      ],
-      "request_any": [
-        "\\b(compose|compose\\s+multiplatform|cmp)\\b",
-        "\\ucef4\\ud3ec\\uc988"
-      ],
-      "doc_sets": [
-        "kmp_compose_ui"
-      ],
-      "reason": "Compose Multiplatform choices require shared Compose UI, module/source-set, state/data, visual, and performance context."
     },
     {
       "name": "swift_ui_feature",
@@ -626,28 +487,6 @@
         "web_ui"
       ],
       "reason": "Web UI feature work should load framework-neutral structure, state/data, design-system, accessibility, review, visual, and performance guidance."
-    },
-    {
-      "name": "web_react_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "platforms": [
-        "web"
-      ],
-      "request_any": [
-        "\\b(react|tsx|jsx|next\\.js|nextjs|remix)\\b"
-      ],
-      "doc_sets": [
-        "web_react_ui",
-        "web_ui"
-      ],
-      "reason": "React or TSX choices require React UI, web structure, state/data, design-system, accessibility, visual, and performance context."
     },
     {
       "name": "react_rn_external_skill_source_coverage",
@@ -772,50 +611,6 @@
         "react_native_android_native"
       ],
       "reason": "React Native work that explicitly crosses into Android native implementation must combine the mobile card with focused Android architecture, module, security, and review guidance."
-    },
-    {
-      "name": "react_native_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "request_any": [
-        "\\b(react native|rn|expo)\\b",
-        "(\\ub9ac\\uc561\\ud2b8\\s*\\ub124\\uc774\\ud2f0\\ube0c|\\ub9ac\\uc561\\ud2b8\\ub124\\uc774\\ud2f0\\ube0c|\\uc5d1\\uc2a4\\ud3ec)"
-      ],
-      "doc_sets": [
-        "react_native_app"
-      ],
-      "reason": "React Native or Expo choices require mobile screen, state, list, animation, native integration, and shared React state guidance."
-    },
-    {
-      "name": "python_web_service_self_selected",
-      "commands": [
-        "feature",
-        "task",
-        "build",
-        "review",
-        "code-simplify",
-        "refactor"
-      ],
-      "request_all": [
-        [
-          "\\b(python|fastapi|pydantic|starlette)\\b",
-          "(\\ud30c\\uc774\\uc36c|\\ud328\\uc2a4\\ud2b8API)"
-        ],
-        [
-          "\\b(api|web\\s*service|backend|server|endpoint|skill|skills|pack|card)\\b",
-          "(API|\\uc6f9\\s*\\uc11c\\ube44\\uc2a4|\\uc6f9\\uc11c\\ube44\\uc2a4|\\ubc31\\uc5d4\\ub4dc|\\uc11c\\ubc84|\\uc5d4\\ub4dc\\ud3ec\\uc778\\ud2b8|\\uc2a4\\ud0ac|\\uce74\\ub4dc|\\ud329|pack)"
-        ]
-      ],
-      "doc_sets": [
-        "python_web_service"
-      ],
-      "reason": "Python web-service requests need Python framework, Pydantic, dependency, async, server API, and security guidance."
     },
     {
       "name": "android_module_di_build_logic",
@@ -1055,10 +850,8 @@
       "name": "graphify_integration",
       "patterns": [
         "scripts/support/setup_agent_hooks_impl.py",
-        "scripts/support/graphify_setup.py",
-        "scripts/workflow_route.py",
-        "scripts/workflow.py",
-        "workflow-doc-surfaces.json",
+        "scripts/support/graphify_*.py",
+        "scripts/workflow_graphify_route.py",
         "docs/skills/graphify-project-integration/**",
         "docs/skills/agent-bootstrap/**",
         "templates/repo-agents-routing.md"
