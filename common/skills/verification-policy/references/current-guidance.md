@@ -85,6 +85,30 @@ If a change fits multiple rows, use the highest-risk applicable row.
 High-risk work is not complete with only a formatter, linter, typecheck, or
 successful page load.
 
+## Capture The Verdict, Not The Log
+
+A check's output is evidence; carrying all of it into the conversation is not.
+A full suite run in this repository prints about 14 KB — roughly 3,500 tokens —
+and its verdict is three lines. Redirect the run to a file, read those lines,
+and quote the numbers into the report. The log stays on disk for the one case
+that needs it: a failure whose detail you have to read.
+
+```text
+<command> > <run-log> 2>&1; echo "exit=$?"
+grep -nE "^(OK|FAILED|Ran [0-9]+ tests)" <run-log>
+```
+
+Never pipe the run itself into `head`, `tail`, or `grep`. A pipeline's status
+is the last command's, so a failing suite whose output is filtered reports
+success, and the filter is what you would be trusting. Redirect first, capture
+the run's own exit code, then read the file.
+
+The same rule scales down: prefer the nearest checks while iterating and run
+the full suite once before finish. That is a wall-clock saving rather than a
+token one — the log was never the expensive part once it stays in a file — but
+a check that finishes in seconds gets run, and one that takes minutes gets
+skipped.
+
 ## Evidence To Preserve
 
 In the final response, include:
