@@ -103,6 +103,10 @@ is the last command's, so a failing suite whose output is filtered reports
 success, and the filter is what you would be trusting. Redirect first, capture
 the run's own exit code, then read the file.
 
+This is about your own check commands. A workflow hook is run verbatim: adding
+a redirection there can break the permission prefix the gate matches on, which
+reads as the gate refusing its own remedy. See tool failure recovery.
+
 The same rule scales down: prefer the nearest checks while iterating and run
 the full suite once before finish. That is a wall-clock saving rather than a
 token one — the log was never the expensive part once it stays in a file — but

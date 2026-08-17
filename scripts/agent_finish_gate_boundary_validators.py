@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agent_finish_gate_validators import accepted
+
 
 RUN_STATE_NAMES = (
     "intake",
@@ -81,7 +83,11 @@ def validate_boundary_plan(evidence: str) -> list[str]:
     return [
         "boundary plan evidence must name the owned boundary/scope or contract, "
         "the nearest verification/check, and the runtime file/top-level-owner review "
-        "budget or an explicit no-runtime-source-change decision before implementation"
+        "budget or an explicit no-runtime-source-change decision before implementation."
+        + "".join(
+            f" For {requirement}," + accepted(phrases)
+            for requirement, phrases in BOUNDARY_PLAN_PHRASES.items()
+        )
     ]
 
 
