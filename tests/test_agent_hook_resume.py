@@ -220,6 +220,46 @@ class NamedRunTests(unittest.TestCase):
                 before, json.loads(registry_path(fixture.project).read_text(encoding="utf-8"))
             )
 
+    def test_a_mistyped_run_id_is_not_reported_as_an_empty_checkout(self) -> None:
+        """The advice has to match which of the two `not_found` cases happened.
+
+        A checkout with nothing to resume needs a fresh start. A run id that
+        matches none of several unfinished packets needs the listing -- telling
+        that caller there is nothing here contradicts what `--list` shows.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "one of several unfinished packets")
+            free_fixture(directory, "another", project=fixture.project, rules=fixture.rules)
+
+            _code, output = run_resume(
+                fixture.project, fixture.rules, "--last", "--run-id", "0" * 32
+            )
+
+            self.assertIn("--list", output)
+            self.assertNotIn("no unfinished continuation packet for this checkout", output)
+
+    def test_a_refusal_names_the_targeted_packet_not_the_newest(self) -> None:
+        """Guidance that says "the newest" describes a packet nobody asked about."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            mine = free_fixture(directory, "this session's own task")
+            held = Fixture(directory, project=mine.project, rules=mine.rules)
+            held.checkpoint("initial", work={"objective": "a second session's task"})
+            age(held, minutes=0, owner_pid=1, run_id=held.run_id)
+            newest = Fixture(directory, project=mine.project, rules=mine.rules)
+            newest.checkpoint("initial", work={"objective": "a third session's task"})
+            age(newest, minutes=0, owner_pid=1, run_id=newest.run_id)
+
+            _code, output = run_resume(
+                mine.project, mine.rules, "--last", "--run-id", held.run_id
+            )
+
+            self.assertIn("resume result: live_owner_refused", output)
+            self.assertIn(f"run: {held.run_id}", output)
+            self.assertNotIn(newest.run_id, output)
+            self.assertNotIn("newest", output)
+
 
 class ModeTests(unittest.TestCase):
     def test_a_run_id_is_rejected_for_the_listing_it_cannot_filter(self) -> None:
