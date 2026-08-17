@@ -109,9 +109,9 @@ class ClaudeContinuationAdapter:
         session_id = str(payload.get("session_id") or "")
         if root is None or not session_id:
             return None
-        target = _resume_target(root, session_id)
+        target, listed = _resume_target(root, session_id)
         if not target:
-            return _unresumed_context(root)
+            return _unresumed_context(listed)
         result = resume_last(root, run_id=target)
         if result["result"] == "not_found":
             return None
@@ -183,8 +183,14 @@ def _session_evidence(root: Path, session_id: str) -> Path | None:
     )
 
 
-def _resume_target(root: Path, session_id: str) -> str:
-    """The one run this session may claim without guessing which is its own.
+def _resume_target(root: Path, session_id: str) -> tuple[str, list[dict[str, Any]]]:
+    """The one run this session may claim, and the listing that decided it.
+
+    The listing is returned rather than recomputed because it is not cheap:
+    it verifies drift for every packet in the checkout, which is seconds of
+    Git work where unfinished runs have accumulated. Session start runs this
+    before the session can do anything, so paying for it twice is time the
+    user waits at every startup.
 
     Its own bound run first: a restart keeps its session id, so the run bound
     to it is exactly the work this session left behind. Falling back to the
@@ -202,12 +208,17 @@ def _resume_target(root: Path, session_id: str) -> str:
 
     evidence = _session_evidence(root, session_id)
     if evidence is not None and is_run_local_continuation_evidence(root, evidence):
-        return evidence.parent.name
+        # The claim below lists again, so this path never pays for a listing
+        # it would only use to reach the run it has already identified.
+        return evidence.parent.name, []
     entries = resume_list(root)["entries"]
-    return str(entries[0]["run_id"]) if len(entries) == 1 else ""
+    return (str(entries[0]["run_id"]) if len(entries) == 1 else ""), entries
 
 
-def _unresumed_context(root: Path) -> dict[str, Any] | None:
+LISTED_RUN_LIMIT = 8
+
+
+def _unresumed_context(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Report the unclaimed packets by opaque id and claim none of them.
 
     Only ids and route commands are rendered. The listing exposes bounded
@@ -215,12 +226,17 @@ def _unresumed_context(root: Path) -> dict[str, Any] | None:
     objective injected into a session's opening context reads as its own brief.
     """
 
-    entries = resume_list(root)["entries"]
     if not entries:
         return None
     listed = ", ".join(
-        f"{entry['run_id']}({entry['route_command'] or 'unknown'})" for entry in entries[:8]
+        f"{entry['run_id']}({entry['route_command'] or 'unknown'})"
+        for entry in entries[:LISTED_RUN_LIMIT]
     )
+    # A truncated list that does not say it was truncated reads as the whole
+    # set, and the run the caller wants is then one it appears not to have.
+    dropped = len(entries) - LISTED_RUN_LIMIT
+    if dropped > 0:
+        listed += f", and {dropped} more that `--list` reports"
     return _context(
         f"Tao continuation found {len(entries)} unfinished runs in this checkout and none "
         f"bound to this session, so none was resumed: {listed}. Resume one by name with "

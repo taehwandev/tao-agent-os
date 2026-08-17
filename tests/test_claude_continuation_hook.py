@@ -312,6 +312,54 @@ class ClaudeSessionResumeTests(unittest.TestCase):
             self.assertNotIn("the newest session's task", context)
             self.assertEqual(before, registry_path(first.project).read_bytes())
 
+    def test_session_start_lists_the_checkout_at_most_once(self) -> None:
+        """Listing verifies drift for every packet, so it is seconds, not free.
+
+        Session start runs before the session can do anything, so a listing
+        computed twice is time the user waits at every startup -- and it grows
+        with exactly the unfinished runs that made the report necessary.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            first = RuntimeFixture(directory, session_id="first-session")
+            _kill_owner(first)
+            _second_session_run(
+                first, objective="another session's task", session_id="second-session"
+            )
+            calls: list[int] = []
+            real = claude_continuation_hook.resume_list
+
+            def counted(*args, **keywords):
+                calls.append(1)
+                return real(*args, **keywords)
+
+            with patch.object(claude_continuation_hook, "resume_list", counted):
+                ClaudeContinuationAdapter.session_start(
+                    {
+                        "hook_event_name": "SessionStart",
+                        "cwd": str(first.project),
+                        "session_id": "a-session-with-no-run",
+                    }
+                )
+
+            self.assertEqual(1, len(calls))
+
+    def test_a_truncated_report_says_how_many_runs_it_left_out(self) -> None:
+        """A cap that does not announce itself reads as the whole set."""
+
+        entries = [
+            {"run_id": f"{index:032x}", "route_command": "task"} for index in range(11)
+        ]
+
+        context = claude_continuation_hook._unresumed_context(entries)[
+            "hookSpecificOutput"
+        ]["additionalContext"]
+
+        self.assertIn("found 11 unfinished runs", context)
+        self.assertIn("3 more", context)
+        self.assertIn(entries[7]["run_id"], context)
+        self.assertNotIn(entries[8]["run_id"], context)
+
     def test_ready_context_reuses_bounded_analysis_and_successful_checks(self) -> None:
         result = {
             "checkpoint": "review",
