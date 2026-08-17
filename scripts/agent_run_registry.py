@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from agent_execution_capsule_state import atomic_write_json, read_json_object
 from agent_route_state import request_fingerprint, route_fingerprint
@@ -231,8 +231,22 @@ def cancel_run(
     evidence_path: Path,
     *,
     run_id: str,
+    precondition: Callable[[], str | None] | None = None,
+    cancellation: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Atomically settle one still-owned, non-terminal transferred run."""
+    """Atomically settle one still-owned, non-terminal transferred run.
+
+    ``precondition`` is evaluated inside the registry lock and immediately
+    before the state write. A caller that checked the world first and then
+    asked for the transition left a window between the two, and a file created
+    in it produced a cancelled run vouching for a checkout that was no longer
+    clean. Returning a reason from here refuses the transition instead.
+
+    ``cancellation`` is stored on the run itself, so the settled state and the
+    reason for it become one write. The separate receipt file can then be
+    rebuilt from the registry rather than being the only place the outcome
+    exists.
+    """
 
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
@@ -251,8 +265,40 @@ def cancel_run(
             or not _closeout_owner_matches(target)
         ):
             return None
+        if precondition is not None and precondition() is not None:
+            return None
+        # Staged first, settled second, and the staged state is deliberately
+        # not terminal.
+        #
+        # A precondition that observes the filesystem cannot be made
+        # simultaneous with a registry write: the observation is already past
+        # when its subprocess returns, so the gap is not removable by ordering
+        # however tight. Writing `cancelled` into that gap made the first write
+        # a claim that could already be false, and a crash then froze the lie.
+        # Writing `reconcile_required` instead makes the first write true
+        # whatever happens next -- it says the run needs reconciling, which is
+        # exactly what an unfinished cancellation is. A crash at any point
+        # leaves the run non-terminal and owing work, never settled on a
+        # checkout that was not clean.
+        previous_state = target.get("state")
+        previous_updated = target.get("updated_at")
+        target["state"] = "reconcile_required"
+        target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if cancellation is not None:
+            target["cancellation"] = {**cancellation, "pending": True}
+        _write_registry(path, payload)
+        # The second reading is what the settlement rests on, and it is the one
+        # the staged state is there to survive.
+        if precondition is not None and precondition() is not None:
+            target["state"] = previous_state
+            target["updated_at"] = previous_updated
+            target.pop("cancellation", None)
+            _write_registry(path, payload)
+            return None
         target["state"] = "cancelled"
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if cancellation is not None:
+            target["cancellation"] = cancellation
         _write_registry(path, payload)
     _safe_event(project, "run.transitioned", run_id=run_id, state="cancelled")
     return target
