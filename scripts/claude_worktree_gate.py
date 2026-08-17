@@ -13,7 +13,9 @@ from claude_bash_readonly import (  # noqa: F401
     bash_command,
     bash_command_kind,
     bash_invocation,
+    has_unresolvable_expansion,
     path_arguments,
+    raw_path_arguments,
 )
 from support.stable_launcher import stable_launcher_path  # noqa: F401
 

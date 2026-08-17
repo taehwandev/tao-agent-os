@@ -3,19 +3,27 @@
 from __future__ import annotations
 
 import re
-import shlex
 from pathlib import Path
 
+from claude_bash_git import git_command_kind
+from claude_bash_syntax import (
+    ENV_ASSIGNMENT_RE,
+    SHELL_PUNCTUATION,
+    bash_command,
+    bash_invocation as _tokenise,
+    command_segments,
+    has_unresolvable_expansion,
+    mask_substitutions,
+    substitution_bodies,
+    unmodelled_operator,
+)
+from claude_bash_paths import (  # noqa: F401
+    path_arguments,
+    raw_path_arguments,
+)
 from support.stable_launcher import stable_launcher_path
 
 
-SHELL_PUNCTUATION = frozenset({";", "&", "&&", "|", "||", ">", ">>", "<", "<<"})
-REDIRECTIONS = frozenset({">", ">>", "<", "<<"})
-# An input redirection feeds a command; it never writes. `>` and `>>` do write,
-# except to the discard sink, which is how a probe silences stderr.
-INPUT_REDIRECTIONS = frozenset({"<", "<<"})
-DISCARD_TARGETS = frozenset({"/dev/null"})
-ENV_ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=.*$")
 # An assignment prefix used to be stripped by name shape alone, which reads a
 # variable's name without asking what the variable does. Many of them hand the
 # following command a program to run: `LD_PRELOAD` and `DYLD_INSERT_LIBRARIES`
@@ -46,29 +54,8 @@ INERT_ENV_ASSIGNMENTS = frozenset(
     }
 )
 INERT_ENV_PREFIXES = ("LC_",)
-# Git's own options inject the same executors as the environment does. `-c` and
-# `--config-env` set any config key for that one run, including `diff.external`,
-# `core.pager`, and the `*.textconv` and `filter.*` hooks, so a command that
-# only reads history can still run an arbitrary program. `--exec-path` moves the
-# directory Git resolves its subcommands from. None of them is inspected for a
-# safe subset here: keeping such a subset correct is the hard part, and the
-# point of this gate is to fail closed rather than to be clever.
-GIT_SAFE_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
-GIT_SAFE_FLAG_OPTIONS = frozenset(
-    {
-        "--bare",
-        "--glob-pathspecs",
-        "--icase-pathspecs",
-        "--literal-pathspecs",
-        "--no-optional-locks",
-        "--no-pager",
-        "--no-replace-objects",
-        "--noglob-pathspecs",
-        "-P",
-    }
-)
 # Only commands that cannot write through an argument belong here, because a
-# redirection is the sole write path this gate strips out. That rules out
+# redirection is the sole write path this module strips out. That rules out
 # `sort -o`, `uniq <in> <out>`, `tee`, `awk`, and `find -delete/-exec`.
 READ_ONLY_COMMANDS = frozenset(
     {
@@ -127,48 +114,6 @@ RUNTIME_CONTROL_HOOKS = frozenset(
 WORKFLOW_START_HOOK = "start"
 
 
-def bash_command(payload: dict) -> str:
-    tool_input = payload.get("tool_input")
-    if not isinstance(tool_input, dict):
-        return ""
-    command = tool_input.get("command")
-    return command if isinstance(command, str) else ""
-
-
-def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
-    """Return effective cwd, simple-command tokens, and syntax confidence."""
-
-    command = bash_command(payload).strip()
-    if not command or "\n" in command or "\r" in command or "$(" in command or "`" in command:
-        return cwd, [], False
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = list(lexer)
-    except ValueError:
-        return cwd, [], False
-    punctuation = [index for index, token in enumerate(tokens) if token in SHELL_PUNCTUATION]
-    if not punctuation:
-        return cwd, tokens, True
-    # A `cd <dir> && ...` prefix states where the rest of the command runs, and
-    # that stays true when the rest is a pipeline. Requiring the whole command
-    # to be punctuation-free here meant a session working inside a linked
-    # worktree still had every compound command judged against the session cwd,
-    # which is the checkout the session was launched from.
-    if punctuation[0] == 2 and len(tokens) > 3 and tokens[0] == "cd" and tokens[2] == "&&":
-        target = Path(tokens[1]).expanduser()
-        if not target.is_absolute():
-            target = cwd / target
-        try:
-            effective_cwd = target.resolve()
-        except OSError:
-            effective_cwd = target
-        rest = tokens[3:]
-        return effective_cwd, rest, not any(token in SHELL_PUNCTUATION for token in rest)
-    return cwd, tokens, False
-
-
 def inert_env_assignment(token: str) -> bool:
     """Whether an assignment only changes presentation, never what runs."""
 
@@ -196,49 +141,6 @@ def strip_env_assignments(tokens: list[str]) -> list[str] | None:
     return tokens[index:]
 
 
-def git_command_kind(tokens: list[str]) -> str:
-    index = 1
-    while index < len(tokens) and tokens[index].startswith("-"):
-        option = tokens[index]
-        name = option.split("=", 1)[0]
-        if name in GIT_SAFE_VALUE_OPTIONS:
-            index += 1 if "=" in option else 2
-            continue
-        if name in GIT_SAFE_FLAG_OPTIONS:
-            index += 1
-            continue
-        # Every other global option, `-c` and `--config-env` above all, can put
-        # a program where this classifier expects only a read.
-        return "mutating"
-    if index >= len(tokens):
-        return "read_only"
-    command = tokens[index]
-    args = tokens[index + 1 :]
-    unsafe_read_args = {"--ext-diff", "--textconv"}
-    if any(
-        arg in unsafe_read_args or arg == "--output" or arg.startswith("--output=")
-        for arg in args
-    ):
-        return "mutating"
-    if command in {"check-ignore", "diff", "log", "ls-files", "rev-parse", "show", "status"}:
-        return "read_only"
-    if command == "branch":
-        allowed = {"-a", "-r", "-v", "-vv", "--contains", "--list", "--merged", "--no-merged", "--show-current"}
-        return "read_only" if not args or all(arg in allowed for arg in args) else "mutating"
-    if command == "remote":
-        return "read_only" if not args or args[0] in {"-v", "get-url"} else "mutating"
-    if command == "config":
-        getters = {"--get", "--get-all", "--get-regexp", "--list"}
-        return "read_only" if args and args[0] in getters else "mutating"
-    if command == "worktree":
-        if args and args[0] == "list":
-            return "read_only"
-        if args and args[0] == "add":
-            return "bootstrap"
-        return "mutating"
-    return "bootstrap" if command == "fetch" else "mutating"
-
-
 def runtime_control_kind(tokens: list[str]) -> str | None:
     executable_path = Path(tokens[0]).expanduser()
     try:
@@ -264,40 +166,12 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     return "bootstrap" if tokens[2] in RUNTIME_CONTROL_HOOKS else None
 
 
-def command_segments(tokens: list[str]) -> list[list[str]] | None:
-    """Split a compound command into its parts, or None when it can write.
-
-    An output redirection writes a file whatever the commands around it do, so a
-    command that contains one never qualifies as read-only. Two forms carry no
-    write and are dropped instead: an input redirection only reads, and a
-    redirect to the discard sink throws its output away. Refusing those made
-    `2>/dev/null` -- the ordinary way to silence a probe's stderr -- enough to
-    reclassify a plain `grep` as mutating, so diagnosing this gate inside a
-    protected checkout was blocked by the gate itself.
-    """
-    segments: list[list[str]] = []
-    current: list[str] = []
-    index = 0
-    while index < len(tokens):
-        token = tokens[index]
-        if token in REDIRECTIONS:
-            operand = tokens[index + 1] if index + 1 < len(tokens) else None
-            if token not in INPUT_REDIRECTIONS and operand not in DISCARD_TARGETS:
-                return None
-            index += 2
-            continue
-        if token in SHELL_PUNCTUATION:
-            segments.append(current)
-            current = []
-            index += 1
-            continue
-        current.append(token)
-        index += 1
-    segments.append(current)
-    return segments if all(segments) else None
-
-
 def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
+    # Checked before either path: a clustered operator such as `>|` or `&>`
+    # carries no metacharacter the simple path would notice and no punctuation
+    # the segment splitter would act on, so both paths read it as a word.
+    if unmodelled_operator(tokens):
+        return "mutating"
     if syntax_is_simple:
         return simple_command_kind(tokens)
     # A compound command used to be mutating on sight, so plain inspection like
@@ -359,20 +233,25 @@ def simple_command_kind(tokens: list[str]) -> str:
     return "mutating"
 
 
-def path_arguments(tokens: list[str]) -> list[Path]:
-    """Absolute paths a command names outright, in order.
+def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
+    """Tokenise a command, masking a substitution only when it cannot write.
 
-    Bash is judged by the session working directory, so a command run from one
-    project could still write into a protected checkout it named by absolute
-    path. Only argv-shaped paths are visible here: a path buried inside a quoted
-    script body is one token of program text, not an argument, so this narrows
-    the hole rather than closing it.
+    A substitution runs a program, so masking it unconditionally said nothing
+    about `echo $(rm -rf build)` and called it a read. Refusing to parse on
+    sight said nothing about `echo $(date)` either, and that one names no path
+    and writes nothing, so it was judged an unlocatable mutation. Classifying
+    the substituted command decides which it is: a read-only body is replaced
+    by a placeholder and the outer command stays readable, and anything else
+    leaves the command unparseable, which is already the strictest verdict.
     """
-    paths: list[Path] = []
-    for token in tokens:
-        if token.startswith("-") or ENV_ASSIGNMENT_RE.fullmatch(token):
-            continue
-        if not (token.startswith("/") or token.startswith("~/")):
-            continue
-        paths.append(Path(token).expanduser())
-    return paths
+
+    command = bash_command(payload)
+    bodies = substitution_bodies(command)
+    if not bodies:
+        return _tokenise(payload, cwd)
+    for body in bodies:
+        inner_cwd, tokens, simple = _tokenise({"tool_input": {"command": body}}, cwd)
+        if not tokens or bash_command_kind(tokens, simple) != "read_only":
+            return cwd, [], False
+    masked = {"tool_input": {"command": mask_substitutions(command)}}
+    return _tokenise(masked, cwd)
