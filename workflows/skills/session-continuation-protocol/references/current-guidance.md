@@ -624,6 +624,23 @@ inspected scope, accepted-decision ids, and current-state
 successful-verification ids so an agent does not repeat them to rebuild context.
 On refusal it returns no semantic work object or reuse advice.
 
+An adapter resuming automatically at session start names its own run rather
+than taking the newest. The runtime session binding identifies it, and a
+restart keeps the session id, so the run bound to that session is the work it
+left behind. Where no run is bound, the only unfinished packet is still not a
+guess, but several are: the adapter then claims nothing and reports the opaque
+ids so the caller can name one. Automatic resume is the same substitution
+hazard as `--last`, arriving without anyone asking, and the owner check does
+not cover it -- that check refuses a live owner, while two sessions that both
+stopped leave two free packets.
+
+Concurrent sessions sharing one checkout still share one worktree. Another
+session's uncommitted bytes drift every packet in it, and resume answers that
+with `drift_refused` and reconciliation rather than resuming across a state the
+packet never recorded. Targeting decides whose run is examined, not whether the
+bytes moved; genuinely parallel work belongs in separate worktrees, which have
+their own mutable state and are never candidates for each other.
+
 Stable result codes:
 
 | Result | Meaning | State change |

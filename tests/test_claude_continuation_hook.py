@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,8 +15,10 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 import claude_continuation_hook
 from claude_continuation_hook import ClaudeContinuationAdapter
+from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_run_registry import register_run, registry_path
 from agent_runtime_session import resolve_runtime_evidence
+from test_agent_runtime_session import INTAKE, ROUTE
 from support.claude_continuation_setup import (
     CONTINUATION_ALIAS,
     SESSION_START_MATCHER,
@@ -47,13 +50,51 @@ def _dead_pid() -> int:
     return process.pid
 
 
-def _kill_owner(fixture: RuntimeFixture) -> None:
+def _kill_owner(fixture: RuntimeFixture, run_id: str = "") -> None:
     path = registry_path(fixture.project)
     payload = json.loads(path.read_text(encoding="utf-8"))
     for run in payload["runs"]:
-        if run["run_id"] == fixture.run_id:
+        if run["run_id"] == (run_id or fixture.run_id):
             run["owner"] = {"pid": _dead_pid(), "start_token": "recorded"}
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _second_session_run(
+    fixture: RuntimeFixture,
+    *,
+    objective: str,
+    session_id: str,
+) -> str:
+    """Add another session's unfinished run to the same checkout.
+
+    Ten sessions sharing one project is the case this adapter has to survive,
+    and one `RuntimeFixture` per checkout cannot express it.
+    """
+
+    run_id = uuid.uuid4().hex
+    evidence = fixture.project / ".tao" / "runs" / run_id / "preflight.json"
+    evidence.parent.mkdir(parents=True)
+    if register_run(fixture.project, evidence, ROUTE, INTAKE)["run_id"] != run_id:
+        raise AssertionError("fixture run id was not adopted")
+    evidence.write_text(
+        json.dumps(
+            {
+                **fixture.preflight,
+                "runtime_session": {"runtime": "claude", "session_id": session_id},
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_continuation_checkpoint(
+        project=fixture.project,
+        rules=fixture.rules,
+        run_id=run_id,
+        kind="initial",
+        binding_path=evidence,
+        work={"objective": objective},
+    )
+    _kill_owner(fixture, run_id)
+    return run_id
 
 
 class ClaudeMutationAdapterTests(unittest.TestCase):
@@ -202,6 +243,74 @@ class ClaudeSessionResumeTests(unittest.TestCase):
                     {"runtime": "claude", "session_id": "new-session"},
                 )
             )
+
+    def test_session_start_resumes_this_session_s_run_not_the_newest(self) -> None:
+        """Ten sessions on one checkout: the newest slot is not mine.
+
+        Automatic resume reached `resume_last` with no target, so a restarting
+        session took whichever run was written last. The owner check does not
+        catch it: it refuses a live owner, and sessions that both stopped leave
+        two free packets.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            mine = RuntimeFixture(directory, session_id="my-session")
+            _kill_owner(mine)
+            other = _second_session_run(
+                mine, objective="another session's task", session_id="other-session"
+            )
+
+            output = ClaudeContinuationAdapter.session_start(
+                {
+                    "hook_event_name": "SessionStart",
+                    "source": "resume",
+                    "cwd": str(mine.project),
+                    "session_id": "my-session",
+                }
+            )
+
+            context = output["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("resume safe work", context)
+            self.assertNotIn("another session's task", context)
+            self.assertNotIn(other, context)
+            self.assertEqual(
+                0,
+                json.loads(
+                    (mine.project / ".tao" / "runs" / other / "continuation.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["generation"],
+                "another session's packet must not be claimed",
+            )
+
+    def test_session_start_claims_nothing_when_no_run_is_bound_to_this_session(self) -> None:
+        """A new session in a busy checkout has no run of its own to resume."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            first = RuntimeFixture(directory, session_id="first-session")
+            _kill_owner(first)
+            second = _second_session_run(
+                first, objective="the newest session's task", session_id="second-session"
+            )
+            before = registry_path(first.project).read_bytes()
+
+            output = ClaudeContinuationAdapter.session_start(
+                {
+                    "hook_event_name": "SessionStart",
+                    "source": "startup",
+                    "cwd": str(first.project),
+                    "session_id": "a-session-with-no-run",
+                }
+            )
+
+            context = output["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("none was resumed", context)
+            self.assertIn("--run-id", context)
+            self.assertIn(second, context)
+            self.assertIn(first.run_id, context)
+            self.assertNotIn("resume safe work", context)
+            self.assertNotIn("the newest session's task", context)
+            self.assertEqual(before, registry_path(first.project).read_bytes())
 
     def test_ready_context_reuses_bounded_analysis_and_successful_checks(self) -> None:
         result = {
