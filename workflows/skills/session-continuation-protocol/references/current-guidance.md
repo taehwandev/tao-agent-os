@@ -740,14 +740,56 @@ it cannot enforce.
 
 ## Retention And Checkout Scope
 
-- A packet is pruned in the same atomic maintenance decision as its run record.
-  It never intentionally outlives the record that owns liveness.
+- A packet is pruned in the same atomic maintenance decision as its run record
+  wherever one is taken. It still outlives that record in one case the bound
+  makes unavoidable: the run history keeps a fixed number of records, so a
+  packet whose record was displaced remains on disk. That packet is withdrawn
+  from candidacy and counted rather than listed, and removing it is the
+  maintenance below.
 - `--list` and `--last` operate only on the currently selected project root and
   checkout. Another Git worktree has different mutable state and is not a
   candidate even when it shares object storage.
 - A failed gate remains resumable only at that failed checkpoint and only under
   the existing single repair-cycle rules. Resume does not convert failure to
   success.
+
+### Deleting Run State
+
+The store grows: one directory per run, and in an integrated checkout one of
+them can hold a copy of the repository. Clearing it is ordinary maintenance,
+but it is destructive and other sessions are working the same checkout, so the
+decision has a shape.
+
+**Decide by the registry binding, never by the directory name.** A run's
+evidence directory is named by whatever the caller passed, so a name is not a
+run id. Matching names classifies a session's own open runs as orphans; on the
+checkout this rule was written from, that would have deleted two live runs
+belonging to another agent. Read each directory's evidence and ask the registry
+which record binds it.
+
+Removable:
+
+- no record binds it -- claiming returns `not_found` and checkpointing
+  `unknown_run`, so no session can reach it;
+- the record that binds it is settled, `completed` or `cancelled`.
+
+Never removable:
+
+- a record that is open, or `failed` or `reconcile_required` -- both are states
+  a run is recovered from, and recovery needs its record and its evidence;
+- anything touched inside the registry's shared stale window -- the same age
+  the owner policy uses -- whatever the registry says, because a session may be
+  between creating its directory and registering the run, and no record exists
+  to speak for it yet;
+- anything outside the run store: the registry itself, and tracked content such
+  as `.tao/skills`, which the state directory's own ignore file keeps.
+
+**Show the decision before taking it.** A dry run names every directory that
+will be kept and why, so the caller approves a rule rather than a count.
+
+**Prove it afterwards** by what did not move: the registry file byte-identical,
+tracked state intact, every kept directory present, and the current session
+still resolving its own run evidence.
 
 ## Verification
 

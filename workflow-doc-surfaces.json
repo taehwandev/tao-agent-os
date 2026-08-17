@@ -722,6 +722,21 @@
       "reason": "Branch and worktree deletion is destructive git-state work that needs the ownership, protected-branch, merge-ancestry, and dirty-worktree gates before anything is deleted."
     },
     {
+      "name": "run_state_cleanup",
+      "request_any": [
+        "\\b(run state|run store|run director(y|ies)|continuation packets?)\\b.{0,24}\\b(clean|cleanup|clear|prune|delete|remove)\\b",
+        "\\b(clean|cleanup|clear|prune|delete|remove)\\b.{0,24}\\b(run state|run store|run director(y|ies)|continuation packets?)\\b",
+        "\\.tao\\b.{0,24}(clean|cleanup|clear|prune|delete|remove|정리|삭제|지워|제거)",
+        "(clean|cleanup|clear|prune|delete|remove|정리|삭제|지워|제거).{0,24}\\.tao\\b",
+        "(런\\s*상태|실행\\s*상태|런\\s*스토어|continuation\\s*패킷).{0,20}(정리|삭제|지워|제거)"
+      ],
+      "docs": [
+        "workflows/skills/session-continuation-protocol/SKILL.md",
+        "workflows/skills/session-continuation-protocol/references/current-guidance.md"
+      ],
+      "reason": "Deleting run state is destructive maintenance on evidence other live sessions still bind to, and the directory names are caller-chosen rather than run ids, so the retention rule and its registry-binding decision must be read before anything is removed."
+    },
+    {
       "name": "bulk_mechanical_change",
       "request_any": [
         "\\b(bulk|mass|sweep|codemod|batch) (change|rename|edit|update|migration|replace)\\b",

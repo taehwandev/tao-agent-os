@@ -141,6 +141,37 @@ class WorkSurfaceResolutionRoutingTests(unittest.TestCase):
             any(match["name"] == "graphify_integration" for match in route["doc_surface_matches"])
         )
 
+    def test_clearing_run_state_routes_to_the_retention_rule(self) -> None:
+        """The rule exists to be read before the deletion, not after it.
+
+        Run directories are named by whatever the caller passed, so deciding by
+        name deletes other sessions' open runs. That is only avoidable by
+        someone who read the retention rule first, which means the request has
+        to reach it.
+        """
+
+        for request in (
+            ".tao 정리해줘",
+            "clean up the run store",
+            "delete the continuation packets that cannot be resumed",
+            "런 상태 정리해줘",
+        ):
+            with self.subTest(request=request):
+                docs, _ = infer_surface_docs(command="task", request_text=request)
+                self.assertIn(
+                    "workflows/skills/session-continuation-protocol/SKILL.md", docs
+                )
+
+    def test_branch_cleanup_is_not_swallowed_by_the_run_state_intent(self) -> None:
+        """Two destructive cleanups, two different sets of gates."""
+
+        docs, _ = infer_surface_docs(command="task", request_text="브랜치 정리해줘")
+
+        self.assertIn("common/skills/branch-cleanup/SKILL.md", docs)
+        self.assertNotIn(
+            "workflows/skills/session-continuation-protocol/SKILL.md", docs
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
