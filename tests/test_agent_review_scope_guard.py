@@ -86,6 +86,56 @@ class ReviewScopeGuardTests(unittest.TestCase):
                 clean_repo_hygiene_review(args, {"kind": "working-tree"}, [])
             )
 
+    def test_repo_hygiene_scope_accepts_destructive_project_state_cleanup(self) -> None:
+        """Clearing the run store produces the same clean checkout.
+
+        The store is Git-ignored, so the whole result of the work is what is
+        no longer there. Admitting only branch and worktree concerns let such
+        a task be started and performed but never closed, which refuses the
+        only outcome it can produce rather than an unsafe one.
+        """
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence = project / "preflight.json"
+            evidence.write_text(
+                '{"route":{"concerns":["state"],'
+                '"request_classification":{"intent_envelope":'
+                '{"effective_effect":"destructive"}}},'
+                '"execution_mode":{"read_only":false}}\n',
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                evidence=evidence,
+                review_scope="repo-hygiene",
+            )
+
+            self.assertTrue(
+                clean_repo_hygiene_review(args, {"kind": "working-tree"}, [])
+            )
+
+    def test_repo_hygiene_scope_still_requires_a_destructive_state_task(self) -> None:
+        """The concern widens what may be attested, never why."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence = project / "preflight.json"
+            evidence.write_text(
+                '{"route":{"concerns":["state"],'
+                '"request_classification":{"intent_envelope":'
+                '{"effective_effect":"local_write"}}},'
+                '"execution_mode":{"read_only":false}}\n',
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                evidence=evidence,
+                review_scope="repo-hygiene",
+            )
+
+            self.assertFalse(
+                clean_repo_hygiene_review(args, {"kind": "working-tree"}, [])
+            )
+
     def test_repo_hygiene_scope_rejects_non_destructive_or_unrelated_routes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

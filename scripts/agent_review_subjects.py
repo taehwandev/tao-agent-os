@@ -9,7 +9,14 @@ from typing import Any
 from agent_run_registry import registered_run
 
 
-REPO_HYGIENE_CONCERNS = frozenset({"branch", "worktree"})
+# Hygiene work removes things and leaves the checkout clean, so there is no
+# diff for a review to attest. `state` joins branch and worktree because
+# clearing the run store is the same shape: an explicitly destructive task
+# whose whole result is what is no longer there. Without it such a task could
+# be started and performed but never closed -- the gate refused the only
+# outcome the work can produce, which is a rule that stops honest work rather
+# than unsafe work.
+REPO_HYGIENE_CONCERNS = frozenset({"branch", "state", "worktree"})
 
 SETTLED_RUN_STATES = frozenset({"completed", "cancelled"})
 
