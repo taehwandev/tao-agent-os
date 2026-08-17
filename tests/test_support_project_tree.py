@@ -3,21 +3,26 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import agent_skill_catalog
 from agent_skill_catalog import canonical_skill_ids
 from support.project_tree import (
     PRUNED_DIRECTORIES,
     PRUNED_RUN_STATE,
     iter_project_files,
 )
-from workflow_doc_graph_build import _markdown_docs
+import workflow_doc_graph_build
+from workflow_doc_graph_build import _markdown_docs, clear_doc_graph_cache
+from workflow_route import resolve_docs
 from workflow_validate import MARKDOWN_VALIDATE_IGNORED_DIRS, markdown_files_to_validate
 
 
@@ -144,6 +149,151 @@ class PrunedWalkTests(unittest.TestCase):
             found = {path.relative_to(base).as_posix() for path in iter_project_files(base)}
 
             self.assertEqual({"guide.md", "code.py"}, found)
+
+
+def scanned_directories(walk) -> list[str]:
+    """Record every directory a walk actually reads, through either layer.
+
+    Results alone cannot tell pruning from filtering: a walk that enters the
+    state directory and discards what it finds returns exactly the same files
+    as one that never enters it, so the whole saving could be undone with
+    every test still passing. `os.walk` reaches `os.scandir` at call time,
+    while `pathlib` binds its own reference on older interpreters, so both are
+    recorded and a reimplementation through either is visible.
+    """
+
+    visited: list[str] = []
+    real = os.scandir
+
+    def recorder(path="."):
+        visited.append(str(path))
+        return real(path)
+
+    accessor = getattr(pathlib, "_NormalAccessor", None)
+    patches = [patch("os.scandir", recorder)]
+    if accessor is not None and hasattr(accessor, "scandir"):
+        patches.append(patch.object(accessor, "scandir", staticmethod(recorder)))
+    for item in patches:
+        item.start()
+    try:
+        walk()
+    finally:
+        for item in patches:
+            item.stop()
+    return visited
+
+
+class PrunedTraversalTests(unittest.TestCase):
+    """The saving is in what is never entered, so that is what is pinned."""
+
+    def _tree(self, base: Path) -> None:
+        build(
+            base,
+            "guide.md",
+            ".tao/runs/one/copy.md",
+            ".tao/runs/one/deeper/copy.md",
+            ".tao/runs/two/copy.md",
+        )
+
+    def test_a_pruned_directory_is_never_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._tree(base)
+
+            visited = scanned_directories(
+                lambda: list(iter_project_files(base, "*.md"))
+            )
+
+            self.assertEqual(
+                [], [path for path in visited if ".tao" in path], visited
+            )
+
+    def test_the_recorder_does_see_a_walk_that_enters_it(self) -> None:
+        """A control: without it, an instrument that sees nothing proves nothing."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._tree(base)
+
+            visited = scanned_directories(lambda: list(base.rglob("*.md")))
+
+            self.assertTrue([path for path in visited if ".tao" in path])
+
+    def test_no_caller_walks_the_state_it_excludes(self) -> None:
+        """Pinned per caller, because each one can regress on its own.
+
+        Reverting a single caller to walk-then-filter returns exactly the
+        files it returned before, so only what it entered can tell.
+        """
+
+        callers = (
+            ("document graph", _markdown_docs, ".tao"),
+            ("markdown validator", markdown_files_to_validate, ".tao"),
+            ("skill catalogue", agent_skill_catalog._skill_ids_under, ".tao/runs"),
+        )
+        for name, caller, excluded in callers:
+            with self.subTest(caller=name), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                self._tree(base)
+                build(base, ".tao/skills/graphify/SKILL.md", "skills/local/SKILL.md")
+
+                visited = scanned_directories(lambda: caller(base))
+
+                entered = [
+                    path
+                    for path in visited
+                    if f"/{excluded}/" in path or path.endswith(f"/{excluded}")
+                ]
+                self.assertEqual([], entered, f"{name} entered {excluded}: {entered}")
+
+    def test_the_skill_catalogue_still_enters_the_state_it_needs(self) -> None:
+        """Its exclusion is narrower, and a wider one would lose a real skill."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            build(base, ".tao/skills/graphify/SKILL.md", ".tao/runs/one/copy/SKILL.md")
+
+            visited = scanned_directories(
+                lambda: agent_skill_catalog._skill_ids_under(base)
+            )
+
+            self.assertTrue([path for path in visited if "/.tao/skills" in path])
+
+
+class DocumentGraphCostTests(unittest.TestCase):
+    """One graph per process, however many route contracts ask for it.
+
+    `resolve_docs` runs once per route contract -- twenty-six of them in
+    workflow validation -- and each asks the graph to expand its matches. The
+    build walks and reads every guidance document, so losing the cache would
+    multiply the review hook's cost by the number of routes without changing
+    any answer.
+    """
+
+    @staticmethod
+    def _clear_cache() -> None:
+        """Clear it if there is a cache, so the count is what fails without one."""
+
+        try:
+            clear_doc_graph_cache()
+        except AttributeError:
+            pass
+
+    def test_the_graph_is_built_once_for_many_route_contracts(self) -> None:
+        self._clear_cache()
+        self.addCleanup(self._clear_cache)
+        builds: list[int] = []
+        real = workflow_doc_graph_build._markdown_docs
+
+        def counted(root):
+            builds.append(1)
+            return real(root)
+
+        with patch.object(workflow_doc_graph_build, "_markdown_docs", counted):
+            for command in ("task", "bugfix", "review", "ship"):
+                resolve_docs(command, None, [], ())
+
+        self.assertEqual(1, len(builds))
 
 
 class CallerResultsAreUnchangedTests(unittest.TestCase):
