@@ -32,7 +32,11 @@ from agent_finish_gate_doc_test_validators import (
     validate_documentation,
     validate_tests,
 )
-from agent_finish_gate_validators import gate_wording_examples, gate_wording_hints
+from agent_finish_gate_validators import (
+    DOC_INSPECTION_PROOF_PHRASES,
+    gate_wording_examples,
+    gate_wording_hints,
+)
 
 
 VALIDATORS = {
@@ -69,25 +73,79 @@ class WordingExampleTests(unittest.TestCase):
         self.assertEqual(sorted(VALIDATORS), sorted(gate_wording_examples()))
 
 
-class WordingPhraseTests(unittest.TestCase):
-    """The advertised phrases are the validators' own, not a second copy."""
+class WordingCostTests(unittest.TestCase):
+    """Advice printed at every start is paid at every start.
 
-    def test_advertised_phrases_come_from_the_validator_constants(self) -> None:
+    The first version listed each validator's phrases, which measured 314
+    tokens against 146 for the examples -- and the refusal already prints
+    those phrases at the one moment they are wanted. What survives is the
+    copyable example, the names of what is checked, and the requirement no
+    phrase expresses.
+    """
+
+    def test_the_phrase_lists_are_left_to_the_refusal(self) -> None:
+        """Checked against the enumeration, not the words.
+
+        A worked example that passes necessarily contains accepted words --
+        `unittest`, `passed` -- so their presence proves nothing. What must be
+        gone is the list itself.
+        """
+
         advertised = "\n".join(
-            line
-            for gate in VALIDATORS
-            for line in gate_wording_hints(gate)
-            if not line.startswith(("example --", "and "))
+            line for gate in VALIDATORS for line in gate_wording_hints(gate)
         )
 
         for phrases in (
-            TEST_SIGNAL_PHRASES[:1],
-            TEST_PASSED_PHRASES[:1],
-            SERIAL_REASON_PHRASES[:1],
-            BOUNDARY_PLAN_PHRASES["runtime structure decision"][:1],
+            TEST_SIGNAL_PHRASES,
+            TEST_PASSED_PHRASES,
+            SERIAL_REASON_PHRASES,
+            BOUNDARY_PLAN_PHRASES["runtime structure decision"],
         ):
-            with self.subTest(phrase=phrases[0]):
-                self.assertIn(phrases[0], advertised)
+            enumeration = ", ".join(phrase for phrase in phrases[:3] if phrase)
+            with self.subTest(first=phrases[0]):
+                self.assertNotIn(enumeration, advertised)
+
+    def test_every_gate_whose_hint_omits_phrases_names_them_when_it_refuses(self) -> None:
+        """The trade only holds if the refusal really carries the lists.
+
+        Dropping them from the advice assumed every refusal names its own,
+        and two of the five did not: they restated the requirement in prose,
+        which is the source dive `accepted()` exists to end.
+        """
+
+        refusals = (
+            ("boundary plan", "범위만 적었다", BOUNDARY_PLAN_PHRASES["owned boundary"]),
+            ("multi-agent split decision", "혼자 했다", SERIAL_REASON_PHRASES),
+            ("tests", "결과만 기록", TEST_SIGNAL_PHRASES),
+            (
+                "documentation",
+                "decision: unchanged; 문서는 그대로",
+                DOC_INSPECTION_PROOF_PHRASES,
+            ),
+            (
+                "documentation impact",
+                "decision: unchanged; 문서는 그대로",
+                DOC_INSPECTION_PROOF_PHRASES,
+            ),
+        )
+        # Checked against the enumeration, not against loose words. Several of
+        # these refusals describe the requirement in prose that happens to
+        # contain the first phrases -- "must name the owned boundary/scope or
+        # contract" -- so counting words passed a refusal that names nothing.
+        for gate, evidence, phrases in refusals:
+            with self.subTest(gate=gate):
+                failures = VALIDATORS[gate](evidence)
+                self.assertTrue(failures, "expected this evidence to be refused")
+                enumeration = ", ".join(phrase for phrase in phrases[:3] if phrase)
+                self.assertIn(enumeration, " ".join(failures))
+
+    def test_one_gate_of_advice_stays_within_its_budget(self) -> None:
+        """A ceiling, so the block cannot grow back a line at a time."""
+
+        for gate in VALIDATORS:
+            rendered = "\n".join(gate_wording_hints(gate))
+            with self.subTest(gate=gate):
+                self.assertLessEqual(len(rendered), 400, rendered)
 
     def test_the_tests_gate_states_the_requirement_no_phrase_covers(self) -> None:
         """Phrases alone do not pass this gate, and the hint has to say so.
@@ -114,10 +172,10 @@ class StartOutputTests(unittest.TestCase):
 
         rendered = "\n".join(lines)
         self.assertIn("  tests: check, result", rendered)
-        self.assertIn("    wording -- the check run:", rendered)
+        self.assertIn("    wording -- checked for -- the check run", rendered)
         self.assertIn("    wording -- example -- check: unittest", rendered)
         self.assertLess(
-            rendered.index("wording -- the check run"),
+            rendered.index("wording -- checked for -- the check run"),
             rendered.index("  boundary plan:"),
             "each gate's wording must sit under that gate",
         )

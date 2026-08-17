@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agent_finish_gate_validators import accepted
+
 
 def _has_concrete_serial_reason(text: str) -> bool:
     return any(phrase in text for phrase in SERIAL_REASON_PHRASES)
@@ -132,7 +134,8 @@ def validate_multi_agent(evidence: str) -> list[str]:
     return [
         "multi-agent split decision evidence must state either serial/single-agent with a concrete "
         "reason, or parallel/subagent work with owned scope, forbidden scope, contract/brief, "
-        "acceptance checks, integration owner, and verification"
+        "acceptance checks, integration owner, and verification."
+        " For the serial reason," + accepted(SERIAL_REASON_PHRASES)
     ]
 
 

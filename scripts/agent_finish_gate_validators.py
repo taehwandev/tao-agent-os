@@ -659,19 +659,28 @@ def _gate_wording() -> dict[str, dict[str, object]]:
 
 
 def gate_wording_hints(gate: str) -> list[str]:
-    """Return the wording lines an agent needs before writing this gate."""
+    """Return the wording lines an agent needs before writing this gate.
+
+    The example first, because it is the line that can be copied and adapted.
+    Then what the gate checks, named but not enumerated: the phrase lists
+    themselves cost more at every start than they save, and the refusal
+    already prints them at the one moment they are wanted -- when a sentence
+    was not recognised. Measured on this repository, listing them added 314
+    tokens to every start against 146 for the examples.
+
+    What no phrase expresses stays, since a refusal is the only other place to
+    learn it and an agent adapting the example would drop it silently.
+    """
 
     entry = _gate_wording().get(gate)
     if not entry:
         return []
-    lines = [
-        f"{requirement}: " + ", ".join(phrase for phrase in phrases[:6] if phrase)
-        + (", ..." if len(phrases) > 6 else "")
-        for requirement, phrases in (entry.get("requirements") or {}).items()
-    ]
+    lines = [f"example -- {entry['example']}"]
+    checked = ", ".join(entry.get("requirements") or {})
+    if checked:
+        lines.append(f"checked for -- {checked}")
     if entry.get("also"):
         lines.append(f"and {entry['also']}")
-    lines.append(f"example -- {entry['example']}")
     return lines
 
 
