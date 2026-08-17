@@ -234,7 +234,13 @@ class MutationBracketTests(unittest.TestCase):
             self.assertEqual(packet["drift"]["project"], pending["project"])
             baseline = fixture.binding_path.parent / ".mutation-baseline.json"
             payload = json.loads(baseline.read_text(encoding="utf-8"))
-            self.assertEqual({"packet_generation", "states"}, set(payload))
+            # The boundary map is written now: without it a deletion inside a
+            # declared directory has no boundary to be attributed to and reads
+            # as an undeclared changed path. It stays path-opaque, which the
+            # next assertion checks against the whole file.
+            self.assertEqual(
+                {"packet_generation", "states", "path_boundaries"}, set(payload)
+            )
             self.assertNotIn("src/module.py", baseline.read_text(encoding="utf-8"))
             self.assertEqual(0, baseline.stat().st_mode & 0o077)
 

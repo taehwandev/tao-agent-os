@@ -139,7 +139,18 @@ def write_continuation_checkpoint(
     }
     if kind == "post_mutation":
         MutationCheckpointState.reject_undeclared_paths(project, run_id, base, packet)
-    baseline = MutationCheckpointState.capture(project) if kind == "pre_mutation" else None
+    # `capture_baseline`, not `capture`: the plain capture records file states
+    # and nothing about which declared boundary owns each one, so a deletion
+    # inside a declared directory had no boundary to be attributed to and came
+    # back as an undeclared changed path. Declaring a directory is exactly the
+    # case the boundary map exists for, and it was never reached.
+    baseline = (
+        MutationCheckpointState.capture_baseline(
+            project, [str(path) for path in (mutation or {}).get("paths") or []]
+        )
+        if kind == "pre_mutation"
+        else None
+    )
     _write_owned_checkpoint(
         project,
         run_id,
@@ -279,7 +290,7 @@ def _write_owned_checkpoint(
         if baseline is not None:
             atomic_write_json(
                 baseline_path,
-                {"packet_generation": packet["generation"], "states": baseline},
+                {"packet_generation": packet["generation"], **baseline},
             )
         if (packet.get("checkpoint") or {}).get("mutation_pending") is None:
             baseline_path.unlink(missing_ok=True)

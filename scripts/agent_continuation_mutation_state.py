@@ -71,7 +71,7 @@ class _MutationCaptureState:
             matching = [
                 boundary
                 for boundary in declared_paths
-                if cls._within_boundary(path, boundary)
+                if _within_boundary(path, boundary)
             ]
             if matching:
                 owner = max(
