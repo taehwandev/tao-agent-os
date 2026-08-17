@@ -250,9 +250,12 @@ age-aware owner policy, so a claimant killed during validation cannot strand the
 run.
 
 **Consequence for discovery.** A packet whose run has a live owner is listed but
-not resumable. `resume --last` targets the newest unfinished packet for the
-current checkout; if that exact packet is live, unproven, drifted, or invalid,
-the command refuses. It never skips to an older task.
+not resumable. `resume --last` targets one unfinished packet for the current
+checkout -- the newest, or the one `--run-id` names -- and if that exact packet
+is live, unproven, drifted, or invalid, the command refuses. It never skips to
+an older task. Naming the packet chooses the candidate only; the owner and
+generation checks still decide whether the claim is allowed, so naming another
+session's live run is refused rather than granted.
 
 **Failure mode avoided.** A second takeover rule or a bare state flip can steal
 a live run, resurrect stale evidence, or let two sessions believe they own the
@@ -564,7 +567,7 @@ tao-hook checkpoint --checkpoint-kind <initial|pre_mutation|post_mutation|decisi
   [--mutation-kind <enum> --mutation-path <relative-path> ...]
   [--work-stdin]
 tao-hook resume --list
-tao-hook resume --last
+tao-hook resume --last [--run-id <run-id>]
 tao-hook cancel --evidence <SOURCE_PREFLIGHT> \
   --replacement-evidence <COMPLETED_LINKED_WORKTREE_PREFLIGHT>
 ```
@@ -605,8 +608,15 @@ Completed and cancelled runs are not unfinished candidates and never appear as
 `free`.
 
 `tao-hook resume --last` selects the newest unfinished packet for this checkout,
-then attempts `claim_resume`. It never skips a blocked newest packet to resume
-an older task. On success it returns a closed machine-readable result containing
+then attempts `claim_resume`. It never skips a blocked packet to resume an older
+task. `--run-id` names the candidate instead, which is what a checkout worked by
+several concurrent sessions needs: the newest slot there belongs to whichever
+session wrote last, so a returning session almost never finds its own work in
+it, and refusing to substitute -- correct on its own -- otherwise leaves that
+session no way to reach its run at all. A named run that is not an unfinished
+candidate is `not_found`; it never falls through to the newest. `--run-id` is
+rejected with `--list`, which reports every unfinished run and filters nothing.
+On success it returns a closed machine-readable result containing
 the opaque run id, canonical evidence locator, route command, bounded work
 object, recomputed checkpoint, new generation, a ready-only content-free reuse
 summary, and `ready`. Human output reports required-document status, reusable
@@ -618,8 +628,8 @@ Stable result codes:
 
 | Result | Meaning | State change |
 | --- | --- | --- |
-| `ready` | exact newest packet claimed and drift-clean | run becomes `running` |
-| `not_found` | no unfinished packet in this checkout | none |
+| `ready` | exact targeted packet claimed and drift-clean | run becomes `running` |
+| `not_found` | no unfinished packet in this checkout, or the named run is not one | none |
 | `live_owner_refused` | existing owner still holds the run | none |
 | `owner_unproven_wait` | timestamp fallback has not expired | none |
 | `drift_refused` | HEAD, worktree, rules, required docs, or pending-mutation state mismatch | `reconcile_required` |

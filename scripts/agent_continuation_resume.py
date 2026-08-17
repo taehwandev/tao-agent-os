@@ -76,21 +76,37 @@ def resume_list(
 def resume_last(
     project: Path,
     *,
+    run_id: str = "",
     rules: Path | None = None,
     stale_after_seconds: int = 3600,
 ) -> dict[str, Any]:
-    """Resume the newest unfinished packet for this checkout, or refuse by name.
+    """Resume one unfinished packet for this checkout, or refuse by name.
 
     Exactly one packet is ever a candidate. If it is held, unproven, drifted, or
     invalid, that is the answer; an older task is never substituted for the one
     the caller asked for. Owner policy and drift are decided inside
     ``claim_resume`` so one transaction owns every stable result code.
+
+    Which packet is the candidate is the caller's to say. Without ``run_id`` it
+    is the newest, which is right for a checkout one session works at a time.
+    Several sessions working the same checkout keep touching that slot, so the
+    newest is almost never the one a returning session left behind, and
+    refusing to substitute an older task -- correct on its own -- then left that
+    session with no way to reach its own work at all. Naming the run makes the
+    candidate explicit; the generation check still decides whether the claim is
+    allowed, so naming another session's live run is refused, not granted.
     """
 
     entries = resume_list(project, rules=rules, stale_after_seconds=stale_after_seconds)["entries"]
     if not entries:
         return _result("not_found", {}, reason="no_unfinished_packet")
-    newest = entries[0]
+    if run_id:
+        named = next((item for item in entries if item["run_id"] == run_id), None)
+        if named is None:
+            return _result("not_found", {}, reason="run_id_not_unfinished")
+        newest = named
+    else:
+        newest = entries[0]
     if newest["status"] in UNRESUMABLE_STATUSES:
         return _result(newest["status"], newest, reason=newest["status"])
     if newest["status"] != "ok":

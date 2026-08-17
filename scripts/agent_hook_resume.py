@@ -66,7 +66,17 @@ def add_resume_arguments(parser: argparse.ArgumentParser) -> None:
         "--last",
         dest="last_mode",
         action="store_true",
-        help="claim the newest unfinished packet, or refuse it by name",
+        help="claim one unfinished packet, or refuse it by name",
+    )
+    resume.add_argument(
+        "--run-id",
+        dest="resume_run_id",
+        default="",
+        help=(
+            "claim this exact run instead of the newest; required when several "
+            "sessions share the checkout, because the newest slot is then "
+            "whichever session wrote last"
+        ),
     )
     resume.add_argument(
         "--runtime",
@@ -108,9 +118,13 @@ def _resume_list(args: argparse.Namespace) -> int:
 
 
 def _resume_last(args: argparse.Namespace) -> int:
-    """Claim the newest packet, or refuse it by name without picking another."""
+    """Claim one packet, or refuse it by name without picking another."""
 
-    result = resume_last(args.project, rules=args.rules)
+    result = resume_last(
+        args.project,
+        run_id=getattr(args, "resume_run_id", "") or "",
+        rules=args.rules,
+    )
     ready = result["result"] == "ready"
     if ready and (args.runtime or args.runtime_session_id):
         if not args.runtime or not args.runtime_session_id:

@@ -37,7 +37,7 @@ from test_agent_continuation_checkpoint import Fixture
 from test_agent_continuation_resume import age, free_fixture
 
 
-def run_resume(project: Path, rules: Path, mode: str) -> tuple[int, str]:
+def run_resume(project: Path, rules: Path, mode: str, *extra: str) -> tuple[int, str]:
     argv = [
         "agent-hook.py",
         "resume",
@@ -46,6 +46,7 @@ def run_resume(project: Path, rules: Path, mode: str) -> tuple[int, str]:
         str(project),
         "--rules",
         str(rules),
+        *extra,
     ]
     output = io.StringIO()
     with (
@@ -184,7 +185,67 @@ class LastTests(unittest.TestCase):
             self.assertIn("start a fresh run", output)
 
 
+class NamedRunTests(unittest.TestCase):
+    """Several sessions share one checkout, so the newest slot is not mine."""
+
+    def test_naming_a_run_claims_it_while_another_session_holds_the_newest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            mine = free_fixture(directory, "the task this session left behind")
+            newer = Fixture(directory, project=mine.project, rules=mine.rules)
+            newer.checkpoint("initial", work={"objective": "another session, still running"})
+            age(newer, minutes=0, owner_pid=1, run_id=newer.run_id)
+
+            blocked, _ = run_resume(mine.project, mine.rules, "--last")
+            code, output = run_resume(mine.project, mine.rules, "--last", "--run-id", mine.run_id)
+
+            self.assertEqual(1, blocked)
+            self.assertEqual(0, code)
+            self.assertIn("resume result: ready", output)
+            self.assertIn(f"run: {mine.run_id}", output)
+            self.assertIn("objective: the task this session left behind", output)
+            self.assertNotIn("another session, still running", output)
+
+    def test_naming_a_run_that_is_not_unfinished_claims_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "a task that must not be handed over")
+            before = json.loads(registry_path(fixture.project).read_text(encoding="utf-8"))
+
+            code, output = run_resume(fixture.project, fixture.rules, "--last", "--run-id", "0" * 32)
+
+            self.assertEqual(1, code)
+            self.assertIn("resume result: not_found", output)
+            self.assertIn("refusal reason: run_id_not_unfinished", output)
+            self.assertNotIn("a task that must not be handed over", output)
+            self.assertEqual(
+                before, json.loads(registry_path(fixture.project).read_text(encoding="utf-8"))
+            )
+
+
 class ModeTests(unittest.TestCase):
+    def test_a_run_id_is_rejected_for_the_listing_it_cannot_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            argv = [
+                "agent-hook.py",
+                "resume",
+                "--list",
+                "--run-id",
+                "0" * 32,
+                "--project",
+                str(project),
+                "--rules",
+                str(project),
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.dict("os.environ", {}, clear=True),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    agent_hook.main()
+            self.assertEqual(2, raised.exception.code)
+
     def test_exactly_one_mode_is_required(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
