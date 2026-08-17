@@ -19,9 +19,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from agent_continuation_checkpoint import write_continuation_checkpoint
-from agent_execution_capsule_state import atomic_write_json
-from agent_gate_evidence import resync_gate_evidence_ledger
 from agent_run_owner import process_owner
 from agent_run_registry import (
     active_run_bindings,
@@ -268,6 +265,15 @@ def bind_resumed_runtime_session(
         "session_id": session_id,
         "resume_generation": resume_generation,
     }
+    # Imported here, not at module load: binding is the only caller, and these
+    # three are the head of the checkpoint, capsule-state and gate-ledger
+    # chains. Every resolver that only wants to find its own run -- the
+    # pre-tool gate on every single tool call, among others -- was paying for
+    # those chains to answer a question it never asks.
+    from agent_continuation_checkpoint import write_continuation_checkpoint
+    from agent_execution_capsule_state import atomic_write_json
+    from agent_gate_evidence import resync_gate_evidence_ledger
+
     try:
         atomic_write_json(candidate, payload)
         resync_gate_evidence_ledger(candidate, payload)

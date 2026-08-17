@@ -12,6 +12,7 @@ which remains the only owner of the takeover transaction.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ from agent_continuation_store import (
     list_continuation_run_ids,
     read_continuation_packet,
 )
-from agent_execution_capsule_state import read_json_object
+from agent_execution_capsule_state import git_states_for_paths, read_json_object
 from agent_run_registry import read_registry_state, registry_path, resume_holder_state
 
 
@@ -80,8 +81,9 @@ def resume_list(
         for run_id in sorted(set(list_continuation_run_ids(project)) | set(runs))
         if runs.get(run_id, {}).get("state") not in TERMINAL_RUN_STATES
     ]
+    states = _CheckoutStates(project)
     entries = [
-        _entry(project, rules, run_id, runs, stale_after_seconds)
+        _entry(project, rules, run_id, runs, stale_after_seconds, states)
         for run_id in candidates
         if run_id in runs
     ]
@@ -238,12 +240,60 @@ def _required_docs_reuse(binding_path: Path, first_unfinished: str | None) -> st
     )
 
 
+def _packet_present(path: Path) -> bool:
+    """Answer absence from the filesystem, before Git is asked about the path.
+
+    Reading a packet proves its boundary first, and that proof asks Git whether
+    this exact path is ignored -- a subprocess. A registry entry that never
+    wrote a packet paid it anyway, to learn there was nothing to read: fourteen
+    of sixteen candidates in the checkout this was measured in, and the
+    listing's dominant cost once the drift capture was shared.
+
+    ``lstat`` rather than ``exists``: a dangling or redirecting symlink is not
+    an absence, and it must reach the full boundary proof that refuses it.
+    """
+
+    try:
+        os.lstat(path)
+    except OSError:
+        return False
+    return True
+
+
+class _CheckoutStates:
+    """One project/rules capture per listing instead of one per packet.
+
+    Every packet in a checkout is compared against the same HEAD and the same
+    worktree fingerprint; only the required-document digest is the packet's
+    own. Capturing per packet made that fingerprint the listing's dominant
+    cost -- 56% of it here -- for an answer that could not differ. Packets
+    bound to different rules roots each get their own capture, so the saving
+    never comes from comparing a packet against a root it was not written
+    against.
+
+    Listing is advisory: `claim_resume` captures again under the lock before
+    it takes anything, so one snapshot per listing is also the more honest
+    report, describing one moment rather than a smear across the scan.
+    """
+
+    def __init__(self, project: Path) -> None:
+        self._project = project
+        self._captured: dict[str, tuple[dict[str, str], dict[str, str]]] = {}
+
+    def for_rules(self, rules: Path) -> tuple[dict[str, str], dict[str, str]]:
+        key = str(rules)
+        if key not in self._captured:
+            self._captured[key] = git_states_for_paths(self._project, rules)
+        return self._captured[key]
+
+
 def _entry(
     project: Path,
     rules: Path | None,
     run_id: str,
     runs: dict[str, dict[str, Any]],
     stale_after_seconds: int,
+    states: _CheckoutStates,
 ) -> dict[str, Any]:
     run = runs.get(run_id) or {}
     state = (
@@ -267,7 +317,10 @@ def _entry(
         "resume_generation": int(run.get("resume_generation") or 0),
         "run_state": str(run.get("state") or ""),
     }
-    result = read_continuation_packet(project, continuation_path(project, run_id))
+    packet_path = continuation_path(project, run_id)
+    if not _packet_present(packet_path):
+        return entry
+    result = read_continuation_packet(project, packet_path)
     if result["status"] == "not_found":
         return entry
     if result["status"] != "ok":
@@ -275,7 +328,7 @@ def _entry(
         entry["status"] = result["status"]
         entry["failures"] = result["failures"]
         return entry
-    return _packet_entry(project, rules, entry, result["packet"])
+    return _packet_entry(project, rules, entry, result["packet"], states)
 
 
 def _packet_entry(
@@ -283,14 +336,17 @@ def _packet_entry(
     rules: Path | None,
     entry: dict[str, Any],
     packet: dict[str, Any],
+    states: _CheckoutStates,
 ) -> dict[str, Any]:
     binding_path = continuation_path(project, entry["run_id"]).parent / packet["binding"]["filename"]
     binding = read_json_object(binding_path)
+    rules_root = _rules_root(binding, rules, project)
     drift = verify_drift(
         project,
-        _rules_root(binding, rules, project),
+        rules_root,
         packet,
         required_doc_records=binding_required_docs(binding),
+        git_states=states.for_rules(rules_root),
     )
     entry.update(
         {

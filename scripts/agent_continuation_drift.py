@@ -47,15 +47,28 @@ def required_docs_digest(records: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def capture_drift_state(project: Path, rules: Path, required_docs_sha256: str) -> dict[str, Any]:
+def capture_drift_state(
+    project: Path,
+    rules: Path,
+    required_docs_sha256: str,
+    *,
+    git_states: tuple[dict[str, str], dict[str, str]] | None = None,
+) -> dict[str, Any]:
     """Capture the strong project/rules state a checkpoint is written against.
 
     No previously recorded state is offered to ``git_states_for_paths``: reusing
     a record on a matching cheap signature is what makes identity depend on
     metadata, and a file rewritten with identical bytes must not read as drift.
+
+    ``git_states`` lets a caller comparing many packets against one checkout
+    capture that state once. Only the required-document digest differs per
+    packet; the project and rules fingerprints are a property of the checkout,
+    and recomputing them per packet was 56% of a listing's time. A caller
+    passing them takes responsibility for their freshness, which is why the
+    default still captures.
     """
 
-    project_state, rules_state = git_states_for_paths(project, rules)
+    project_state, rules_state = git_states or git_states_for_paths(project, rules)
     return {
         "project": project_state,
         "rules": rules_state,
@@ -69,6 +82,7 @@ def verify_drift(
     packet: dict[str, Any],
     *,
     required_doc_records: Any = (),
+    git_states: tuple[dict[str, str], dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Compare the packet's recorded state with current bytes.
 
@@ -79,7 +93,12 @@ def verify_drift(
     """
 
     recorded = packet.get("drift") or {}
-    current = capture_drift_state(project, rules, str(recorded.get("required_docs_sha256") or ""))
+    current = capture_drift_state(
+        project,
+        rules,
+        str(recorded.get("required_docs_sha256") or ""),
+        git_states=git_states,
+    )
     signals: list[str] = []
     if _state_field(recorded, "project", "head") != _state_field(current, "project", "head"):
         signals.append("head")

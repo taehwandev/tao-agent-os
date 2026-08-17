@@ -45,7 +45,6 @@ import time
 from pathlib import Path
 
 try:  # The gate must never fail to load; the import is only used for a message.
-    from claude_continuation_hook import ClaudeContinuationAdapter
     from agent_runtime_session import (
         is_run_local_continuation_evidence,
         resolve_runtime_evidence,
@@ -101,7 +100,6 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     ) -> bool:
         return False
 
-    ClaudeContinuationAdapter = None
     BASH_TOOLS = {"Bash"}
     MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
     REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
@@ -127,6 +125,50 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def worktree_denial(root: Path) -> str | None:
         return None
+
+def __getattr__(name: str):
+    """Load the continuation adapter the first time anything asks for it.
+
+    Importing it at module load cost every gated call the checkpoint, drift
+    and worktree-fingerprint chain behind it -- about 15 ms of the 38 ms a
+    tool call spends in this process -- although only a file edit ever calls
+    it, and a session runs far more Bash calls than edits.
+
+    It stays a module attribute rather than a private accessor because that is
+    the surface the gate is tested through: a broken install shows up as this
+    attribute being ``None``, and that must remain something a caller can see
+    and set. An import failure is still not a policy violation, so it resolves
+    to ``None`` here exactly as the module-level fallback did.
+    """
+
+    if name != "ClaudeContinuationAdapter":
+        raise AttributeError(name)
+    try:
+        from claude_continuation_hook import ClaudeContinuationAdapter as adapter
+    except ImportError:  # pragma: no cover - exercised only on a broken install
+        adapter = None
+    globals()[name] = adapter
+    return adapter
+
+
+_UNLOADED = object()
+
+
+def continuation_adapter():
+    """Resolve the adapter through this module's own namespace.
+
+    One loading path and one patch point: a caller that replaces the module
+    attribute changes what the gate uses, which a direct import inside this
+    function would silently bypass. The lookup is by namespace rather than
+    through ``sys.modules``, because this gate is also loaded under a
+    synthetic name that was never registered there.
+    """
+
+    cached = globals().get("ClaudeContinuationAdapter", _UNLOADED)
+    if cached is not _UNLOADED:
+        return cached
+    return __getattr__("ClaudeContinuationAdapter")
+
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 GATED_TOOLS = EDIT_TOOLS | BASH_TOOLS
@@ -711,17 +753,14 @@ def decide(payload: dict) -> int:
         # the mutation checkpoint. Do not turn that registry race into an
         # uncheckpointed edit.
         return deny(deny_reason(root, session_id))
-    if (
-        tool in EDIT_TOOLS
-        and
-        ClaudeContinuationAdapter is not None
-        and is_run_local_continuation_evidence(root, evidence)
-    ):
-        continuation_reason = ClaudeContinuationAdapter.pre_mutation(
-            payload, root=root, cwd=cwd, session_id=session_id
-        )
-        if continuation_reason:
-            return deny(continuation_reason)
+    if tool in EDIT_TOOLS and is_run_local_continuation_evidence(root, evidence):
+        adapter = continuation_adapter()
+        if adapter is not None:
+            continuation_reason = adapter.pre_mutation(
+                payload, root=root, cwd=cwd, session_id=session_id
+            )
+            if continuation_reason:
+                return deny(continuation_reason)
     record_edit_activity(root, session_id)
     record_session_project(root, session_id)
     return allow()

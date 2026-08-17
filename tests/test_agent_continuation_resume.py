@@ -207,6 +207,69 @@ class UnregisteredPacketTests(unittest.TestCase):
             self.assertEqual(3, listing["unregistered_packets"])
 
 
+class ListingCostTests(unittest.TestCase):
+    """Work a listing repeats is work every session start waits for.
+
+    These pin the two shapes, not the milliseconds: one capture of a state
+    that cannot differ between packets, and no question asked about a packet
+    that is not there.
+    """
+
+    def test_the_checkout_state_is_captured_once_for_the_whole_listing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first = free_fixture(directory, "the first run")
+            for index in range(3):
+                free_fixture(directory, f"run {index}", project=first.project, rules=first.rules)
+            captures: list[int] = []
+            real = agent_continuation_resume.git_states_for_paths
+
+            def counted(*args, **keywords):
+                captures.append(1)
+                return real(*args, **keywords)
+
+            with patch.object(agent_continuation_resume, "git_states_for_paths", counted):
+                listing = resume_list(first.project)
+
+            self.assertEqual(4, len(listing["entries"]))
+            self.assertEqual(1, len(captures))
+
+    def test_a_run_with_no_packet_is_never_read_or_proved(self) -> None:
+        """Proving a packet's boundary asks Git; absence needs no answer."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "the run with a packet")
+            legacy = Fixture(directory, project=fixture.project, rules=fixture.rules)
+            reads: list[str] = []
+            real = agent_continuation_resume.read_continuation_packet
+
+            def counted(project, path):
+                reads.append(path.parent.name)
+                return real(project, path)
+
+            with patch.object(agent_continuation_resume, "read_continuation_packet", counted):
+                listing = resume_list(fixture.project)
+
+            self.assertEqual([fixture.run_id], reads)
+            self.assertEqual(
+                "legacy_no_packet",
+                entry_for(listing["entries"], legacy.run_id)["status"],
+                "the packet-less run is still listed, just not read",
+            )
+
+    def test_a_symlinked_packet_path_still_reaches_the_boundary_proof(self) -> None:
+        """A redirect is not an absence, and must not be skipped as one."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "the redirected packet")
+            path = continuation_path(fixture.project, fixture.run_id)
+            path.unlink()
+            path.symlink_to(Path(directory) / "outside.json")
+
+            entry = entry_for(resume_list(fixture.project)["entries"], fixture.run_id)
+
+            self.assertEqual("local_boundary_failed", entry["status"])
+
+
 class ReadOnlyTests(unittest.TestCase):
     """Listing reports; only resuming may take what it inspected."""
 

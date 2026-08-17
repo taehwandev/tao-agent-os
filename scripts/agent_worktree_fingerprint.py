@@ -6,9 +6,8 @@ import hashlib
 import os
 import stat
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from agent_worktree_scan import (
     UntrackedBudget,
@@ -25,8 +24,15 @@ MAX_UNTRACKED_BYTES = 256 * 1024 * 1024
 MAX_CAPTURE_ATTEMPTS = 2
 
 
-@dataclass(frozen=True)
-class WorktreeSnapshot:
+class WorktreeSnapshot(NamedTuple):
+    """Two digests that always travel together, and never separately change.
+
+    A frozen dataclass said the same thing, but `dataclasses` pulls `inspect`,
+    and this module sits under the run registry that the pre-tool gate loads
+    on every single tool call -- about 3 ms of import for two immutable
+    strings. `typing` is already imported here, so this costs nothing new.
+    """
+
     fingerprint: str
     signature: str
 
