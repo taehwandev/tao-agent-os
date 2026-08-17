@@ -50,6 +50,10 @@ TRANSFER_CANCELLABLE_RUN_STATES = frozenset(
 LEDGER_WRITABLE_RUN_STATES = frozenset(
     {*ACTIVE_RUN_STATES, CLAIMING_RUN_STATE, "failed", "reconcile_required"}
 )
+# The complement: records that owe nothing further, so the bounded history
+# below drops them first. `failed` and `reconcile_required` are not settled --
+# both are states a run is recovered from, and a recovery needs its record.
+SETTLED_RUN_STATES = frozenset({"completed", "cancelled"})
 # The registry's shared stale window, repeated here as a name so the owner-less
 # compatibility path is bounded by the same number the sweep uses.
 DEFAULT_STALE_AFTER_SECONDS = 3600
@@ -831,8 +835,36 @@ def _register_locked(
         item for item in payload["runs"] if item.get("run_id") != run["run_id"]
     ]
     payload["runs"].append(run)
-    payload["runs"] = payload["runs"][-MAX_RUNS:]
+    payload["runs"] = _bounded_history(payload["runs"])
     return run, True
+
+
+def _bounded_history(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the history bounded, dropping settled records before open ones.
+
+    Age alone was the rule, and age is the wrong one: a record is what the
+    claim and checkpoint paths compare an owner and a generation against, so
+    evicting a run that is still open strands it. Its session's next checkpoint
+    raises ``unknown_run``, its packet can never be claimed, and nothing says
+    so -- the work simply stops being reachable. One checkout working ten
+    sessions at once reaches a hundred registrations quickly, which is exactly
+    where several runs are open at the same time.
+
+    A settled record is finished evidence and losing it costs nothing a claim
+    needs. Open runs are dropped only when they alone exceed the bound, which
+    keeps the file bounded no matter what a checkout does.
+    """
+
+    excess = len(runs) - MAX_RUNS
+    if excess <= 0:
+        return runs
+    kept: list[dict[str, Any]] = []
+    for item in runs:
+        if excess > 0 and str(item.get("state")) in SETTLED_RUN_STATES:
+            excess -= 1
+            continue
+        kept.append(item)
+    return kept[-MAX_RUNS:]
 
 
 def _require_current_process_claim_owner(run: dict[str, Any]) -> None:
