@@ -14,6 +14,23 @@ from agent_finish_final_checks import reusable_review_workflow_validation, run_f
 
 
 class AgentFinishFinalChecksTests(unittest.TestCase):
+    """Final-check behaviour, decided by the arguments and nothing else.
+
+    These tests pass ``ROOT`` as the project, so the repository's own review
+    cache under ``.tao`` was read as real input: a run that had just recorded a
+    review made the cached result stand in for the patched validation, and the
+    same test passed or failed depending on what the checkout had been doing.
+    Every test that does not set the cache up itself neutralises it here.
+    """
+
+    def setUp(self) -> None:
+        cache = patch(
+            "agent_finish_final_checks.reusable_review_workflow_validation",
+            return_value=None,
+        )
+        self._cache = cache.start()
+        self.addCleanup(cache.stop)
+
     def test_reusable_review_path_escape_is_rejected_without_raising(self) -> None:
         digest = "0" * 64
         state = {

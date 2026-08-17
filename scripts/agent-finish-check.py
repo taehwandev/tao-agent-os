@@ -408,6 +408,7 @@ def _revalidate_review_attestation_after_final_checks(
     gate_evidence: dict[str, str],
     gate_evidence_ledger: dict[str, Any],
     missed_gates: list[str],
+    gate_signals: list[dict[str, str]],
     failures: list[str],
 ) -> None:
     """Close drift between the initial gate merge and the final checks."""
@@ -423,8 +424,23 @@ def _revalidate_review_attestation_after_final_checks(
         gate_evidence_ledger=gate_evidence_ledger,
         failures=failures,
     )
-    if REVIEW_HOOK_GATE not in gate_evidence:
-        missed_gates.append(REVIEW_HOOK_GATE)
+    if REVIEW_HOOK_GATE in gate_evidence:
+        return
+    missed_gates.append(REVIEW_HOOK_GATE)
+    # The SUCCESS recorded before the final checks describes an attestation
+    # that has just been rejected, and it was left in the reported signals: the
+    # run failed while still advertising the review gate as passed. Drop the
+    # stale row and state the outcome the revalidation reached.
+    gate_signals[:] = [
+        signal for signal in gate_signals if signal.get("gate") != REVIEW_HOOK_GATE
+    ]
+    add_gate_signal(
+        gate_signals,
+        "FAIL",
+        REVIEW_HOOK_GATE,
+        "failed",
+        "review attestation no longer matched after the final checks",
+    )
 
 
 def main() -> int:
@@ -477,7 +493,7 @@ def main() -> int:
     )
     _revalidate_review_attestation_after_final_checks(
         route, project, rules, evidence_path, gate_evidence,
-        gate_evidence_ledger, missed_gates, failures,
+        gate_evidence_ledger, missed_gates, gate_signals, failures,
     )
     retrospective_required, retrospective_lesson, skill_followup = process_closeout_learning(
         preflight=preflight,
