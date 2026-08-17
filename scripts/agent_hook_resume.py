@@ -117,6 +117,12 @@ def _resume_list(args: argparse.Namespace) -> int:
     result = resume_list(args.project, rules=args.rules)
     entries = result["entries"]
     details = [f"unfinished continuation packets: {len(entries)}"]
+    unregistered = int(result.get("unregistered_packets") or 0)
+    if unregistered:
+        details.append(
+            f"packets whose run the registry no longer records: {unregistered}; "
+            "they cannot be claimed or checkpointed and are not listed above"
+        )
     details.extend(_entry_line(entry) for entry in entries[:LISTED_ENTRY_LIMIT])
     if len(entries) > LISTED_ENTRY_LIMIT:
         details.append(f"listed packets truncated: {len(entries) - LISTED_ENTRY_LIMIT} more")

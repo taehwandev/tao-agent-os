@@ -109,6 +109,29 @@ class ListTests(unittest.TestCase):
             self.assertEqual(before, project_bytes(fixture.project))
             self.assertGreaterEqual(len(before), 3)
 
+    def test_packets_the_registry_no_longer_records_are_counted_not_hidden(self) -> None:
+        """Withdrawing candidacy is not the same as pretending they are gone."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "the run still on record")
+            dropped = free_fixture(
+                directory, "a dropped run", project=fixture.project, rules=fixture.rules
+            )
+            path = registry_path(fixture.project)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["runs"] = [
+                run for run in payload["runs"] if run["run_id"] != dropped.run_id
+            ]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            code, output = run_resume(fixture.project, fixture.rules, "--list")
+
+            self.assertEqual(0, code)
+            self.assertIn("unfinished continuation packets: 1", output)
+            self.assertIn("the registry no longer records: 1", output)
+            self.assertIn("cannot be claimed", output)
+            self.assertNotIn(dropped.run_id, output)
+
     def test_an_invalid_packet_is_listed_without_rendering_its_prose(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = free_fixture(directory, "prose that must never be rendered")

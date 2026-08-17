@@ -607,6 +607,16 @@ Holder state is one of:
 Completed and cancelled runs are not unfinished candidates and never appear as
 `free`.
 
+A packet is a candidate only while the registry still records its run. The
+registry keeps a bounded run history, and a packet outlives the record pruned
+from under it, but a claim compares an owner and a generation that are then
+gone: claiming returns `claim_lost` and checkpointing returns `unknown_run`.
+Listing such a packet as `free` offers work nobody can take and pays a drift
+verification to offer it, which is what makes an old checkout's listing slow.
+They are reported as a count of packets whose run the registry no longer
+records -- withdrawn from candidacy, not hidden, because a packet that exists
+and can never be resumed is retention debt worth seeing.
+
 `tao-hook resume --last` selects the newest unfinished packet for this checkout,
 then attempts `claim_resume`. It never skips a blocked packet to resume an older
 task. `--run-id` names the candidate instead, which is what a checkout worked by

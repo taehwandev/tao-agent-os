@@ -128,6 +128,85 @@ class ListTests(unittest.TestCase):
             self.assertEqual([], resume_list(fixture.project)["entries"])
 
 
+def forget_run(fixture: Fixture, run_id: str) -> None:
+    """Prune one run from the registry the way its bounded history does."""
+
+    path = registry_path(fixture.project)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["runs"] = [run for run in payload["runs"] if run["run_id"] != run_id]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+class UnregisteredPacketTests(unittest.TestCase):
+    """The registry keeps a bounded history; packets outlive what it drops.
+
+    A packet whose record was pruned cannot be claimed -- the owner and
+    generation a claim compares against are gone, so it returns `claim_lost` --
+    and cannot be checkpointed either. Listing it as free advertised work
+    nobody could take, and paid a drift verification each time to advertise it.
+    """
+
+    def test_a_packet_whose_run_the_registry_dropped_is_not_a_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kept = free_fixture(directory, "the run still on record")
+            forgotten = free_fixture(
+                directory, "a run the registry no longer has", project=kept.project, rules=kept.rules
+            )
+            forget_run(kept, forgotten.run_id)
+
+            listing = resume_list(kept.project)
+
+            self.assertEqual([kept.run_id], [entry["run_id"] for entry in listing["entries"]])
+            self.assertEqual(1, listing["unregistered_packets"])
+            self.assertTrue(
+                continuation_path(kept.project, forgotten.run_id).is_file(),
+                "the packet is still on disk; only its candidacy is withdrawn",
+            )
+
+    def test_resume_never_selects_or_names_a_dropped_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kept = free_fixture(directory, "the run still on record")
+            forgotten = free_fixture(
+                directory,
+                "a run the registry no longer has",
+                project=kept.project,
+                rules=kept.rules,
+            )
+            forget_run(kept, forgotten.run_id)
+
+            newest = resume_last(kept.project)
+            named = resume_last(kept.project, run_id=forgotten.run_id)
+
+            self.assertEqual("ready", newest["result"])
+            self.assertEqual(kept.run_id, newest["run_id"], "the newest slot skips the dropped run")
+            self.assertEqual("not_found", named["result"])
+            self.assertEqual("run_id_not_unfinished", named["reason"])
+            self.assertNotIn("a run the registry no longer has", json.dumps(named))
+
+    def test_a_dropped_run_costs_no_drift_verification(self) -> None:
+        """Verifying drift is the expensive half, and it bought nothing here."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            kept = free_fixture(directory, "the run still on record")
+            for index in range(3):
+                dropped = free_fixture(
+                    directory, f"dropped {index}", project=kept.project, rules=kept.rules
+                )
+                forget_run(kept, dropped.run_id)
+            verified: list[int] = []
+            real = agent_continuation_resume.verify_drift
+
+            def counted(*args, **keywords):
+                verified.append(1)
+                return real(*args, **keywords)
+
+            with patch.object(agent_continuation_resume, "verify_drift", counted):
+                listing = resume_list(kept.project)
+
+            self.assertEqual(1, len(verified))
+            self.assertEqual(3, listing["unregistered_packets"])
+
+
 class ReadOnlyTests(unittest.TestCase):
     """Listing reports; only resuming may take what it inspected."""
 
