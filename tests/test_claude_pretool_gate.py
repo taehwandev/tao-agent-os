@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -937,6 +938,80 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 _os.environ.pop("TAO_CLAUDE_GATE_NEW_FILE_BUDGET", None)
             else:
                 _os.environ["TAO_CLAUDE_GATE_NEW_FILE_BUDGET"] = previous
+
+
+class ImportCostTests(unittest.TestCase):
+    """This gate runs in its own process on every gated tool call.
+
+    A session makes far more Bash calls than edits, and only an edit needs the
+    continuation adapter. Importing its checkpoint, drift and
+    worktree-fingerprint chain at module load put that cost on every call.
+    Loading is what is pinned here, in a fresh interpreter, because this test
+    module imports the same chain itself.
+    """
+
+    CHAIN = ("claude_continuation_hook", "agent_continuation_checkpoint")
+
+    def _loaded_chain(self, payload: dict, state_home: str) -> list[str]:
+        probe = "\n".join(
+            [
+                "import io, json, sys",
+                f"sys.path.insert(0, {str(ROOT / 'scripts')!r})",
+                "from contextlib import redirect_stdout",
+                "import claude_pretool_gate as gate",
+                f"payload = json.loads({json.dumps(json.dumps(payload))})",
+                "with redirect_stdout(io.StringIO()):",
+                "    gate.decide(payload)",
+                f"loaded = [m for m in {self.CHAIN!r} if m in sys.modules]",
+                "print(json.dumps(loaded))",
+            ]
+        )
+        # The gate records the session's project as it decides. Without its own
+        # state home this probe writes into the real one, where another test is
+        # entitled to find nothing.
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, STATE_HOME_ENV: state_home},
+        )
+        return json.loads(completed.stdout)
+
+    def test_a_bash_call_does_not_load_the_continuation_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
+            project = _opt_in_project(Path(tmp))
+
+            loaded = self._loaded_chain(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "import-cost-session",
+                    "tool_input": {"command": "git status --short"},
+                },
+                state,
+            )
+
+        self.assertEqual([], loaded)
+
+    def test_an_edit_still_loads_the_adapter_it_needs(self) -> None:
+        """Laziness that never loads is a feature quietly removed."""
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project, "import-cost-session")
+
+            loaded = self._loaded_chain(
+                {
+                    "tool_name": "Write",
+                    "cwd": str(project),
+                    "session_id": "import-cost-session",
+                    "tool_input": {"file_path": str(project / "note.md")},
+                },
+                state,
+            )
+
+        self.assertEqual(sorted(self.CHAIN), sorted(loaded))
 
 
 class ClaudePreToolGateSetupTests(unittest.TestCase):
