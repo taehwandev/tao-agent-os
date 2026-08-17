@@ -125,6 +125,29 @@ class AgentReviewPurposeTests(unittest.TestCase):
             top_level_declaration_failures(Path("src/ClickThrottle.kt"), current),
         )
 
+    def test_kotlin_state_helpers_with_request_verb_do_not_mix_data_role(self) -> None:
+        current = declarations(
+            """
+            internal class PinnedTabsState
+
+            internal fun rememberPinnedTabsState() = PinnedTabsState()
+
+            internal fun resolvePinnedTabsVisibilityRequest() = true
+
+            internal fun areOriginalTabsVisible() = false
+            """,
+            Path("src/PinnedTabsState.kt"),
+        )
+
+        self.assertEqual(
+            ["state", "state", None, None],
+            [declaration["role"] for declaration in current],
+        )
+        self.assertEqual(
+            [],
+            top_level_declaration_failures(Path("src/PinnedTabsState.kt"), current),
+        )
+
     def test_kotlin_extensions_on_one_receiver_form_one_owner_family(self) -> None:
         current = declarations(
             """

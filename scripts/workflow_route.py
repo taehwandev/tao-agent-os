@@ -688,6 +688,10 @@ def _review_hook_command(command: str) -> str:
         "--code-review-evidence \"<evidence>\" "
         "--docs-freshness-evidence \"<evidence>\" "
         "[--allow-vibeguard-review \"<reason for acceptable Needs review>\"] "
+        "[for destructive no-diff branch/worktree cleanup replace the scope with: "
+        "--review-scope repo-hygiene] "
+        "[for an existing commit replace the scope with: --review-scope commit-range "
+        "--review-base <base-ref> --review-head <head-ref>] "
     )
     if command in {"commit", "git_commit"}:
         return base + "[--review-path <commit-owned-path>]"

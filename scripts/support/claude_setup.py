@@ -29,7 +29,8 @@ from support.setup_config_files import merge_permissions_allow, quote, read_json
 _BASELINE_COMMAND_RE = re.compile(
     r"(?:workflow\.py.*route|workflow\s+route).*triage.*(?:--advisory|--request-classified)"
 )
-_PRETOOL_GATE_MATCHER = "Edit|Write|MultiEdit|NotebookEdit"
+_EDIT_TOOL_MATCHER = "Edit|Write|MultiEdit|NotebookEdit"
+_PRETOOL_GATE_MATCHER = f"{_EDIT_TOOL_MATCHER}|Bash"
 _PRETOOL_GATE_ALIAS = "claude-pretool-gate"
 _STOP_GATE_ALIAS = "claude-stop-gate"
 
@@ -87,7 +88,7 @@ def configure_claude(
             target,
             dry_run=dry_run,
             launcher_path=launcher_path,
-            matcher=_PRETOOL_GATE_MATCHER,
+            matcher=_EDIT_TOOL_MATCHER,
         )
     )
 

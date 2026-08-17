@@ -88,6 +88,32 @@ Use the lowest layer that owns the decision:
   at least two credible call sites or a foundational primitive need, examples or
   previews, and migration guidance for old usage.
 
+## Caller and visual-variant gate
+
+Before changing a shared card, footer, metadata row, button, token, or default,
+write a caller/variant inventory. The inventory must identify the reference
+frame, current owner, data owner, affected callers, unchanged callers, and the
+visual evidence that will be used for each caller.
+
+- Similar screenshots are not proof of a shared contract. Confirm the same
+  slots, state model, action ownership, sizing rules, and accessibility
+  behavior before commonizing or changing a shared component.
+- A requirement that belongs to one card type stays in that product pattern or
+  caller. Do not change a shared primitive to repair one screenshot when the
+  other callers have not been checked.
+- Keep semantically different fields in separate slots. Name, id, subtitle,
+  count, and action buttons must not be joined with newline characters or
+  invisible string padding to imitate a layout.
+- Figma sample heights are not a text-container contract. Text surfaces grow
+  from content and padding; fixed `height()`/`size()` is a review blocker when
+  it can clip title, metadata, localization, or accessibility text. Use a
+  minimum height only when it is an explicit component contract.
+- Server-owned colors, labels, and options remain caller/data-model inputs. A
+  screenshot is not permission to hardcode or promote them to global tokens.
+
+The shared-component change is not ready until both the changed caller and the
+unchanged callers have focused examples, previews, tests, or visual evidence.
+
 ## Component Structure
 
 Reusable UI must have an explicit home. Put design-system primitives and

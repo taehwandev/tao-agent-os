@@ -28,3 +28,15 @@ Use when routed to `docs/skills/agent-runtime-integration/SKILL.md` or when work
 
 - If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
 - If detailed guidance changes, validate links and frontmatter for `references/current-guidance.md`.
+
+## Required-document drift recovery
+
+- If finish reports that a required document changed during the run, stop before
+  final reporting and record a documentation-success receipt for each affected
+  route-relative document.
+- The receipt must include `decision=updated`,
+  `artifact_receipt_version=1`, `baseline_sha256`, `final_sha256`, and
+  `final_size_bytes`; then run the prescribed repair verification and resume
+  from the first failed checkpoint.
+- Do not bypass the required-document snapshot or treat a successful code
+  review as sufficient evidence for finish while the receipt is missing.

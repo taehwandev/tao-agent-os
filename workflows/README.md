@@ -186,7 +186,13 @@ the update.
   filters when the installed
   VibeGuard CLI supports them. The read-only self-check still compares the full
   worktree before and after the hook so scoped reviews cannot hide
-  out-of-scope mutations. On `FAIL`, it must explain the exact failing
+  out-of-scope mutations. For an already committed subject, use
+  `--review-scope commit-range --review-base <base> --review-head <head>`.
+  Both refs are resolved to immutable commit SHAs, the ordered range must be
+  non-empty, and code, structure, diff hygiene, and VibeGuard checks run against
+  that exact committed tree in an isolated local clone. The run-local review
+  attestation binds the two SHAs and finish recomputes their changed paths.
+  On `FAIL`, it must explain the exact failing
   check, threshold, affected path or line when available, and recovery action.
   Follow the canonical repair cycle, improve and verify the owning
   Tao Agent OS surface, fix scoped and safe failures outside the hook, then

@@ -21,7 +21,8 @@ def state_lock(path: Path) -> Iterator[None]:
 
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_name(f".{path.name}.lock")
+    lock_name = f"{path.name}.lock" if path.name.startswith(".") else f".{path.name}.lock"
+    lock_path = path.with_name(lock_name)
     with lock_path.open("a+b") as lock_file:
         if fcntl is not None:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)

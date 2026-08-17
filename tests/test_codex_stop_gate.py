@@ -47,9 +47,7 @@ class CodexStopGateTests(unittest.TestCase):
             nested.mkdir()
             (nested / "AGENTS.md").write_text("nested tao docs\n", encoding="utf-8")
 
-            self.assertEqual(
-                project.resolve(), gate._find_project_root(nested.resolve())
-            )
+            self.assertEqual(project.resolve(), gate.find_project_root(nested.resolve()))
 
     def test_active_exact_session_is_continued_for_closeout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

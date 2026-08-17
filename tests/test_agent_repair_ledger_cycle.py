@@ -217,6 +217,130 @@ class RepairLedgerCycleTests(unittest.TestCase):
         self.assertIn("do not run repair-verify", joined_details)
         self.assertNotIn("actionable retrospective", joined_details)
 
+    def test_refreshable_review_drift_retries_review_without_runtime_repair(self) -> None:
+        policy, details = hook_failure_policy(
+            success=False,
+            repair_cycle=0,
+            refreshable_failure=True,
+        )
+
+        self.assertEqual("refresh_review_and_retry_finish", policy["next_action"])
+        self.assertEqual("fresh_worktree_review", policy["recovery_required"])
+        self.assertEqual("review hook", policy["resume_scope"])
+        joined_details = " ".join(details)
+        self.assertIn("rerun the review hook", joined_details)
+        self.assertIn("do not run repair-verify", joined_details)
+        self.assertNotIn("actionable retrospective", joined_details)
+
+    def test_settled_review_requests_fresh_lifecycle_without_runtime_repair(self) -> None:
+        policy, details = hook_failure_policy(
+            success=False,
+            repair_cycle=0,
+            fresh_start_required=True,
+        )
+
+        self.assertEqual("fresh_start_and_rerun_review", policy["next_action"])
+        self.assertEqual("fresh_lifecycle", policy["recovery_required"])
+        self.assertEqual("review hook", policy["resume_scope"])
+        joined_details = " ".join(details)
+        self.assertIn("new start/preflight", joined_details)
+        self.assertIn("do not run repair-verify", joined_details)
+        self.assertNotIn("actionable retrospective", joined_details)
+
+    def test_finish_wrapper_recognizes_review_drift_as_the_only_failure(self) -> None:
+        self.assertTrue(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "Retrospective required: false\n"
+                        "FAIL: review hook attestation project worktree binding is stale\n"
+                        "FAIL: missing required gate evidence: review hook\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+        self.assertTrue(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "Retrospective required: true\n"
+                        "FAIL: review hook attestation rules worktree binding is stale\n"
+                        "FAIL: missing required gate evidence: review hook\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+        self.assertFalse(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "Retrospective required: true\n"
+                        "FAIL: review hook attestation project worktree binding is stale\n"
+                        "FAIL: workflow validate failed\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+
+    def test_finish_wrapper_recognizes_required_doc_drift_as_refreshable(self) -> None:
+        self.assertTrue(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "Retrospective required: true\n"
+                        "FAIL: execution capsule required doc size changed: guide.md\n"
+                        "FAIL: execution capsule required doc hash changed: guide.md\n"
+                        "FAIL: required-doc drift recovery: reread and refresh the route\n"
+                        "FAIL: retrospective repair is required before final report, commit, "
+                        "release, or handoff; refresh the route\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+        self.assertFalse(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "FAIL: execution capsule required doc hash changed: guide.md\n"
+                        "FAIL: workflow validate failed\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+
+    def test_finish_wrapper_recognizes_combined_review_and_required_doc_drift(self) -> None:
+        self.assertTrue(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "Retrospective required: true\n"
+                        "FAIL: review hook attestation project worktree binding is stale\n"
+                        "FAIL: review hook attestation rules worktree binding is stale\n"
+                        "FAIL: missing required gate evidence: review hook\n"
+                        "FAIL: execution capsule required doc size changed: review-guide.md\n"
+                        "FAIL: execution capsule required doc hash changed: review-guide.md\n"
+                        "FAIL: execution capsule required doc changed after documentation "
+                        "evidence: android-review.md\n"
+                        "FAIL: required-doc drift recovery: reread and refresh the route\n"
+                        "FAIL: retrospective repair is required before final report, commit, "
+                        "release, or handoff; refresh the route\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+
     def test_hook_success_after_repair_resumes_failed_checkpoint(self) -> None:
         policy, details = hook_failure_policy(success=True, repair_cycle=1)
 

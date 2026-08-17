@@ -111,12 +111,16 @@ def finish_with_result(
     repair_cycle: int,
     invocation_error: bool = False,
     pending_closeout: bool = False,
+    refreshable_failure: bool = False,
+    fresh_start_required: bool = False,
 ) -> int:
     policy, policy_details = hook_failure_policy(
         success,
         repair_cycle,
         invocation_error=invocation_error,
         pending_closeout=pending_closeout,
+        refreshable_failure=refreshable_failure,
+        fresh_start_required=fresh_start_required,
     )
     details = [*details, *policy_details]
     evidence = {
@@ -139,6 +143,8 @@ def hook_failure_policy(
     *,
     invocation_error: bool = False,
     pending_closeout: bool = False,
+    refreshable_failure: bool = False,
+    fresh_start_required: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     if success:
         next_action = "resume_failed_checkpoint" if repair_cycle else "continue"
@@ -147,6 +153,19 @@ def hook_failure_policy(
             "repair_cycle_limit": REPAIR_CYCLE_LIMIT,
             "next_action": next_action,
         }, []
+    if fresh_start_required:
+        return {
+            "repair_cycle": repair_cycle,
+            "repair_cycle_limit": REPAIR_CYCLE_LIMIT,
+            "next_action": "fresh_start_and_rerun_review",
+            "recovery_required": "fresh_lifecycle",
+            "resume_scope": "review hook",
+        }, [
+            "fresh-start request: the bound run is already settled and must remain immutable. "
+            "Carry the same bounded objective and approvals into a new start/preflight, then "
+            "rerun review against the current worktree. This is lifecycle rollover, not a Tao "
+            "Agent Runtime repair; do not run repair-verify",
+        ]
     if invocation_error:
         # The call was rejected before the lifecycle started, so no checkpoint
         # failed and none can be repaired. Demanding a repair receipt here is a
@@ -173,6 +192,19 @@ def hook_failure_policy(
             "same-closeout skill-draft, skill-review, and verified skill-maintenance "
             "steps, then retry finish. This is expected closeout work, not a Tao Agent OS repair cycle; "
             "do not run repair-verify",
+        ]
+    if refreshable_failure and repair_cycle == 0:
+        return {
+            "repair_cycle": repair_cycle,
+            "repair_cycle_limit": REPAIR_CYCLE_LIMIT,
+            "next_action": "refresh_review_and_retry_finish",
+            "recovery_required": "fresh_worktree_review",
+            "resume_scope": "review hook",
+        }, [
+            "refresh request: the worktree or rules changed after a successful review. "
+            "Reconcile the intended change in its owning worktree, rerun the review hook, "
+            "then retry finish. This is stale review evidence, not a Tao Agent OS "
+            "repair; do not run repair-verify",
         ]
     if repair_cycle < REPAIR_CYCLE_LIMIT:
         return {

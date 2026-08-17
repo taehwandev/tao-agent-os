@@ -265,7 +265,7 @@ prohibition an implementation can violate silently is not a boundary.
 
 ### Checkable Project-Local, Never-Sync Boundary
 
-Version 1 makes this a Tao-owned boundary with four independently testable
+Version 1 makes this a Tao Agent OS-owned boundary with four independently testable
 controls:
 
 1. **Canonical containment.** Resolve the project root and packet parent without
@@ -279,7 +279,7 @@ controls:
    tracked or merely untracked-but-not-ignored packet is `local_boundary_failed`,
    not a warning. In a supported non-Git workspace, the equivalent repo-local
    state policy must explicitly classify `.tao/runs/` as local-only.
-3. **Outbound deny rule.** Every Tao-owned sync, export, publish, IPC,
+3. **Outbound deny rule.** Every Tao Agent OS-owned sync, export, publish, IPC,
    telemetry, global-lesson, execution-capsule, diagnostic, and artifact
    collection boundary rejects both the packet schema id and paths under
    `.tao/runs/*/continuation.json`. Absence from an allowlist is necessary but
@@ -295,10 +295,10 @@ controls:
 `project_local_never_sync`, so boundary checks are inspectable. It is a label,
 not proof; the path, Git, outbound, and filesystem checks provide the proof.
 
-Tao cannot promise that unrelated software with arbitrary filesystem access
+Tao Agent OS cannot promise that unrelated software with arbitrary filesystem access
 will never read or upload a local file. The enforceable promise is narrower and
-explicit: no Tao-owned path writes the packet outside its canonical local
-location, admits it to Git, or sends it through a Tao-owned outbound boundary.
+explicit: no Tao Agent OS-owned path writes the packet outside its canonical local
+location, admits it to Git, or sends it through a Tao Agent OS-owned outbound boundary.
 
 ### Structurally Bounded Content
 
@@ -559,12 +559,14 @@ work after drift.
 The logical CLI surface is:
 
 ```text
-tao checkpoint --checkpoint-kind <initial|pre_mutation|post_mutation|decision|lifecycle|stop>
+tao-hook checkpoint --checkpoint-kind <initial|pre_mutation|post_mutation|decision|lifecycle|stop>
   [--phase <phase>] [--last-completed <checkpoint>]
   [--mutation-kind <enum> --mutation-path <relative-path> ...]
   [--work-stdin]
-tao resume --list
-tao resume --last
+tao-hook resume --list
+tao-hook resume --last
+tao-hook cancel --evidence <SOURCE_PREFLIGHT> \
+  --replacement-evidence <COMPLETED_LINKED_WORKTREE_PREFLIGHT>
 ```
 
 The installed stable launcher may expose these as aliases, but all call the
@@ -579,7 +581,7 @@ caller supplies an exact run-local evidence binding, mutation enum, and bounded
 relative path set. Lifecycle callers may still use their separate best-effort
 wrapper after their own gate outcome is already decided.
 
-`tao resume --list` is read-only. It enumerates canonical packets for the
+`tao-hook resume --list` is read-only. It enumerates canonical packets for the
 current selected checkout only and reports:
 
 - opaque run id and route command;
@@ -602,7 +604,7 @@ Holder state is one of:
 Completed and cancelled runs are not unfinished candidates and never appear as
 `free`.
 
-`tao resume --last` selects the newest unfinished packet for this checkout,
+`tao-hook resume --last` selects the newest unfinished packet for this checkout,
 then attempts `claim_resume`. It never skips a blocked newest packet to resume
 an older task. On success it returns a closed machine-readable result containing
 the opaque run id, canonical evidence locator, route command, bounded work
@@ -629,6 +631,14 @@ Human output may add repair guidance, but JSON output uses only these result
 codes and bounded fields. Exit status is zero only for `ready` and a successful
 `--list`; every refusal is nonzero.
 
+`cancel` is the narrow transferred-work terminal path from the transition table,
+not a gate bypass. It accepts only a clean main checkout whose exact request,
+runtime session, route, rules root, and Git common directory match a completed
+linked-worktree run. It preserves the source ledger and continuation packet,
+writes a content-free receipt, and moves only the source registry entry to
+`cancelled`. Dirty, unrelated, incomplete, unowned, malformed, or already
+terminal sources fail without changing either run.
+
 ## Runtime Adapter Requirements
 
 An adapter supplies three pieces of wiring and nothing else:
@@ -650,7 +660,7 @@ checks, decide takeover, select a different packet, weaken result codes, read
 packet JSON directly, or render an invalid packet's prose.
 
 Runtime-native conversation continuation remains separate. Claude, Codex, or
-another runtime may restore its own conversation, but Tao's packet is the
+another runtime may restore its own conversation, but Tao Agent OS's packet is the
 authority for project work state and may be used without the old conversation.
 
 The Claude adapter uses the common read-only active-session resolver. A start
@@ -739,7 +749,7 @@ non-negotiable, because they are the reason this feature exists:
   traversal, and symlinked run directory are each rejected.
 - **Never-sync boundary.** Make the exact packet path tracked or not ignored,
   then attempt both the fixed packet storage-class marker and canonical packet
-  path at every Tao-owned sync, export, publish, IPC, telemetry, global-lesson,
+  path at every Tao Agent OS-owned sync, export, publish, IPC, telemetry, global-lesson,
   execution-capsule, diagnostic, and artifact boundary. Each attempt must fail
   without rendering packet prose.
 - **Claude isolated evidence.** Bind a resumed session to a run-local preflight
@@ -768,7 +778,7 @@ the common protocol:
 
 1. common schema/validator, atomic storage, during-work checkpoint commands,
    registry `claim_resume`, drift verification, state machine, discovery,
-   retention, and `tao resume --last` / `--list`, with no runtime adapter;
+   retention, and `tao-hook resume --last` / `--list`, with no runtime adapter;
 2. the Claude adapter alone, including exact active-session evidence resolution
    for run-local preflight paths;
 3. Codex and AGY adapters, each thin wiring over the same commands.

@@ -64,6 +64,7 @@ ROLE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("testing", ("fixture", "fake", "spy", "mock", "stub", "assertion", "assertions", "subject", "matcher")),
     ("impl", ("impl", "implementation", "service", "manager", "handler", "worker", "job")),
 )
+FUNCTION_ROLE_EXCLUDED_PATTERNS = {"request", "response"}
 
 
 def purpose_failures(
@@ -172,6 +173,7 @@ def type_declaration(
     receiver: str | None = None,
     default_public: bool = False,
 ) -> dict[str, Any]:
+    role = role_for_declaration(kind, name)
     return {
         "kind": kind,
         "name": name,
@@ -180,8 +182,8 @@ def type_declaration(
         "private": bool(re.search(r"\bprivate\b", line)) or name.startswith("_"),
         "internal": bool(re.search(r"\binternal\b", line)),
         "exported": bool(re.search(r"\b(export|public|pub)\b", line)),
-        "role": role_for_name(name),
-        "owner": top_level_owner(kind, name, line, default_public=default_public),
+        "role": role,
+        "owner": top_level_owner(kind, name, line, role=role, default_public=default_public),
     }
 
 
@@ -203,6 +205,7 @@ def top_level_owner(
     kind: str,
     name: str,
     line: str,
+    role: str | None = None,
     default_public: bool = False,
 ) -> bool:
     if default_public and not re.search(r"\bprivate\b", line):
@@ -210,7 +213,7 @@ def top_level_owner(
     return (
         kind in TYPE_OWNER_KINDS
         or bool(re.search(r"\b(export|public|pub|internal)\b", line))
-        or role_for_name(name) is not None
+        or role is not None
         or component_or_hook_name(name)
     )
 
@@ -364,10 +367,31 @@ def mixed_roles_blocked(roles: list[str]) -> bool:
     return any(left in set(roles) and right in set(roles) for left, right in MIXED_ROLE_BLOCKS)
 
 
-def role_for_name(name: str) -> str | None:
+def role_for_declaration(kind: str, name: str) -> str | None:
+    excluded_patterns = (
+        FUNCTION_ROLE_EXCLUDED_PATTERNS
+        if kind in {"fn", "fun", "func", "function"}
+        else set()
+    )
+    return role_for_name(name, excluded_patterns=excluded_patterns)
+
+
+def role_for_name(name: str, excluded_patterns: set[str] | None = None) -> str | None:
+    excluded_patterns = excluded_patterns or set()
     normalized = re.sub(r"[^a-z0-9]", "", name.lower())
     tokens = set(re.findall(r"[a-z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name).replace("_", " ").replace("-", " ").lower()))
-    return next((role for role, patterns in ROLE_PATTERNS if any(pattern in tokens or (len(pattern) > 4 and pattern in normalized) for pattern in patterns)), None)
+    return next(
+        (
+            role
+            for role, patterns in ROLE_PATTERNS
+            if any(
+                pattern not in excluded_patterns
+                and (pattern in tokens or (len(pattern) > 4 and pattern in normalized))
+                for pattern in patterns
+            )
+        ),
+        None,
+    )
 
 
 def format_declarations(declarations: list[dict[str, Any]]) -> str:

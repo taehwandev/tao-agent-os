@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Claude Code PreToolUse gate for Tao Agent OS.
 
-This gate enforces two things a purely advisory bridge cannot, at the only point
-that actually stops the model -- the moment it calls an edit tool:
+This gate enforces three things a purely advisory bridge cannot, at the only point
+that actually stops the model -- the moment it calls a mutating tool:
 
 1. Workflow entry. Nothing otherwise stops a file edit when the agent skipped the
    ``start`` hook, so the workflow is easy to ignore. The gate denies a file-edit
@@ -15,13 +15,19 @@ that actually stops the model -- the moment it calls an edit tool:
    collapsed or justified per file before more files are written. A recorded
    justification (the ack file) unlocks the rest of the session; the gate never
    hard-bricks and always fails open.
+3. Repo-declared worktree isolation. A project can track
+   ``.agents/shared/worktree-policy.json`` to require a linked worktree and
+   protect integration branches. The same rule applies to discrete edit tools
+   and to Bash commands that are not provably read-only or worktree bootstrap
+   commands.
 
 Contract (Claude Code PreToolUse hook):
 - Reads a JSON payload from stdin with ``tool_name``, ``cwd``, ``session_id``,
   and ``tool_input`` (``file_path`` for Write).
 - Prints a ``permissionDecision`` JSON object to allow or deny.
-- Only file-edit tools are gated; everything else and every unexpected error
-  fails open (exit 0, no output) so the gate can never brick ordinary editing.
+- File-edit tools and potentially mutating Bash calls are gated; everything else
+  and every unexpected error fails open (exit 0, no output) so the gate can never
+  brick ordinary editing.
 
 Requires a Claude Code that puts ``CLAUDE_CODE_SESSION_ID`` in the Bash
 subprocess environment (v2.1.128-v2.1.136, Week 19 2026), because that is what
@@ -50,6 +56,20 @@ try:  # The gate must never fail to load; the import is only used for a message.
         is_host_config_dir,
         is_project_state_dir,
         prefer_git_root,
+    )
+    from claude_worktree_gate import (
+        BASH_TOOLS,
+        MAIN_CHECKOUT_OVERRIDE_ENV,
+        REQUIRE_LINKED_WORKTREE_ENV,
+        WORKTREE_POLICY_PATH,
+        bash_command,
+        bash_command_kind,
+        bash_invocation,
+        git_common_dir,
+        has_unresolvable_expansion,
+        path_arguments,
+        raw_path_arguments,
+        worktree_denial,
     )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
@@ -82,8 +102,34 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
         return False
 
     ClaudeContinuationAdapter = None
+    BASH_TOOLS = {"Bash"}
+    MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
+    REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
+    WORKTREE_POLICY_PATH = Path(".agents/shared/worktree-policy.json")
+
+    def bash_command(payload: dict) -> str:
+        return ""
+
+    def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
+        return cwd, [], False
+
+    def raw_path_arguments(command: str) -> "list[Path]":
+        return []
+
+    def has_unresolvable_expansion(command: str) -> bool:
+        return False
+
+    def git_common_dir(root: Path) -> "Path | None":
+        return None
+
+    def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
+        return "mutating"
+
+    def worktree_denial(root: Path) -> str | None:
+        return None
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+GATED_TOOLS = EDIT_TOOLS | BASH_TOOLS
 # Only Write creates a file from nothing; Edit/MultiEdit require an existing
 # file, so new-file sprawl flows through Write.
 NEW_FILE_TOOLS = {"Write"}
@@ -324,10 +370,24 @@ def write_target_path(payload: dict, cwd: Path) -> Path | None:
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         return None
-    raw = tool_input.get("file_path")
+    # NotebookEdit names its target `notebook_path`; every other edit tool uses
+    # `file_path`. Reading only the latter made a notebook edit look like a tool
+    # with no target, so it was judged by the working directory alone and could
+    # rewrite a notebook inside a protected checkout from outside it.
+    raw = next(
+        (
+            tool_input[key]
+            for key in ("file_path", "notebook_path")
+            if isinstance(tool_input.get(key), str)
+        ),
+        None,
+    )
     if not isinstance(raw, str) or not raw.strip():
         return None
-    target = Path(raw)
+    try:
+        target = Path(raw)
+    except ValueError:
+        return None
     if not target.is_absolute():
         target = cwd / target
     return target
@@ -434,21 +494,208 @@ def sprawl_deny(tool: str, payload: dict, root: Path, cwd: Path, session_id: str
         return None
 
 
+def bash_governed_roots(
+    tokens: list[str], *cwds: Path, command: str = ""
+) -> list[Path]:
+    """Every protected project this command runs in or writes into.
+
+    Taking the first root and stopping let a session inside a linked worktree
+    write into the protected main checkout by naming it: the worktree is a
+    project, it answers the worktree policy, and the named target was never
+    reached. A command is governed by all of them, so each is returned and the
+    caller denies if any one denies.
+
+    The session's own directory is included alongside the effective one because
+    a `cd` prefix moves where the rest runs without releasing the checkout the
+    session was launched from.
+    """
+
+    roots: list[Path] = []
+    for cwd in cwds:
+        root = find_project_root(cwd)
+        if root is not None and root not in roots:
+            roots.append(root)
+    for cwd in cwds:
+        for root in bash_target_project_roots(tokens, cwd):
+            if root not in roots:
+                roots.append(root)
+    # A command that could not be tokenised leaves no arguments to inspect, so
+    # its raw text is read for absolute paths instead. Without this a heredoc
+    # or a substitution carried its `cd <protected>` prefix past the gate.
+    if not tokens and command:
+        for path in raw_path_arguments(command):
+            try:
+                root = _owning_project(path)
+            except UnresolvableTarget:
+                for unclaimable in _unclaimable_command_roots():
+                    if unclaimable not in roots:
+                        roots.append(unclaimable)
+                continue
+            if root is not None and root not in roots:
+                roots.append(root)
+    # When the shell will compute text this module cannot reproduce, no reading
+    # of that text locates the command. Enumerating spellings has no last move
+    # -- a quoted space, an escaped space, `${VAR%/}`, `$(echo ...)` each
+    # arrived after the previous was closed -- so the question becomes whether
+    # the targets can be claimed at all. They cannot, and the session's own
+    # declared project is the checkout such a command is most able to reach.
+    if command and has_unresolvable_expansion(command):
+        for root in _unclaimable_command_roots():
+            if root not in roots:
+                roots.append(root)
+    return roots
+
+
+def _declared_project_root() -> Path | None:
+    """The project the runtime says this session belongs to."""
+
+    declared = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
+    if not declared:
+        return None
+    try:
+        return find_project_root(Path(declared).expanduser().resolve())
+    except OSError:
+        return None
+
+
+def _unclaimable_command_roots() -> list[Path]:
+    """Every protected checkout an unlocatable command could reach.
+
+    Naming only the declared project answered for a session working inside a
+    linked worktree, which its own policy permits, and stopped there -- so a
+    command whose target could not be read was cleared by the one checkout that
+    was never at risk. A linked worktree and the main checkout it branched from
+    are the same repository, and the main checkout is the protected one, so an
+    unlocatable command is judged against both.
+    """
+
+    roots: list[Path] = []
+    declared = _declared_project_root()
+    if declared is not None:
+        roots.append(declared)
+    for root in list(roots):
+        main = _main_checkout_for(root)
+        if main is not None and main not in roots:
+            roots.append(main)
+    return roots
+
+
+def _main_checkout_for(root: Path) -> Path | None:
+    """The repository's main checkout, given any of its worktrees.
+
+    `git rev-parse` answers this when it can run, but it cannot when the
+    worktree's admin directory is missing -- and a worktree that git refuses to
+    describe is precisely the one whose main checkout still needs protecting.
+    The `.git` file states the link in text, so it is read directly when the
+    command gives no answer.
+    """
+
+    common = git_common_dir(root)
+    if common is not None:
+        try:
+            return find_project_root(common.parent.resolve())
+        except OSError:
+            return None
+    marker = root / ".git"
+    try:
+        link = marker.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError:
+        return None
+    if not link.startswith("gitdir:"):
+        return None
+    gitdir = link.split(":", 1)[1].strip()
+    separator = "/.git/worktrees/"
+    if separator not in gitdir:
+        return None
+    candidate = Path(gitdir.split(separator, 1)[0])
+    if not candidate.is_absolute():
+        candidate = (root / candidate).resolve()
+    try:
+        return find_project_root(candidate.resolve())
+    except OSError:
+        return None
+
+
+def bash_target_project_roots(tokens: list[str], cwd: Path) -> list[Path]:
+    """Protected projects named by the command's own path arguments."""
+
+    roots: list[Path] = []
+    for path in path_arguments(tokens):
+        try:
+            root = _owning_project(path if path.is_absolute() else cwd / path)
+        except UnresolvableTarget:
+            # Cannot answer where this writes, so it is judged like text the
+            # shell computes rather than skipped into an allow.
+            for unclaimable in _unclaimable_command_roots():
+                if unclaimable not in roots:
+                    roots.append(unclaimable)
+            continue
+        if root is not None and root not in roots:
+            roots.append(root)
+    return roots
+
+
+class UnresolvableTarget(Exception):
+    """A named target the filesystem refused to answer questions about."""
+
+
+def _owning_project(path: Path) -> Path | None:
+    """The project owning a named path, or a refusal to say.
+
+    A path too long for the filesystem, or one carrying a null byte, made
+    `resolve` and `exists` raise. Those errors escaped to `main`, whose whole
+    job is to fail open, so a crafted target turned a crash into an allow --
+    the one direction this gate must never move in. Raising a distinct error
+    lets the caller treat "cannot answer" as "cannot claim the target", which
+    is the same reading it already gives to text the shell computes.
+    """
+
+    try:
+        candidate = path.resolve()
+        while not candidate.exists() and candidate != candidate.parent:
+            candidate = candidate.parent
+    except (OSError, ValueError) as error:
+        raise UnresolvableTarget(str(path)[:64]) from error
+    return find_project_root(candidate)
+
+
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
     tool = payload.get("tool_name")
-    if tool not in EDIT_TOOLS:
+    if tool not in GATED_TOOLS:
         return allow()
     cwd_raw = payload.get("cwd") or os.getcwd()
     try:
         cwd = Path(cwd_raw).resolve()
     except OSError:
         return allow()
-    root = find_edit_project_root(payload, cwd)
+    bash_kind = ""
+    if tool in BASH_TOOLS:
+        effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
+        bash_kind = bash_command_kind(tokens, syntax_is_simple)
+        roots = bash_governed_roots(
+            tokens, effective_cwd, cwd, command=bash_command(payload)
+        )
+        root = roots[0] if roots else None
+    else:
+        root = find_edit_project_root(payload, cwd)
+        roots = [root] if root is not None else []
     if root is None:
         # Not an Tao Agent OS project; never block ordinary editing.
         return allow()
+    if tool in BASH_TOOLS and bash_kind in {"read_only", "bootstrap"}:
+        return allow()
+    # Every governed project, not just the first: a session inside a linked
+    # worktree satisfies its own policy while naming the protected checkout it
+    # was branched from, and taking the first answer let that through.
+    worktree_reason = next(
+        (reason for reason in map(worktree_denial, roots) if reason), None
+    )
+    if tool in BASH_TOOLS and bash_kind == "workflow_start":
+        return deny(worktree_reason) if worktree_reason else allow()
+    if worktree_reason:
+        return deny(worktree_reason)
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
         return deny(deny_reason(root, session_id))
@@ -465,6 +712,8 @@ def decide(payload: dict) -> int:
         # uncheckpointed edit.
         return deny(deny_reason(root, session_id))
     if (
+        tool in EDIT_TOOLS
+        and
         ClaudeContinuationAdapter is not None
         and is_run_local_continuation_evidence(root, evidence)
     ):

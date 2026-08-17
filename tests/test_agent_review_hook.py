@@ -59,9 +59,11 @@ from agent_review_hook import (
     review_hook,
     review_success_details,
     review_vibeguard_command,
+    settled_review_run_state,
     vibeguard_review_failure,
     workflow_validate_failure_detail,
 )
+from agent_run_registry import register_run, transition_run
 from agent_review_structure import structure_review
 from agent_vibeguard_cache import cached_vibeguard
 from support.agy_setup import AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES, _agy_runtime_bridge_block
@@ -164,6 +166,81 @@ class ReviewHookTests(unittest.TestCase):
             os.environ.pop("TAO_STATE_HOME", None)
         else:
             os.environ["TAO_STATE_HOME"] = self._old_state_home
+
+    def test_settled_review_run_state_reads_terminal_registry_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path = project / ".tao" / "runs" / "review" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            route = {"command": "review", "gates": ["review hook"]}
+            run = register_run(project, evidence_path, route, {})
+            evidence_path.write_text(
+                json.dumps({"agent_run_id": run["run_id"], "route": route}),
+                encoding="utf-8",
+            )
+            transition_run(
+                project,
+                evidence_path,
+                "completed",
+                run_id=run["run_id"],
+            )
+
+            state = settled_review_run_state(
+                SimpleNamespace(project=project, evidence=evidence_path)
+            )
+
+            self.assertEqual("completed", state)
+
+    def test_review_hook_requests_fresh_start_for_settled_run(self) -> None:
+        result_payload: dict[str, object] = {}
+
+        def unexpected_command(*_args: object, **_kwargs: object) -> object:
+            self.fail("settled review must stop before substantive checks")
+
+        def finish_with_result(
+            name: str,
+            success: bool,
+            details: list[str],
+            output: Path | None,
+            payload: dict[str, object],
+            repair_cycle: int,
+            **kwargs: object,
+        ) -> int:
+            result_payload.update(
+                name=name,
+                success=success,
+                details=details,
+                fresh_start_required=kwargs.get("fresh_start_required"),
+            )
+            return 0 if success else 1
+
+        args = SimpleNamespace(
+            project=ROOT,
+            evidence=ROOT / ".tao" / "settled-preflight.json",
+            output=None,
+            repair_cycle=0,
+        )
+        with (
+            patch("agent_review_hook.record_review_prerequisite_readiness"),
+            patch("agent_review_hook.settled_review_run_state", return_value="completed"),
+            patch("agent_review_hook.record_review_failure") as record_failure,
+        ):
+            result = review_hook(
+                args,
+                unexpected_command,
+                unexpected_command,
+                unexpected_command,
+                unexpected_command,
+                finish_with_result,
+            )
+
+        self.assertEqual(1, result)
+        self.assertFalse(result_payload["success"])
+        self.assertTrue(result_payload["fresh_start_required"])
+        self.assertTrue(
+            any("fresh start/preflight" in detail for detail in result_payload["details"])
+        )
+        record_failure.assert_not_called()
 
     def test_review_hook_rejects_missing_pre_review_gate_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -450,7 +527,13 @@ class ReviewHookTests(unittest.TestCase):
 
         def run_command(command: list[str], cwd: Path) -> dict[str, object]:
             if command[:3] == ["git", "status", "--short"]:
-                return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": "", "stderr": ""}
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": 0,
+                    "stdout": " M scripts/agent-hook.py\n",
+                    "stderr": "",
+                }
             if command[:3] == ["git", "rev-parse", "--verify"]:
                 return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": "abc\n", "stderr": ""}
             if command[:2] == ["git", "diff"]:
@@ -510,7 +593,8 @@ class ReviewHookTests(unittest.TestCase):
         self.assertEqual(1, result)
         self.assertFalse(outputs[0]["success"])
         self.assertTrue(
-            any("outside the review pathspec" in detail for detail in outputs[0]["details"])
+            any("outside the review pathspec" in detail for detail in outputs[0]["details"]),
+            outputs,
         )
 
     def test_review_hook_tolerates_omitted_structure_review_evidence(self) -> None:
@@ -585,122 +669,6 @@ class ReviewHookTests(unittest.TestCase):
             )
 
         self.assertTrue(outputs)
-
-    def test_review_hook_does_not_merge_boundary_plan_into_structure_evidence(self) -> None:
-        outputs: list[dict[str, object]] = []
-
-        def git_status(_project: Path) -> tuple[dict[str, object], list[str]]:
-            result = {
-                "command": ["git", "status", "--short", "--untracked-files=all"],
-                "cwd": str(ROOT),
-                "returncode": 0,
-                "stdout": "",
-                "stderr": "",
-            }
-            return result, []
-
-        def run_command(command: list[str], cwd: Path) -> dict[str, object]:
-            return {
-                "command": command,
-                "cwd": str(cwd),
-                "returncode": 0,
-                "stdout": "",
-                "stderr": "",
-            }
-
-        def finish_with_result(
-            name: str,
-            success: bool,
-            details: list[str],
-            output: Path | None,
-            payload: dict[str, object],
-            repair_cycle: int,
-            invocation_error: bool = False,
-        ) -> int:
-            outputs.append(
-                {
-                    "name": name,
-                    "success": success,
-                    "details": details,
-                    "payload": payload,
-                }
-            )
-            return 0 if success else 1
-
-        args = SimpleNamespace(
-            project=ROOT,
-            rules=ROOT,
-            evidence=None,
-            review_outcome="pass",
-            code_review_evidence="reviewed scoped change",
-            docs_freshness_evidence="reviewed affected workflow guidance",
-            structure_review_evidence="",
-            boundary_plan_evidence=(
-                "owner: domain; allowed imports: contracts; forbidden imports: ui; "
-                "callers/tests: app and domain tests; verification: focused tests"
-            ),
-            side_effect_audit_evidence="side-effect audit checked diff",
-            review_scope="working-tree",
-            review_path=[],
-            max_changed_paths=25,
-            max_source_file_lines=500,
-            max_function_lines=120,
-            output=None,
-            repair_cycle=0,
-        )
-        structure = {
-            "failures": [],
-            "warnings": [],
-            "boundary_note_requirements": [
-                {"package": "src/domain", "reason": "existing multi-role package"},
-            ],
-            "checked_path_count": 1,
-            "checked_paths": ["src/domain/owner.py"],
-            "scope": "working tree",
-            "max_added_lines": 300,
-        }
-
-        def record_workflow_validate(
-            _args: object, checks: dict[str, object], _failures: list[str]
-        ) -> None:
-            checks["workflow_validate"] = {"returncode": 0}
-
-        # The success path is stubbed as well, so a regression that merges the
-        # boundary field into the structure field fails on this test's own
-        # assertions rather than on a KeyError from evidence the patched
-        # helpers never recorded.
-        with (
-            patch("agent_review_hook.record_review_failure"),
-            patch("agent_review_hook.record_review_prerequisite_readiness"),
-            patch(
-                "agent_review_hook.record_review_workflow_validation",
-                side_effect=record_workflow_validate,
-            ),
-            patch("agent_review_hook.record_review_vibeguard"),
-            patch("agent_review_hook.record_successful_review_workflow_validation"),
-            patch("agent_review_hook.record_review_gate"),
-            patch("agent_review_hook.structure_review", return_value=structure),
-        ):
-            result = review_hook(
-                args,
-                run_command,
-                git_status,
-                lambda _project, _rules: ["vibeguard", "audit", "."],
-                lambda _output: "Ready",
-                finish_with_result,
-            )
-
-        self.assertEqual(1, result)
-        self.assertFalse(outputs[0]["success"])
-        self.assertEqual("", outputs[0]["payload"]["structure_review_evidence"])
-        self.assertIn("owner: domain", outputs[0]["payload"]["boundary_plan_evidence"])
-        self.assertTrue(
-            any(
-                "structure-review-evidence must explicitly include owner"
-                in detail
-                for detail in outputs[0]["details"]
-            )
-        )
 
     def test_review_failure_records_resumable_checkpoint(self) -> None:
         from agent_repair_ledger import checkpoint_has_recorded_failure
@@ -887,6 +855,10 @@ class ReviewHookTests(unittest.TestCase):
             [hook["hook"] for hook in route["hooks"]],
         )
         self.assertIn("--review-scope working-tree", review_hook["command"])
+        self.assertIn("--review-scope repo-hygiene", review_hook["command"])
+        self.assertIn("--review-scope commit-range", review_hook["command"])
+        self.assertIn("--review-base <base-ref>", review_hook["command"])
+        self.assertIn("--review-head <head-ref>", review_hook["command"])
         self.assertIn("--review-outcome <pass|findings>", review_hook["command"])
         self.assertIn("[--review-path <task-owned-path>]", review_hook["command"])
         self.assertIn("--allow-vibeguard-review", review_hook["command"])
@@ -899,6 +871,8 @@ class ReviewHookTests(unittest.TestCase):
 
         self.assertTrue(review_hook["required"])
         self.assertIn("--review-scope working-tree", review_hook["command"])
+        self.assertIn("--review-scope repo-hygiene", review_hook["command"])
+        self.assertIn("--review-scope commit-range", review_hook["command"])
         self.assertIn("[--review-path <commit-owned-path>]", review_hook["command"])
         self.assertIn("--code-review-evidence", review_hook["command"])
         self.assertIn("--review-outcome <pass|findings>", review_hook["command"])
@@ -955,6 +929,34 @@ class RaisedAdditionLimitEvidenceTests(unittest.TestCase):
         )
 
         self.assertEqual([], failures)
+
+
+class StructureReviewEvidenceInvocationTests(unittest.TestCase):
+    def test_missing_structure_review_evidence_is_a_correctable_invocation(self) -> None:
+        from agent_review_hook import (
+            review_input_invocation_failure,
+            review_input_invocation_failure_details,
+            structure_evidence_failures,
+        )
+
+        structure = {
+            "warnings": ["src/large.py is a changed development source/style file with 425 lines"],
+            "boundary_note_requirements": [],
+            "max_added_lines": 400,
+            "scope": "changed development files",
+            "checked_paths": ["src/large.py"],
+        }
+        failures = structure_evidence_failures(structure, "")
+
+        self.assertTrue(review_input_invocation_failure(failures))
+        details = review_input_invocation_failure_details(
+            failures,
+            structure,
+            "pathspec: src/large.py",
+        )
+        self.assertIn("--structure-review-evidence", details[-1])
+        self.assertIn("no lifecycle checkpoint failed", details[-1])
+        self.assertNotIn("repair-verify", " ".join(details))
 
 
 class ContentLossIsReviewableTests(unittest.TestCase):

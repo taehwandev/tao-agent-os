@@ -33,6 +33,7 @@ def run_final_checks(
     gate_signals: list[dict[str, str]],
     failures: list[str],
     read_only: bool = False,
+    intrinsically_read_only: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
     review_validation = reusable_review_workflow_validation(project, rules)
     validate = review_validation or run_workflow_validate(tao_root)
@@ -64,7 +65,21 @@ def run_final_checks(
                 ),
             }
             if review_validation
-            else run_command(["git", "diff", "--check"], project)
+            else (
+                {
+                    "command": ["git", "diff", "--check"],
+                    "cwd": str(project),
+                    "returncode": 0,
+                    "stdout": "",
+                    "stderr": "",
+                    "skipped": True,
+                    "review_note": (
+                        "intrinsically read-only analysis; pre-existing worktree diff check skipped"
+                    ),
+                }
+                if read_only and intrinsically_read_only
+                else run_command(["git", "diff", "--check"], project)
+            )
         )
     )
     vibeguard = (

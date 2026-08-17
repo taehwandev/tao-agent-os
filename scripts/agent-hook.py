@@ -11,11 +11,13 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from agent_gate_evidence import (
     FIELD_REQUIREMENTS,
+    gate_evidence_path_for_preflight,
     gate_field_enums,
     resync_gate_evidence_ledger,
 )
@@ -58,6 +60,7 @@ from agent_repair_ledger import (
     REBOUND as REPAIR_REBOUND,
     capture_failure_checkpoint_binding,
     checkpoint_failure_signature,
+    repair_checkpoint_path_for_preflight,
     rebind_failure_checkpoints_after_required_doc_refresh,
     release_repair_attempt,
 )
@@ -76,12 +79,14 @@ from agent_review_structure import (
 )
 from agent_run_registry import (
     claim_run,
+    release_run_claim,
     register_run,
     resume_run_for_closeout,
     touch_run,
     transition_run,
 )
 from agent_runtime_session import settle_superseded_session_runs
+from agent_transfer_cancel import cancel_transferred_run
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
     context_snapshot_failures_are_replaceable,
@@ -169,7 +174,13 @@ def start_hook(args: argparse.Namespace) -> int:
     details: list[str] = []
     success = False
     committed = False
+    refresh_snapshot: dict[Path, bytes | None] = {}
     try:
+        refresh_snapshot = _capture_preflight_refresh_state(
+            args,
+            evidence_path,
+            claim.get("run") or {},
+        )
         command = _preflight_arguments(args)
         result = run_script_main(ROOT / "scripts" / "agent-preflight.py", command, args.project)
         success = result["returncode"] == 0
@@ -202,7 +213,13 @@ def start_hook(args: argparse.Namespace) -> int:
                 )
     finally:
         if not committed:
-            release_error = _release_claimed_run(args, claim["run"])
+            restore_errors = _restore_preflight_refresh_state(refresh_snapshot)
+            details.extend(restore_errors)
+            release_error = _release_claimed_run(
+                args,
+                claim["run"],
+                restore_refresh=not restore_errors,
+            )
             if release_error:
                 details.append(release_error)
     return finish_with_result(
@@ -257,8 +274,24 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     if any(hook.get("hook") == "review" for hook in hooks):
         flags = required_review_evidence_flags(gates)
         lines.append("Review hook requires evidence paths: " + " ".join(flags))
+        lines.append(
+            "Review hook conditionally requires --structure-review-evidence when changed "
+            "development files exceed review-pressure or source-size limits."
+        )
+    lines.extend(_closeout_gate_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
     return lines
+
+
+def _closeout_gate_lines(gates: list[str]) -> list[str]:
+    """Advertise closeout gates that otherwise look like post-finish work."""
+
+    if "handoff" not in gates:
+        return []
+    return [
+        "Closeout gate reminder: record the user-facing handoff gate with gate or "
+        "gate-batch before finish; the worker handoff hook does not satisfy it."
+    ]
 
 
 def _structured_gate_field_lines(gates: list[str]) -> list[str]:
@@ -354,6 +387,54 @@ def finish_hook(args: argparse.Namespace) -> int:
         {"finish_check": result},
         args.repair_cycle,
         pending_closeout=result["returncode"] == 3,
+        refreshable_failure=_is_refreshable_finish_drift(result),
+    )
+
+
+def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
+    """Recognize finish failures that only require a fresh start/review."""
+
+    output = f"{result.get('stdout', '')}\n{result.get('stderr', '')}"
+    failure_lines = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip().startswith("FAIL:")
+    ]
+    refreshable_failures = {
+        "FAIL: review hook attestation project worktree binding is stale",
+        "FAIL: review hook attestation rules worktree binding is stale",
+        "FAIL: missing required gate evidence: review hook",
+    }
+    stale_review = any(
+        line in refreshable_failures and "binding is stale" in line
+        for line in failure_lines
+    )
+    stale_required_docs = any(
+        line.startswith(
+            (
+                "FAIL: execution capsule required doc size changed: ",
+                "FAIL: execution capsule required doc hash changed: ",
+                "FAIL: execution capsule required doc changed after documentation evidence: ",
+            )
+        )
+        for line in failure_lines
+    )
+    required_doc_refresh_lines = (
+        "FAIL: execution capsule required doc size changed: ",
+        "FAIL: execution capsule required doc hash changed: ",
+        "FAIL: execution capsule required doc changed after documentation evidence: ",
+        "FAIL: required-doc drift recovery: ",
+        "FAIL: retrospective repair is required before final report, commit, release, or handoff; ",
+    )
+    only_refreshable_drift = all(
+        line in refreshable_failures or line.startswith(required_doc_refresh_lines)
+        for line in failure_lines
+    )
+    return (
+        result.get("returncode") == 1
+        and bool(failure_lines)
+        and (stale_review or stale_required_docs)
+        and only_refreshable_drift
     )
 
 
@@ -379,7 +460,12 @@ def _claim_refusal_detail(claim: dict[str, Any]) -> str:
     return detail
 
 
-def _release_claimed_run(args: argparse.Namespace, run: dict[str, Any] | None) -> str:
+def _release_claimed_run(
+    args: argparse.Namespace,
+    run: dict[str, Any] | None,
+    *,
+    restore_refresh: bool = True,
+) -> str:
     """Give back the evidence path when the start that claimed it never began.
 
     The claim is taken before preflight so two starts cannot both win the path.
@@ -390,15 +476,72 @@ def _release_claimed_run(args: argparse.Namespace, run: dict[str, Any] | None) -
     if not run:
         return ""
     try:
-        released = transition_run(
+        released = release_run_claim(
             args.project,
             preflight_evidence_path(args),
-            "cancelled",
-            run_id=str(run.get("run_id") or "") or None,
+            str(run.get("run_id") or ""),
+            restore_refresh=restore_refresh,
         )
     except (OSError, RuntimeError, ValueError, TypeError) as error:
         return f"agent run claim cleanup failed: {type(error).__name__}"
     return "" if released is not None else "agent run claim cleanup failed: claim not found"
+
+
+def _capture_preflight_refresh_state(
+    args: argparse.Namespace,
+    evidence_path: Path,
+    claimed: dict[str, Any],
+) -> dict[Path, bytes | None]:
+    if not str(claimed.get("refresh_previous_state") or ""):
+        return {}
+    paths = (
+        evidence_path,
+        gate_evidence_path_for_preflight(evidence_path),
+        context_snapshot_path(args.project),
+        repair_checkpoint_path_for_preflight(evidence_path),
+    )
+    snapshot: dict[Path, bytes | None] = {}
+    for path in paths:
+        try:
+            snapshot[path] = path.read_bytes() if path.exists() else None
+        except OSError as error:
+            raise RuntimeError(
+                f"cannot preserve preflight refresh state: {path.name}"
+            ) from error
+    return snapshot
+
+
+def _restore_preflight_refresh_state(
+    snapshot: dict[Path, bytes | None],
+) -> list[str]:
+    failures: list[str] = []
+    for path, content in snapshot.items():
+        try:
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                _atomic_write_bytes(path, content)
+        except OSError:
+            failures.append(f"preflight refresh rollback failed: {path.name}")
+    return failures
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _register_started_run(
@@ -635,6 +778,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         "hook",
         choices=(
             "start",
+            "cancel",
             "handoff",
             "resume",
             "checkpoint",
@@ -781,15 +925,30 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
     )
     review.add_argument(
         "--review-scope",
-        choices=("working-tree", "pathspec"),
+        choices=("working-tree", "pathspec", "repo-hygiene", "local-config", "commit-range"),
         default="working-tree",
-        help="declare whether review covers the whole working tree or explicit --review-path pathspecs",
+        help=(
+            "declare whether review covers the whole working tree, explicit --review-path "
+            "pathspecs, a destructive no-diff branch/worktree cleanup, allowlisted "
+            "Git-ignored local agent config, or one exact --review-base..--review-head "
+            "commit range"
+        ),
     )
     review.add_argument(
         "--review-path",
         action="append",
         default=[],
         help="limit review hook changed-path, diff, and structure checks to this pathspec; repeat as needed",
+    )
+    review.add_argument(
+        "--review-base",
+        default="",
+        help="base commit ref for --review-scope commit-range; resolved to an immutable commit SHA",
+    )
+    review.add_argument(
+        "--review-head",
+        default="",
+        help="head commit ref for --review-scope commit-range; resolved to an immutable commit SHA",
     )
     review.add_argument(
         "--max-changed-paths",
@@ -824,6 +983,15 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
 def _add_finish_arguments(parser: argparse.ArgumentParser) -> None:
     finish = parser.add_argument_group("finish hook")
     finish.add_argument("--allow-vibeguard-review")
+
+
+def _add_cancel_arguments(parser: argparse.ArgumentParser) -> None:
+    cancel = parser.add_argument_group("transferred-run cancellation")
+    cancel.add_argument(
+        "--replacement-evidence",
+        type=existing_path,
+        help="completed linked-worktree preflight that replaced this clean source run",
+    )
 
 
 def _add_skill_feedback_arguments(parser: argparse.ArgumentParser) -> None:
@@ -908,6 +1076,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_checkpoint_arguments(parser)
     _add_review_arguments(parser)
     _add_finish_arguments(parser)
+    _add_cancel_arguments(parser)
     _add_skill_feedback_arguments(parser)
     _add_gate_arguments(parser)
     return parser
@@ -1090,6 +1259,10 @@ def main() -> int:
         if args.list_mode == args.last_mode:
             parser.error("resume requires exactly one of --list or --last")
         return resume_hook(args)
+    if args.hook == "cancel":
+        if not args.replacement_evidence:
+            parser.error("cancel requires --replacement-evidence")
+        return cancel_transferred_run(args)
     if args.hook == "checkpoint":
         return _run_checkpoint_hook(parser, args)
     if args.hook == "repair-verify":
@@ -1140,8 +1313,25 @@ def _checkpointed_hook(
         args.review_path = [path.strip() for path in args.review_path if path.strip()]
         if args.review_path and args.review_scope == "working-tree":
             args.review_scope = "pathspec"
-        if args.review_scope == "pathspec" and not args.review_path:
-            parser.error("review --review-scope pathspec requires at least one --review-path")
+        if args.review_scope in {"pathspec", "local-config"} and not args.review_path:
+            parser.error(
+                f"review --review-scope {args.review_scope} requires at least one --review-path"
+            )
+        if args.review_scope == "commit-range":
+            if args.review_path:
+                parser.error("review --review-scope commit-range does not accept --review-path")
+            if not str(getattr(args, "review_base", "") or "").strip() or not str(
+                getattr(args, "review_head", "") or ""
+            ).strip():
+                parser.error(
+                    "review --review-scope commit-range requires --review-base and --review-head"
+                )
+        elif str(getattr(args, "review_base", "") or "").strip() or str(
+            getattr(args, "review_head", "") or ""
+        ).strip():
+            parser.error(
+                "review --review-base and --review-head require --review-scope commit-range"
+            )
         return checkpoint_after_hook(
             args,
             review_hook(

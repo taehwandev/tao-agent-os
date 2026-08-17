@@ -47,6 +47,21 @@ forbidden; and which test or check proves the boundary.
   implementation dependencies, navigation/registration crosses the boundary, an
   implementation can be swapped, or the split removes cycle/build coupling.
 
+## Architectural Anchor & AI Navigation Boundary
+
+In AI-assisted development, architecture serves to bound the exploration scope:
+good structure tells the AI not only what to read, but what NOT to read.
+
+Maintain a clear architectural anchor by providing consistent answers across features:
+1. **Entrypoint**: Where does this capability begin?
+2. **State Mutation**: Which single owner performs the final state change?
+3. **Business Rules**: Where do domain invariants and policies live?
+4. **External Integration**: Where are APIs, databases, and SDKs adapted?
+5. **Public Contract**: What minimal subset is exposed to other features?
+6. **Verification**: Which scenario test proves correct execution?
+
+Enforce rules through structural mechanisms (module visibility, `internal` scope, compiler boundaries, and tests) rather than documentation alone, preventing AI from amplifying legacy patterns, bypassing layers, or creating competing state stores.
+
 ## Rules
 
 - UI renders state and sends user intent.
@@ -62,6 +77,9 @@ forbidden; and which test or check proves the boundary.
   platform's normal config mechanism, not scattered source literals.
 - One-off effects such as navigation, toast, focus, file download, permission
   prompts, and external launch should not be mixed with persistent UI state.
+- Keep layer count proportional to real responsibility: do not add passthrough
+  `UseCase -> Repository -> RepositoryImpl -> DataSource -> DataSourceImpl`
+  chains when an intermediate layer adds no policy, mapping, or test seam.
 
 ## Do Not
 

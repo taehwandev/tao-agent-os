@@ -146,8 +146,18 @@ def structure_review(
     run_command: CommandRunner,
     review_paths: list[str] | None = None,
     max_added_lines: int = REVIEW_ADDED_LINE_LIMIT,
+    source_project: Path | None = None,
+    review_commits: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
-    discovery, paths = changed_source_paths(project, run_command, review_paths)
+    source_root = source_project or project
+    discovery, paths = changed_source_paths(
+        project,
+        run_command,
+        review_paths,
+        review_commits=review_commits,
+        source_project=source_root,
+    )
+    subject_run_command = _subject_run_command(project, run_command, review_commits)
     result: dict[str, Any] = {
         "checked_paths": [str(path) for path in paths],
         "checked_path_count": len(paths),
@@ -177,7 +187,7 @@ def structure_review(
         else:
             result["strict_checked_paths"].append(str(relative))
 
-        absolute = project / relative
+        absolute = source_root / relative
         try:
             lines = absolute.read_text(encoding="utf-8").splitlines()
         except UnicodeDecodeError:
@@ -209,12 +219,12 @@ def structure_review(
             max_added_lines=max_added_lines,
         )
         block_failures, block_warnings = large_block_findings(
-            project,
+            source_root,
             relative,
             lines,
             max_block_lines,
             metadata,
-            run_command,
+            subject_run_command,
         )
         result["failures"].extend(block_failures)
         result["warnings"].extend(block_warnings)
@@ -224,16 +234,16 @@ def structure_review(
 
     result["failures"].extend(
         purpose_failures(
-            project,
+            source_root,
             paths,
             discovery["path_metadata"],
             review_source_path,
             test_exempt_path,
-            run_command,
+            subject_run_command,
         )
     )
     structure_rules = structure_rule_review(
-        project,
+        source_root,
         paths,
         discovery["path_metadata"],
         review_source_path,
@@ -243,10 +253,10 @@ def structure_review(
     result["failures"].extend(structure_rules["failures"])
     result["warnings"].extend(structure_rules["warnings"])
     result["boundary_note_requirements"] = boundary_note_requirements(
-        project,
+        source_root,
         paths,
         discovery["path_metadata"],
-        run_command,
+        subject_run_command,
         review_source_path,
         test_exempt_path,
     )
@@ -313,11 +323,37 @@ def changed_source_paths(
     project: Path,
     run_command: CommandRunner,
     review_paths: list[str] | None = None,
+    *,
+    review_commits: tuple[str, str] | None = None,
+    source_project: Path | None = None,
 ) -> tuple[dict[str, Any], list[Path]]:
     commands: dict[str, Any] = {}
     names: set[str] = set()
     path_metadata: dict[str, dict[str, Any]] = {}
     command_errors: list[str] = []
+
+    if review_commits is not None:
+        base_sha, head_sha = review_commits
+        collect_commit_diff(
+            project,
+            run_command,
+            commands,
+            names,
+            path_metadata,
+            command_errors,
+            base_sha,
+            head_sha,
+            review_paths,
+        )
+        paths = [Path(name) for name in sorted(names)]
+        source_root = source_project or project
+        checked = [path for path in paths if review_source_path(source_root, path)]
+        return {
+            "commands": commands,
+            "command_errors": command_errors,
+            "path_metadata": path_metadata,
+            "review_commits": {"base_sha": base_sha, "head_sha": head_sha},
+        }, checked
 
     head = run_command(["git", "rev-parse", "--verify", "HEAD"], project)
     commands["rev_parse_head"] = head
@@ -379,6 +415,89 @@ def changed_source_paths(
         "command_errors": command_errors,
         "path_metadata": path_metadata,
     }, checked
+
+
+def collect_commit_diff(
+    project: Path,
+    run_command: CommandRunner,
+    commands: dict[str, Any],
+    names: set[str],
+    path_metadata: dict[str, dict[str, Any]],
+    command_errors: list[str],
+    base_sha: str,
+    head_sha: str,
+    review_paths: list[str] | None = None,
+) -> None:
+    pathspec = _pathspec_args(review_paths)
+    status = run_command(
+        [
+            "git",
+            "diff",
+            "--name-status",
+            "-z",
+            "--diff-filter=ACDMRTUXB",
+            base_sha,
+            head_sha,
+            *pathspec,
+        ],
+        project,
+    )
+    commands["commit_diff_name_status"] = status
+    if status["returncode"] == 0:
+        for destination, status_code, previous in _parse_name_status(status["stdout"]):
+            updates: dict[str, Any] = {"status": status_code}
+            if previous:
+                updates["previous_path"] = previous
+            record_path(names, path_metadata, destination, **updates)
+    else:
+        command_errors.append("git commit-range changed source discovery failed")
+
+    numstat = run_command(
+        [
+            "git",
+            "diff",
+            "--numstat",
+            "-z",
+            "--diff-filter=ACDMRTUXB",
+            base_sha,
+            head_sha,
+            *pathspec,
+        ],
+        project,
+    )
+    commands["commit_diff_numstat"] = numstat
+    if numstat["returncode"] == 0:
+        for destination, additions, deletions in _parse_numstat(numstat["stdout"]):
+            record_path(
+                names,
+                path_metadata,
+                destination,
+                additions=additions,
+                deletions=deletions,
+            )
+    else:
+        command_errors.append("git commit-range line-count discovery failed")
+
+
+def _subject_run_command(
+    git_project: Path,
+    run_command: CommandRunner,
+    review_commits: tuple[str, str] | None,
+) -> CommandRunner:
+    if review_commits is None:
+        return run_command
+    base_sha, _head_sha = review_commits
+
+    def subject_command(command: list[str], _cwd: Path) -> dict[str, Any]:
+        rewritten = [
+            base_sha if argument == "HEAD" else f"{base_sha}:{argument[5:]}"
+            if argument.startswith("HEAD:")
+            else argument
+            for argument in command
+        ]
+        return run_command(rewritten, git_project)
+
+    return subject_command
 
 
 def collect_head_diff(

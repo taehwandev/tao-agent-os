@@ -775,6 +775,17 @@ behavior changes:
 Avoid combining broad moves with product behavior changes. If behavior must
 change to make the split correct, call it out as a separate acceptance point.
 
+When a move leaves work for a later task, record the hand-off so the next task can
+plan against it rather than re-derive it:
+
+- Any count carries the scope it was measured over — the paths searched and the
+  matching rule. A bare number reads as repository-wide, so a package-local count
+  recorded without its boundary sends the next task in at a fraction of the real size.
+- Before recording that a symbol must move to a destination, check whether the
+  destination already defines it, and state the result. When it already exists the
+  remaining work is reference replacement and deletion of the original, which carries
+  different risk than a move; writing "move" points the next task at the wrong plan.
+
 ### Single Module
 
 Use one module or package when:

@@ -196,6 +196,46 @@ class StartRunBindingTests(unittest.TestCase):
                 [run["evidence_name"] for run in active_runs(project)],
             )
 
+    def test_failed_same_request_refresh_restores_existing_preflight_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            original = b'{"agent_run_id":"existing","route":{"command":"bugfix"}}\n'
+            evidence.write_bytes(original)
+            request = "same refresh request"
+            register_run(
+                project,
+                evidence,
+                {"command": "bugfix"},
+                {
+                    "request": request,
+                    "continuation_scope": "",
+                    "request_classified": True,
+                    "classification_evidence": "clear-scoped; blockers resolved",
+                },
+            )
+            captured: dict[str, object] = {}
+
+            def failed_preflight(*_args, **_kwargs):
+                evidence.write_text('{"route_parse_error":"injected"}', encoding="utf-8")
+                return {"returncode": 1, "stdout": "", "stderr": ""}
+
+            def record(_hook, success, details, *_rest, **_kwargs):
+                captured["success"] = success
+                captured["details"] = details
+                return 0 if success else 1
+
+            with (
+                patch.object(agent_hook, "run_script_main", side_effect=failed_preflight),
+                patch.object(agent_hook, "finish_with_result", side_effect=record),
+            ):
+                agent_hook.start_hook(start_args(project, request))
+
+            self.assertFalse(captured["success"])
+            self.assertEqual(original, evidence.read_bytes())
+            self.assertEqual(["running"], [run["state"] for run in active_runs(project)])
+
 
 class ConcurrentStartClaimTests(unittest.TestCase):
     """Racing starts must produce one winner, not two holders of one file.

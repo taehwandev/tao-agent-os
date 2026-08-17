@@ -107,7 +107,7 @@ class AgentReviewStructureTests(unittest.TestCase):
                     "-c",
                     "user.name=Tao Agent OS Tests",
                     "-c",
-                    "user.email=tao@example.invalid",
+                    "user.email=tao-agent@example.invalid",
                     "commit",
                     "-m",
                     "initial",
@@ -140,6 +140,90 @@ class AgentReviewStructureTests(unittest.TestCase):
             _discovery, paths = changed_source_paths(project, run_command, ["src/a.py"])
 
         self.assertEqual([Path("src/a.py")], paths)
+
+    def test_changed_source_paths_can_read_an_exact_commit_range(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = project / "src" / "subject.py"
+            source.parent.mkdir()
+            source.write_text("value = 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+            subprocess.run(["git", "add", "."], cwd=project, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Tao Agent OS Tests",
+                    "-c",
+                    "user.email=tao-agent@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "base",
+                ],
+                cwd=project,
+                check=True,
+            )
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            source.write_text("value = 2\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=project, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Tao Agent OS Tests",
+                    "-c",
+                    "user.email=tao-agent@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "head",
+                ],
+                cwd=project,
+                check=True,
+            )
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            source.write_text("value = 3\n", encoding="utf-8")
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+
+            discovery, paths = changed_source_paths(
+                project,
+                run_command,
+                review_commits=(base, head),
+            )
+
+        self.assertEqual([Path("src/subject.py")], paths)
+        self.assertEqual(1, discovery["path_metadata"]["src/subject.py"]["additions"])
+        self.assertEqual(1, discovery["path_metadata"]["src/subject.py"]["deletions"])
+
 
     def test_non_git_structure_review_does_not_require_git_file_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -192,7 +276,7 @@ class AgentReviewStructureTests(unittest.TestCase):
                     "-c",
                     "user.name=Tao Agent OS Tests",
                     "-c",
-                    "user.email=tao@example.invalid",
+                    "user.email=tao-agent@example.invalid",
                     "commit",
                     "-m",
                     "initial",
@@ -255,7 +339,7 @@ class AgentReviewStructureTests(unittest.TestCase):
                     "-c",
                     "user.name=Tao Agent OS Tests",
                     "-c",
-                    "user.email=tao@example.invalid",
+                    "user.email=tao-agent@example.invalid",
                     "commit",
                     "-m",
                     "initial",
@@ -319,7 +403,7 @@ class AgentReviewStructureTests(unittest.TestCase):
                     "-c",
                     "user.name=Tao Agent OS Tests",
                     "-c",
-                    "user.email=tao@example.invalid",
+                    "user.email=tao-agent@example.invalid",
                     "commit",
                     "-m",
                     "initial",
@@ -385,7 +469,7 @@ class AgentReviewStructureTests(unittest.TestCase):
                     "-c",
                     "user.name=Tao Agent OS Tests",
                     "-c",
-                    "user.email=tao@example.invalid",
+                    "user.email=tao-agent@example.invalid",
                     "commit",
                     "-m",
                     "initial",
@@ -1145,7 +1229,7 @@ class ListedPathNulSafetyTests(unittest.TestCase):
                 "-c",
                 "user.name=Tao Agent OS Tests",
                 "-c",
-                "user.email=tao@example.invalid",
+                "user.email=tao-agent@example.invalid",
                 *args,
             ],
             cwd=project,

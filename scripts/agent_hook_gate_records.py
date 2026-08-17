@@ -314,10 +314,12 @@ def _validate_records_before_write(
                 + ", ".join(synthesis_failures)
             )
             continue
-        # Observation existence is enforced at finish so the documented order
-        # remains possible: record the retrospective gate, store the
-        # observation, then finish. Gate-time enforcement made those two writes
-        # depend on each other and deadlocked every reusable gap.
+        # The observation-exists check belongs to finish, not here. Requiring it at
+        # gate time deadlocked every reusable gap: `observation: recorded` needed a
+        # stored observation, while the observation writer needed this gate to
+        # already be recorded, and the transitional value was removed. Finish still
+        # refuses a reusable gap whose observation is missing, via
+        # skill_followup_failures.
         gate_evidence[gate] = synthesized or evidence
         if gate == MULTI_AGENT_GATE or gate in MULTI_AGENT_ROUTE_GATES:
             validates_delegation_plan = True

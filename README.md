@@ -437,13 +437,13 @@ Before multi-step edits, run one lifecycle entry that performs routing and prefl
   --concern wiki
 ```
 
-Read every route `required_docs` entry directly after start and before work. Run the review hook after meaningful edits. Record any remaining route gates with explicit structured status, then run the read-only finish hook before final report, commit, release, or handoff:
+Read every route `required_docs` entry directly after start and before work. Run the review hook after meaningful edits. Before recording the final `report` gate, record the exact gate slug `retrospective check` (including the space, not `retrospective-check`) with the exact fields `skills_checked`, `outcome`, and `observation` (`no_reusable_gap`/`no_skill_used` pairs with `not_needed`; `reusable_gap` pairs with `recorded`). Record `report` only after the final report is prepared. Then run the read-only finish hook before final report, commit, release, or handoff:
 
 ```bash
 <TAO_LAUNCHER> gate-batch \
   --project . \
   --rules "${TAO_HOME}" \
-  --gate-record '[{"gate":"orient","status":"SUCCESS","evidence":"<instructions and required-doc route>"},{"gate":"scope","status":"SUCCESS","evidence":"<scope decision>"},{"gate":"act","status":"SUCCESS","evidence":"<diff or changed files>"},{"gate":"verify","status":"SUCCESS","evidence":"<commands and results>"},{"gate":"report","status":"SUCCESS","evidence":"<final report prepared>"}]'
+  --gate-record '[{"gate":"orient","status":"SUCCESS","evidence":"<instructions and required-doc route>"},{"gate":"scope","status":"SUCCESS","evidence":"<scope decision>"},{"gate":"act","status":"SUCCESS","evidence":"<diff or changed files>"},{"gate":"verify","status":"SUCCESS","evidence":"<commands and results>"},{"gate":"retrospective check","status":"SUCCESS","evidence":"<skills checked and closeout outcome>","fields":{"skills_checked":"<canonical skill ids>","outcome":"no_reusable_gap","observation":"not_needed"}},{"gate":"report","status":"SUCCESS","evidence":"<final report prepared>"}]'
 
 <TAO_LAUNCHER> finish \
   --project . \

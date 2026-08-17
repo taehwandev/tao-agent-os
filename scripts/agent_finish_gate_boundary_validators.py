@@ -51,11 +51,28 @@ def validate_boundary_plan(evidence: str) -> list[str]:
             "validate",
         )
     )
-    if has_boundary and has_verification:
+    has_runtime_structure_decision = any(
+        phrase in text
+        for phrase in (
+            "review budget",
+            "structural budget",
+            "top-level owner",
+            "top level owner",
+            "public owner",
+            "owner count",
+            "file split",
+            "one public owner",
+            "single public owner",
+            "no runtime source change",
+            "no development source change",
+        )
+    )
+    if has_boundary and has_verification and has_runtime_structure_decision:
         return []
     return [
         "boundary plan evidence must name the owned boundary/scope or contract, "
-        "plus the nearest verification/check before implementation"
+        "the nearest verification/check, and the runtime file/top-level-owner review "
+        "budget or an explicit no-runtime-source-change decision before implementation"
     ]
 
 

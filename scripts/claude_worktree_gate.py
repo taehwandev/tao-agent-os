@@ -1,0 +1,134 @@
+"""Repo-declared worktree isolation for Claude PreToolUse events."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+# Command classification is a separate owner; the gate keeps only the policy.
+# These re-exports are the module's public surface for the pretool gate.
+from claude_bash_readonly import (  # noqa: F401
+    bash_command,
+    bash_command_kind,
+    bash_invocation,
+    has_unresolvable_expansion,
+    path_arguments,
+    raw_path_arguments,
+)
+from support.stable_launcher import stable_launcher_path  # noqa: F401
+
+
+BASH_TOOLS = {"Bash"}
+WORKTREE_POLICY_PATH = Path(".agents/shared/worktree-policy.json")
+WORKTREE_POLICY_SCHEMA_VERSION = 1
+REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
+MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
+
+
+def default_worktree_policy() -> dict:
+    return {
+        "schema_version": WORKTREE_POLICY_SCHEMA_VERSION,
+        "require_linked_worktree": True,
+        "protected_branches": ["develop", "main"],
+    }
+
+
+def git_common_dir(root: Path) -> Path | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-common-dir"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    common = Path(result.stdout.strip())
+    return (root / common).resolve() if not common.is_absolute() else common.resolve()
+
+
+def same_git_repository(left: Path, right: Path) -> bool:
+    try:
+        if left.resolve() == right.resolve():
+            return True
+    except OSError:
+        pass
+    left_common = git_common_dir(left)
+    right_common = git_common_dir(right)
+    return left_common is not None and left_common == right_common
+
+
+def local_worktree_policy_applies(root: Path) -> bool:
+    if os.environ.get(REQUIRE_LINKED_WORKTREE_ENV, "").strip() != "1":
+        return False
+    declared_root = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
+    if not declared_root:
+        return True
+    try:
+        origin = Path(declared_root).expanduser().resolve()
+    except OSError:
+        return False
+    return same_git_repository(root, origin)
+
+
+def worktree_policy(root: Path) -> dict | None:
+    policy_path = root / WORKTREE_POLICY_PATH
+    try:
+        parsed = json.loads(policy_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return default_worktree_policy() if local_worktree_policy_applies(root) else None
+    except (OSError, ValueError):
+        return default_worktree_policy()
+    if not isinstance(parsed, dict):
+        return default_worktree_policy()
+    if set(parsed) != {"schema_version", "require_linked_worktree", "protected_branches"}:
+        return default_worktree_policy()
+    branches = parsed.get("protected_branches")
+    valid = (
+        parsed.get("schema_version") == WORKTREE_POLICY_SCHEMA_VERSION
+        and parsed.get("require_linked_worktree") is True
+        and isinstance(branches, list)
+        and bool(branches)
+        and all(isinstance(branch, str) and branch.strip() for branch in branches)
+    )
+    return parsed if valid else default_worktree_policy()
+
+
+def current_branch(root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "branch", "--show-current"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def worktree_deny_reason(root: Path, branch: str) -> str:
+    location = "main checkout" if (root / ".git").is_dir() else f"protected branch `{branch}`"
+    return (
+        f"Tao Agent OS worktree gate: {location} cannot run a mutating tool in {root}. "
+        "Create or select the task's dedicated linked worktree, make that path the project root, "
+        "run the workflow start hook again there, and retry. The hook does not create a worktree "
+        "because branch, base, ticket, and local-file copy decisions belong to the repository workflow. "
+        f"Set {MAIN_CHECKOUT_OVERRIDE_ENV}=1 only for a user-approved exception."
+    )
+
+
+def worktree_denial(root: Path) -> str | None:
+    policy = worktree_policy(root)
+    if policy is None or os.environ.get(MAIN_CHECKOUT_OVERRIDE_ENV, "").strip() == "1":
+        return None
+    branch = current_branch(root)
+    if (root / ".git").is_dir() or branch in set(policy["protected_branches"]):
+        return worktree_deny_reason(root, branch)
+    return None
