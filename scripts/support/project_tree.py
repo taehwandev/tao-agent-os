@@ -57,6 +57,13 @@ def iter_project_files(
     starts with ``*``; an empty name yields every file. Symlinked directories
     are not followed, matching ``Path.rglob``, so a link cannot walk a caller
     out of the tree it asked about.
+
+    Only files are yielded, which is the one way this differs from ``rglob``:
+    that also returns a *directory* whose name matches, so a directory called
+    ``notes.md`` used to enter the document graph as a node whose contents
+    could never be read. Every caller here wants documents, so the difference
+    is deliberate -- and stated, because a silent one is how a rewrite that
+    promised the same answer stops giving it.
     """
 
     root = Path(root)

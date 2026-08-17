@@ -88,6 +88,54 @@ class PrunedWalkTests(unittest.TestCase):
 
             self.assertEqual({"guide.md"}, found)
 
+    def test_a_directory_named_like_a_document_is_not_yielded(self) -> None:
+        """The one deliberate difference from rglob, pinned so it stays one.
+
+        `rglob("*.md")` also returns a directory whose name matches, so a
+        directory called `notes.md` entered the document graph as a node whose
+        contents could never be read. Callers here want documents.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            build(base, "notes.md/inside.md", "real.md")
+
+            found = {
+                path.relative_to(base).as_posix()
+                for path in iter_project_files(base, "*.md")
+            }
+
+            self.assertEqual({"notes.md/inside.md", "real.md"}, found)
+            self.assertIn(
+                "notes.md",
+                {path.relative_to(base).as_posix() for path in base.rglob("*.md")},
+                "rglob returns the directory itself; this walk deliberately does not",
+            )
+
+    def test_an_unreadable_directory_is_skipped_by_both_walks(self) -> None:
+        """Neither walk may turn a permission wall into a raised error."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            build(base, "open.md", "locked/hidden.md")
+            locked = base / "locked"
+            os.chmod(locked, 0o000)
+            try:
+                if os.access(locked, os.R_OK):
+                    self.skipTest("this filesystem still reads a 0o000 directory")
+                found = {
+                    path.relative_to(base).as_posix()
+                    for path in iter_project_files(base, "*.md")
+                }
+                rglobbed = {
+                    path.relative_to(base).as_posix() for path in base.rglob("*.md")
+                }
+            finally:
+                os.chmod(locked, 0o755)
+
+        self.assertEqual({"open.md"}, found)
+        self.assertEqual(rglobbed, found)
+
     def test_an_empty_name_yields_every_file_outside_the_pruned_set(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
