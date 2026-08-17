@@ -37,7 +37,7 @@ from test_agent_continuation_checkpoint import Fixture
 from test_agent_continuation_resume import age, free_fixture
 
 
-def run_resume(project: Path, rules: Path, mode: str) -> tuple[int, str]:
+def run_resume(project: Path, rules: Path, mode: str, *extra: str) -> tuple[int, str]:
     argv = [
         "agent-hook.py",
         "resume",
@@ -46,6 +46,7 @@ def run_resume(project: Path, rules: Path, mode: str) -> tuple[int, str]:
         str(project),
         "--rules",
         str(rules),
+        *extra,
     ]
     output = io.StringIO()
     with (
@@ -107,6 +108,29 @@ class ListTests(unittest.TestCase):
             self.assertEqual(0, code)
             self.assertEqual(before, project_bytes(fixture.project))
             self.assertGreaterEqual(len(before), 3)
+
+    def test_packets_the_registry_no_longer_records_are_counted_not_hidden(self) -> None:
+        """Withdrawing candidacy is not the same as pretending they are gone."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "the run still on record")
+            dropped = free_fixture(
+                directory, "a dropped run", project=fixture.project, rules=fixture.rules
+            )
+            path = registry_path(fixture.project)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["runs"] = [
+                run for run in payload["runs"] if run["run_id"] != dropped.run_id
+            ]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            code, output = run_resume(fixture.project, fixture.rules, "--list")
+
+            self.assertEqual(0, code)
+            self.assertIn("unfinished continuation packets: 1", output)
+            self.assertIn("the registry no longer records: 1", output)
+            self.assertIn("cannot be claimed", output)
+            self.assertNotIn(dropped.run_id, output)
 
     def test_an_invalid_packet_is_listed_without_rendering_its_prose(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -184,7 +208,107 @@ class LastTests(unittest.TestCase):
             self.assertIn("start a fresh run", output)
 
 
+class NamedRunTests(unittest.TestCase):
+    """Several sessions share one checkout, so the newest slot is not mine."""
+
+    def test_naming_a_run_claims_it_while_another_session_holds_the_newest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            mine = free_fixture(directory, "the task this session left behind")
+            newer = Fixture(directory, project=mine.project, rules=mine.rules)
+            newer.checkpoint("initial", work={"objective": "another session, still running"})
+            age(newer, minutes=0, owner_pid=1, run_id=newer.run_id)
+
+            blocked, _ = run_resume(mine.project, mine.rules, "--last")
+            code, output = run_resume(mine.project, mine.rules, "--last", "--run-id", mine.run_id)
+
+            self.assertEqual(1, blocked)
+            self.assertEqual(0, code)
+            self.assertIn("resume result: ready", output)
+            self.assertIn(f"run: {mine.run_id}", output)
+            self.assertIn("objective: the task this session left behind", output)
+            self.assertNotIn("another session, still running", output)
+
+    def test_naming_a_run_that_is_not_unfinished_claims_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "a task that must not be handed over")
+            before = json.loads(registry_path(fixture.project).read_text(encoding="utf-8"))
+
+            code, output = run_resume(fixture.project, fixture.rules, "--last", "--run-id", "0" * 32)
+
+            self.assertEqual(1, code)
+            self.assertIn("resume result: not_found", output)
+            self.assertIn("refusal reason: run_id_not_unfinished", output)
+            self.assertNotIn("a task that must not be handed over", output)
+            self.assertEqual(
+                before, json.loads(registry_path(fixture.project).read_text(encoding="utf-8"))
+            )
+
+    def test_a_mistyped_run_id_is_not_reported_as_an_empty_checkout(self) -> None:
+        """The advice has to match which of the two `not_found` cases happened.
+
+        A checkout with nothing to resume needs a fresh start. A run id that
+        matches none of several unfinished packets needs the listing -- telling
+        that caller there is nothing here contradicts what `--list` shows.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "one of several unfinished packets")
+            free_fixture(directory, "another", project=fixture.project, rules=fixture.rules)
+
+            _code, output = run_resume(
+                fixture.project, fixture.rules, "--last", "--run-id", "0" * 32
+            )
+
+            self.assertIn("--list", output)
+            self.assertNotIn("no unfinished continuation packet for this checkout", output)
+
+    def test_a_refusal_names_the_targeted_packet_not_the_newest(self) -> None:
+        """Guidance that says "the newest" describes a packet nobody asked about."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            mine = free_fixture(directory, "this session's own task")
+            held = Fixture(directory, project=mine.project, rules=mine.rules)
+            held.checkpoint("initial", work={"objective": "a second session's task"})
+            age(held, minutes=0, owner_pid=1, run_id=held.run_id)
+            newest = Fixture(directory, project=mine.project, rules=mine.rules)
+            newest.checkpoint("initial", work={"objective": "a third session's task"})
+            age(newest, minutes=0, owner_pid=1, run_id=newest.run_id)
+
+            _code, output = run_resume(
+                mine.project, mine.rules, "--last", "--run-id", held.run_id
+            )
+
+            self.assertIn("resume result: live_owner_refused", output)
+            self.assertIn(f"run: {held.run_id}", output)
+            self.assertNotIn(newest.run_id, output)
+            self.assertNotIn("newest", output)
+
+
 class ModeTests(unittest.TestCase):
+    def test_a_run_id_is_rejected_for_the_listing_it_cannot_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            argv = [
+                "agent-hook.py",
+                "resume",
+                "--list",
+                "--run-id",
+                "0" * 32,
+                "--project",
+                str(project),
+                "--rules",
+                str(project),
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.dict("os.environ", {}, clear=True),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    agent_hook.main()
+            self.assertEqual(2, raised.exception.code)
+
     def test_exactly_one_mode_is_required(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

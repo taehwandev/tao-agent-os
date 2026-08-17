@@ -250,9 +250,12 @@ age-aware owner policy, so a claimant killed during validation cannot strand the
 run.
 
 **Consequence for discovery.** A packet whose run has a live owner is listed but
-not resumable. `resume --last` targets the newest unfinished packet for the
-current checkout; if that exact packet is live, unproven, drifted, or invalid,
-the command refuses. It never skips to an older task.
+not resumable. `resume --last` targets one unfinished packet for the current
+checkout -- the newest, or the one `--run-id` names -- and if that exact packet
+is live, unproven, drifted, or invalid, the command refuses. It never skips to
+an older task. Naming the packet chooses the candidate only; the owner and
+generation checks still decide whether the claim is allowed, so naming another
+session's live run is refused rather than granted.
 
 **Failure mode avoided.** A second takeover rule or a bare state flip can steal
 a live run, resurrect stale evidence, or let two sessions believe they own the
@@ -564,7 +567,7 @@ tao-hook checkpoint --checkpoint-kind <initial|pre_mutation|post_mutation|decisi
   [--mutation-kind <enum> --mutation-path <relative-path> ...]
   [--work-stdin]
 tao-hook resume --list
-tao-hook resume --last
+tao-hook resume --last [--run-id <run-id>]
 tao-hook cancel --evidence <SOURCE_PREFLIGHT> \
   --replacement-evidence <COMPLETED_LINKED_WORKTREE_PREFLIGHT>
 ```
@@ -604,9 +607,28 @@ Holder state is one of:
 Completed and cancelled runs are not unfinished candidates and never appear as
 `free`.
 
+A packet is a candidate only while the registry still records its run. The
+registry keeps a bounded run history, and a packet can outlive the record
+pruned from under it, but a claim compares an owner and a generation that are
+then gone: claiming returns `not_found` and checkpointing returns
+`unknown_run`. The bound drops settled records before open ones, so this is
+the state of runs finished long ago rather than of work still in progress.
+Listing such a packet as `free` offers work nobody can take and pays a drift
+verification to offer it, which is what makes an old checkout's listing slow.
+They are reported as a count of packets whose run the registry no longer
+records -- withdrawn from candidacy, not hidden, because a packet that exists
+and can never be resumed is retention debt worth seeing.
+
 `tao-hook resume --last` selects the newest unfinished packet for this checkout,
-then attempts `claim_resume`. It never skips a blocked newest packet to resume
-an older task. On success it returns a closed machine-readable result containing
+then attempts `claim_resume`. It never skips a blocked packet to resume an older
+task. `--run-id` names the candidate instead, which is what a checkout worked by
+several concurrent sessions needs: the newest slot there belongs to whichever
+session wrote last, so a returning session almost never finds its own work in
+it, and refusing to substitute -- correct on its own -- otherwise leaves that
+session no way to reach its run at all. A named run that is not an unfinished
+candidate is `not_found`; it never falls through to the newest. `--run-id` is
+rejected with `--list`, which reports every unfinished run and filters nothing.
+On success it returns a closed machine-readable result containing
 the opaque run id, canonical evidence locator, route command, bounded work
 object, recomputed checkpoint, new generation, a ready-only content-free reuse
 summary, and `ready`. Human output reports required-document status, reusable
@@ -614,12 +636,29 @@ inspected scope, accepted-decision ids, and current-state
 successful-verification ids so an agent does not repeat them to rebuild context.
 On refusal it returns no semantic work object or reuse advice.
 
+An adapter resuming automatically at session start names its own run rather
+than taking the newest. The runtime session binding identifies it, and a
+restart keeps the session id, so the run bound to that session is the work it
+left behind. Where no run is bound, the only unfinished packet is still not a
+guess, but several are: the adapter then claims nothing and reports the opaque
+ids so the caller can name one. Automatic resume is the same substitution
+hazard as `--last`, arriving without anyone asking, and the owner check does
+not cover it -- that check refuses a live owner, while two sessions that both
+stopped leave two free packets.
+
+Concurrent sessions sharing one checkout still share one worktree. Another
+session's uncommitted bytes drift every packet in it, and resume answers that
+with `drift_refused` and reconciliation rather than resuming across a state the
+packet never recorded. Targeting decides whose run is examined, not whether the
+bytes moved; genuinely parallel work belongs in separate worktrees, which have
+their own mutable state and are never candidates for each other.
+
 Stable result codes:
 
 | Result | Meaning | State change |
 | --- | --- | --- |
-| `ready` | exact newest packet claimed and drift-clean | run becomes `running` |
-| `not_found` | no unfinished packet in this checkout | none |
+| `ready` | exact targeted packet claimed and drift-clean | run becomes `running` |
+| `not_found` | no unfinished packet in this checkout, or the named run is not one | none |
 | `live_owner_refused` | existing owner still holds the run | none |
 | `owner_unproven_wait` | timestamp fallback has not expired | none |
 | `drift_refused` | HEAD, worktree, rules, required docs, or pending-mutation state mismatch | `reconcile_required` |

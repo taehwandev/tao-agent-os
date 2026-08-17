@@ -11,7 +11,7 @@ from typing import Any
 
 from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_continuation_packet import ContinuationPacketError
-from agent_continuation_resume import resume_last
+from agent_continuation_resume import resume_last, resume_list
 from agent_runtime_session import (
     bind_resumed_runtime_session,
     is_run_local_continuation_evidence,
@@ -109,7 +109,10 @@ class ClaudeContinuationAdapter:
         session_id = str(payload.get("session_id") or "")
         if root is None or not session_id:
             return None
-        result = resume_last(root)
+        target, listed = _resume_target(root, session_id)
+        if not target:
+            return _unresumed_context(listed)
+        result = resume_last(root, run_id=target)
         if result["result"] == "not_found":
             return None
         if result["result"] != "ready":
@@ -177,6 +180,68 @@ def _checkpoint(
 def _session_evidence(root: Path, session_id: str) -> Path | None:
     return resolve_runtime_evidence(
         root, {"runtime": "claude", "session_id": session_id}
+    )
+
+
+def _resume_target(root: Path, session_id: str) -> tuple[str, list[dict[str, Any]]]:
+    """The one run this session may claim, and the listing that decided it.
+
+    The listing is returned rather than recomputed because it is not cheap:
+    it verifies drift for every packet in the checkout, which is seconds of
+    Git work where unfinished runs have accumulated. Session start runs this
+    before the session can do anything, so paying for it twice is time the
+    user waits at every startup.
+
+    Its own bound run first: a restart keeps its session id, so the run bound
+    to it is exactly the work this session left behind. Falling back to the
+    newest packet is safe only where one session works a checkout at a time.
+    Where several do, the newest slot belongs to whichever session wrote last,
+    and claiming it hands this session another session's task -- the silent
+    substitution `resume` refuses when asked directly, arriving through the
+    automatic path instead. The owner check does not save it either: it refuses
+    a live owner, and two sessions that both stopped leave two free packets.
+
+    With no binding, the only unfinished packet is still not a guess, because
+    there is nothing to choose between. Several are, so this returns nothing
+    and the caller says so rather than picking one.
+    """
+
+    evidence = _session_evidence(root, session_id)
+    if evidence is not None and is_run_local_continuation_evidence(root, evidence):
+        # The claim below lists again, so this path never pays for a listing
+        # it would only use to reach the run it has already identified.
+        return evidence.parent.name, []
+    entries = resume_list(root)["entries"]
+    return (str(entries[0]["run_id"]) if len(entries) == 1 else ""), entries
+
+
+LISTED_RUN_LIMIT = 8
+
+
+def _unresumed_context(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Report the unclaimed packets by opaque id and claim none of them.
+
+    Only ids and route commands are rendered. The listing exposes bounded
+    objectives, but those belong to sessions that are not this one, and an
+    objective injected into a session's opening context reads as its own brief.
+    """
+
+    if not entries:
+        return None
+    listed = ", ".join(
+        f"{entry['run_id']}({entry['route_command'] or 'unknown'})"
+        for entry in entries[:LISTED_RUN_LIMIT]
+    )
+    # A truncated list that does not say it was truncated reads as the whole
+    # set, and the run the caller wants is then one it appears not to have.
+    dropped = len(entries) - LISTED_RUN_LIMIT
+    if dropped > 0:
+        listed += f", and {dropped} more that `--list` reports"
+    return _context(
+        f"Tao continuation found {len(entries)} unfinished runs in this checkout and none "
+        f"bound to this session, so none was resumed: {listed}. Resume one by name with "
+        "`tao-hook resume --last --run-id <run-id>`; `tao-hook resume --list` reports what "
+        "each one was doing."
     )
 
 

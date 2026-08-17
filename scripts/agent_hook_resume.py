@@ -25,29 +25,42 @@ from agent_runtime_session import bind_resumed_runtime_session
 
 
 LISTED_ENTRY_LIMIT = 12
+# Guidance names the packet resume targeted, never "the newest". With --run-id
+# the target is whichever run the caller named, and a refusal that says the
+# newest was blocked describes a packet the caller never asked about.
 REFUSAL_GUIDANCE = {
     "not_found": "no unfinished continuation packet for this checkout; start a fresh run",
     "live_owner_refused": (
-        "the newest packet's run still has a live owner; resume never substitutes an older task"
+        "the targeted packet's run still has a live owner; resume never substitutes another task"
     ),
     "owner_unproven_wait": (
-        "the newest packet's owner cannot be proven dead and its fallback window has not expired"
+        "the targeted packet's owner cannot be proven dead and its fallback window has not expired"
     ),
     "drift_refused": (
         "HEAD, worktree, rules, required docs, or a pending mutation moved since the last "
         "checkpoint; reconcile explicitly or carry the objective into a fresh start"
     ),
     "invalid_packet": (
-        "the newest packet failed containment, schema, binding, or integrity validation; "
+        "the targeted packet failed containment, schema, binding, or integrity validation; "
         "its prose is deliberately not rendered"
     ),
     "local_boundary_failed": (
-        "the newest packet's project-local, Git-ignored boundary could not be proven"
+        "the targeted packet's project-local, Git-ignored boundary could not be proven"
     ),
     "claim_lost": "another session claimed this run between capture and commit",
     "runtime_binding_refused": (
         "the resume claim completed but could not bind the exact runtime session; "
         "no work summary was rendered"
+    ),
+}
+# A reason is more specific than its result and wins when both have guidance:
+# `not_found` normally means the checkout has nothing to resume, which is the
+# opposite of what a mistyped or already-finished run id means.
+REASON_GUIDANCE = {
+    "run_id_not_unfinished": (
+        "no unfinished packet in this checkout has that run id; `resume --list` names the "
+        "ones there are, since the run may have finished, been cancelled, or belong to "
+        "another checkout"
     ),
 }
 
@@ -66,7 +79,17 @@ def add_resume_arguments(parser: argparse.ArgumentParser) -> None:
         "--last",
         dest="last_mode",
         action="store_true",
-        help="claim the newest unfinished packet, or refuse it by name",
+        help="claim one unfinished packet, or refuse it by name",
+    )
+    resume.add_argument(
+        "--run-id",
+        dest="resume_run_id",
+        default="",
+        help=(
+            "claim this exact run instead of the newest; required when several "
+            "sessions share the checkout, because the newest slot is then "
+            "whichever session wrote last"
+        ),
     )
     resume.add_argument(
         "--runtime",
@@ -94,6 +117,12 @@ def _resume_list(args: argparse.Namespace) -> int:
     result = resume_list(args.project, rules=args.rules)
     entries = result["entries"]
     details = [f"unfinished continuation packets: {len(entries)}"]
+    unregistered = int(result.get("unregistered_packets") or 0)
+    if unregistered:
+        details.append(
+            f"packets whose run the registry no longer records: {unregistered}; "
+            "they cannot be claimed or checkpointed and are not listed above"
+        )
     details.extend(_entry_line(entry) for entry in entries[:LISTED_ENTRY_LIMIT])
     if len(entries) > LISTED_ENTRY_LIMIT:
         details.append(f"listed packets truncated: {len(entries) - LISTED_ENTRY_LIMIT} more")
@@ -108,9 +137,13 @@ def _resume_list(args: argparse.Namespace) -> int:
 
 
 def _resume_last(args: argparse.Namespace) -> int:
-    """Claim the newest packet, or refuse it by name without picking another."""
+    """Claim one packet, or refuse it by name without picking another."""
 
-    result = resume_last(args.project, rules=args.rules)
+    result = resume_last(
+        args.project,
+        run_id=getattr(args, "resume_run_id", "") or "",
+        rules=args.rules,
+    )
     ready = result["result"] == "ready"
     if ready and (args.runtime or args.runtime_session_id):
         if not args.runtime or not args.runtime_session_id:
@@ -198,7 +231,7 @@ def _refusal_lines(result: dict[str, Any]) -> list[str]:
         lines.append(f"changed signals: {result['changed_signals']}")
     if result["affected_paths"]:
         lines.append(f"affected paths: {result['affected_paths'][:8]}")
-    guidance = REFUSAL_GUIDANCE.get(result["result"])
+    guidance = REASON_GUIDANCE.get(result["reason"]) or REFUSAL_GUIDANCE.get(result["result"])
     if guidance:
         lines.append(guidance)
     return lines

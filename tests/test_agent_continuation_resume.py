@@ -128,6 +128,85 @@ class ListTests(unittest.TestCase):
             self.assertEqual([], resume_list(fixture.project)["entries"])
 
 
+def forget_run(fixture: Fixture, run_id: str) -> None:
+    """Prune one run from the registry the way its bounded history does."""
+
+    path = registry_path(fixture.project)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["runs"] = [run for run in payload["runs"] if run["run_id"] != run_id]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+class UnregisteredPacketTests(unittest.TestCase):
+    """The registry keeps a bounded history; packets outlive what it drops.
+
+    A packet whose record was pruned cannot be claimed -- the owner and
+    generation a claim compares against are gone, so it returns `claim_lost` --
+    and cannot be checkpointed either. Listing it as free advertised work
+    nobody could take, and paid a drift verification each time to advertise it.
+    """
+
+    def test_a_packet_whose_run_the_registry_dropped_is_not_a_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kept = free_fixture(directory, "the run still on record")
+            forgotten = free_fixture(
+                directory, "a run the registry no longer has", project=kept.project, rules=kept.rules
+            )
+            forget_run(kept, forgotten.run_id)
+
+            listing = resume_list(kept.project)
+
+            self.assertEqual([kept.run_id], [entry["run_id"] for entry in listing["entries"]])
+            self.assertEqual(1, listing["unregistered_packets"])
+            self.assertTrue(
+                continuation_path(kept.project, forgotten.run_id).is_file(),
+                "the packet is still on disk; only its candidacy is withdrawn",
+            )
+
+    def test_resume_never_selects_or_names_a_dropped_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kept = free_fixture(directory, "the run still on record")
+            forgotten = free_fixture(
+                directory,
+                "a run the registry no longer has",
+                project=kept.project,
+                rules=kept.rules,
+            )
+            forget_run(kept, forgotten.run_id)
+
+            newest = resume_last(kept.project)
+            named = resume_last(kept.project, run_id=forgotten.run_id)
+
+            self.assertEqual("ready", newest["result"])
+            self.assertEqual(kept.run_id, newest["run_id"], "the newest slot skips the dropped run")
+            self.assertEqual("not_found", named["result"])
+            self.assertEqual("run_id_not_unfinished", named["reason"])
+            self.assertNotIn("a run the registry no longer has", json.dumps(named))
+
+    def test_a_dropped_run_costs_no_drift_verification(self) -> None:
+        """Verifying drift is the expensive half, and it bought nothing here."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            kept = free_fixture(directory, "the run still on record")
+            for index in range(3):
+                dropped = free_fixture(
+                    directory, f"dropped {index}", project=kept.project, rules=kept.rules
+                )
+                forget_run(kept, dropped.run_id)
+            verified: list[int] = []
+            real = agent_continuation_resume.verify_drift
+
+            def counted(*args, **keywords):
+                verified.append(1)
+                return real(*args, **keywords)
+
+            with patch.object(agent_continuation_resume, "verify_drift", counted):
+                listing = resume_list(kept.project)
+
+            self.assertEqual(1, len(verified))
+            self.assertEqual(3, listing["unregistered_packets"])
+
+
 class ReadOnlyTests(unittest.TestCase):
     """Listing reports; only resuming may take what it inspected."""
 
@@ -317,6 +396,80 @@ class LastResumeTests(unittest.TestCase):
             self.assertEqual([], result["reuse"]["successful_verification"])
 
 
+class NamedRunResumeTests(unittest.TestCase):
+    """One checkout worked by several sessions at once.
+
+    The newest slot is then whichever session wrote last, so a session coming
+    back to its own work almost never finds it there. Refusing to substitute an
+    older task is right, but on its own it left that session with no way to
+    reach its own run at all. Naming the run says which packet is the
+    candidate; it does not say the claim is allowed.
+    """
+
+    def test_naming_a_run_reaches_it_past_another_session_holding_the_newest_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            mine = free_fixture(directory, "the task this session left behind")
+            other = free_fixture(
+                directory, "another session's task", project=mine.project, rules=mine.rules
+            )
+            age(other, minutes=1, owner_pid=os.getpid(), run_id=other.run_id)
+
+            self.assertEqual("live_owner_refused", resume_last(mine.project)["result"])
+
+            result = resume_last(mine.project, run_id=mine.run_id)
+
+            self.assertEqual("ready", result["result"])
+            self.assertEqual(mine.run_id, result["run_id"])
+            self.assertEqual("the task this session left behind", result["work"]["objective"])
+            self.assertEqual("scope", result["checkpoint"])
+            self.assertEqual(process_owner(), run_state(mine, mine.run_id)["owner"])
+            self.assertEqual(0, run_state(other, other.run_id).get("resume_generation", 0))
+
+    def test_naming_another_session_s_live_run_is_refused_rather_than_granted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            mine = free_fixture(directory, "the task this session left behind")
+            other = free_fixture(
+                directory, "another session's task", project=mine.project, rules=mine.rules
+            )
+            age(other, minutes=1, owner_pid=os.getpid(), run_id=other.run_id)
+
+            result = resume_last(mine.project, run_id=other.run_id)
+
+            self.assertEqual("live_owner_refused", result["result"])
+            self.assertEqual(other.run_id, result["run_id"])
+            self.assertIsNone(result["work"])
+            self.assertIsNone(result["checkpoint"])
+            self.assertIsNone(result["reuse"])
+            self.assertEqual(0, run_state(other, other.run_id).get("resume_generation", 0))
+
+    def test_naming_a_drifted_run_refuses_by_name_without_falling_through(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            mine = free_fixture(directory, "the task this session left behind")
+            free_fixture(
+                directory, "another session's task", project=mine.project, rules=mine.rules
+            )
+            (mine.project / "src" / "module.py").write_text("value = 2\n", encoding="utf-8")
+
+            result = resume_last(mine.project, run_id=mine.run_id)
+
+            self.assertEqual("drift_refused", result["result"])
+            self.assertEqual(mine.run_id, result["run_id"])
+            self.assertEqual(["project_worktree"], result["changed_signals"])
+            self.assertIsNone(result["work"])
+
+    def test_an_omitted_run_id_still_means_the_newest_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            older = free_fixture(directory, "the older task")
+            newer = free_fixture(
+                directory, "the newer task", project=older.project, rules=older.rules
+            )
+
+            result = resume_last(older.project, run_id="")
+
+            self.assertEqual("ready", result["result"])
+            self.assertEqual(newer.run_id, result["run_id"])
+
+
 class RefusesRatherThanSkipsTests(unittest.TestCase):
     """The property the whole command depends on.
 
@@ -444,6 +597,20 @@ class RefusesRatherThanSkipsTests(unittest.TestCase):
             self.assertEqual("not_found", result["result"])
             self.assertEqual("legacy_no_packet", result["reason"])
             self.assertEqual(legacy.run_id, result["run_id"])
+            self.assertEqual(0, run_state(older, older.run_id).get("resume_generation", 0))
+
+    def test_a_named_run_that_is_not_unfinished_never_substitutes_the_newest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            older = free_fixture(directory, "the older task")
+            newer = free_fixture(directory, "the newer task", project=older.project, rules=older.rules)
+
+            result = resume_last(older.project, run_id="0" * 32)
+
+            self.assertEqual("not_found", result["result"])
+            self.assertEqual("run_id_not_unfinished", result["reason"])
+            self.assertEqual("", result["run_id"])
+            self.assertIsNone(result["work"])
+            self.assertEqual(0, run_state(newer, newer.run_id).get("resume_generation", 0))
             self.assertEqual(0, run_state(older, older.run_id).get("resume_generation", 0))
 
     def test_an_empty_checkout_reports_not_found(self) -> None:

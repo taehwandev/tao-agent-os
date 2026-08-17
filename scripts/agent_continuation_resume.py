@@ -57,6 +57,17 @@ def resume_list(
     Only the selected project root is inspected. Another Git worktree has
     different mutable state and is not a candidate even when it shares object
     storage.
+
+    A packet is listed only while the registry still records its run. The
+    registry keeps a bounded number of runs, and a packet outlives the record
+    that was pruned from under it -- but claiming one returns ``claim_lost``
+    and checkpointing one returns ``unknown_run``, because the owner and
+    generation a claim compares against are gone. Listing those as free
+    candidates offered work nobody could take, and cost a drift verification
+    each to offer it: 56 of the 72 entries in the checkout that prompted this,
+    and seconds at every session start. They are counted rather than dropped
+    silently, because a packet that exists and cannot be resumed is retention
+    debt worth seeing.
     """
 
     runs = {
@@ -64,33 +75,58 @@ def resume_list(
         for run in read_registry_state(registry_path(project)).get("runs") or []
         if run.get("run_id")
     }
-    entries = [
-        _entry(project, rules, run_id, runs, stale_after_seconds)
+    candidates = [
+        run_id
         for run_id in sorted(set(list_continuation_run_ids(project)) | set(runs))
         if runs.get(run_id, {}).get("state") not in TERMINAL_RUN_STATES
     ]
+    entries = [
+        _entry(project, rules, run_id, runs, stale_after_seconds)
+        for run_id in candidates
+        if run_id in runs
+    ]
     entries.sort(key=lambda entry: entry["updated_at"], reverse=True)
-    return {"result": "ok", "entries": entries}
+    return {
+        "result": "ok",
+        "entries": entries,
+        "unregistered_packets": len(candidates) - len(entries),
+    }
 
 
 def resume_last(
     project: Path,
     *,
+    run_id: str = "",
     rules: Path | None = None,
     stale_after_seconds: int = 3600,
 ) -> dict[str, Any]:
-    """Resume the newest unfinished packet for this checkout, or refuse by name.
+    """Resume one unfinished packet for this checkout, or refuse by name.
 
     Exactly one packet is ever a candidate. If it is held, unproven, drifted, or
     invalid, that is the answer; an older task is never substituted for the one
     the caller asked for. Owner policy and drift are decided inside
     ``claim_resume`` so one transaction owns every stable result code.
+
+    Which packet is the candidate is the caller's to say. Without ``run_id`` it
+    is the newest, which is right for a checkout one session works at a time.
+    Several sessions working the same checkout keep touching that slot, so the
+    newest is almost never the one a returning session left behind, and
+    refusing to substitute an older task -- correct on its own -- then left that
+    session with no way to reach its own work at all. Naming the run makes the
+    candidate explicit; the generation check still decides whether the claim is
+    allowed, so naming another session's live run is refused, not granted.
     """
 
     entries = resume_list(project, rules=rules, stale_after_seconds=stale_after_seconds)["entries"]
     if not entries:
         return _result("not_found", {}, reason="no_unfinished_packet")
-    newest = entries[0]
+    if run_id:
+        named = next((item for item in entries if item["run_id"] == run_id), None)
+        if named is None:
+            return _result("not_found", {}, reason="run_id_not_unfinished")
+        newest = named
+    else:
+        newest = entries[0]
     if newest["status"] in UNRESUMABLE_STATUSES:
         return _result(newest["status"], newest, reason=newest["status"])
     if newest["status"] != "ok":

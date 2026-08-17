@@ -312,6 +312,72 @@ class LiveRunSurvivalTests(unittest.TestCase):
             self.assertIsNone(touch_run(project, project / ".tao" / "other.json"))
 
 
+class BoundedHistoryTests(unittest.TestCase):
+    """The history is bounded; which record it drops is the whole question.
+
+    A record is what a claim and a checkpoint compare an owner and a
+    generation against. Evicting one whose run is still open strands that run
+    silently: its next checkpoint raises `unknown_run` and its packet can never
+    be resumed. Ten sessions on one checkout reach a hundred registrations
+    quickly, and that is exactly when several runs are open at once.
+    """
+
+    ROUTE = {"command": "task", "gates": ["finish"], "required_docs": []}
+
+    def _register(self, project: Path, name: str, *, settle: bool = False) -> str:
+        evidence = project / ".tao" / "runs" / name / "preflight.json"
+        evidence.parent.mkdir(parents=True, exist_ok=True)
+        run_id = register_run(project, evidence, self.ROUTE, {"request": name})["run_id"]
+        if settle:
+            transition_run(project, evidence, "completed", run_id=run_id)
+        return run_id
+
+    def _run_ids(self, project: Path) -> list[str]:
+        payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+        return [run["run_id"] for run in payload["runs"]]
+
+    def test_a_run_still_open_outlives_a_hundred_finished_ones(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            open_run = self._register(project, "the-open-run")
+            for index in range(agent_run_registry.MAX_RUNS + 5):
+                self._register(project, f"settled-{index}", settle=True)
+
+            kept = self._run_ids(project)
+
+            self.assertIn(open_run, kept)
+            self.assertEqual(agent_run_registry.MAX_RUNS, len(kept))
+
+    def test_a_recoverable_run_is_not_treated_as_settled(self) -> None:
+        """`failed` and `reconcile_required` are recovered from, not finished."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / "the-failed-run" / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            failed = register_run(project, evidence, self.ROUTE, {"request": "failed"})["run_id"]
+            transition_run(project, evidence, "failed", run_id=failed)
+            for index in range(agent_run_registry.MAX_RUNS + 5):
+                self._register(project, f"settled-{index}", settle=True)
+
+            self.assertIn(failed, self._run_ids(project))
+
+    def test_open_runs_alone_are_still_bounded(self) -> None:
+        """Retention must not become unbounded growth for a busy checkout."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            created = [
+                self._register(project, f"open-{index}")
+                for index in range(agent_run_registry.MAX_RUNS + 5)
+            ]
+
+            kept = self._run_ids(project)
+
+            self.assertEqual(agent_run_registry.MAX_RUNS, len(kept))
+            self.assertEqual(created[5:], kept, "the oldest five give way, newest survive")
+
+
 class CrashedClaimantRetryTests(unittest.TestCase):
     """An interrupted agent must be able to retry its own request at once.
 

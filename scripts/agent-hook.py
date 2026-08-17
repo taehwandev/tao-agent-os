@@ -1258,6 +1258,10 @@ def main() -> int:
     if args.hook == "resume":
         if args.list_mode == args.last_mode:
             parser.error("resume requires exactly one of --list or --last")
+        if args.list_mode and args.resume_run_id:
+            # Listing reports every unfinished run, so a silently ignored
+            # --run-id would read as a filter that had been applied.
+            parser.error("resume --run-id selects what --last claims; it does not filter --list")
         return resume_hook(args)
     if args.hook == "cancel":
         if not args.replacement_evidence:
