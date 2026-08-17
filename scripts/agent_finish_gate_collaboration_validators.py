@@ -4,33 +4,36 @@ from __future__ import annotations
 
 
 def _has_concrete_serial_reason(text: str) -> bool:
-    return any(
-        phrase in text
-        for phrase in (
-            "small",
-            "작은 작업",
-            "single-file",
-            "same-file",
-            "same file",
-            "단일 파일",
-            "같은 파일",
-            "contract",
-            "계약",
-            "unstable",
-            "overlap",
-            "겹침",
-            "중복",
-            "dirty worktree",
-            "dirty working tree",
-            "migration",
-            "dependency",
-            "순서 의존",
-            "동일 외부 상태",
-            "release",
-            "not applicable",
-            "not safe",
-        )
-    )
+    return any(phrase in text for phrase in SERIAL_REASON_PHRASES)
+
+
+# Named so the same phrases can be stated before the work as well as after a
+# refusal: a serial decision is refused for its reason, not its mode, and that
+# distinction is invisible until finish rejects a truthful sentence.
+SERIAL_REASON_PHRASES = (
+    "small",
+    "작은 작업",
+    "single-file",
+    "same-file",
+    "same file",
+    "단일 파일",
+    "같은 파일",
+    "contract",
+    "계약",
+    "unstable",
+    "overlap",
+    "겹침",
+    "중복",
+    "dirty worktree",
+    "dirty working tree",
+    "migration",
+    "dependency",
+    "순서 의존",
+    "동일 외부 상태",
+    "release",
+    "not applicable",
+    "not safe",
+)
 
 
 def validate_multi_agent(evidence: str) -> list[str]:

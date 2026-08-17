@@ -152,11 +152,11 @@ def _is_documentation_skip_decision(text: str) -> bool:
 
 # validate_tests renders these in its refusal, so the wording it accepts and the
 # wording it advertises cannot drift apart.
-_TEST_SIGNAL_PHRASES = (
+TEST_SIGNAL_PHRASES = (
     "test", "pytest", "unittest", "unit", "integration", "regression",
     "smoke", "verification", "manual", "not applicable",
 )
-_TEST_PASSED_PHRASES = (
+TEST_PASSED_PHRASES = (
     "passed", "pass", "0 failures", "no failures", "green", "성공", "통과",
 )
 
@@ -197,7 +197,7 @@ def validate_tests(evidence: str) -> list[str]:
     text = evidence.lower()
     if not text:
         return []
-    has_test_signal = any(phrase in text for phrase in _TEST_SIGNAL_PHRASES)
+    has_test_signal = any(phrase in text for phrase in TEST_SIGNAL_PHRASES)
     skipped = any(phrase in text for phrase in ("skipped", "not run", "unable", "cannot run"))
     explained_skip = any(
         phrase in text
@@ -209,7 +209,7 @@ def validate_tests(evidence: str) -> list[str]:
     )
     # A suite that ran and passed is a named test run even when it mentions
     # skipped subtests; the skip guard is for runs that never happened.
-    ran_and_passed = any(phrase in text for phrase in _TEST_PASSED_PHRASES)
+    ran_and_passed = any(phrase in text for phrase in TEST_PASSED_PHRASES)
     if has_test_signal and (not skipped or explained_skip or ran_and_passed):
         if (
             _claims_a_run(text, skipped, explained_skip)
@@ -220,8 +220,8 @@ def validate_tests(evidence: str) -> list[str]:
         return []
     return [
         "tests evidence must name the test/check run or explain skipped/not-applicable tests with a reason."
-        + accepted(_TEST_SIGNAL_PHRASES)
-        + accepted(_TEST_PASSED_PHRASES, limit=6).replace(
+        + accepted(TEST_SIGNAL_PHRASES)
+        + accepted(TEST_PASSED_PHRASES, limit=6).replace(
             "accepted wording includes", "a run that passed also clears it on"
         )
     ]

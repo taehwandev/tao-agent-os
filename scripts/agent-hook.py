@@ -22,6 +22,7 @@ from agent_gate_evidence import (
     resync_gate_evidence_ledger,
 )
 from agent_execution_capsule_state import git_states_for_paths
+from agent_finish_gate_validators import gate_wording_hints
 from agent_handoff_hook import handoff_hook
 from agent_hook_continuation import (
     checkpoint_after_hook,
@@ -312,7 +313,14 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
     if not required:
         return []
     lines = ["Gates requiring named fields (--field name=value):"]
-    lines.extend(f"  {gate}: {_rendered_fields(gate, fields)}" for gate, fields in required)
+    for gate, fields in required:
+        lines.append(f"  {gate}: {_rendered_fields(gate, fields)}")
+        # Several of these gates then decide by substring match, so a truthful
+        # sentence the matcher does not recognise is refused after the work is
+        # done -- the largest recurring failure class in the lesson store. The
+        # phrases are the contract; stating them here costs one line each and
+        # saves the refusal that teaches them.
+        lines.extend(f"    wording -- {hint}" for hint in gate_wording_hints(gate))
     return lines
 
 

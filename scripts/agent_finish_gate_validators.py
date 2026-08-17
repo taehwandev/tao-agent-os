@@ -588,3 +588,96 @@ def validate_review_readiness_evidence(evidence: str) -> list[str]:
         "review readiness evidence must report markdown/frontmatter status/type "
         "readiness or human-review queue results for the reviewed doc scope"
     ]
+
+# What each gate's substring checks accept, stated before the work rather than
+# only in the refusal that follows it. `accepted()` above exists because a
+# truthful sentence the matcher does not recognise sends an agent to the
+# validator source; naming the phrases only after a refusal still charges that
+# refusal, and gate-evidence wording is the largest recurring failure class in
+# the lesson store -- every one of those failures happened after the work was
+# already done.
+#
+# `requirements` are phrase groups the gate needs all of, satisfied by any one
+# phrase; the tuples are the validators' own constants, so a hint cannot drift
+# from the rule it advertises. `also` states a requirement that is not a phrase
+# list, and `example` is a minimal evidence string that satisfies the whole
+# gate. A test asserts every example passes its validator, which is what stops
+# the advice from being confidently wrong.
+def _gate_wording() -> dict[str, dict[str, object]]:
+    from agent_finish_gate_boundary_validators import BOUNDARY_PLAN_PHRASES
+    from agent_finish_gate_collaboration_validators import SERIAL_REASON_PHRASES
+    from agent_finish_gate_doc_test_validators import (
+        TEST_PASSED_PHRASES,
+        TEST_SIGNAL_PHRASES,
+    )
+
+    documentation = {
+        "requirements": {
+            "how the doc was inspected": DOC_INSPECTION_PROOF_PHRASES,
+            "why it already covers the change": DOC_COVERAGE_STATE_PHRASES,
+        },
+        "also": "the exact doc path you opened, when the decision is `unchanged`",
+        "example": (
+            "decision: unchanged; re-read AGENTS.md and it already covers this "
+            "change because the rule it states did not move"
+        ),
+    }
+    return {
+        "boundary plan": {
+            "requirements": BOUNDARY_PLAN_PHRASES,
+            "example": (
+                "scope: two existing files, one owner; review budget: no new "
+                "module and no new top-level owner; verification: focused unit tests"
+            ),
+        },
+        "multi-agent split decision": {
+            "requirements": {
+                "a concrete serial reason, or the full parallel contract": SERIAL_REASON_PHRASES,
+            },
+            "example": (
+                "mode: serial; reason: the change is small and same-file; "
+                "verification: the suite verifies it in one run"
+            ),
+        },
+        "tests": {
+            "requirements": {
+                "the check run": TEST_SIGNAL_PHRASES,
+                "its outcome": TEST_PASSED_PHRASES,
+            },
+            "also": (
+                "a falsifiable result: a count such as \"1163 tests\", an exit "
+                "status, or the exact command or selector that ran"
+            ),
+            "example": (
+                "check: unittest discover -s tests; result: 1163 tests passed, "
+                "0 failures"
+            ),
+        },
+        "documentation": documentation,
+        "documentation impact": documentation,
+    }
+
+
+def gate_wording_hints(gate: str) -> list[str]:
+    """Return the wording lines an agent needs before writing this gate."""
+
+    entry = _gate_wording().get(gate)
+    if not entry:
+        return []
+    lines = [
+        f"{requirement}: " + ", ".join(phrase for phrase in phrases[:6] if phrase)
+        + (", ..." if len(phrases) > 6 else "")
+        for requirement, phrases in (entry.get("requirements") or {}).items()
+    ]
+    if entry.get("also"):
+        lines.append(f"and {entry['also']}")
+    lines.append(f"example -- {entry['example']}")
+    return lines
+
+
+def gate_wording_examples() -> dict[str, str]:
+    """The worked example per gate, so a test can prove each one passes."""
+
+    return {
+        gate: str(entry["example"]) for gate, entry in _gate_wording().items()
+    }

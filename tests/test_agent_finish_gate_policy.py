@@ -1620,13 +1620,13 @@ class RefusalNamesAcceptedWordingTests(unittest.TestCase):
 
     def test_tests_refusal_names_an_accepted_signal(self) -> None:
         from agent_finish_gate_doc_test_validators import (
-            _TEST_SIGNAL_PHRASES,
+            TEST_SIGNAL_PHRASES,
             validate_tests,
         )
 
         failures = validate_tests("결과만 기록했다")
         self.assertTrue(failures)
-        self.assertIn(_TEST_SIGNAL_PHRASES[0], failures[0])
+        self.assertIn(TEST_SIGNAL_PHRASES[0], failures[0])
 
     def test_alignment_brief_refusal_names_the_missing_parts(self) -> None:
         from agent_finish_gate_core_validators import validate_alignment_brief

@@ -23,6 +23,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from agent_finish_gate_validators import gate_wording_hints
 from agent_review_hook import (
     ALWAYS_REQUIRED_REVIEW_EVIDENCE,
     GATE_REQUIRED_REVIEW_EVIDENCE,
@@ -211,7 +212,18 @@ class StructuredGateFieldAdvertisement(unittest.TestCase):
     def test_every_field_carrying_gate_in_the_route_is_listed(self):
         gates = sorted(gate for gate, fields in self.requirements.items() if fields)
         rendered = self.lines(gates)
-        self.assertEqual(len(rendered), len(gates) + 1)
+        # Counted by gate line rather than by total line: gates whose evidence
+        # is judged by substring match now carry their accepted wording under
+        # them, so the block is one line per gate plus that advice.
+        gate_lines = [
+            line
+            for line in rendered[1:]
+            if not line.strip().startswith("wording --")
+        ]
+        self.assertEqual(len(gate_lines), len(gates))
+        self.assertEqual(len(rendered), len(gate_lines) + 1 + sum(
+            len(gate_wording_hints(gate)) for gate in gates
+        ))
         for gate in gates:
             self.assertTrue(
                 any(line.strip().startswith(f"{gate}:") for line in rendered[1:]),
