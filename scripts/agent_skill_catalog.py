@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+from support.project_tree import PRUNED_RUN_STATE, iter_project_files
+
 
 SKILL_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,80}$")
 NO_SKILL_IDS = frozenset({"none", "none_loaded", "no_skill_used"})
@@ -76,10 +78,19 @@ def canonical_skill_ids(project: Path, rules: Path) -> set[str]:
 
 
 def _skill_ids_under(root: Path) -> set[str]:
+    """Collect skill ids without walking one directory per recorded run.
+
+    `.tao/runs` is state, but `.tao/skills` beside it is tracked content its
+    own ignore file deliberately keeps, so only the run directories are
+    pruned. In an integrated checkout they hold a second copy of the
+    repository, which is why the walk found 320 skill documents to keep 159 --
+    and why every id but one was being read twice.
+    """
+
     if not root.is_dir():
         return set()
     ids: set[str] = set()
-    for skill_doc in root.rglob("SKILL.md"):
+    for skill_doc in iter_project_files(root, "SKILL.md", pruned=PRUNED_RUN_STATE):
         skill_id = normalize_skill_id(skill_doc.parent.name)
         if skill_id and _has_skill_container(skill_doc, root):
             ids.add(skill_id)
