@@ -777,8 +777,10 @@ Never removable:
 
 - a record that is open, or `failed` or `reconcile_required` -- both are states
   a run is recovered from, and recovery needs its record and its evidence;
-- anything touched within the stale window, whatever the registry says, because
-  a session may be between creating its directory and registering the run;
+- anything touched inside the registry's shared stale window -- the same age
+  the owner policy uses -- whatever the registry says, because a session may be
+  between creating its directory and registering the run, and no record exists
+  to speak for it yet;
 - anything outside the run store: the registry itself, and tracked content such
   as `.tao/skills`, which the state directory's own ignore file keeps.
 
