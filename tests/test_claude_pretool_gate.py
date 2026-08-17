@@ -1183,6 +1183,58 @@ class CompoundShellCommandTests(unittest.TestCase):
     def test_a_dangling_redirection_stays_mutating(self) -> None:
         self.assertEqual(self._kind("grep -rn needle . >"), "mutating")
 
+    def test_git_config_injection_is_not_a_read(self) -> None:
+        """`-c` can hand a read-shaped Git command a program to run.
+
+        `diff.external`, `core.pager`, `*.textconv` and the `filter.*` hooks are
+        all reachable this way, so the option was skipped as though only its
+        value mattered and `git -c diff.external=... diff` classified as
+        read-only while Git went on to execute the named program.
+        """
+
+        self.assertEqual(self._kind("git -c diff.external=/bin/sh diff"), "mutating")
+        self.assertEqual(self._kind("git -c core.pager=/bin/sh log"), "mutating")
+        self.assertEqual(
+            self._kind("git --config-env=diff.external=EVIL diff"), "mutating"
+        )
+        self.assertEqual(self._kind("git --exec-path=/tmp/evil log"), "mutating")
+
+    def test_git_options_that_only_choose_a_repository_still_read(self) -> None:
+        self.assertEqual(self._kind("git -C /tmp/checkout status"), "read_only")
+        self.assertEqual(self._kind("git --git-dir=/tmp/x/.git log"), "read_only")
+        self.assertEqual(self._kind("git --no-pager diff --stat"), "read_only")
+
+    def test_an_executor_environment_assignment_is_not_a_read(self) -> None:
+        """An assignment prefix can supply the program the command runs.
+
+        Stripping every `NAME=value` token by shape alone judged the command
+        that followed and never the variable in front of it, so a library
+        injected into `cat` or a Git config synthesised from the environment
+        arrived as a read.
+        """
+
+        self.assertEqual(
+            self._kind("LD_PRELOAD=/tmp/evil.so cat notes.txt"), "mutating"
+        )
+        self.assertEqual(
+            self._kind("DYLD_INSERT_LIBRARIES=/tmp/evil.dylib ls"), "mutating"
+        )
+        self.assertEqual(self._kind("BASH_ENV=/tmp/evil.sh grep x notes.txt"), "mutating")
+        self.assertEqual(self._kind("GIT_EXTERNAL_DIFF=/bin/sh git diff"), "mutating")
+        self.assertEqual(self._kind("GIT_PAGER=/bin/sh git log"), "mutating")
+        self.assertEqual(
+            self._kind(
+                "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.external "
+                "GIT_CONFIG_VALUE_0=/bin/sh git diff"
+            ),
+            "mutating",
+        )
+
+    def test_presentation_only_environment_assignments_still_read(self) -> None:
+        self.assertEqual(self._kind("LC_ALL=C git log --oneline"), "read_only")
+        self.assertEqual(self._kind("LANG=C grep needle notes.txt"), "read_only")
+        self.assertEqual(self._kind("TZ=UTC date"), "read_only")
+
     def test_chained_runtime_control_hook_does_not_bootstrap(self) -> None:
         launcher = str(worktree_gate.stable_launcher_path())
         self.assertEqual(self._kind(f"{launcher} finish && rm -rf build"), "mutating")

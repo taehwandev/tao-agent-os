@@ -15,7 +15,58 @@ REDIRECTIONS = frozenset({">", ">>", "<", "<<"})
 # except to the discard sink, which is how a probe silences stderr.
 INPUT_REDIRECTIONS = frozenset({"<", "<<"})
 DISCARD_TARGETS = frozenset({"/dev/null"})
-ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+ENV_ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=.*$")
+# An assignment prefix used to be stripped by name shape alone, which reads a
+# variable's name without asking what the variable does. Many of them hand the
+# following command a program to run: `LD_PRELOAD` and `DYLD_INSERT_LIBRARIES`
+# inject a library into any binary, `BASH_ENV` and `ENV` source a script before
+# the command's first line, `PYTHONSTARTUP`, `NODE_OPTIONS` and `PERL5OPT` do
+# the same for their interpreters, and the whole `GIT_*` space can supply an
+# external diff, a pager, or a synthesised config. Stripping those turned
+# `LD_PRELOAD=evil.so cat file` into a read-only `cat`.
+#
+# The allowlist is therefore inert names only: locale, timezone, and terminal
+# presentation, which change how output is rendered and never what runs.
+# Anything outside it is not classified further -- an unrecognised assignment
+# makes the command mutating, so the next executor variable someone invents
+# fails closed instead of arriving as an allowance.
+INERT_ENV_ASSIGNMENTS = frozenset(
+    {
+        "CLICOLOR",
+        "CLICOLOR_FORCE",
+        "COLUMNS",
+        "GREP_COLOR",
+        "GREP_COLORS",
+        "LANG",
+        "LANGUAGE",
+        "LINES",
+        "NO_COLOR",
+        "TERM",
+        "TZ",
+    }
+)
+INERT_ENV_PREFIXES = ("LC_",)
+# Git's own options inject the same executors as the environment does. `-c` and
+# `--config-env` set any config key for that one run, including `diff.external`,
+# `core.pager`, and the `*.textconv` and `filter.*` hooks, so a command that
+# only reads history can still run an arbitrary program. `--exec-path` moves the
+# directory Git resolves its subcommands from. None of them is inspected for a
+# safe subset here: keeping such a subset correct is the hard part, and the
+# point of this gate is to fail closed rather than to be clever.
+GIT_SAFE_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
+GIT_SAFE_FLAG_OPTIONS = frozenset(
+    {
+        "--bare",
+        "--glob-pathspecs",
+        "--icase-pathspecs",
+        "--literal-pathspecs",
+        "--no-optional-locks",
+        "--no-pager",
+        "--no-replace-objects",
+        "--noglob-pathspecs",
+        "-P",
+    }
+)
 # Only commands that cannot write through an argument belong here, because a
 # redirection is the sole write path this gate strips out. That rules out
 # `sort -o`, `uniq <in> <out>`, `tee`, `awk`, and `find -delete/-exec`.
@@ -118,9 +169,29 @@ def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
     return cwd, tokens, False
 
 
-def strip_env_assignments(tokens: list[str]) -> list[str]:
+def inert_env_assignment(token: str) -> bool:
+    """Whether an assignment only changes presentation, never what runs."""
+
+    match = ENV_ASSIGNMENT_RE.fullmatch(token)
+    if match is None:
+        return False
+    name = match.group(1)
+    return name in INERT_ENV_ASSIGNMENTS or name.startswith(INERT_ENV_PREFIXES)
+
+
+def strip_env_assignments(tokens: list[str]) -> list[str] | None:
+    """Drop an inert assignment prefix, or refuse the command outright.
+
+    Returning None rather than the remaining tokens is what keeps an executor
+    variable from being classified by the command it wraps: the caller has no
+    command left to look at, which is the correct reading of
+    `LD_PRELOAD=... cat file`.
+    """
+
     index = 0
     while index < len(tokens) and ENV_ASSIGNMENT_RE.fullmatch(tokens[index]):
+        if not inert_env_assignment(tokens[index]):
+            return None
         index += 1
     return tokens[index:]
 
@@ -128,7 +199,17 @@ def strip_env_assignments(tokens: list[str]) -> list[str]:
 def git_command_kind(tokens: list[str]) -> str:
     index = 1
     while index < len(tokens) and tokens[index].startswith("-"):
-        index += 2 if tokens[index] in {"-C", "-c", "--git-dir", "--work-tree"} else 1
+        option = tokens[index]
+        name = option.split("=", 1)[0]
+        if name in GIT_SAFE_VALUE_OPTIONS:
+            index += 1 if "=" in option else 2
+            continue
+        if name in GIT_SAFE_FLAG_OPTIONS:
+            index += 1
+            continue
+        # Every other global option, `-c` and `--config-env` above all, can put
+        # a program where this classifier expects only a read.
+        return "mutating"
     if index >= len(tokens):
         return "read_only"
     command = tokens[index]
