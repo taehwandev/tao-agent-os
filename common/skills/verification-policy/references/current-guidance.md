@@ -105,7 +105,8 @@ the run's own exit code, then read the file.
 
 This is about your own check commands. A workflow hook is run verbatim: adding
 a redirection there can break the permission prefix the gate matches on, which
-reads as the gate refusing its own remedy. See tool failure recovery.
+reads as the gate refusing its own remedy. See
+`common/skills/tool-failure-recovery/SKILL.md`.
 
 The same rule scales down: prefer the nearest checks while iterating and run
 the full suite once before finish. That is a wall-clock saving rather than a
