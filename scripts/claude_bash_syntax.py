@@ -198,5 +198,3 @@ def has_unresolvable_expansion(command: str) -> bool:
         not PLAIN_PARAMETER_RE.fullmatch(brace)
         for brace in PARAMETER_BRACE_RE.findall(command)
     )
-
-
