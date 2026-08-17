@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from agent_finish_gate_policy import VALIDATED_GATES
+from support.project_tree import iter_project_files
 from workflow_catalog import COMMANDS, CONCERNS, CORE_DOCS, PLATFORM_CONCERNS, PLATFORMS
 from workflow_common import (
     QUESTION_ROUTE_COMMANDS,
@@ -400,8 +401,12 @@ def _has_heading(text: str, heading: str) -> bool:
 
 
 def markdown_files_to_validate(root: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in root.rglob("*.md")
-        if not MARKDOWN_VALIDATE_IGNORED_DIRS.intersection(path.relative_to(root).parts)
-    )
+    """List the documents to validate without walking the ones already excluded.
+
+    The ignored set was applied to results, so the walk still descended into
+    project state, virtual environments and caches to discard what it found.
+    Pruning at the directory gives the same list; the set is unchanged, so a
+    file is excluded for exactly the reasons it was before.
+    """
+
+    return sorted(iter_project_files(root, "*.md", pruned=MARKDOWN_VALIDATE_IGNORED_DIRS))

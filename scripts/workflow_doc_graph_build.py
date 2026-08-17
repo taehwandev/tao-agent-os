@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
+from support.project_tree import iter_project_files
 from workflow_common import ROOT, unique
 from workflow_doc_graph_refs import frontmatter_doc_refs, markdown_doc_refs
 from workflow_doc_surface_rules import rule_docs, rule_list, string_list
@@ -50,13 +51,19 @@ def graph_summary(root: Path = ROOT) -> dict[str, int]:
 
 
 def _markdown_docs(root: Path) -> set[str]:
-    docs: set[str] = set()
-    for path in root.rglob("*.md"):
-        rel = path.relative_to(root).as_posix()
-        if rel.startswith(".tao/") or "/.tao/" in rel:
-            continue
-        docs.add(rel)
-    return docs
+    """Collect the guidance documents, without walking project state to skip it.
+
+    Excluding `.tao` after the walk still descended into it, and in an
+    integrated checkout that is a second copy of the repository: 885 files
+    found to keep 495. The graph is built inside workflow validation, which
+    the review hook runs before it can report, so the walk is something a
+    person waits for.
+    """
+
+    return {
+        path.relative_to(root).as_posix()
+        for path in iter_project_files(root, "*.md")
+    }
 
 
 def _add_markdown_edges(root: Path, docs: set[str], graph: dict[str, list[dict[str, object]]]) -> None:
