@@ -16,56 +16,65 @@ RUN_STATE_NAMES = (
 )
 
 
+# Named so the same phrases can be stated before the work as well as after a
+# refusal. A wording requirement discoverable only by failing is one an agent
+# pays for once per refusal, and gate-evidence wording is the largest recurring
+# failure class in the lesson store.
+BOUNDARY_PLAN_PHRASES = {
+    "owned boundary": (
+        "boundary",
+        "owner",
+        "owned",
+        "scope",
+        "same file",
+        "single-file",
+        "existing",
+        "contract",
+        "allowed import",
+        "forbidden import",
+        "no new package",
+    ),
+    "nearest verification": (
+        "verification",
+        "verify",
+        "test",
+        "check",
+        "manual",
+        "pytest",
+        "unittest",
+        "typecheck",
+        "smoke",
+        "validate",
+    ),
+    "runtime structure decision": (
+        "review budget",
+        "structural budget",
+        "top-level owner",
+        "top level owner",
+        "public owner",
+        "owner count",
+        "file split",
+        "one public owner",
+        "single public owner",
+        "no runtime source change",
+        "no development source change",
+    ),
+}
+
+
 def validate_boundary_plan(evidence: str) -> list[str]:
     text = evidence.lower()
     if not text:
         return []
     has_boundary = any(
-        phrase in text
-        for phrase in (
-            "boundary",
-            "owner",
-            "owned",
-            "scope",
-            "same file",
-            "single-file",
-            "existing",
-            "contract",
-            "allowed import",
-            "forbidden import",
-            "no new package",
-        )
+        phrase in text for phrase in BOUNDARY_PLAN_PHRASES["owned boundary"]
     )
     has_verification = any(
-        phrase in text
-        for phrase in (
-            "verification",
-            "verify",
-            "test",
-            "check",
-            "manual",
-            "pytest",
-            "unittest",
-            "typecheck",
-            "smoke",
-            "validate",
-        )
+        phrase in text for phrase in BOUNDARY_PLAN_PHRASES["nearest verification"]
     )
     has_runtime_structure_decision = any(
         phrase in text
-        for phrase in (
-            "review budget",
-            "structural budget",
-            "top-level owner",
-            "top level owner",
-            "public owner",
-            "owner count",
-            "file split",
-            "one public owner",
-            "single public owner",
-            "no runtime source change",
-            "no development source change",
-        )
+        for phrase in BOUNDARY_PLAN_PHRASES["runtime structure decision"]
     )
     if has_boundary and has_verification and has_runtime_structure_decision:
         return []
