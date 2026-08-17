@@ -31,7 +31,7 @@ from workflow_classified_exemption import (
     classified_intake_decision,
     parent_evidence_path,
 )
-from agent_route_state import request_fingerprint
+from agent_route_state import request_fingerprint, request_intake_from_args
 from workflow_intent_dual_run import (
     classification_from_envelope,
     dual_run_decision,
@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--surface-path",
         action="append",
         default=[],
-        help="Path already known to be in scope; can be repeated. Used to promote required docs from workflow-doc-surfaces.json.",
+        help="Repository-verified owner path; repeat to promote docs after owner proof.",
     )
     route.add_argument(
         "--request-classified",
@@ -315,7 +315,7 @@ def print_request_classification(args: argparse.Namespace) -> int:
             envelope,
             result,
             approval=read_approval_record(getattr(args, "approval_record", "")),
-            request_fingerprint=request_fingerprint({"request": args.request or ""}),
+            request_fingerprint=request_fingerprint(request_intake_from_args(args)),
             runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
         )
         if decision["failures"]:
@@ -355,7 +355,7 @@ def print_route(args: argparse.Namespace) -> int:
             args.command,
             read_intent_envelope(getattr(args, "intent_envelope", "")),
             approval=read_approval_record(getattr(args, "approval_record", "")),
-            request_fingerprint=request_fingerprint({"request": args.request or ""}),
+            request_fingerprint=request_fingerprint(request_intake_from_args(args)),
             runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
         )
         if failures:
@@ -445,7 +445,7 @@ def _dispatch_request_classification(
         args.command,
         read_intent_envelope(getattr(args, "intent_envelope", "")),
         approval=read_approval_record(getattr(args, "approval_record", "")),
-        request_fingerprint=request_fingerprint({"request": args.request or ""}),
+        request_fingerprint=request_fingerprint(request_intake_from_args(args)),
         runtime_session_id=str(getattr(args, "runtime_session_id", "") or ""),
     )
     if failures:

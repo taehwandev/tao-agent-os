@@ -13,7 +13,6 @@ from workflow_catalog import (
     PLATFORM_CONCERNS,
     PLATFORMS,
 )
-from support.graphify_setup import inspect_target_graphify
 from agent_skill_catalog import FEEDBACK_SIGNALS
 from workflow_common import (
     REPAIR_CYCLE_LIMIT,
@@ -34,10 +33,12 @@ from workflow_gate_policy import (
     SKILL_REVIEW_HOOK,
     RETROSPECTIVE_CHECK_COMMANDS,
     RETROSPECTIVE_CHECK_GATE,
+    WORK_SURFACE_RESOLUTION_GATE,
     add_automatic_gates,
     automatic_docs,
     skill_feedback_policy,
 )
+from workflow_graphify_route import graphify_route_context
 from workflow_doc_resolution import doc_size, resolve_guidance_docs
 from workflow_doc_surfaces import infer_surface_docs
 from workflow_parallel import parallel_execution_plan
@@ -182,10 +183,12 @@ def resolve_docs(
         if concern in BASELINE_CONCERNS:
             notes.append(f"Concern `{concern}` is {BASELINE_CONCERNS[concern]}")
 
-    graphify_requested = "graphify" in concerns or any(
-        match["name"] in {"target_project_graphify", "graphify_integration"}
-        for match in surface_matches
+    graphify_context = graphify_route_context(
+        concerns=concerns,
+        surface_matches=surface_matches,
+        project_root=project_root,
     )
+    graphify_requested = bool(graphify_context["requested"])
     gates = route_gates(command, graphify_required=graphify_requested)
     if command not in QUESTION_ROUTE_COMMANDS:
         gates = ["request intake", *gates]
@@ -205,13 +208,20 @@ def resolve_docs(
             "Read `required_docs` before work; treat `reference_docs` as on-demand context only when the current task touches that concern."
         )
     if surface_matches:
+        verified_path_match = any(
+            match.get("type") == "path_surface" for match in surface_matches
+        )
         if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
             notes.append(
-                "Kept docs inferred only from dirty-path surfaces in `reference_docs` for the lightweight commit route; explicit concerns can still promote required guidance."
+                "Kept surface-inferred docs in `reference_docs` for the lightweight commit route; explicit concerns can still promote required guidance."
+            )
+        elif verified_path_match:
+            notes.append(
+                "Promoted required docs from semantic request intent or verified owner paths using `workflow-doc-surfaces.json`."
             )
         else:
             notes.append(
-                "Promoted required docs from request intent or touched path surfaces using `workflow-doc-surfaces.json`."
+                "Matched semantic request-intent guidance. Code routes still require work-surface owner proof before task-specific reading or edits."
             )
     if search_seed_docs:
         notes.append(
@@ -234,32 +244,9 @@ def resolve_docs(
             "Expanded related candidate docs from the local document graph; explicit `requires_docs` edges become required docs."
         )
 
-    graphify_readiness = None
-    blocking: list[str] = []
-    if graphify_requested:
-        if project_root:
-            graphify_readiness = {
-                "requested": True,
-                "project": str(project_root),
-                **inspect_target_graphify(project_root),
-            }
-        else:
-            graphify_readiness = {
-                "requested": True,
-                "project": None,
-                "ready": False,
-            }
-            blocking.append(
-                "Graphify readiness cannot be assessed without --project <TARGET_REPO>."
-            )
-        if project_root and not graphify_readiness["ready"]:
-            notes.append(
-                "Target-project Graphify is incomplete. The graphify readiness gate must prove "
-                "CLI, the read canonical SKILL.md, runtime links resolving to it, portable "
-                "Git ownership, project integration, a fresh/input-complete graph with valid "
-                "endpoints, and query smoke before handoff. Document-to-code relationship "
-                "coverage is query-quality guidance, not an AST-only prerequisite."
-            )
+    graphify_readiness = graphify_context["readiness"]
+    blocking = list(graphify_context["blocking"])
+    notes.extend(graphify_context["notes"])
 
     route = {
         "root": str(ROOT),
@@ -364,6 +351,7 @@ def _document_resolution(
 GUARANTEED_GATE_DOCS = {
     "review hook": "workflows/skills/review-and-commit/SKILL.md",
     MULTI_AGENT_GATE: "workflows/skills/multi-agent-collaboration/SKILL.md",
+    WORK_SURFACE_RESOLUTION_GATE: "common/skills/source-driven-development/SKILL.md",
 }
 
 REVIEW_HOOK_GATE_DOCS = (
@@ -393,10 +381,10 @@ CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE = {
 # let the operating contract crowd out the documents actually matched to this
 # request.  Total mandatory reading is therefore roughly core + this budget.
 REQUIRED_DOC_BUDGET_BYTES = 30_000
-# 10, not 9: a platform pack that routes one router card plus two platform cards
-# on top of the core and gate contracts legitimately needs the tenth slot; the
-# selection budget still bounds total bytes.
-MAX_REQUIRED_DOCS = 10
+# Core and guaranteed review/owner-proof contracts consume one more slot on
+# code routes. Eleven preserves the previous room for the command card plus
+# three request-specific branch cards.
+MAX_REQUIRED_DOCS = 11
 
 # STOPGAP -- not a permanent policy.  A single reference larger than this would
 # monopolise the route's mandatory reading: admitting one exhausts

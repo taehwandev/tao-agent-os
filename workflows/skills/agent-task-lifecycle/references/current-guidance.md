@@ -69,8 +69,12 @@ memory.
    `agent-preflight.py` calls are lower-level diagnostic or compatibility
    fallbacks only. Use `index.md` only for simple answer-only work or an
    explicitly accepted fallback when the start hook cannot run.
-6. Required docs: after start, read the route's `required_docs` / `Read First` docs before
-   editing, coding, reviewing, or running project-specific work. Treat
+6. Work surface and required docs: after start, read the always-required runtime
+   instructions and the work-surface resolution contract. For code routes,
+   resolve the change owner with bounded read-only repository inspection and
+   record the `work surface resolution` gate before reading task-specific
+   guidance. Then read every route `required_docs` / `Read First` entry before
+   editing, coding, or reviewing. Treat
    `reference_docs` as lazy context and open one only when the current task
    touches that concern, platform, gate, or verification path. Required-document
    selection is owned by the route; reading those documents is a direct agent
@@ -116,6 +120,10 @@ When a finish gate requires evidence, record the actual decision. At minimum:
   `user_visible_before_edits`.
 - `cycle contract` and `boundary plan`: state the owned and forbidden scope,
   nearest verification, stop condition, and handoff point.
+- `work surface resolution`: use `result`, `owner`, `anchors`, `evidence`,
+  `surface_paths`, `concerns`, `search_hops`, and `verification`. Only
+  `result=resolved`, one to four evidence hops, an anchor-to-owner repository
+  chain, and the nearest falsifying verification can pass.
 - `retrospective check`: use `skills_checked`, `outcome`, and `observation`.
   `outcome` must be `no_reusable_gap`, `reusable_gap`, or `no_skill_used`;
   `observation` must be `not_needed`, `recorded`, or `deferred`, using the

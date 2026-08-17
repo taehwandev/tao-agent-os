@@ -78,6 +78,16 @@ FIELD_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "graph",
         "query_smoke",
     ),
+    "work surface resolution": (
+        "result",
+        "owner",
+        "anchors",
+        "evidence",
+        "surface_paths",
+        "concerns",
+        "search_hops",
+        "verification",
+    ),
     "multi-agent split decision": ("mode", "reason", "verification"),
     "retrospective check": ("skills_checked", "outcome", "observation"),
     "side-effect audit": ("scope", "result"),
@@ -89,6 +99,7 @@ AMBIGUITY_BLOCKER_STATUSES = ("none", "resolved")
 AMBIGUITY_DECISIONS = ("proceed",)
 ALIGNMENT_BRIEF_CHECKPOINTS = ("user_visible_before_edits",)
 GRAPHIFY_READINESS_STATUS = "success"
+WORK_SURFACE_RESOLUTION_RESULTS = ("resolved",)
 
 
 # Fields whose validator tests exact membership, so `start` can state the
@@ -130,6 +141,9 @@ def gate_field_enums(gate: str) -> dict[str, tuple[str, ...]]:
         "graphify readiness": {
             field: (GRAPHIFY_READINESS_STATUS,)
             for field in FIELD_REQUIREMENTS["graphify readiness"]
+        },
+        "work surface resolution": {
+            "result": WORK_SURFACE_RESOLUTION_RESULTS,
         },
     }
     return registry.get(gate, {})
@@ -624,6 +638,20 @@ def synthesize_gate_evidence(
             f"{fields['verification']}",
             [],
         )
+    if gate == "work surface resolution":
+        from agent_finish_gate_surface_validators import (
+            validate_work_surface_resolution,
+        )
+
+        rendered = (
+            f"work surface resolution: result={fields['result']}; "
+            f"owner={fields['owner']}; anchors={fields['anchors']}; "
+            f"evidence chain={fields['evidence']}; verified surface paths="
+            f"{fields['surface_paths']}; concerns={fields['concerns']}; "
+            f"search hops={fields['search_hops']}; nearest falsifying verification="
+            f"{fields['verification']}"
+        )
+        return rendered, validate_work_surface_resolution(rendered)
     if gate == "multi-agent split decision":
         mode = fields["mode"].lower()
         if mode in {"serial", "single-agent", "single agent"}:

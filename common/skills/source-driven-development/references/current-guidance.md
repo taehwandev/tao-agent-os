@@ -25,6 +25,35 @@ defined by a versioned source.
 For stable local conventions, inspect the repo first. Source-driven work does
 not override repo-local instructions or existing architecture without a reason.
 
+## Repository Work-Surface Resolution
+
+Before reading task-specific guidance or editing code, verify the repository
+boundary that owns the requested behavior. Request words, a user-supplied path,
+path-like text, and dirty Git paths are evidence anchors, not ownership proof.
+Only a verified owner path may be promoted through `--surface-path`.
+
+Use a bounded read-only search of at most four evidence hops:
+
+1. extract the most discriminating observable or named anchor;
+2. locate its resource, symbol, route, state, producer, or definition;
+3. follow direct usages and exclude generated, test-only, and unrelated matches;
+4. name the smallest change owner and the nearest check that would fail if the
+   owner claim were wrong.
+
+Stop with `resolved`, `ambiguous`, or `not_found`. Only `resolved` permits
+task-specific reading and edits. For the other results, report the anchors and
+boundaries checked and ask for one behavior-distinguishing clue. Do not restart
+the same search indefinitely or ask the user which internal document to read.
+
+A screenshot is a first-class anchor: inspect visible copy, hierarchy, state,
+controls, and stable identifiers before asking for a file. Do not persist
+sensitive screenshot content in route or gate metadata.
+
+An exact local change may use a one-hop fast path when direct inspection proves
+the behavior owner, no competing owner is visible at the nearest boundary, and
+a focused falsifying check is known. A named multipurpose or aggregation file
+does not qualify merely because the user supplied it.
+
 ## Inspect First
 
 1. Repo-local instructions and architecture docs.
@@ -49,13 +78,15 @@ is made. Record the conflict and the reason for the chosen path.
 
 ## Process
 
-1. Detect the stack and version from local files.
-2. Identify the exact behavior that needs external source confirmation.
-3. Read the smallest authoritative source that covers that behavior.
-4. Compare the source pattern with nearby code.
-5. Implement the smallest compatible change.
-6. Verify with a command or scenario that exercises the sourced behavior.
-7. Report the source class used, such as repo docs, pinned docs, official docs,
+1. Resolve the repository work surface when the change owner is not already
+   proven by the fast path.
+2. Detect the stack and version from local files.
+3. Identify the exact behavior that needs external source confirmation.
+4. Read the smallest authoritative source that covers that behavior.
+5. Compare the source pattern with nearby code.
+6. Implement the smallest compatible change.
+7. Verify with a command or scenario that exercises the sourced behavior.
+8. Report the source class used, such as repo docs, pinned docs, official docs,
    or migration notes.
 
 ## Source Families

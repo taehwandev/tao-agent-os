@@ -44,6 +44,31 @@ def request_fingerprint(request_intake: Mapping[str, Any] | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def request_intake_from_args(args: Any) -> dict[str, Any]:
+    """Build the one request intake every fingerprint consumer must agree on.
+
+    The envelope binding used to hand-build ``{"request": ...}`` at each of its
+    call sites while the preflight, run registry, and execution capsule hashed
+    the full intake. One function then answered to two contracts, so an envelope
+    minted for a terse follow-up such as "y" stayed valid when only the
+    continuation scope changed -- and for a terse follow-up the scope is what
+    carries the meaning, which is exactly the replay the binding exists to
+    refuse. Reading the fields through one helper is what stops the call sites
+    from drifting apart again.
+
+    ``getattr`` defaults rather than attribute access: the classify, route, and
+    dispatch parsers do not all define every intake flag, and a missing flag
+    must read as its empty default rather than raise.
+    """
+
+    return {
+        "request": getattr(args, "request", "") or "",
+        "continuation_scope": getattr(args, "continuation_scope", "") or "",
+        "request_classified": bool(getattr(args, "request_classified", False)),
+        "classification_evidence": getattr(args, "classification_evidence", "") or "",
+    }
+
+
 def preflight_evidence_sha256(evidence_path: Path) -> str:
     """Hash a preflight evidence file without reading task content into memory."""
 
