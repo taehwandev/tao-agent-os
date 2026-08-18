@@ -86,8 +86,10 @@ from agent_run_registry import (
     touch_run,
     transition_run,
 )
-from agent_runtime_session import settle_superseded_session_runs
+from agent_route_state import request_fingerprint
+from agent_runtime_session import runtime_session, settle_superseded_session_runs
 from agent_transfer_cancel import cancel_transferred_run
+from workflow_intent_envelope import SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
     context_snapshot_failures_are_replaceable,
@@ -787,6 +789,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         choices=(
             "start",
             "cancel",
+            "fingerprint",
             "handoff",
             "resume",
             "checkpoint",
@@ -1235,9 +1238,59 @@ def _apply_repair_cycle_context(
         args.repair_invocation_rollback = release_review_repair_attempt
 
 
+def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """Print the current request's fingerprint and an envelope skeleton.
+
+    A work route needs an intent envelope carrying the exact request
+    fingerprint, but before the first start the Claude gate only allows this
+    runtime's own hooks -- generic interpreters that could compute the hash are
+    denied. This helper is that sanctioned bootstrap: it reads nothing and
+    writes no state, so it stays callable before any lifecycle exists.
+    """
+
+    if not args.request:
+        parser.error("fingerprint requires --request with the exact current user request")
+    fingerprint = request_fingerprint(
+        {
+            "request": args.request,
+            "continuation_scope": getattr(args, "continuation_scope", ""),
+            "request_classified": bool(args.request_classified),
+            "classification_evidence": args.classification_evidence,
+        }
+    )
+    skeleton = {
+        "schema_version": ENVELOPE_SCHEMA_VERSION,
+        "request_fingerprint": fingerprint,
+        "runtime_session_id": runtime_session().get("session_id", ""),
+        "mode": "work",
+        "intent": "<safe_lowercase_slug>",
+        "target_summary": "<one bounded line naming the work target>",
+        "requested_effects": ["local_write"],
+        "prohibited_effects": ["external_write"],
+        "ambiguity": "resolved",
+    }
+    return finish_with_result(
+        "fingerprint",
+        True,
+        [
+            f"request fingerprint: {fingerprint}",
+            "envelope skeleton (fill intent, target_summary, effects, and the "
+            "session id before use): " + json.dumps(skeleton, ensure_ascii=False),
+        ],
+        args.output,
+        {"request_fingerprint": fingerprint, "envelope_skeleton": skeleton},
+        args.repair_cycle,
+    )
+
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
+    if args.hook == "fingerprint":
+        # Answered entirely from the arguments: no evidence path, no worker
+        # boundary, and no heartbeat -- a registry write here would turn the
+        # pre-lifecycle helper into the mutation it exists to precede.
+        return _fingerprint_hook(parser, args)
     if (
         args.hook == "start"
         and args.output

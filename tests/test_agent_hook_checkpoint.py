@@ -155,6 +155,35 @@ class CheckpointCommandTests(unittest.TestCase):
         self.assertEqual("repo-hygiene", parsed.review_scope)
         self.assertEqual([], parsed.review_path)
 
+    def test_fingerprint_hook_prints_the_bound_request_fingerprint(self) -> None:
+        from agent_route_state import request_fingerprint
+
+        parser = agent_hook.build_parser()
+        args = parser.parse_args(["fingerprint", "--request", "do the thing"])
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            returncode = agent_hook._fingerprint_hook(parser, args)
+
+        expected = request_fingerprint(
+            {
+                "request": "do the thing",
+                "continuation_scope": "",
+                "request_classified": False,
+                "classification_evidence": "",
+            }
+        )
+        self.assertEqual(0, returncode)
+        self.assertIn(expected, stdout.getvalue())
+        self.assertIn('"request_fingerprint"', stdout.getvalue())
+
+    def test_fingerprint_hook_requires_the_request(self) -> None:
+        parser = agent_hook.build_parser()
+        args = parser.parse_args(["fingerprint"])
+
+        with self.assertRaises(SystemExit):
+            agent_hook._fingerprint_hook(parser, args)
+
 
 if __name__ == "__main__":
     unittest.main()
