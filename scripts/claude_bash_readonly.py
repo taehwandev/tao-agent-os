@@ -72,6 +72,10 @@ READ_ONLY_COMMANDS = frozenset(
     {
         "basename",
         "cat",
+        # A bare `cd` only moves the shell; the write it could precede arrives
+        # as its own command and is judged then. Denying it stranded a session
+        # whose persistent shell was parked inside a protected checkout.
+        "cd",
         "column",
         "cut",
         "date",
