@@ -76,6 +76,28 @@ def claiming_runs(project: Path) -> list[dict]:
 
 
 class AgentRunRegistryTests(unittest.TestCase):
+    def test_reads_never_scaffold_state_in_a_marker_only_directory(self) -> None:
+        """A registry read against a directory with no runtime state must not
+        create one.
+
+        Acquiring the registry locks creates `.tao/` plus two lock files as a
+        side effect, so a read against a documentation directory that merely
+        carries an opt-in marker planted dead runtime state in checkouts that
+        never ran a lifecycle -- and that state then made the directory opt in
+        as a project forever.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
+            evidence = project / ".tao" / "preflight.json"
+
+            self.assertEqual([], active_runs(project))
+            self.assertEqual({}, active_run_bindings(project))
+            self.assertIsNone(agent_run_registry.latest_run_id(project, evidence))
+            self.assertIsNone(agent_run_registry.registered_run(project, evidence))
+            self.assertFalse((project / ".tao").exists())
+
     def test_register_and_transition_run_without_content_or_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

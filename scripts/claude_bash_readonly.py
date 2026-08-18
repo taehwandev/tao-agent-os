@@ -230,8 +230,10 @@ def simple_command_kind(tokens: list[str]) -> str:
         return "read_only"
     if executable == "sed":
         args = command[1:]
+        # The file operand is optional: a print-only sed reading stdin at the
+        # end of a pipe writes nothing either.
         print_only = (
-            len(args) >= 3
+            len(args) >= 2
             and args[0] == "-n"
             and re.fullmatch(r"(?:\d+|\$)(?:,(?:\d+|\$))?p", args[1]) is not None
         )

@@ -412,8 +412,23 @@ def _closeout_owner_matches(run: dict[str, Any]) -> bool:
     return owner == process_owner()
 
 
+def _registry_unreadable(path: Path) -> bool:
+    """True when no state directory exists for this project.
+
+    Acquiring the locks creates ``.tao/`` plus two lock files as a side
+    effect, so a read against a directory that merely carries an opt-in
+    marker planted dead runtime state in checkouts that never ran a
+    lifecycle -- and that state made the directory opt in as a project
+    forever. A read has nothing to serialize against when nothing exists.
+    """
+
+    return not path.parent.is_dir()
+
+
 def active_runs(project: Path) -> list[dict[str, Any]]:
     path = registry_path(project)
+    if _registry_unreadable(path):
+        return []
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
         return [run for run in payload["runs"] if run.get("state") in ACTIVE_RUN_STATES]
@@ -433,6 +448,8 @@ def active_run_bindings(project: Path) -> dict[str, dict[str, Any]]:
     """
 
     path = registry_path(project)
+    if _registry_unreadable(path):
+        return {}
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
         latest: dict[str, dict[str, Any]] = {}
@@ -609,6 +626,8 @@ def _claim_recency_expired(
 
 def latest_run_id(project: Path, evidence_path: Path) -> str | None:
     path = registry_path(project)
+    if _registry_unreadable(path):
+        return None
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
         matches = [
@@ -626,6 +645,8 @@ def registered_run(
     """Return a copy of one exact registry binding under the registry lock."""
 
     path = registry_path(project)
+    if _registry_unreadable(path):
+        return None
     with project_state_lock(project), state_lock(path):
         matches = [
             run

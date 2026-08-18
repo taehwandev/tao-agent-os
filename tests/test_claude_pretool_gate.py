@@ -1418,6 +1418,12 @@ class CompoundShellCommandTests(unittest.TestCase):
             "mutating",
         )
 
+    def test_print_only_sed_reading_stdin_stays_read_only(self) -> None:
+        """`... | sed -n 2p` writes nothing; the missing file operand is stdin."""
+
+        self.assertEqual(self._kind("grep -rn needle notes.txt | sed -n 2p"), "read_only")
+        self.assertEqual(self._kind("sed -i s/a/b/ notes.txt"), "mutating")
+
     def test_bare_cd_only_moves_the_shell_and_stays_read_only(self) -> None:
         """A lone `cd` cannot write; stranding a parked shell was the only effect."""
 
