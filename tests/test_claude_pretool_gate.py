@@ -1362,6 +1362,43 @@ class CompoundShellCommandTests(unittest.TestCase):
         self.assertEqual(self._kind("LANG=C grep needle notes.txt"), "read_only")
         self.assertEqual(self._kind("TZ=UTC date"), "read_only")
 
+    def test_runtime_hook_environment_assignments_keep_the_control_kind(self) -> None:
+        """The runtime's own documented env prefixes must not void its hooks.
+
+        `CLAUDE_CODE_SESSION_ID` and `TAO_HOOK_SOFT_FAIL` are read only by this
+        runtime's tooling and never select what executes, but the executor-variable
+        fail-close treated them like `LD_PRELOAD`, so the gate denied the exact
+        start command its own denial message asks the caller to run.
+        """
+
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(
+            self._kind(
+                f"CLAUDE_CODE_SESSION_ID=abc123 {launcher} start "
+                "--project /tmp/x --request hi"
+            ),
+            "workflow_start",
+        )
+        self.assertEqual(
+            self._kind(f"TAO_HOOK_SOFT_FAIL=1 {launcher} finish"), "bootstrap"
+        )
+        self.assertEqual(
+            self._kind("CLAUDE_CODE_SESSION_ID=abc123 grep needle notes.txt"),
+            "read_only",
+        )
+        self.assertEqual(
+            self._kind(f"LD_PRELOAD=/tmp/evil.so {launcher} start"), "mutating"
+        )
+
+    def test_fingerprint_hook_is_runtime_control(self) -> None:
+        """The envelope bootstrap helper must be callable before any start."""
+
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(
+            self._kind(f'{launcher} fingerprint --request "do the thing"'),
+            "bootstrap",
+        )
+
     def test_chained_runtime_control_hook_does_not_bootstrap(self) -> None:
         launcher = str(worktree_gate.stable_launcher_path())
         self.assertEqual(self._kind(f"{launcher} finish && rm -rf build"), "mutating")
