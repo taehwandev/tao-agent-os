@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Sequence
+from support.stage_timing import stage
 
 
 WIKIMAP_VERSION = "1.0.0"
@@ -111,7 +112,8 @@ def _ensure_index(root_text: str) -> str:
     ]
     for ignored in WIKIMAP_IGNORES:
         command.extend(("--ignore", ignored))
-    _completed, error = _run(command, root)
+    with stage("wikimap_index"):
+        _completed, error = _run(command, root)
     return error
 
 

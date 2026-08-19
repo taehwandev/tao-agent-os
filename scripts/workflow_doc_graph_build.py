@@ -13,6 +13,7 @@ from workflow_doc_graph_refs import frontmatter_doc_refs, markdown_doc_refs
 from workflow_doc_surface_rules import rule_docs, rule_list, string_list
 from workflow_doc_surfaces import RULES_FILE, load_doc_surface_rules
 from workflow_skill_paths import canonical_doc_path
+from support.stage_timing import stage
 
 
 def build_doc_graph(root: Path = ROOT) -> dict[str, list[dict[str, object]]]:
@@ -23,6 +24,11 @@ def build_doc_graph(root: Path = ROOT) -> dict[str, list[dict[str, object]]]:
 @lru_cache(maxsize=4)
 def _build_doc_graph(root_text: str) -> dict[str, list[dict[str, object]]]:
     root = Path(root_text)
+    with stage("doc_graph_build"):
+        return _graph_for(root)
+
+
+def _graph_for(root: Path) -> dict[str, list[dict[str, object]]]:
     graph: dict[str, list[dict[str, object]]] = {}
     docs = _markdown_docs(root)
     for rel in docs:

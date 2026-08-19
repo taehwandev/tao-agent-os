@@ -125,5 +125,58 @@ class TheHooksAreActuallyInstrumentedTests(unittest.TestCase):
         self.assertGreater(record["timings"]["hook_total"], 0)
 
 
+class DiscoveryStagesTests(unittest.TestCase):
+    """Routing is most of a start, and search is most of routing.
+
+    A single `preflight` number said a start was slow without saying which
+    part: profiling put 63% of it in document discovery, split between a
+    wikimap index refresh and a graph build. Recording them separately is
+    what lets the next reduction pick between those two rather than guess.
+    """
+
+    def setUp(self) -> None:
+        from support.stage_timing import reset_stages
+
+        import workflow_doc_graph_build
+        from workflow_wikimap import clear_wikimap_cache
+
+        # Both caches are per process, which is why every hook pays them once
+        # and why a test that does not clear them measures the second call.
+        reset_stages()
+        workflow_doc_graph_build.clear_doc_graph_cache()
+        clear_wikimap_cache()
+        self.addCleanup(reset_stages)
+        self.addCleanup(workflow_doc_graph_build.clear_doc_graph_cache)
+        self.addCleanup(clear_wikimap_cache)
+
+    def test_a_cold_route_records_search_and_graph_separately(self) -> None:
+        from workflow_route import resolve_docs
+
+        resolve_docs(
+            "task", None, [],
+            request_text="bound every local git read",
+            project_root=ROOT,
+        )
+        timings = recorded_stages()
+
+        for expected in ("doc_search", "doc_graph_build", "wikimap_index"):
+            with self.subTest(stage=expected):
+                self.assertIn(expected, timings)
+
+    def test_search_covers_the_index_refresh_inside_it(self) -> None:
+        """Nested stages must nest, or the numbers cannot be read as parts."""
+
+        from workflow_route import resolve_docs
+
+        resolve_docs(
+            "task", None, [],
+            request_text="bound every local git read",
+            project_root=ROOT,
+        )
+        timings = recorded_stages()
+
+        self.assertGreaterEqual(timings["doc_search"], timings["wikimap_index"])
+
+
 if __name__ == "__main__":
     unittest.main()
