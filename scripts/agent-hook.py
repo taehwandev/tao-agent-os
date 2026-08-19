@@ -1243,10 +1243,10 @@ def _apply_repair_cycle_context(
             failure_signature=repair_signature,
         )
 
-    # Parsing and pre-write validation happen after the repair context is
-    # claimed. Every hook that can reject an invocation before mutation needs
-    # the same rollback that review already used, otherwise a typo consumes the
-    # only repair cycle and makes the documented retry impossible.
+    # Hook-specific CLI validation runs before the repair context is claimed.
+    # Downstream pre-write validation can still reject an invocation after the
+    # claim, so every such hook needs the same rollback that review already
+    # used; otherwise the only repair cycle becomes unavailable.
     args.repair_invocation_rollback = release_failed_repair_invocation
 
 
@@ -1295,6 +1295,50 @@ def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace)
     )
 
 
+def _validate_hook_arguments_before_repair(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """Reject hook-specific CLI errors before a repair attempt is claimed."""
+
+    if args.hook == "start":
+        if args.request_classified and not args.classification_evidence:
+            parser.error("start --request-classified requires --classification-evidence")
+        if not args.request:
+            parser.error(
+                "start requires --request with the real current request; only a delegated "
+                "worker with a matching parent capsule may additionally use "
+                "--request-classified"
+            )
+        return
+    if args.hook == "review":
+        args.review_path = [path.strip() for path in args.review_path if path.strip()]
+        if args.review_path and args.review_scope == "working-tree":
+            args.review_scope = "pathspec"
+        if args.review_scope in {"pathspec", "local-config"} and not args.review_path:
+            parser.error(
+                f"review --review-scope {args.review_scope} requires at least one --review-path"
+            )
+        if args.review_scope == "commit-range":
+            if args.review_path:
+                parser.error("review --review-scope commit-range does not accept --review-path")
+            if not str(getattr(args, "review_base", "") or "").strip() or not str(
+                getattr(args, "review_head", "") or ""
+            ).strip():
+                parser.error(
+                    "review --review-scope commit-range requires --review-base and --review-head"
+                )
+        elif str(getattr(args, "review_base", "") or "").strip() or str(
+            getattr(args, "review_head", "") or ""
+        ).strip():
+            parser.error(
+                "review --review-base and --review-head require --review-scope commit-range"
+            )
+        return
+    if args.hook == "gate" and not args.gate_name:
+        parser.error("gate requires --gate-name")
+
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
@@ -1321,6 +1365,7 @@ def main() -> int:
     if worker_error:
         print_status(args.hook, False, [worker_error])
         return 2
+    _validate_hook_arguments_before_repair(parser, args)
     # Must follow _apply_worker_evidence_boundary so a worker refreshes its own
     # run, and must skip `start`: start refreshes nothing it is about to sweep,
     # or it would revive the very record whose evidence path it needs to claim.
@@ -1347,16 +1392,8 @@ def main() -> int:
     if args.repair_cycle:
         _apply_repair_cycle_context(parser, args)
     if args.hook == "start":
-        if args.request_classified and not args.classification_evidence:
-            parser.error("start --request-classified requires --classification-evidence")
-        if not args.request:
-            parser.error(
-                "start requires --request with the real current request; only a delegated "
-                "worker with a matching parent capsule may additionally use "
-                "--request-classified"
-            )
         return start_hook(args)
-    checkpointed = _checkpointed_hook(args, parser)
+    checkpointed = _checkpointed_hook(args)
     if checkpointed is not None:
         return checkpointed
     if args.hook == "handoff":
@@ -1376,7 +1413,6 @@ def main() -> int:
 
 def _checkpointed_hook(
     args: argparse.Namespace,
-    parser: argparse.ArgumentParser,
 ) -> int | None:
     """Run a hook whose completion is a continuation lifecycle transition.
 
@@ -1387,28 +1423,6 @@ def _checkpointed_hook(
     """
 
     if args.hook == "review":
-        args.review_path = [path.strip() for path in args.review_path if path.strip()]
-        if args.review_path and args.review_scope == "working-tree":
-            args.review_scope = "pathspec"
-        if args.review_scope in {"pathspec", "local-config"} and not args.review_path:
-            parser.error(
-                f"review --review-scope {args.review_scope} requires at least one --review-path"
-            )
-        if args.review_scope == "commit-range":
-            if args.review_path:
-                parser.error("review --review-scope commit-range does not accept --review-path")
-            if not str(getattr(args, "review_base", "") or "").strip() or not str(
-                getattr(args, "review_head", "") or ""
-            ).strip():
-                parser.error(
-                    "review --review-scope commit-range requires --review-base and --review-head"
-                )
-        elif str(getattr(args, "review_base", "") or "").strip() or str(
-            getattr(args, "review_head", "") or ""
-        ).strip():
-            parser.error(
-                "review --review-base and --review-head require --review-scope commit-range"
-            )
         return checkpoint_after_hook(
             args,
             review_hook(
@@ -1424,8 +1438,6 @@ def _checkpointed_hook(
             phase="reviewing",
         )
     if args.hook == "gate":
-        if not args.gate_name:
-            parser.error("gate requires --gate-name")
         return checkpoint_after_hook(
             args, gate_hook(args), "lifecycle", last_completed=gate_checkpoint_name(args)
         )
