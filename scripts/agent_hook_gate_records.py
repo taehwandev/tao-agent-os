@@ -124,6 +124,10 @@ def _gate_failure(
     *,
     invocation_error: bool,
 ) -> int:
+    if invocation_error and args.repair_cycle:
+        rollback = getattr(args, "repair_invocation_rollback", None)
+        if callable(rollback):
+            rollback()
     return finish_with_result(
         name,
         False,

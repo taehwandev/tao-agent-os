@@ -492,6 +492,52 @@ class DispatchTests(unittest.TestCase):
 
             self.assertEqual("failed", self._finish_state(run, 3))
 
+    def test_lifecycle_heartbeat_reclaims_a_dead_owner_for_the_same_runtime_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            evidence = json.loads(run.evidence.read_text(encoding="utf-8"))
+            evidence["agent_run_id"] = run.run_id
+            evidence["runtime_session"] = {
+                "runtime": "codex",
+                "session_id": "same-session",
+            }
+            run.evidence.write_text(json.dumps(evidence), encoding="utf-8")
+            registry = registry_path(run.project)
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            payload["runs"][0]["state"] = "failed"
+            payload["runs"][0]["owner"] = {"pid": 999999999, "start_token": ""}
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+
+            with patch.dict("os.environ", {"CODEX_THREAD_ID": "same-session"}, clear=True):
+                agent_hook._refresh_run_heartbeat(run.args())
+
+            current = json.loads(registry.read_text(encoding="utf-8"))["runs"][0]
+            self.assertEqual("resuming", current["state"])
+            self.assertEqual(1, current["resume_generation"])
+
+    def test_lifecycle_heartbeat_refuses_a_dead_owner_from_another_runtime_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            evidence = json.loads(run.evidence.read_text(encoding="utf-8"))
+            evidence["agent_run_id"] = run.run_id
+            evidence["runtime_session"] = {
+                "runtime": "codex",
+                "session_id": "original-session",
+            }
+            run.evidence.write_text(json.dumps(evidence), encoding="utf-8")
+            registry = registry_path(run.project)
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            payload["runs"][0]["state"] = "failed"
+            payload["runs"][0]["owner"] = {"pid": 999999999, "start_token": ""}
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+
+            with patch.dict("os.environ", {"CODEX_THREAD_ID": "different-session"}, clear=True):
+                agent_hook._refresh_run_heartbeat(run.args())
+
+            current = json.loads(registry.read_text(encoding="utf-8"))["runs"][0]
+            self.assertEqual("failed", current["state"])
+            self.assertEqual(0, current["resume_generation"])
+
     def test_a_genuinely_failed_finish_still_retires_the_run(self) -> None:
         """Control: the pending-closeout branch must not spare every failure."""
 
@@ -499,6 +545,16 @@ class DispatchTests(unittest.TestCase):
             run = HookRun(directory)
 
             self.assertEqual("failed", self._finish_state(run, 1))
+
+    def test_failed_finish_never_rewrites_a_settled_run(self) -> None:
+        """A stale finish request cannot reopen terminal lifecycle evidence."""
+
+        for settled in ("completed", "cancelled"):
+            with self.subTest(settled=settled), tempfile.TemporaryDirectory() as directory:
+                run = HookRun(directory)
+                transition_run(run.project, run.evidence, settled, run_id=run.run_id)
+
+                self.assertEqual(settled, self._finish_state(run, 1))
 
     def test_successful_finish_leaves_no_cached_unfinished_checkpoint(self) -> None:
         """The pre-fix control leaves ``first_unfinished`` equal to ``finish``."""

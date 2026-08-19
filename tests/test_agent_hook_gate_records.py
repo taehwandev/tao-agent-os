@@ -8,7 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +22,54 @@ from agent_run_registry import register_run
 
 
 class GateRecordInvocationTests(unittest.TestCase):
+    def test_invocation_error_releases_repair_attempt_for_each_gate_hook(self) -> None:
+        """Pre-write rejection must leave the single repair retry available."""
+
+        hooks = (
+            ("gate", gate_hook, "agent_hook_gate_records.record_hook_gate"),
+            (
+                "gate-batch",
+                gate_batch_hook,
+                "agent_hook_gate_records.record_hook_gate_batch",
+            ),
+        )
+        for hook_name, hook, record_target in hooks:
+            with self.subTest(hook=hook_name), tempfile.TemporaryDirectory() as temp_dir:
+                project = Path(temp_dir)
+                evidence_path = project / ".tao" / "preflight.json"
+                rollback = Mock()
+                record = {
+                    "gate": "risk review",
+                    "evidence": "invalid invocation",
+                    "source": "manual",
+                    "status": "SUCCESS",
+                }
+                args = SimpleNamespace(
+                    evidence=evidence_path,
+                    project=project,
+                    rules=ROOT,
+                    hook=hook_name,
+                    field=[],
+                    gate_name="risk review",
+                    gate_evidence="invalid invocation",
+                    source="manual",
+                    status="SUCCESS",
+                    gate_record=[json.dumps(record)],
+                    gate_json=None,
+                    output=None,
+                    repair_cycle=1,
+                    repair_invocation_rollback=rollback,
+                )
+
+                with (
+                    patch(record_target, side_effect=ValueError("invalid record")),
+                    redirect_stdout(io.StringIO()),
+                ):
+                    result = hook(args)
+
+                self.assertEqual(1, result)
+                rollback.assert_called_once_with()
+
     def test_foreign_owner_rejection_is_an_invocation_error_for_each_gate_hook(self) -> None:
         """A caller rejected before ledger mutation has no checkpoint to repair."""
 

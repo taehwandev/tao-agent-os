@@ -87,7 +87,7 @@ from agent_run_registry import (
     transition_run,
 )
 from agent_route_state import request_fingerprint
-from agent_runtime_session import runtime_session, settle_superseded_session_runs
+from agent_runtime_session import recorded_session_id, runtime_session, settle_superseded_session_runs
 from agent_transfer_cancel import cancel_transferred_run
 from workflow_intent_envelope import SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION
 from agent_context_store import (
@@ -645,6 +645,7 @@ def _refresh_run_heartbeat(args: argparse.Namespace) -> None:
     """
 
     try:
+        _resume_run_for_closeout(args)
         touch_run(args.project, preflight_evidence_path(args))
     except (OSError, RuntimeError, ValueError, TypeError):
         return
@@ -665,10 +666,18 @@ def _resume_run_for_closeout(args: argparse.Namespace) -> None:
     try:
         evidence_path = args.evidence or args.project / ".tao" / "preflight.json"
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        current_session = runtime_session()
+        recorded_session = payload.get("runtime_session") or {}
+        same_runtime_session = bool(
+            current_session.get("runtime")
+            and current_session.get("runtime") == recorded_session.get("runtime")
+            and recorded_session_id(payload) == current_session.get("session_id")
+        )
         resume_run_for_closeout(
             args.project,
             evidence_path,
             run_id=payload.get("agent_run_id"),
+            same_runtime_session=same_runtime_session,
         )
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return
@@ -1220,22 +1229,25 @@ def _apply_repair_cycle_context(
             "--repair-cycle 1 requires verified repair context: "
             + "; ".join(repair_failures)
         )
-    if args.hook == "review":
-        repair_signature = checkpoint_failure_signature(
-            route=repair_preflight.get("route") or {},
+    repair_signature = checkpoint_failure_signature(
+        route=repair_preflight.get("route") or {},
+        evidence_path=repair_evidence_path,
+        checkpoint=args.resume_checkpoint,
+    )
+
+    def release_failed_repair_invocation() -> None:
+        release_repair_attempt(
             evidence_path=repair_evidence_path,
+            preflight=repair_preflight,
             checkpoint=args.resume_checkpoint,
+            failure_signature=repair_signature,
         )
 
-        def release_review_repair_attempt() -> None:
-            release_repair_attempt(
-                evidence_path=repair_evidence_path,
-                preflight=repair_preflight,
-                checkpoint=args.resume_checkpoint,
-                failure_signature=repair_signature,
-            )
-
-        args.repair_invocation_rollback = release_review_repair_attempt
+    # Parsing and pre-write validation happen after the repair context is
+    # claimed. Every hook that can reject an invocation before mutation needs
+    # the same rollback that review already used, otherwise a typo consumes the
+    # only repair cycle and makes the documented retry impossible.
+    args.repair_invocation_rollback = release_failed_repair_invocation
 
 
 def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:

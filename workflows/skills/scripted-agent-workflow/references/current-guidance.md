@@ -220,6 +220,12 @@ forgets them:
   applied task-specific takeaway. Finish revalidates the required-document
   hash/size snapshot only when the route includes `source docs`; every route
   gate remains bound to the same execution capsule regardless of that scope.
+  The active target repository's root instructions are read before routing, so
+  the Tao checkout's broad `AGENTS.md` remains reference context instead of a
+  duplicate mandatory read for every target-project route. Substantive review
+  and multi-agent entrypoints carry their always-needed gate contracts; their
+  detailed references are mandatory only for gate-specific commands and are
+  otherwise opened on demand when the task actually needs the deeper process.
 - Treat an empty completed natural-language search as terminal `no_matches`:
   record the no-source result and continue with deterministic `required_docs`.
   Do not poll or retry discovery waiting for a document to appear. A route whose

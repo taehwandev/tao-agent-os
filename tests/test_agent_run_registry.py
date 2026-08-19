@@ -25,6 +25,7 @@ from agent_run_registry import (
     recover_stale_runs,
     register_run,
     registry_path,
+    resume_run_for_closeout,
     resume_run,
     touch_run,
     transition_run,
@@ -122,6 +123,93 @@ class AgentRunRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):
                 transition_run(Path(directory), Path(directory) / "preflight.json", "unknown")
+
+    def test_settled_run_cannot_transition_to_another_state(self) -> None:
+        """Late lifecycle hooks must not rewrite historical outcomes."""
+
+        for settled in ("completed", "cancelled"):
+            with self.subTest(settled=settled), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                evidence = project / ".tao" / "preflight.json"
+                run = register_run(project, evidence, {"command": "task"}, {})
+                transition_run(project, evidence, settled, run_id=run["run_id"])
+
+                changed = transition_run(
+                    project,
+                    evidence,
+                    "failed",
+                    run_id=run["run_id"],
+                )
+
+                self.assertIsNone(changed)
+                current = agent_run_registry.registered_run(project, evidence)
+                self.assertEqual(settled, current["state"])
+
+    def test_same_runtime_closeout_reclaims_a_proven_dead_owner(self) -> None:
+        """A process replacement must not strand the same runtime session."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            run = register_run(project, evidence, {"command": "task"}, {})
+            registry = registry_path(project)
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            payload["runs"][0]["state"] = "failed"
+            payload["runs"][0]["owner"] = {"pid": dead_pid(), "start_token": ""}
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+
+            resumed = resume_run_for_closeout(
+                project,
+                evidence,
+                run_id=run["run_id"],
+                same_runtime_session=True,
+            )
+
+            self.assertEqual("resuming", resumed["state"])
+            self.assertEqual(1, resumed["resume_generation"])
+            self.assertEqual(agent_run_registry.process_owner(), resumed["owner"])
+
+    def test_dead_owner_takeover_requires_the_same_runtime_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            run = register_run(project, evidence, {"command": "task"}, {})
+            registry = registry_path(project)
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            payload["runs"][0]["state"] = "failed"
+            payload["runs"][0]["owner"] = {"pid": dead_pid(), "start_token": ""}
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+
+            resumed = resume_run_for_closeout(
+                project,
+                evidence,
+                run_id=run["run_id"],
+                same_runtime_session=False,
+            )
+
+            self.assertIsNone(resumed)
+            self.assertEqual("failed", agent_run_registry.registered_run(project, evidence)["state"])
+
+    def test_same_runtime_closeout_never_takes_a_live_foreign_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            run = register_run(project, evidence, {"command": "task"}, {})
+            registry = registry_path(project)
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            payload["runs"][0]["state"] = "failed"
+            payload["runs"][0]["owner"] = {"pid": os.getpid(), "start_token": ""}
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+
+            resumed = resume_run_for_closeout(
+                project,
+                evidence,
+                run_id=run["run_id"],
+                same_runtime_session=True,
+            )
+
+            self.assertIsNone(resumed)
+            self.assertEqual("failed", agent_run_registry.registered_run(project, evidence)["state"])
 
     def test_run_id_transition_avoids_same_evidence_collision(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

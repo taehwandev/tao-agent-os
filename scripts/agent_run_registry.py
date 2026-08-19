@@ -217,6 +217,12 @@ def transition_run(
         if not candidates:
             return None
         target = candidates[-1]
+        current_state = str(target.get("state") or "")
+        if current_state in SETTLED_RUN_STATES:
+            # A completed or cancelled run is historical evidence. A late
+            # lifecycle hook may still hold its preflight path, but replaying
+            # that hook must not rewrite the terminal outcome.
+            return target if current_state == state else None
         if target.get("state") == CLAIMING_RUN_STATE:
             _require_current_process_claim_owner(target)
             if state in ACTIVE_RUN_STATES:
@@ -367,12 +373,16 @@ def resume_run_for_closeout(
     evidence_path: Path,
     *,
     run_id: str | None = None,
+    same_runtime_session: bool = False,
 ) -> dict[str, Any] | None:
     """Return an unsettled run to an active state so it can finish owed work.
 
     Unlike ``transition_run`` this refuses a settled run and a run owned by
-    another process, so a late or replayed closeout cannot resurrect a run that
-    already completed or hand one process's run to another.
+    another live process, so a late or replayed closeout cannot resurrect a run
+    that already completed or hand one session's work to another. A runtime
+    process may be replaced while its stable session id survives; that exact
+    session may reclaim a proven-dead owner without turning packet-less runs
+    into public continuation candidates.
     """
 
     path = registry_path(project)
@@ -388,8 +398,17 @@ def resume_run_for_closeout(
         target = candidates[-1]
         if target.get("state") not in RESUMABLE_FOR_CLOSEOUT_RUN_STATES:
             return None
-        if not _closeout_owner_matches(target):
-            return None
+        owner_matches = _closeout_owner_matches(target)
+        if not owner_matches:
+            if not same_runtime_session or not owner_death_is_proven(target.get("owner")):
+                return None
+            new_owner = process_owner()
+            if not new_owner:
+                return None
+            target["owner"] = new_owner
+            target["resume_generation"] = int(target.get("resume_generation") or 0) + 1
+        elif target.get("state") in ACTIVE_RUN_STATES:
+            return target
         target["state"] = "resuming"
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
         _write_registry(path, payload)
@@ -398,12 +417,12 @@ def resume_run_for_closeout(
 
 
 def _closeout_owner_matches(run: dict[str, Any]) -> bool:
-    """Allow the revive only for the session that holds the run.
+    """Allow the ordinary revive only for the process that holds the run.
 
-    ``owner`` records the session that registered the run, not the short-lived
-    process running one hook, so this compares against the same identity
-    ``register_run`` stored. An unrecorded owner is treated as a match so runs
-    written before the field existed stay recoverable.
+    Stable runtime-session recovery is handled explicitly by
+    ``resume_run_for_closeout`` after proving the recorded process died.
+    An unrecorded owner is treated as a match so runs written before the field
+    existed stay recoverable.
     """
 
     owner = run.get("owner")
@@ -704,6 +723,9 @@ def touch_run(
         if not candidates:
             return None
         target = candidates[-1]
+        recorded_owner = target.get("owner")
+        if is_recorded_owner(recorded_owner) and recorded_owner != process_owner():
+            return None
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
         _write_registry(path, payload)
     return target
