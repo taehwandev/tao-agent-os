@@ -10,6 +10,7 @@ from support.graphify_input_inspection import (
     read_manifest_state,
 )
 from support.graphify_contract import PROJECT_GRAPH_DIR
+from support.bounded_git import run_git
 
 
 GRAPH_INPUT_SUFFIXES = {
@@ -55,7 +56,7 @@ def inspect_graph_freshness(
 
 
 def _git_head(project_path: Path) -> str | None:
-    completed = subprocess.run(
+    completed = run_git(
         ["git", "rev-parse", "HEAD"],
         cwd=project_path,
         text=True,
@@ -69,7 +70,7 @@ def _git_head(project_path: Path) -> str | None:
 
 
 def _dirty_source_paths(project_path: Path) -> list[str]:
-    completed = subprocess.run(
+    completed = run_git(
         ["git", "status", "--porcelain=v1", "--untracked-files=all"],
         cwd=project_path,
         text=True,

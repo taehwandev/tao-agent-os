@@ -6,6 +6,7 @@ import subprocess
 import uuid
 from pathlib import Path
 from re import fullmatch
+from support.bounded_git import run_git
 
 
 WORKTREE_DIRNAME = "worktrees"
@@ -60,7 +61,7 @@ def generated_worker_path(project: Path, worktree_path: Path) -> Path:
 
 
 def _git_text(path: Path, *args: str) -> str:
-    completed = subprocess.run(
+    completed = run_git(
         ["git", "-C", str(path), *args],
         check=False,
         stdout=subprocess.PIPE,
@@ -119,7 +120,7 @@ def validate_worker_worktree_identity(project: Path, worktree_path: Path) -> Pat
 def resolve_base_ref(project: Path) -> str:
     """Return the current HEAD commit the worker worktree should branch from."""
 
-    completed = subprocess.run(
+    completed = run_git(
         ["git", "-C", str(project), "rev-parse", "HEAD"],
         check=False,
         stdout=subprocess.PIPE,

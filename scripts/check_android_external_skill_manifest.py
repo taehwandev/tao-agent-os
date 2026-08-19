@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from support.bounded_git import run_git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,7 +83,7 @@ def listed_files(text: str, source_root: Path) -> set[str]:
 
 
 def git_head(source_root: Path) -> str:
-    result = subprocess.run(
+    result = run_git(
         ["git", "-C", str(source_root), "rev-parse", "HEAD"],
         text=True,
         stdout=subprocess.PIPE,

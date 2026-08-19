@@ -17,6 +17,7 @@ from agent_execution_capsule_state import is_sha256
 from agent_worktree_fingerprint import MAX_UNTRACKED_BYTES, MAX_UNTRACKED_FILES
 from agent_worktree_scan import WorktreeFingerprintLimitExceeded
 from agent_workspace_policy import is_non_git_workspace
+from support.bounded_git import run_git
 
 
 class _MutationPathState:
@@ -38,7 +39,7 @@ class _MutationPathState:
             return False
         if is_non_git_workspace(project):
             return True
-        return subprocess.run(
+        return run_git(
             ["git", "check-ignore", "-q", str(path)],
             cwd=project,
             check=False,
@@ -336,7 +337,7 @@ class _MutationScanState:
 
     @staticmethod
     def _git_changed_records(project: Path) -> dict[Path, bytes]:
-        completed = subprocess.run(
+        completed = run_git(
             ["git", "status", "--porcelain=v2", "-z", "--untracked-files=all"],
             cwd=project,
             check=False,

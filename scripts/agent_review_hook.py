@@ -35,6 +35,7 @@ from agent_review_subjects import (  # noqa: F401
 )
 from agent_vibeguard_cache import cached_vibeguard
 from agent_workspace_policy import is_git_status_review_only, is_writing_workspace, non_git_writing_workspace_note
+from support.stage_timing import stage
 
 
 CommandRunner = Callable[[list[str], Path], dict[str, Any]]
@@ -142,7 +143,8 @@ def review_hook(
     checks["review_scope"] = review_scope
     checks["review_paths"] = review_paths
     checks["review_subject"] = review_subject_record(review_subject)
-    full_status_before, full_status_before_lines = git_status(args.project)
+    with stage("git_status"):
+        full_status_before, full_status_before_lines = git_status(args.project)
     if is_git_status_review_only(args.project, full_status_before):
         full_status_before["review_only"] = True
         full_status_before["review_note"] = non_git_writing_workspace_note(args.project)
@@ -500,7 +502,8 @@ def record_review_workflow_validation(
     if not validate_script.exists():
         failures.append(f"workflow validate script missing at {validate_script}")
         return
-    validate = run_workflow_validate(args.rules)
+    with stage("workflow_validate"):
+        validate = run_workflow_validate(args.rules)
     checks["workflow_validate"] = validate
     if validate["returncode"] != 0:
         failures.append(workflow_validate_failure_detail(validate))
@@ -528,13 +531,14 @@ def record_review_vibeguard(
         "paths": review_paths,
         "path_option_supported": bool(getattr(scoped_command, "path_option_supported", False)),
     }
-    vibeguard = cached_vibeguard(
-        project=selected_project,
-        rules=args.rules,
-        run_command=run_command,
-        vibeguard_command=scoped_command,
-        parse_overall=parse_overall,
-    )
+    with stage("vibeguard"):
+        vibeguard = cached_vibeguard(
+            project=selected_project,
+            rules=args.rules,
+            run_command=run_command,
+            vibeguard_command=scoped_command,
+            parse_overall=parse_overall,
+        )
     checks["vibeguard"] = vibeguard
     if vibeguard["returncode"] != 0:
         failures.append("VibeGuard audit failed")

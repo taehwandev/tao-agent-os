@@ -99,6 +99,7 @@ from agent_context_store import (
 )
 from support.global_state import ensure_local_only_state_dir
 from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
+from support.stage_timing import stage
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -185,7 +186,8 @@ def start_hook(args: argparse.Namespace) -> int:
             claim.get("run") or {},
         )
         command = _preflight_arguments(args)
-        result = run_script_main(ROOT / "scripts" / "agent-preflight.py", command, args.project)
+        with stage("preflight"):
+            result = run_script_main(ROOT / "scripts" / "agent-preflight.py", command, args.project)
         success = result["returncode"] == 0
         details.append("preflight completed" if success else "preflight failed")
         details.extend(_summary_lines(result))
@@ -355,7 +357,8 @@ def finish_hook(args: argparse.Namespace) -> int:
     if args.allow_vibeguard_review:
         command.extend(["--allow-vibeguard-review", args.allow_vibeguard_review])
 
-    result = run_script_main(ROOT / "scripts" / "agent-finish-check.py", command, args.project)
+    with stage("finish_check"):
+        result = run_script_main(ROOT / "scripts" / "agent-finish-check.py", command, args.project)
     success = result["returncode"] == 0
     details = ["finish check completed" if success else "finish check failed"]
     details.extend(_summary_lines(result))

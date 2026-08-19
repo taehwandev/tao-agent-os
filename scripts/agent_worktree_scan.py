@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from support.bounded_git import stream_stall_guard
 
 
 class WorktreeFingerprintLimitExceeded(RuntimeError):
@@ -52,7 +53,7 @@ def hash_git_component(
         cwd=path,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
-    ) as process:
+    ) as process, stream_stall_guard(process, args):
         assert process.stdout is not None
         nested = hashlib.sha256()
         size = 0
@@ -78,21 +79,22 @@ def visit_git_null_records(
         stderr=subprocess.DEVNULL,
     )
     try:
-        assert process.stdout is not None
-        buffer = b""
-        while chunk := process.stdout.read(64 * 1024):
-            buffer += chunk
-            records = buffer.split(b"\0")
-            buffer = records.pop()
-            for record in records:
-                if record:
-                    visitor(record)
-        if buffer:
-            visitor(buffer)
-        if process.wait() != 0:
-            raise RuntimeError(
-                f"cannot capture git state for execution capsule: git {args[0]} failed"
-            )
+        with stream_stall_guard(process, args):
+            assert process.stdout is not None
+            buffer = b""
+            while chunk := process.stdout.read(64 * 1024):
+                buffer += chunk
+                records = buffer.split(b"\0")
+                buffer = records.pop()
+                for record in records:
+                    if record:
+                        visitor(record)
+            if buffer:
+                visitor(buffer)
+            if process.wait() != 0:
+                raise RuntimeError(
+                    f"cannot capture git state for execution capsule: git {args[0]} failed"
+                )
     except BaseException:
         process.kill()
         process.wait()
