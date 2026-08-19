@@ -38,6 +38,7 @@ from support.setup_config_files import (
     quote,
 )
 from support.stable_launcher import ensure_stable_launcher, stable_launcher_path
+from support.bounded_git import run_git
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = ROOT / "scripts"
@@ -351,7 +352,7 @@ def ensure_local_claude_excluded(project_path: Path, dry_run: bool) -> str:
 
 
 def _git_path_matches(project_path: Path, args: list[str]) -> bool:
-    result = subprocess.run(
+    result = run_git(
         ["git", "-C", str(project_path), *args],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

@@ -24,6 +24,7 @@ from workflow_common import (
     REPAIR_STOP_CONDITION,
     RESUME_SCOPE,
 )
+from support.stage_timing import recorded_stages
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 REVIEW_CHANGED_PATH_LIMIT = 25
@@ -129,6 +130,10 @@ def finish_with_result(
         "status": "SUCCESS" if success else "FAIL",
         "policy": policy,
         "details": details,
+        # Stage names and durations only. Every hook already writes this
+        # record, so the measurement rides the evidence that exists rather
+        # than adding a second thing to keep in sync.
+        **({"timings": recorded_stages()} if recorded_stages() else {}),
         **payload,
     }
     if output:

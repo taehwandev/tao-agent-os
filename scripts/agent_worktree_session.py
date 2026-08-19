@@ -21,6 +21,7 @@ from agent_worktree_identity import (
     validate_worker_worktree_identity,
 )
 from agent_worktree_fingerprint import WorktreeSnapshot, capture_worktree_state
+from support.bounded_git import run_git
 
 try:  # pragma: no cover - platform guard
     import fcntl
@@ -136,7 +137,7 @@ def remove_worker_worktree(
     worktree_path = Path(worktree_path)
     with _creation_lock(project):
         if not worktree_path.exists():
-            subprocess.run(
+            run_git(
                 ["git", "-C", str(project), "worktree", "prune"],
                 check=False,
                 stdout=subprocess.PIPE,

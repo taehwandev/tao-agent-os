@@ -17,6 +17,7 @@ from agent_worktree_scan import (
     hash_git_component,
     visit_git_null_records,
 )
+from support.bounded_git import run_git
 
 
 MAX_UNTRACKED_FILES = 5_000
@@ -38,7 +39,7 @@ class WorktreeSnapshot(NamedTuple):
 
 
 def git_output(path: Path, *args: str) -> str:
-    completed = subprocess.run(
+    completed = run_git(
         ["git", *args],
         cwd=path,
         check=False,

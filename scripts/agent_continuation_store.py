@@ -26,6 +26,7 @@ from agent_continuation_packet import (
     validate_continuation_packet,
 )
 from agent_workspace_policy import is_non_git_workspace
+from support.bounded_git import run_git
 
 
 STATE_DIR = ".tao"
@@ -278,7 +279,7 @@ def _git_ignores(project: Path, path: Path) -> bool:
     if is_non_git_workspace(project):
         return True
     try:
-        completed = subprocess.run(
+        completed = run_git(
             ["git", "check-ignore", "-q", str(path)],
             cwd=project,
             check=False,

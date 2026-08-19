@@ -16,6 +16,7 @@ from agent_worktree_identity import (
     worktree_root,
 )
 from agent_worktree_session import remove_worker_worktree
+from support.bounded_git import run_git
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ class WorktreeFinalization:
 
 
 def _git_paths(path: Path, *args: str) -> set[Path]:
-    completed = subprocess.run(
+    completed = run_git(
         ["git", "-C", str(path), *args],
         check=False,
         stdout=subprocess.PIPE,
@@ -107,7 +108,7 @@ def _materialized_state(root: Path, relative: Path) -> tuple[object, ...]:
 
 
 def _prune_admin_state(project: Path) -> None:
-    completed = subprocess.run(
+    completed = run_git(
         ["git", "-C", str(project), "worktree", "prune"],
         check=False,
         stdout=subprocess.PIPE,
