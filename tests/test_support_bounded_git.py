@@ -9,6 +9,7 @@ happens.
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
 import time
@@ -23,7 +24,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import agent_continuation_store
 import agent_worktree_fingerprint
 import support.graphify_graph_freshness as graph_freshness
-from support.bounded_git import GIT_READ_TIMEOUT_SECONDS, run_git
+import agent_worktree_scan  # noqa: F401  (patched by the stream tests)
+from support.bounded_git import (
+    GIT_READ_TIMEOUT_SECONDS,
+    GIT_STREAM_TIMEOUT_SECONDS,
+    GitStreamStalled,
+    stream_stall_guard,
+    run_git,
+)
 
 
 def timing_out(*_args, **_keywords):
@@ -127,6 +135,102 @@ class ConvertedCallersFailClosedTests(unittest.TestCase):
     def test_graph_freshness_reports_no_head_rather_than_a_stale_one(self) -> None:
         with patch("subprocess.run", timing_out):
             self.assertIsNone(graph_freshness._git_head(ROOT))
+
+
+class StreamingReadsAreBoundedTests(unittest.TestCase):
+    """The bound that only counted `subprocess.run` missed the hot path.
+
+    The capsule fingerprint streams `git status` and `git diff --binary`
+    through `Popen`, so an AST pass over `subprocess.run` never saw them --
+    and those two run on every checkpoint and every drift capture, which is
+    where a large repository or a held index lock would actually stall.
+    """
+
+    def test_a_producer_that_writes_nothing_is_stopped(self) -> None:
+        """The failure that matters, and the one a clock check cannot reach.
+
+        A silent producer leaves the reader blocked inside `read()`, where no
+        check of ours runs. Only killing the process ends it.
+        """
+
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdout=subprocess.PIPE,
+        )
+        started = time.monotonic()
+        try:
+            with self.assertRaises(GitStreamStalled) as raised:
+                with stream_stall_guard(process, ("status", "--porcelain=v2"), timeout=0.3):
+                    process.stdout.read()
+        finally:
+            process.kill()
+            process.wait()
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 10, "the read outlived its own bound")
+        self.assertIn("git status --porcelain=v2", str(raised.exception))
+        self.assertIn("stall bound", str(raised.exception))
+
+    def test_a_stream_that_finishes_raises_nothing(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "print('done')"], stdout=subprocess.PIPE
+        )
+        with stream_stall_guard(process, ("status",), timeout=10):
+            payload = process.stdout.read()
+        process.wait()
+
+        self.assertEqual(b"done\n", payload)
+
+    def test_the_stall_bound_is_larger_than_the_read_bound(self) -> None:
+        """A big diff is slow, not stalled; the bound must not refuse size."""
+
+        self.assertGreater(GIT_STREAM_TIMEOUT_SECONDS, GIT_READ_TIMEOUT_SECONDS)
+
+    def test_the_fingerprint_reports_the_stall_and_not_a_generic_failure(self) -> None:
+        """Killing the producer makes git look merely failed.
+
+        The reader then raises "git status failed", which is the message the
+        caller would report -- losing the only fact worth having. The real
+        guard runs here, with a bound short enough to fire mid-read.
+        """
+
+        import functools
+
+        with patch(
+            "agent_worktree_scan.stream_stall_guard",
+            functools.partial(stream_stall_guard, timeout=0.001),
+        ):
+            with self.assertRaises(GitStreamStalled) as raised:
+                agent_worktree_fingerprint.worktree_fingerprint(ROOT)
+
+        self.assertIn("stall bound", str(raised.exception))
+        self.assertIn("git status", str(raised.exception))
+
+    def test_the_diff_stream_is_guarded_too_not_only_the_status_one(self) -> None:
+        """Two streams, two guards.
+
+        A fingerprint stalls on `status` first, so a test that goes through
+        it never reaches the diff reader -- and a guard removed from that
+        second stream would have gone unnoticed.
+        """
+
+        import functools
+
+        import agent_worktree_scan
+
+        with patch(
+            "agent_worktree_scan.stream_stall_guard",
+            functools.partial(stream_stall_guard, timeout=0.001),
+        ):
+            with self.assertRaises(GitStreamStalled) as raised:
+                agent_worktree_scan.hash_git_component(
+                    hashlib.sha256(), b"staged", ROOT, "diff", "--cached", "--binary"
+                )
+
+        self.assertIn("git diff --cached --binary", str(raised.exception))
+
+    def test_an_unstalled_fingerprint_is_unaffected(self) -> None:
+        self.assertEqual(64, len(agent_worktree_fingerprint.worktree_fingerprint(ROOT)))
 
 
 if __name__ == "__main__":

@@ -27,8 +27,10 @@ and here is why.
 from __future__ import annotations
 
 import subprocess
+import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 # Local reads: rev-parse, status, check-ignore, worktree list. A second of
@@ -77,3 +79,60 @@ def _empty_like(captured: Any, keywords: dict[str, Any]):
     if keywords.get("text") or keywords.get("encoding"):
         return captured.decode() if isinstance(captured, bytes) else (captured or "")
     return captured if isinstance(captured, bytes) else b""
+
+# A streaming read is a different shape and a different risk. `git diff
+# --binary` over a large change is legitimately slow, so a latency budget here
+# would refuse work that is only big; this bound exists to end a stall, not to
+# cap a cost.
+GIT_STREAM_TIMEOUT_SECONDS = 120
+
+
+class GitStreamStalled(RuntimeError):
+    """Raised when a streaming Git read outlives its stall bound."""
+
+
+@contextmanager
+def stream_stall_guard(
+    process: subprocess.Popen,
+    args: tuple[str, ...],
+    timeout: float = GIT_STREAM_TIMEOUT_SECONDS,
+) -> Iterator[None]:
+    """Kill a streaming read that stops answering, and say which one it was.
+
+    Checking the clock between chunks cannot help against the failure that
+    matters: a producer that writes nothing leaves the reader blocked inside
+    `read()`, where no check of ours runs. A timer that kills the process is
+    what turns that into an ordinary end of stream, which every caller here
+    already handles.
+    """
+
+    stalled = False
+
+    def stop() -> None:
+        nonlocal stalled
+        stalled = True
+        process.kill()
+
+    timer = threading.Timer(timeout, stop)
+    timer.daemon = True
+    timer.start()
+
+    def stalled_error() -> "GitStreamStalled":
+        return GitStreamStalled(
+            f"git {' '.join(str(item) for item in args)} exceeded the "
+            f"{timeout:g}s stall bound and was stopped"
+        )
+
+    try:
+        yield
+    except BaseException as error:
+        # Killing the producer makes the reader see a failed command, and that
+        # generic message is what the caller would report -- losing the one
+        # fact worth having, which command stopped answering. The stall wins.
+        if stalled:
+            raise stalled_error() from error
+        raise
+    finally:
+        timer.cancel()
+    if stalled:
+        raise stalled_error()
