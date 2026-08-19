@@ -15,6 +15,7 @@ from typing import Dict, List, Sequence
 from workflow_doc_graph import expand_doc_matches
 from workflow_search_facets import facet_docs, query_terms
 from workflow_wikimap import WIKIMAP_VERSION, search_wikimap
+from support.stage_timing import stage
 
 
 RAW_TERM_WEIGHT = 2
@@ -76,6 +77,12 @@ def search_docs(root: Path, query: str, max_results: int = 8) -> List[Dict[str, 
 
 def search_docs_outcome(root: Path, query: str, max_results: int = 8) -> SearchOutcome:
     """Return ranked docs and the concrete retrieval backend state."""
+
+    with stage("doc_search"):
+        return _search_docs_outcome(root, query, max_results)
+
+
+def _search_docs_outcome(root: Path, query: str, max_results: int = 8) -> SearchOutcome:
     raw_terms, expanded_terms, matched_facets, doc_boosts = query_terms(query)
     if not raw_terms and not expanded_terms and not doc_boosts:
         return SearchOutcome(
