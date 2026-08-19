@@ -86,8 +86,10 @@ from agent_run_registry import (
     touch_run,
     transition_run,
 )
-from agent_runtime_session import settle_superseded_session_runs
+from agent_route_state import request_fingerprint
+from agent_runtime_session import recorded_session_id, runtime_session, settle_superseded_session_runs
 from agent_transfer_cancel import cancel_transferred_run
+from workflow_intent_envelope import SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
     context_snapshot_failures_are_replaceable,
@@ -643,6 +645,7 @@ def _refresh_run_heartbeat(args: argparse.Namespace) -> None:
     """
 
     try:
+        _resume_run_for_closeout(args)
         touch_run(args.project, preflight_evidence_path(args))
     except (OSError, RuntimeError, ValueError, TypeError):
         return
@@ -663,10 +666,18 @@ def _resume_run_for_closeout(args: argparse.Namespace) -> None:
     try:
         evidence_path = args.evidence or args.project / ".tao" / "preflight.json"
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        current_session = runtime_session()
+        recorded_session = payload.get("runtime_session") or {}
+        same_runtime_session = bool(
+            current_session.get("runtime")
+            and current_session.get("runtime") == recorded_session.get("runtime")
+            and recorded_session_id(payload) == current_session.get("session_id")
+        )
         resume_run_for_closeout(
             args.project,
             evidence_path,
             run_id=payload.get("agent_run_id"),
+            same_runtime_session=same_runtime_session,
         )
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return
@@ -787,6 +798,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         choices=(
             "start",
             "cancel",
+            "fingerprint",
             "handoff",
             "resume",
             "checkpoint",
@@ -1217,27 +1229,124 @@ def _apply_repair_cycle_context(
             "--repair-cycle 1 requires verified repair context: "
             + "; ".join(repair_failures)
         )
-    if args.hook == "review":
-        repair_signature = checkpoint_failure_signature(
-            route=repair_preflight.get("route") or {},
+    repair_signature = checkpoint_failure_signature(
+        route=repair_preflight.get("route") or {},
+        evidence_path=repair_evidence_path,
+        checkpoint=args.resume_checkpoint,
+    )
+
+    def release_failed_repair_invocation() -> None:
+        release_repair_attempt(
             evidence_path=repair_evidence_path,
+            preflight=repair_preflight,
             checkpoint=args.resume_checkpoint,
+            failure_signature=repair_signature,
         )
 
-        def release_review_repair_attempt() -> None:
-            release_repair_attempt(
-                evidence_path=repair_evidence_path,
-                preflight=repair_preflight,
-                checkpoint=args.resume_checkpoint,
-                failure_signature=repair_signature,
-            )
+    # Hook-specific CLI validation runs before the repair context is claimed.
+    # Downstream pre-write validation can still reject an invocation after the
+    # claim, so every such hook needs the same rollback that review already
+    # used; otherwise the only repair cycle becomes unavailable.
+    args.repair_invocation_rollback = release_failed_repair_invocation
 
-        args.repair_invocation_rollback = release_review_repair_attempt
+
+def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """Print the current request's fingerprint and an envelope skeleton.
+
+    A work route needs an intent envelope carrying the exact request
+    fingerprint, but before the first start the Claude gate only allows this
+    runtime's own hooks -- generic interpreters that could compute the hash are
+    denied. This helper is that sanctioned bootstrap: it reads nothing and
+    writes no state, so it stays callable before any lifecycle exists.
+    """
+
+    if not args.request:
+        parser.error("fingerprint requires --request with the exact current user request")
+    fingerprint = request_fingerprint(
+        {
+            "request": args.request,
+            "continuation_scope": getattr(args, "continuation_scope", ""),
+            "request_classified": bool(args.request_classified),
+            "classification_evidence": args.classification_evidence,
+        }
+    )
+    skeleton = {
+        "schema_version": ENVELOPE_SCHEMA_VERSION,
+        "request_fingerprint": fingerprint,
+        "runtime_session_id": runtime_session().get("session_id", ""),
+        "mode": "work",
+        "intent": "<safe_lowercase_slug>",
+        "target_summary": "<one bounded line naming the work target>",
+        "requested_effects": ["local_write"],
+        "prohibited_effects": ["external_write"],
+        "ambiguity": "resolved",
+    }
+    return finish_with_result(
+        "fingerprint",
+        True,
+        [
+            f"request fingerprint: {fingerprint}",
+            "envelope skeleton (fill intent, target_summary, effects, and the "
+            "session id before use): " + json.dumps(skeleton, ensure_ascii=False),
+        ],
+        args.output,
+        {"request_fingerprint": fingerprint, "envelope_skeleton": skeleton},
+        args.repair_cycle,
+    )
+
+
+def _validate_hook_arguments_before_repair(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """Reject hook-specific CLI errors before a repair attempt is claimed."""
+
+    if args.hook == "start":
+        if args.request_classified and not args.classification_evidence:
+            parser.error("start --request-classified requires --classification-evidence")
+        if not args.request:
+            parser.error(
+                "start requires --request with the real current request; only a delegated "
+                "worker with a matching parent capsule may additionally use "
+                "--request-classified"
+            )
+        return
+    if args.hook == "review":
+        args.review_path = [path.strip() for path in args.review_path if path.strip()]
+        if args.review_path and args.review_scope == "working-tree":
+            args.review_scope = "pathspec"
+        if args.review_scope in {"pathspec", "local-config"} and not args.review_path:
+            parser.error(
+                f"review --review-scope {args.review_scope} requires at least one --review-path"
+            )
+        if args.review_scope == "commit-range":
+            if args.review_path:
+                parser.error("review --review-scope commit-range does not accept --review-path")
+            if not str(getattr(args, "review_base", "") or "").strip() or not str(
+                getattr(args, "review_head", "") or ""
+            ).strip():
+                parser.error(
+                    "review --review-scope commit-range requires --review-base and --review-head"
+                )
+        elif str(getattr(args, "review_base", "") or "").strip() or str(
+            getattr(args, "review_head", "") or ""
+        ).strip():
+            parser.error(
+                "review --review-base and --review-head require --review-scope commit-range"
+            )
+        return
+    if args.hook == "gate" and not args.gate_name:
+        parser.error("gate requires --gate-name")
 
 
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
+    if args.hook == "fingerprint":
+        # Answered entirely from the arguments: no evidence path, no worker
+        # boundary, and no heartbeat -- a registry write here would turn the
+        # pre-lifecycle helper into the mutation it exists to precede.
+        return _fingerprint_hook(parser, args)
     if (
         args.hook == "start"
         and args.output
@@ -1256,6 +1365,7 @@ def main() -> int:
     if worker_error:
         print_status(args.hook, False, [worker_error])
         return 2
+    _validate_hook_arguments_before_repair(parser, args)
     # Must follow _apply_worker_evidence_boundary so a worker refreshes its own
     # run, and must skip `start`: start refreshes nothing it is about to sweep,
     # or it would revive the very record whose evidence path it needs to claim.
@@ -1282,16 +1392,8 @@ def main() -> int:
     if args.repair_cycle:
         _apply_repair_cycle_context(parser, args)
     if args.hook == "start":
-        if args.request_classified and not args.classification_evidence:
-            parser.error("start --request-classified requires --classification-evidence")
-        if not args.request:
-            parser.error(
-                "start requires --request with the real current request; only a delegated "
-                "worker with a matching parent capsule may additionally use "
-                "--request-classified"
-            )
         return start_hook(args)
-    checkpointed = _checkpointed_hook(args, parser)
+    checkpointed = _checkpointed_hook(args)
     if checkpointed is not None:
         return checkpointed
     if args.hook == "handoff":
@@ -1311,7 +1413,6 @@ def main() -> int:
 
 def _checkpointed_hook(
     args: argparse.Namespace,
-    parser: argparse.ArgumentParser,
 ) -> int | None:
     """Run a hook whose completion is a continuation lifecycle transition.
 
@@ -1322,28 +1423,6 @@ def _checkpointed_hook(
     """
 
     if args.hook == "review":
-        args.review_path = [path.strip() for path in args.review_path if path.strip()]
-        if args.review_path and args.review_scope == "working-tree":
-            args.review_scope = "pathspec"
-        if args.review_scope in {"pathspec", "local-config"} and not args.review_path:
-            parser.error(
-                f"review --review-scope {args.review_scope} requires at least one --review-path"
-            )
-        if args.review_scope == "commit-range":
-            if args.review_path:
-                parser.error("review --review-scope commit-range does not accept --review-path")
-            if not str(getattr(args, "review_base", "") or "").strip() or not str(
-                getattr(args, "review_head", "") or ""
-            ).strip():
-                parser.error(
-                    "review --review-scope commit-range requires --review-base and --review-head"
-                )
-        elif str(getattr(args, "review_base", "") or "").strip() or str(
-            getattr(args, "review_head", "") or ""
-        ).strip():
-            parser.error(
-                "review --review-base and --review-head require --review-scope commit-range"
-            )
         return checkpoint_after_hook(
             args,
             review_hook(
@@ -1359,8 +1438,6 @@ def _checkpointed_hook(
             phase="reviewing",
         )
     if args.hook == "gate":
-        if not args.gate_name:
-            parser.error("gate requires --gate-name")
         return checkpoint_after_hook(
             args, gate_hook(args), "lifecycle", last_completed=gate_checkpoint_name(args)
         )

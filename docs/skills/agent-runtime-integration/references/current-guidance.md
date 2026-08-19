@@ -217,6 +217,11 @@ only when that same session still owns an active run. It continues the turn
 once with the remaining `finish` and same-closeout skill-maintenance work, then
 stops an unchanged second attempt explicitly instead of looping or reporting a
 false completion. A successful `finish` closes the run and lets Stop proceed.
+If the Codex launcher process is replaced while `CODEX_THREAD_ID` survives, a
+lifecycle hook may reclaim only that exact session's run and only after the
+recorded process owner's death is proven. The atomic takeover increments the
+resume generation; a live owner, different session, settled run, or public
+packet-less `resume --last` request remains refused.
 For Claude, `setup-agent-hooks.py` installs a stable user-level launcher at
 `<TAO_LAUNCHER>` and writes the current checkout to
 `~/.tao/tao-root`. Rerun setup after moving or migrating

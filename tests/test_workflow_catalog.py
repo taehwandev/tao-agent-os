@@ -277,7 +277,10 @@ class WorkflowCatalogTests(unittest.TestCase):
 
                 self.assertIn("request intake", route["gates"])
                 if command == "analysis":
-                    self.assertEqual(["AGENTS.md"], route["required_docs"])
+                    self.assertEqual(
+                        ["common/skills/agent-operating-skill/SKILL.md"],
+                        route["required_docs"],
+                    )
                 else:
                     self.assertTrue(route["required_docs"])
 
@@ -302,7 +305,11 @@ class WorkflowCatalogTests(unittest.TestCase):
             ["request intake", "investigate", RETROSPECTIVE_CHECK_GATE, "report"],
             route["gates"],
         )
-        self.assertEqual(["AGENTS.md"], route["required_docs"])
+        self.assertEqual(
+            ["common/skills/agent-operating-skill/SKILL.md"],
+            route["required_docs"],
+        )
+        self.assertIn("AGENTS.md", route["reference_docs"])
         parallel = route["parallel_execution"]
         self.assertEqual("serial_lightweight_analysis", parallel["strategy"])
         self.assertEqual(0, parallel["delegation_policy"]["maximum_workers"])

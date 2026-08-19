@@ -54,6 +54,17 @@ INERT_ENV_ASSIGNMENTS = frozenset(
     }
 )
 INERT_ENV_PREFIXES = ("LC_",)
+# These two are read only by this runtime's own tooling and never select what
+# executes: the session id labels which runtime session a hook binds to, and
+# the soft-fail flag only masks a hook's exit status. Refusing them made the
+# gate deny the exact `tao-hook start` remedy its own denial message names,
+# because the documented invocation carries the session id as a prefix.
+RUNTIME_HOOK_ENV_ASSIGNMENTS = frozenset(
+    {
+        "CLAUDE_CODE_SESSION_ID",
+        "TAO_HOOK_SOFT_FAIL",
+    }
+)
 # Only commands that cannot write through an argument belong here, because a
 # redirection is the sole write path this module strips out. That rules out
 # `sort -o`, `uniq <in> <out>`, `tee`, `awk`, and `find -delete/-exec`.
@@ -61,6 +72,10 @@ READ_ONLY_COMMANDS = frozenset(
     {
         "basename",
         "cat",
+        # A bare `cd` only moves the shell; the write it could precede arrives
+        # as its own command and is judged then. Denying it stranded a session
+        # whose persistent shell was parked inside a protected checkout.
+        "cd",
         "column",
         "cut",
         "date",
@@ -97,6 +112,7 @@ RUNTIME_CONTROL_HOOKS = frozenset(
     {
         "cancel",
         "checkpoint",
+        "fingerprint",
         "finish",
         "gate",
         "gate-batch",
@@ -121,7 +137,11 @@ def inert_env_assignment(token: str) -> bool:
     if match is None:
         return False
     name = match.group(1)
-    return name in INERT_ENV_ASSIGNMENTS or name.startswith(INERT_ENV_PREFIXES)
+    return (
+        name in INERT_ENV_ASSIGNMENTS
+        or name in RUNTIME_HOOK_ENV_ASSIGNMENTS
+        or name.startswith(INERT_ENV_PREFIXES)
+    )
 
 
 def strip_env_assignments(tokens: list[str]) -> list[str] | None:
@@ -210,8 +230,10 @@ def simple_command_kind(tokens: list[str]) -> str:
         return "read_only"
     if executable == "sed":
         args = command[1:]
+        # The file operand is optional: a print-only sed reading stdin at the
+        # end of a pipe writes nothing either.
         print_only = (
-            len(args) >= 3
+            len(args) >= 2
             and args[0] == "-n"
             and re.fullmatch(r"(?:\d+|\$)(?:,(?:\d+|\$))?p", args[1]) is not None
         )

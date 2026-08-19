@@ -235,12 +235,13 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         # commit route -- not the exact required-doc list, which is now bounded
         # by budget and so no longer a fixed set.
         for doc in (
-            "AGENTS.md",
             "common/skills/agent-operating-skill/SKILL.md",
             "workflows/skills/review-and-commit/SKILL.md",
             "common/skills/commit-workflow/SKILL.md",
         ):
             self.assertIn(required_doc(doc), route["required_docs"])
+
+        self.assertIn("AGENTS.md", route["reference_docs"])
 
         for surface_path in surface_paths:
             self.assertNotIn(required_doc(surface_path), route["required_docs"])

@@ -536,6 +536,27 @@ def sprawl_deny(tool: str, payload: dict, root: Path, cwd: Path, session_id: str
         return None
 
 
+def workflow_start_target_root(tokens: list[str], effective_cwd: Path) -> Path | None:
+    """The project a start hook will claim, whose policy judges that start.
+
+    Only argv-shaped values are visible; the caller has already required the
+    whole command to classify as ``workflow_start``, so a write smuggled next
+    to the start keeps its own ``mutating`` verdict and never reaches here.
+    """
+
+    target = effective_cwd
+    for index, token in enumerate(tokens):
+        if token == "--project" and index + 1 < len(tokens):
+            raw = Path(tokens[index + 1]).expanduser()
+            target = raw if raw.is_absolute() else effective_cwd / raw
+            break
+    try:
+        resolved = target.resolve()
+    except OSError:
+        return None
+    return find_project_root(resolved)
+
+
 def bash_governed_roots(
     tokens: list[str], *cwds: Path, command: str = ""
 ) -> list[Path]:
@@ -735,6 +756,15 @@ def decide(payload: dict) -> int:
         (reason for reason in map(worktree_denial, roots) if reason), None
     )
     if tool in BASH_TOOLS and bash_kind == "workflow_start":
+        # The start hook claims only the project it names, and the denial that
+        # sends a session here instructs it to run start in the linked
+        # worktree. Judging that start by every governed root kept the
+        # protected launch checkout in the verdict, so the gate denied its own
+        # remedy. The named target's policy is the whole question.
+        target_root = workflow_start_target_root(tokens, effective_cwd)
+        if target_root is not None:
+            reason = worktree_denial(target_root)
+            return deny(reason) if reason else allow()
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
         return deny(worktree_reason)

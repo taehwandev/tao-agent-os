@@ -48,10 +48,20 @@ from workflow_wikimap import WIKIMAP_VERSION
 from support.stable_launcher import stable_launcher_path
 
 
-CORE_REQUIRED_DOCS = (
-    "AGENTS.md",
-    "common/skills/agent-operating-skill/SKILL.md",
+OPERATING_SKILL = "common/skills/agent-operating-skill/SKILL.md"
+REVIEW_AND_COMMIT_ENTRYPOINT = "workflows/skills/review-and-commit/SKILL.md"
+REVIEW_AND_COMMIT_REFERENCE = (
+    "workflows/skills/review-and-commit/references/current-guidance.md"
 )
+MULTI_AGENT_ENTRYPOINT = "workflows/skills/multi-agent-collaboration/SKILL.md"
+MULTI_AGENT_REFERENCE = (
+    "workflows/skills/multi-agent-collaboration/references/current-guidance.md"
+)
+SOURCE_DRIVEN_REFERENCE = (
+    "common/skills/source-driven-development/references/current-guidance.md"
+)
+
+CORE_REQUIRED_DOCS = (OPERATING_SKILL,)
 
 CODE_WORK_REQUIRED_DOCS = (
     "common/skills/llm-coding-discipline/SKILL.md",
@@ -126,8 +136,14 @@ def resolve_docs(
     project_root: Path | None = None,
 ) -> dict[str, object]:
     profile = COMMANDS[command]
+    base_gates = route_gates(command)
     docs: list[str] = [*CORE_DOCS, *profile.docs]
     docs.extend(automatic_docs(command))
+    docs.extend(
+        reference
+        for gate, reference in ON_DEMAND_GATE_REFERENCES.items()
+        if gate in base_gates
+    )
     surface_docs, surface_matches = infer_surface_docs(
         command=command,
         platform=platform,
@@ -349,9 +365,24 @@ def _document_resolution(
 # change exists to fix, where the review hook rejected work for labelled
 # structure evidence the route never put in front of the agent.
 GUARANTEED_GATE_DOCS = {
-    "review hook": "workflows/skills/review-and-commit/SKILL.md",
-    MULTI_AGENT_GATE: "workflows/skills/multi-agent-collaboration/SKILL.md",
-    WORK_SURFACE_RESOLUTION_GATE: "common/skills/source-driven-development/SKILL.md",
+    "review hook": REVIEW_AND_COMMIT_ENTRYPOINT,
+    MULTI_AGENT_GATE: MULTI_AGENT_ENTRYPOINT,
+    WORK_SURFACE_RESOLUTION_GATE: SOURCE_DRIVEN_REFERENCE,
+}
+
+# Detailed gate references remain routed and reachable, but the concise
+# substantive entrypoints above carry the always-needed decision/evidence
+# contract. Loading these references for every ordinary code task repeats the
+# same broad context before GPT can inspect the actual project. Commands whose
+# purpose is the gate itself still require the corresponding detail.
+ON_DEMAND_GATE_REFERENCES = {
+    "review hook": REVIEW_AND_COMMIT_REFERENCE,
+    MULTI_AGENT_GATE: MULTI_AGENT_REFERENCE,
+}
+
+DETAIL_REQUIRED_COMMANDS = {
+    REVIEW_AND_COMMIT_REFERENCE: {"commit", "docs-review", "git_commit", "review"},
+    MULTI_AGENT_REFERENCE: {"multi-agent"},
 }
 
 REVIEW_HOOK_GATE_DOCS = (
@@ -376,15 +407,16 @@ CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE = {
 # mandatory reading near its previous byte cost while the documents behind it
 # carry actual rules.  Docs that do not fit stay reachable as `reference_docs`.
 #
-# The budget covers only the *selectable* tiers.  `CORE_REQUIRED_DOCS` is
-# exempt: AGENTS.md alone is ~41 KB, and charging it against the budget would
-# let the operating contract crowd out the documents actually matched to this
-# request.  Total mandatory reading is therefore roughly core + this budget.
+# The budget covers only the *selectable* tiers. `CORE_REQUIRED_DOCS` and the
+# concise gate contracts are exempt so request-specific guidance cannot crowd
+# them out. The target project's root instructions are loaded before routing;
+# Tao's own broad AGENTS.md remains reachable as reference context instead of
+# being charged to every target-project task.
 REQUIRED_DOC_BUDGET_BYTES = 30_000
-# Core and guaranteed review/owner-proof contracts consume one more slot on
-# code routes. Eleven preserves the previous room for the command card plus
-# three request-specific branch cards.
-MAX_REQUIRED_DOCS = 11
+# The concise core and guaranteed contracts consume four slots on ordinary
+# code routes. Eight preserves the previous four request-specific slots after
+# replacing the three always-loaded detailed documents with lazy references.
+MAX_REQUIRED_DOCS = 8
 
 # STOPGAP -- not a permanent policy.  A single reference larger than this would
 # monopolise the route's mandatory reading: admitting one exhausts
@@ -412,11 +444,12 @@ def route_required_docs(
     profile_docs: tuple[str, ...],
     surface_docs: list[str] | None = None,
 ) -> list[str]:
-    # A simple investigation has no work-producing gates.  Keep the runtime
-    # instruction available, but do not make it pay the full operating-skill
-    # document-read cost before it can answer.
+    # A simple investigation has no work-producing gates. Keep the concise
+    # operating entrypoint available without charging every analysis for the
+    # broad Tao repository instructions in addition to its target project's
+    # already-loaded root instructions.
     if command == "analysis":
-        return ["AGENTS.md"]
+        return [OPERATING_SKILL]
 
     gates = set(route_gates(command))
 
@@ -454,32 +487,23 @@ def route_required_docs(
     if command in CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE:
         tiers.append(list(CODE_WORK_REQUIRED_DOCS))
 
-    # The operating contract is not subject to the budget: every route must
-    # read it, and a route with no required docs at all would make the source
-    # docs gate vacuous.
-    #
-    # Core deliberately keeps its entrypoints rather than resolving to
-    # references.  The operating-skill reference is ~22 KB and identical for
-    # every route, so promoting it would spend more than half the guidance
-    # budget on the one document that is never specific to the request -- the
-    # exact trade this change exists to reverse.  AGENTS.md already carries the
-    # always-on operating contract, and the reference stays in `reference_docs`.
+    # The operating entrypoint is not subject to the budget: every route gets
+    # the small progressive-disclosure contract, and a route with no required
+    # docs at all would make the source docs gate vacuous. Its broad reference
+    # and Tao's AGENTS.md stay in `reference_docs`; the active target project's
+    # own root instructions were already loaded before this route started.
     selected = unique(canonical_doc_path(doc) for doc in CORE_REQUIRED_DOCS)
 
-    # The review hook is not a passive gate: it actively rejects submissions
-    # that omit its labelled structure evidence.  A route that enforces the hook
-    # must therefore deliver the document defining those labels, and that
-    # delivery cannot be subject to the byte budget -- letting a budget drop it
-    # is exactly the failure this change was written to fix, where the hook
-    # rejected work for a contract the route never put in front of the agent.
+    # Active gates receive an unbudgeted contract. Review and multi-agent use
+    # substantive entrypoints that state the machine-checked evidence and
+    # decision rules; work-surface resolution keeps its detailed reference
+    # because its generated entrypoint carries no owner-proof procedure.
     guaranteed = [
         doc for gate, doc in GUARANTEED_GATE_DOCS.items() if gate in gates
     ]
     selected.extend(
         doc
-        for doc in unique(
-            resolve_guidance_docs(ROOT, [canonical_doc_path(doc) for doc in guaranteed])
-        )
+        for doc in unique(canonical_doc_path(doc) for doc in guaranteed)
         if doc not in selected
     )
 
@@ -517,6 +541,11 @@ def route_required_docs(
         )
         for doc in candidates:
             if doc in selected:
+                continue
+            if (
+                doc in DETAIL_REQUIRED_COMMANDS
+                and command not in DETAIL_REQUIRED_COMMANDS[doc]
+            ):
                 continue
             if len(selected) >= MAX_REQUIRED_DOCS or used >= REQUIRED_DOC_BUDGET_BYTES:
                 return selected

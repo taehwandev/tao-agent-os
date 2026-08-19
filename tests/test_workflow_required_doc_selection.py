@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_finish_gate_validators import validate_source_docs_evidence  # noqa: E402
 from workflow_doc_resolution import (  # noqa: E402
+    doc_size,
     is_pointer_entrypoint,
     resolve_guidance_docs,
 )
@@ -28,6 +29,15 @@ from workflow_route import (  # noqa: E402
 
 REVIEW_AND_COMMIT_REFERENCE = (
     "workflows/skills/review-and-commit/references/current-guidance.md"
+)
+REVIEW_AND_COMMIT_ENTRYPOINT = "workflows/skills/review-and-commit/SKILL.md"
+MULTI_AGENT_ENTRYPOINT = "workflows/skills/multi-agent-collaboration/SKILL.md"
+MULTI_AGENT_REFERENCE = (
+    "workflows/skills/multi-agent-collaboration/references/current-guidance.md"
+)
+OPERATING_SKILL = "common/skills/agent-operating-skill/SKILL.md"
+SOURCE_DRIVEN_REFERENCE = (
+    "common/skills/source-driven-development/references/current-guidance.md"
 )
 
 
@@ -71,10 +81,10 @@ class EntrypointResolutionTests(unittest.TestCase):
 
 
 class RequiredDocMembershipTests(unittest.TestCase):
-    def test_analysis_short_circuits_to_agents_only(self) -> None:
+    def test_analysis_short_circuits_to_operating_entrypoint_only(self) -> None:
         """A bounded investigation must not pay the full document-read cost."""
         self.assertEqual(
-            ["AGENTS.md"], route_required_docs("analysis", None, [], ())
+            [OPERATING_SKILL], route_required_docs("analysis", None, [], ())
         )
 
     def test_every_route_enforcing_the_review_hook_delivers_its_contract(self) -> None:
@@ -97,7 +107,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
                 continue
             checked += 1
             with self.subTest(command=command):
-                self.assertIn(REVIEW_AND_COMMIT_REFERENCE, route["required_docs"])
+                self.assertIn(REVIEW_AND_COMMIT_ENTRYPOINT, route["required_docs"])
         self.assertTrue(checked, "expected at least one review-hook route")
 
     def test_review_hook_contract_survives_a_crowded_route(self) -> None:
@@ -113,7 +123,55 @@ class RequiredDocMembershipTests(unittest.TestCase):
         )
 
         self.assertIn("review hook", route["gates"])
-        self.assertIn(REVIEW_AND_COMMIT_REFERENCE, route["required_docs"])
+        self.assertIn(REVIEW_AND_COMMIT_ENTRYPOINT, route["required_docs"])
+
+    def test_standard_code_routes_load_gate_details_on_demand(self) -> None:
+        """Common code routes must receive the concise gate contracts without
+        paying for the same broad Tao references before every GPT task."""
+
+        for command in ("task", "feature", "bugfix", "refactor"):
+            with self.subTest(command=command):
+                route = resolve_docs(command, None, [], request_classified=True)
+                required = set(route["required_docs"])
+                references = set(route["reference_docs"])
+
+                self.assertIn(OPERATING_SKILL, required)
+                self.assertIn(REVIEW_AND_COMMIT_ENTRYPOINT, required)
+                self.assertIn(MULTI_AGENT_ENTRYPOINT, required)
+                self.assertIn(SOURCE_DRIVEN_REFERENCE, required)
+                self.assertNotIn("AGENTS.md", required)
+                self.assertNotIn(REVIEW_AND_COMMIT_REFERENCE, required)
+                self.assertNotIn(MULTI_AGENT_REFERENCE, required)
+                self.assertIn("AGENTS.md", references)
+                self.assertIn(REVIEW_AND_COMMIT_REFERENCE, references)
+                self.assertIn(MULTI_AGENT_REFERENCE, references)
+
+                required_bytes = sum(doc_size(ROOT, doc) for doc in required)
+                self.assertLessEqual(required_bytes, 40_000)
+
+    def test_concise_gate_entrypoints_keep_the_machine_checked_contracts(self) -> None:
+        review_text = (ROOT / REVIEW_AND_COMMIT_ENTRYPOINT).read_text(encoding="utf-8")
+        multi_text = (ROOT / MULTI_AGENT_ENTRYPOINT).read_text(encoding="utf-8")
+
+        for label in (
+            "owner:",
+            "allowed imports:",
+            "forbidden imports:",
+            "callers/tests:",
+            "verification:",
+        ):
+            with self.subTest(review_label=label):
+                self.assertIn(label, review_text)
+        for contract in ("parallel_execution", "delegate automatically", "serial reason"):
+            with self.subTest(multi_agent_contract=contract):
+                self.assertIn(contract, multi_text)
+
+    def test_gate_specific_routes_keep_their_detailed_guidance(self) -> None:
+        review_route = resolve_docs("review", None, [], request_classified=True)
+        multi_route = resolve_docs("multi-agent", None, [], request_classified=True)
+
+        self.assertIn(REVIEW_AND_COMMIT_REFERENCE, review_route["required_docs"])
+        self.assertIn(MULTI_AGENT_REFERENCE, multi_route["required_docs"])
 
     def test_explicit_figma_routes_require_common_and_platform_cards(self) -> None:
         cases = (

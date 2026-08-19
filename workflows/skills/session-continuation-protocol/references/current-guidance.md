@@ -874,6 +874,11 @@ a control proving the capability can fail has not been verified.
 - Existing packet-less registry entries may appear in `--list` as
   `legacy_no_packet` by opaque run id, but `--last` never resumes them. Recovery
   is a fresh `start`.
+- Same-runtime lifecycle closeout is narrower than public continuation. When
+  the evidence still binds the exact runtime name and stable session id, a
+  later lifecycle hook may atomically replace a proven-dead process owner and
+  continue gate/finish work for that same run. This does not expose saved work,
+  bypass drift validation, or make `legacy_no_packet` eligible for `--last`.
 - Registry schema migration must add the resume generation and new transient
   states without converting a live legacy run to free. Unknown or malformed
   owner evidence retains the same bounded timestamp fallback from PR #6.

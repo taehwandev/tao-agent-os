@@ -307,24 +307,31 @@ pointer to it. Most `<skill>/SKILL.md` entrypoints are generated stubs whose
 only content is a link to `references/current-guidance.md`; the router replaces
 such an entrypoint with that reference. An entrypoint carrying guidance of its
 own is kept alongside its reference, and an entrypoint with no reference on disk
-is kept unchanged. Core is the deliberate exception: its entrypoints are never
-resolved, because the operating-skill reference is large and identical on every
-route while AGENTS.md already states the always-on operating contract. Open
-`common/skills/agent-operating-skill/references/current-guidance.md` from
-`reference_docs` when the task turns on operating-skill detail.
+is kept unchanged. The operating skill is the progressive-loading exception:
+its concise entrypoint is required on every route, while its broad reference and
+this Tao root `AGENTS.md` stay in `reference_docs`. The active target
+project's root instructions were already loaded before routing, so requiring
+this broad file again would duplicate the operating contract. Open
+`common/skills/agent-operating-skill/references/current-guidance.md` when the
+task turns on operating-skill detail.
 
-Required-document selection is bounded. Beyond the always-required core, the
-router fills a byte budget and a document cap in priority order: the command's
-own skill, then documents matched to this request's text and touched paths, then
-the selected platform card set, then the contracts of the gates the route will
-enforce, then general code-work discipline. Selection stops at the budget rather
-than skipping a document that does not fit, so the most specific match is never
-starved by a smaller, less relevant one. Surface and graph promotion are
-therefore best-effort: a relevant document may legitimately remain in
-`reference_docs`, and it must still be opened when the task touches it. Gates
-that reject work, namely the review hook and the multi-agent split decision,
-always keep their contract document in `required_docs` and are never dropped by
-the budget; a route may not enforce a gate whose contract it withheld.
+Required-document selection is bounded. Beyond the always-required operating
+entrypoint and unbudgeted gate contracts, the router fills a byte budget and a
+document cap in priority order: the command's own skill, then documents matched
+to this request's text and touched paths, then the selected platform card set,
+then the remaining gate documents, then general code-work discipline. Selection
+stops at the budget rather than skipping a document that does not fit, so the
+most specific match is never starved by a smaller, less relevant one. Surface
+and graph promotion are therefore best-effort: a relevant document may
+legitimately remain in `reference_docs`, and it must still be opened when the
+task touches it. Gates that reject work always keep a concise substantive
+contract entrypoint in `required_docs`: review keeps
+`workflows/skills/review-and-commit/SKILL.md`, and the multi-agent split keeps
+`workflows/skills/multi-agent-collaboration/SKILL.md`. Their detailed
+references stay on demand for ordinary code routes and become required only
+when the route's own command is review/commit/docs-review/git_commit or
+multi-agent. Work-surface resolution keeps its detailed source-driven reference
+because its generated entrypoint does not contain the owner-proof procedure.
 
 Natural-language document discovery is a router responsibility, not a hook
 responsibility. The router/search layer uses the repository-pinned Wikimap

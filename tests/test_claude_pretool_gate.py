@@ -327,6 +327,67 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
+    def test_start_targeting_the_linked_worktree_is_allowed_from_main_checkout(self) -> None:
+        """The denial's own remedy must be runnable from where the session sits.
+
+        A session launched in the protected main checkout is told to select the
+        linked worktree and run start there, but the session cwd stayed in the
+        governed roots, so the gate denied the exact relocation it demanded.
+        The start hook claims only the project it names; its worktree policy is
+        judged by that target, not by every checkout the session can see.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp))
+            _require_linked_worktree(main)
+            worktree = Path(tmp) / "wt"
+            (worktree / ".tao").mkdir(parents=True)
+            (worktree / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
+            (worktree / ".git").write_text("gitdir: ../proj/.git/worktrees/wt\n", encoding="utf-8")
+            policy = worktree / gate.WORKTREE_POLICY_PATH
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            policy.write_text(
+                (main / gate.WORKTREE_POLICY_PATH).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            explicit_target = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "s",
+                    "tool_input": {
+                        "command": f"{gate.stable_launcher_path()} start --project {worktree}"
+                    },
+                }
+            )
+            cd_prefix = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "s",
+                    "tool_input": {
+                        "command": (
+                            f"cd {worktree} && {gate.stable_launcher_path()} start --project ."
+                        )
+                    },
+                }
+            )
+            main_target_from_worktree = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(worktree),
+                    "session_id": "s",
+                    "tool_input": {
+                        "command": f"{gate.stable_launcher_path()} start --project {main}"
+                    },
+                }
+            )
+
+        self.assertEqual((0, ""), explicit_target)
+        self.assertEqual((0, ""), cd_prefix)
+        self.assertIn("worktree gate", _reason(main_target_from_worktree[1]))
+
     def test_runtime_cancel_remains_available_in_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
@@ -1357,10 +1418,59 @@ class CompoundShellCommandTests(unittest.TestCase):
             "mutating",
         )
 
+    def test_print_only_sed_reading_stdin_stays_read_only(self) -> None:
+        """`... | sed -n 2p` writes nothing; the missing file operand is stdin."""
+
+        self.assertEqual(self._kind("grep -rn needle notes.txt | sed -n 2p"), "read_only")
+        self.assertEqual(self._kind("sed -i s/a/b/ notes.txt"), "mutating")
+
+    def test_bare_cd_only_moves_the_shell_and_stays_read_only(self) -> None:
+        """A lone `cd` cannot write; stranding a parked shell was the only effect."""
+
+        self.assertEqual(self._kind("cd /tmp/anywhere"), "read_only")
+        self.assertEqual(self._kind("cd .."), "read_only")
+
     def test_presentation_only_environment_assignments_still_read(self) -> None:
         self.assertEqual(self._kind("LC_ALL=C git log --oneline"), "read_only")
         self.assertEqual(self._kind("LANG=C grep needle notes.txt"), "read_only")
         self.assertEqual(self._kind("TZ=UTC date"), "read_only")
+
+    def test_runtime_hook_environment_assignments_keep_the_control_kind(self) -> None:
+        """The runtime's own documented env prefixes must not void its hooks.
+
+        `CLAUDE_CODE_SESSION_ID` and `TAO_HOOK_SOFT_FAIL` are read only by this
+        runtime's tooling and never select what executes, but the executor-variable
+        fail-close treated them like `LD_PRELOAD`, so the gate denied the exact
+        start command its own denial message asks the caller to run.
+        """
+
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(
+            self._kind(
+                f"CLAUDE_CODE_SESSION_ID=abc123 {launcher} start "
+                "--project /tmp/x --request hi"
+            ),
+            "workflow_start",
+        )
+        self.assertEqual(
+            self._kind(f"TAO_HOOK_SOFT_FAIL=1 {launcher} finish"), "bootstrap"
+        )
+        self.assertEqual(
+            self._kind("CLAUDE_CODE_SESSION_ID=abc123 grep needle notes.txt"),
+            "read_only",
+        )
+        self.assertEqual(
+            self._kind(f"LD_PRELOAD=/tmp/evil.so {launcher} start"), "mutating"
+        )
+
+    def test_fingerprint_hook_is_runtime_control(self) -> None:
+        """The envelope bootstrap helper must be callable before any start."""
+
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(
+            self._kind(f'{launcher} fingerprint --request "do the thing"'),
+            "bootstrap",
+        )
 
     def test_chained_runtime_control_hook_does_not_bootstrap(self) -> None:
         launcher = str(worktree_gate.stable_launcher_path())
