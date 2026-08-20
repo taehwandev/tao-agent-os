@@ -44,8 +44,10 @@ def record_skill_feedback(
 
     normalized_outcome = outcome.strip().lower()
     if normalized_outcome == "no_change":
-        return {"created": False, "reason": "no_change"}, [
-            "skill observation check completed with no reusable signal"
+        return {"created": False, "reason": "retrospective_gate_required"}, [
+            "skill-feedback no_change does not satisfy the required retrospective check",
+            "record the retrospective check gate with skills_checked, outcome, and "
+            "observation before finish; no skill observation was created",
         ]
     if normalized_outcome != "observed":
         return {"created": False, "reason": "invalid_observation_outcome"}, [

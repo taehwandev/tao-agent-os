@@ -26,8 +26,15 @@ def skill_feedback_hook(args: Any) -> int:
         signal=args.feedback_signal,
         gap_type=str(getattr(args, "feedback_gap", "") or ""),
     )
+    success = feedback.get("reason") != "retrospective_gate_required"
     return finish_with_result(
-        "skill-feedback", True, details, args.output, {"skill_feedback": feedback}, 0
+        "skill-feedback",
+        success,
+        details,
+        args.output,
+        {"skill_feedback": feedback},
+        0,
+        invocation_error=not success,
     )
 
 

@@ -17,12 +17,44 @@ from agent_finish_gate_learning_validators import validate_retrospective_check
 from agent_gate_evidence import record_gate_evidence, reset_gate_evidence_ledger
 from agent_hook_gate_records import record_hook_gate
 from agent_skill_feedback import record_skill_feedback
+from agent_skill_hooks import skill_feedback_hook
 from agent_skill_draft import record_draft
 from agent_skill_learning import curate_observations, record_observation, review_candidate
 from agent_skill_maintenance import complete_verified_skill_maintenance
 
 
 class RetrospectiveSkillBindingTests(unittest.TestCase):
+    def test_no_change_feedback_directs_callers_to_the_required_gate(self) -> None:
+        result, details = record_skill_feedback(
+            project=ROOT,
+            rules=ROOT,
+            evidence_path=ROOT / "missing-preflight.json",
+            outcome="no_change",
+            skill_id="retrospective-learning",
+            signal="",
+        )
+
+        self.assertEqual("retrospective_gate_required", result["reason"])
+        self.assertTrue(any("retrospective check gate" in detail for detail in details))
+
+    def test_no_change_feedback_hook_fails_as_an_invocation_error(self) -> None:
+        args = SimpleNamespace(
+            project=ROOT,
+            rules=ROOT,
+            evidence=ROOT / "missing-preflight.json",
+            skill_feedback_outcome="no_change",
+            skill_id="retrospective-learning",
+            feedback_signal="",
+            feedback_gap="",
+            output=None,
+        )
+        with patch("agent_skill_hooks.finish_with_result", return_value=1) as finish:
+            exit_code = skill_feedback_hook(args)
+
+        self.assertEqual(1, exit_code)
+        self.assertFalse(finish.call_args.args[1])
+        self.assertTrue(finish.call_args.kwargs["invocation_error"])
+
     def test_retrospective_rejects_unknown_canonical_skill(self) -> None:
         evidence = (
             "retrospective check; skills checked: made-up-skill; "
