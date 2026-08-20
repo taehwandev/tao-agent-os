@@ -472,13 +472,16 @@ invalidate an active project's review attestation. A task-critical personal
 skill must instead be named in that task's source evidence; required-document
 hashes still bind any local document that the route explicitly promotes.
 
-For local commit creation or commit preparation, use the lightweight `commit`
-route, or `git_commit` when the runtime labels the task that way. Do not route
-a clear commit request through `review`, `task`, or `triage` unless the request
-is genuinely unclear. The commit route is intentionally small: read the commit
-workflow entrypoints, run the lightweight review hook first, stop before
-committing when review finds issues, and record only commit readiness before
-creating the local commit.
+For local commit creation or commit preparation, including a combined approved
+commit/push/pull-request follow-up, use the lightweight `commit` route, or
+`git_commit` when the runtime labels the task that way. Do not route that
+source-control publication through `review`, `task`, `triage`, `release`, or
+`ship` unless the request actually packages, deploys, tags, migrates, or
+publishes a release artifact. The commit route is intentionally small: read the
+commit workflow entrypoints, run the lightweight review hook first, stop before
+committing when review finds issues, and record commit readiness before
+creating the local commit. Push and PR creation still require their own user
+authority and repo-local checks.
 
 Before editing, include the review hook's default structural budget in the
 boundary plan for every new or substantially expanded development source file.

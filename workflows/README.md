@@ -238,7 +238,7 @@ the update.
 - `refactor-cleanup.md`: improve structure while preserving behavior.
 - `release-readiness.md`: prepare release, deployment, package, or migration handoff.
 - `review-and-commit.md`: review the current work, verify it, then prepare a clean commit unit.
-- `commit` / `git_commit` route: lightweight local commit preparation. Run review first, stop on findings, then record commit readiness for the staged diff.
+- `commit` / `git_commit` route: lightweight local commit preparation and combined commit/push/PR follow-up. Run review first, stop on findings, then record commit readiness for the staged diff; use `release` only for actual package, deploy, tag, migration, or release-artifact publication.
 
 ## Rule
 

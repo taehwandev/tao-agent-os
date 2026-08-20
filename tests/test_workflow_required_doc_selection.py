@@ -87,6 +87,51 @@ class RequiredDocMembershipTests(unittest.TestCase):
             [OPERATING_SKILL], route_required_docs("analysis", None, [], ())
         )
 
+    def test_commit_push_pr_follow_up_keeps_only_the_lightweight_contract(self) -> None:
+        """Publishing an already-reviewed change is not a release lifecycle."""
+        request = "커밋하고 푸시한 뒤 develop 대상 PR까지 생성해줘"
+        route = resolve_docs(
+            "commit",
+            None,
+            ["commit", "branch", "push", "pull-request"],
+            request_classified=True,
+            request_text=request,
+        )
+
+        self.assertEqual(
+            [
+                OPERATING_SKILL,
+                REVIEW_AND_COMMIT_ENTRYPOINT,
+                "common/skills/commit-workflow/references/current-guidance.md",
+            ],
+            route["required_docs"],
+        )
+        self.assertNotIn(REVIEW_AND_COMMIT_REFERENCE, route["required_docs"])
+        self.assertFalse(
+            any("release-" in doc for doc in route["required_docs"]),
+            route["required_docs"],
+        )
+
+    def test_commit_route_keeps_release_guidance_for_a_tag_concern(self) -> None:
+        route = resolve_docs(
+            "commit",
+            None,
+            ["commit", "tag"],
+            request_classified=True,
+            request_text="commit then publish the release tag",
+        )
+
+        for area in (
+            "workflows/skills/release-readiness/",
+            "common/skills/release-deployment/",
+            "common/skills/release-versioning/",
+        ):
+            with self.subTest(area=area):
+                self.assertTrue(
+                    any(area in doc for doc in route["required_docs"]),
+                    route["required_docs"],
+                )
+
     def test_every_route_enforcing_the_review_hook_delivers_its_contract(self) -> None:
         """The defect that motivated this change: the hook rejected work for a
         labelled structure contract the route never put in front of the agent."""

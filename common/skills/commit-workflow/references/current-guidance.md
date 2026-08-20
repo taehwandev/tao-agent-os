@@ -8,22 +8,29 @@ type: ai-generated
 
 Use before creating commits, regardless of git client, IDE, CLI, or AI tool.
 
-For work routed through Tao Agent OS, clear local commit requests must use the
-lightweight `commit` route, or `git_commit` when the runtime uses that label.
-Do not route a clear commit request through the general `task`, `review`, or
-`triage` routes. The commit route exists to avoid running implementation gates
-after the code work is already done.
+For work routed through Tao Agent OS, clear local commit requests and combined
+commit/push/pull-request follow-ups must use the lightweight `commit` route, or
+`git_commit` when the runtime uses that label. Do not route them through the
+general `task`, `review`, `triage`, or `release` routes. Push and PR publication
+do not make a source-control follow-up a release; use `release` only when the
+request actually packages, deploys, tags, migrates, or publishes a release
+artifact. The commit route exists to avoid running implementation gates after
+the code work is already done.
 
 ## Lightweight Execution Contract
 
-An explicit local commit request is a bounded review-and-record operation, not
-a second implementation lifecycle:
+An explicit commit request, including its approved push and PR publication, is
+a bounded review-and-record operation, not a second implementation lifecycle:
 
 - keep the mandatory reading set to the repo instructions, the operating skill,
   this commit card, and the review-and-commit workflow;
 - keep documents inferred only from dirty paths in `reference_docs`; load one
   when the request names that risk, repo policy requires it, or the Review Hook
   finds a concrete surface-specific concern;
+- treat the ordinary `commit`, `branch`, `push`, and `pull-request` concern
+  family as one publication contract already owned by this card; promote
+  separate security, tag, deployment, migration, generated-file, or other
+  high-risk guidance only when that concern is actually present;
 - reuse current review, test, and safety evidence only while it is bound to the
   unchanged staged or worktree state it covered;
 - run one start, inspect the unstaged scope for obvious blockers, stage the
@@ -110,9 +117,11 @@ Before creating a commit, confirm evidence rather than repeating a full review:
 - commit message matches the staged diff and does not hide skipped checks,
   behavior changes, or release/security/migration risk
 
-Commit readiness approves only the local commit. It does not approve branch
-creation, push, PR creation, tag publication, release, deploy, or other external
-state changes.
+Commit readiness approves only the local commit. A combined request may remain
+on the same lightweight route, but branch creation, push, and PR creation still
+need their own explicit user authority and repo-local checks. Tag publication,
+release, deploy, migration, or other release-state changes remain outside this
+route.
 
 For web projects where a requested direct push to the default branch is the
 documented production release path, treat the push as release publication. Add

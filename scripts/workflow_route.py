@@ -123,6 +123,18 @@ REVIEW_HOOK_REQUIRED_COMMANDS = {
 
 LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS = {"commit", "git_commit"}
 
+# A combined commit/push/PR request is one lightweight publication lifecycle.
+# The commit workflow card already owns its worktree, remote, visibility, push,
+# and idempotent-PR checks, so expanding every inferred concern repeats the
+# same context. Any concern outside this closed family keeps normal promotion.
+LIGHTWEIGHT_PUBLICATION_CONCERNS = {
+    "branch",
+    "commit",
+    "pr",
+    "pull-request",
+    "push",
+}
+
 
 def resolve_docs(
     command: str,
@@ -381,7 +393,7 @@ ON_DEMAND_GATE_REFERENCES = {
 }
 
 DETAIL_REQUIRED_COMMANDS = {
-    REVIEW_AND_COMMIT_REFERENCE: {"commit", "docs-review", "git_commit", "review"},
+    REVIEW_AND_COMMIT_REFERENCE: {"docs-review", "review"},
     MULTI_AGENT_REFERENCE: {"multi-agent"},
 }
 
@@ -451,6 +463,21 @@ def route_required_docs(
     if command == "analysis":
         return [OPERATING_SKILL]
 
+    # Commit, push, and pull-request publication after implementation share
+    # one compact contract. The commit workflow reference already covers the
+    # staged diff, worktree, remote, visibility, push, and idempotent PR checks.
+    # A separate risk concern falls through to the full selection policy below.
+    if (
+        command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS
+        and set(concerns).issubset(LIGHTWEIGHT_PUBLICATION_CONCERNS)
+    ):
+        commit_docs = resolve_guidance_docs(
+            ROOT, ["common/skills/commit-workflow/SKILL.md"]
+        )
+        return unique(
+            [OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT, *commit_docs]
+        )
+
     gates = set(route_gates(command))
 
     # Tiers are ordered by how directly the document is tied to something this
@@ -507,10 +534,10 @@ def route_required_docs(
         if doc not in selected
     )
 
-    # Concerns the caller named are also exempt.  An operator writing "branch"
-    # or "security" is stating the risk directly, and silently demoting that to
-    # optional context is the worst failure available here: the route would
-    # answer a specific, explicit request with generic reading.  Concern card
+    # Concerns the caller named are also exempt after the compact publication
+    # family handled above. An operator naming a separate risk such as security
+    # or tag publication is stating that risk directly, and silently demoting
+    # it to optional context is the worst failure available here. Concern card
     # lists are short, so this does not reopen the union-of-everything problem.
     named: list[str] = []
     for concern in concerns:

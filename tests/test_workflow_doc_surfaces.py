@@ -239,7 +239,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             "workflows/skills/review-and-commit/SKILL.md",
             "common/skills/commit-workflow/SKILL.md",
         ):
-            self.assertIn(required_doc(doc), route["required_docs"])
+            self.assertIn(guidance_area(doc), required_areas(route))
 
         self.assertIn("AGENTS.md", route["reference_docs"])
 

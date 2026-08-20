@@ -217,8 +217,9 @@ COMMANDS: Dict[str, Profile] = {
         ),
         gates=("commit readiness",),
         notes=(
-            "Use only for local commit creation or commit preparation. "
-            "Run the lightweight review first; if review finds issues, stop before committing and report required fixes.",
+            "Use for local commit preparation and for a combined commit, push, and pull-request follow-up. "
+            "Run the lightweight review first; if review finds issues, stop before committing and report required fixes. "
+            "Use release only when the request actually packages, deploys, tags, migrates, or publishes a release artifact.",
         ),
     ),
     "planning": Profile(
