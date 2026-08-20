@@ -261,5 +261,33 @@ class CloseoutGateAdvertisement(unittest.TestCase):
         self.assertEqual(self.lines(["tests", "report"]), [])
 
 
+class GateBatchPerformanceAdvertisement(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "agent_hook_main_for_gate_batch_summary", SCRIPTS / "agent-hook.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.lines = module._gate_batch_guidance_lines
+
+    def test_multiple_agent_owned_gates_advertise_one_batched_checkpoint(self):
+        rendered = self.lines(
+            ["request intake", "source docs", "boundary plan", "review hook"]
+        )
+
+        self.assertEqual(len(rendered), 1)
+        self.assertIn("simultaneously-ready", rendered[0])
+        self.assertIn("one strong continuation checkpoint", rendered[0])
+        self.assertIn("different phases", rendered[0])
+
+    def test_one_agent_owned_gate_does_not_advertise_batching(self):
+        self.assertEqual(
+            self.lines(["request intake", "commit readiness", "review hook"]),
+            [],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

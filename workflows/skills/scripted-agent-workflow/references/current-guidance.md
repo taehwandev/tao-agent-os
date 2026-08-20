@@ -697,8 +697,15 @@ before it reports completion. Its earlier validation only establishes that the
 final checks may start; bytes changed while those checks run must fail closed.
 This does not prohibit a legitimate pathspec review of an explicitly owned
 slice—the exact scope is attested and may not later be widened by prose.
-For gates that only the active agent can prove, batch
-structured records instead of spawning one shell process per gate:
+For gates that only the active agent can prove, batch every simultaneously-ready
+record from the same lifecycle phase instead of spawning one shell process per
+gate. Each `gate` or `gate-batch` invocation also rewrites one strong
+continuation checkpoint, including current Git drift state. One phase batch
+therefore preserves the same gate evidence and resumability while avoiding
+repeated process startup and checkpoint scans. Do not batch evidence that is not
+yet true, cross a dependency or review boundary just to reduce calls, or keep
+retrying a batch after the validation-recovery rule above says to isolate the
+failing gate:
 
 ```text
 python3 <TAO_ROOT>/scripts/agent-hook.py gate-batch --project <TARGET_REPO> --rules <TAO_ROOT> --evidence <RUN_EVIDENCE> --gate-record '[{"gate":"cycle contract","fields":{"cycle_type":"workflow_setup","input_scope":"<safe-source-scope>","allowed_changes":"<safe-scope>","forbidden_changes":"<safe-boundary>","acceptance_criteria":"<safe-criteria>","verification":"<check>","stop_condition":"<condition>","checkpoint":"<handoff-or-next-cycle>"}},{"gate":"agentic run state","fields":{"state":"scoped","transition":"scoped -> acting","evidence":"<gate-or-command>","checkpoint":"<resume-or-handoff>","blockers":"<none-or-current-blocker>"}},{"gate":"boundary plan","fields":{"scope":"<owned-scope>","verification":"<nearest-check>"}}]'

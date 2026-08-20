@@ -284,6 +284,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "development files exceed review-pressure or source-size limits."
         )
     lines.extend(_closeout_gate_lines(gates))
+    lines.extend(_gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
     return lines
 
@@ -296,6 +297,22 @@ def _closeout_gate_lines(gates: list[str]) -> list[str]:
     return [
         "Closeout gate reminder: record the user-facing handoff gate with gate or "
         "gate-batch before finish; the worker handoff hook does not satisfy it."
+    ]
+
+
+def _gate_batch_guidance_lines(gates: list[str]) -> list[str]:
+    """Keep strong checkpointing while avoiding one process per ready gate."""
+
+    agent_owned = [
+        gate for gate in gates if gate not in {"request intake", "review hook"}
+    ]
+    if len(agent_owned) < 2:
+        return []
+    return [
+        "Performance: record two or more simultaneously-ready agent-owned gates in one "
+        "gate-batch; one invocation writes one strong continuation checkpoint. Keep "
+        "gates separate when they become ready in different phases or after a repeated "
+        "batch validation failure."
     ]
 
 
