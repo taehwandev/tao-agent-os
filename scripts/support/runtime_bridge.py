@@ -69,6 +69,11 @@ RUNTIME_FINISH_BRIDGE_PHRASE = (
     "For multi-step work, run Tao Agent OS agent-hook.py finish before final report, commit, "
     "release, or handoff; direct agent-finish-check.py is a lower-level fallback only."
 )
+RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE = (
+    "Immediately before finish, compare the active route's exact gate list with the gate ledger "
+    "and record every missing gate through agent-hook.py gate or gate-batch; never call finish "
+    "to discover which gates are missing."
+)
 RUNTIME_CONTINUATION_BRIDGE_PHRASE = (
     "When the active run has continuation support, write one bounded semantic checkpoint through "
     "agent-hook.py checkpoint after required-doc reading and task scoping, then refresh it at "
@@ -117,6 +122,7 @@ RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES = [
     RUNTIME_START_BRIDGE_PHRASE,
     *RUNTIME_BRIDGE_GRAPH_PHRASES,
     *RUNTIME_CAPSULE_BRIDGE_PHRASES,
+    RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE,
     RUNTIME_FINISH_BRIDGE_PHRASE,
     RUNTIME_CONTINUATION_BRIDGE_PHRASE,
     AUTO_DELEGATION_BRIDGE_PHRASE,
@@ -163,6 +169,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         "- Use workflow-doc-surfaces.json and the local document graph as routing/search inputs; treat graph neighbors as reference_docs unless the route marks them as required_docs.",
         "- If routing/search misses a clearly relevant platform, concern, or document surface, stop and report the gap instead of proceeding from memory.",
         *[f"- {phrase}" for phrase in RUNTIME_CAPSULE_BRIDGE_PHRASES],
+        f"- {RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE}",
         f"- {RUNTIME_FINISH_BRIDGE_PHRASE}",
         f"- {RUNTIME_CONTINUATION_BRIDGE_PHRASE}",
         f"- {AUTO_DELEGATION_BRIDGE_PHRASE}",

@@ -19,6 +19,7 @@ from support.runtime_bridge import (
     RUNTIME_CAPSULE_BRIDGE_PHRASES,
     RUNTIME_CONTINUATION_BRIDGE_PHRASE,
     RUNTIME_FINISH_BRIDGE_PHRASE,
+    RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE,
     RUNTIME_NATIVE_DELEGATION_PHRASES,
     RUNTIME_START_BRIDGE_PHRASE,
     merge_runtime_bridge,
@@ -42,6 +43,14 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                 self.assertIn(RUNTIME_START_BRIDGE_PHRASE, block)
                 self.assertIn(RUNTIME_FINISH_BRIDGE_PHRASE, required)
                 self.assertIn(RUNTIME_FINISH_BRIDGE_PHRASE, block)
+                self.assertIn(RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE, required)
+                self.assertIn(RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE, block)
+                self.assertLess(
+                    block.index(RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE),
+                    block.index(RUNTIME_FINISH_BRIDGE_PHRASE),
+                )
+                self.assertIn("exact gate list", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("never call finish to discover", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn(RUNTIME_CONTINUATION_BRIDGE_PHRASE, required)
                 self.assertIn(RUNTIME_CONTINUATION_BRIDGE_PHRASE, block)
                 self.assertIn("--work-stdin", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
