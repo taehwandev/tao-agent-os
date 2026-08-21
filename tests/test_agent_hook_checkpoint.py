@@ -200,6 +200,53 @@ class CheckpointCommandTests(unittest.TestCase):
         self.assertIn(expected, stdout.getvalue())
         self.assertIn('"request_fingerprint"', stdout.getvalue())
 
+    def test_fingerprint_hook_binds_the_continuation_scope(self) -> None:
+        """The helper must hash the same full intake the start call will bind.
+
+        Envelopes bind to the full request intake, so a helper that hashed the
+        request alone handed every terse follow-up a fingerprint its own start
+        call then rejected as describing a different request -- and the agent's
+        recovery was to ask the user to reword the request.
+        """
+
+        from agent_route_state import request_fingerprint
+
+        parser = agent_hook.build_parser()
+        args = parser.parse_args(
+            [
+                "fingerprint",
+                "--request",
+                "응 수정해줘",
+                "--continuation-scope",
+                "the previously agreed bounded target",
+            ]
+        )
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            returncode = agent_hook._fingerprint_hook(parser, args)
+
+        full_intake = request_fingerprint(
+            {
+                "request": "응 수정해줘",
+                "continuation_scope": "the previously agreed bounded target",
+                "request_classified": False,
+                "classification_evidence": "",
+            }
+        )
+        request_only = request_fingerprint(
+            {
+                "request": "응 수정해줘",
+                "continuation_scope": "",
+                "request_classified": False,
+                "classification_evidence": "",
+            }
+        )
+        self.assertEqual(0, returncode)
+        self.assertIn(full_intake, stdout.getvalue())
+        self.assertNotIn(request_only, stdout.getvalue())
+        self.assertIn("binding covers --request, --continuation-scope", stdout.getvalue())
+
     def test_fingerprint_hook_requires_the_request(self) -> None:
         parser = agent_hook.build_parser()
         args = parser.parse_args(["fingerprint"])

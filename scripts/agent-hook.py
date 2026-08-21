@@ -1306,6 +1306,9 @@ def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace)
         True,
         [
             f"request fingerprint: {fingerprint}",
+            "binding covers --request, --continuation-scope, --request-classified, "
+            "and --classification-evidence exactly as passed here; pass identical "
+            "values to start or the envelope will describe a different request",
             "envelope skeleton (fill intent, target_summary, effects, and the "
             "session id before use): " + json.dumps(skeleton, ensure_ascii=False),
         ],

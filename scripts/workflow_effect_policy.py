@@ -143,7 +143,12 @@ def _binding_failures(
 
     failures: list[str] = []
     if request_fingerprint and envelope.get("request_fingerprint") != request_fingerprint:
-        failures.append("the intent envelope describes a different request")
+        failures.append(
+            "the intent envelope describes a different request; the binding covers "
+            "the exact --request, --continuation-scope, and classification flags of "
+            "this call, so recompute it with agent-hook.py fingerprint using the "
+            "same arguments instead of asking the user to reword the request"
+        )
     if runtime_session_id and envelope.get("runtime_session_id") != runtime_session_id:
         failures.append("the intent envelope was issued by a different runtime session")
     return failures
