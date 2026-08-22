@@ -29,7 +29,7 @@ from agent_hook_continuation import (
     unbindable_run_directory_error,
     gate_checkpoint_name,
     record_lifecycle_checkpoint,
-    start_objective,
+    start_checkpoint,
     work_checkpoint_advice,
 )
 from agent_hook_checkpoint import add_checkpoint_arguments, checkpoint_hook
@@ -213,11 +213,8 @@ def start_hook(args: argparse.Namespace) -> int:
             if success:
                 # The route and objective are known and nothing has been mutated
                 # yet, which is the only moment an initial packet can describe.
-                details.append(
-                    record_lifecycle_checkpoint(
-                        args, "initial", work={"objective": start_objective(args)}
-                    )
-                )
+                kind, work = start_checkpoint(args)
+                details.append(record_lifecycle_checkpoint(args, kind, work=work))
                 details.extend(work_checkpoint_advice(args))
     finally:
         if not committed:
