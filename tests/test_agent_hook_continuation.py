@@ -831,8 +831,7 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
 
             advice = wiring.work_checkpoint_advice(self._args(project, evidence))
 
-        self.assertEqual(1, len(advice))
-        self.assertIn("checkpoint --work-stdin", advice[0])
+        self.assertIn("checkpoint --work-stdin", "\n".join(advice))
 
     def test_the_advice_names_the_fields_a_resume_is_handed(self) -> None:
         """Naming the hook without naming what it carries is not actionable."""
@@ -841,7 +840,9 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             project = Path(directory)
             evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
 
-            advice = wiring.work_checkpoint_advice(self._args(project, evidence))[0]
+            advice = "\n".join(
+                wiring.work_checkpoint_advice(self._args(project, evidence))
+            )
 
         from agent_continuation_packet import WORK_FIELDS
 
@@ -854,6 +855,52 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             )
         ]
         self.assertEqual([], missing, advice)
+
+
+    def test_the_advice_spells_the_object_shapes_from_the_schema(self) -> None:
+        """Field names alone did not let a checkpoint be recorded.
+
+        The first attempt failed on object shape: the entries are closed key
+        sets with enum values, and the advice named none of them. Reading the
+        enums from the validator is what keeps a new role or verification kind
+        from silently going unmentioned.
+        """
+
+        from agent_continuation_packet import (
+            DECISION_STATUSES,
+            SCOPE_ROLES,
+            VERIFICATION_KINDS,
+            VERIFICATION_RESULTS,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
+            advice = "\n".join(
+                wiring.work_checkpoint_advice(self._args(project, evidence))
+            )
+
+        for group in (
+            DECISION_STATUSES, SCOPE_ROLES, VERIFICATION_KINDS, VERIFICATION_RESULTS
+        ):
+            for value in group:
+                with self.subTest(value=value):
+                    self.assertIn(value, advice)
+        for key in ("id", "status", "text", "path", "role", "checkpoint", "action"):
+            with self.subTest(key=key):
+                self.assertIn(key, advice)
+
+    def test_the_advice_says_absent_keys_are_the_failure(self) -> None:
+        """`optional` in the validator means nullable, not omittable."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
+            advice = "\n".join(
+                wiring.work_checkpoint_advice(self._args(project, evidence))
+            )
+
+        self.assertIn("every key of an object must be present", advice)
 
     def test_a_real_start_prints_the_advice_itself(self) -> None:
         """A constant no hook emits is a comment, not an advertisement."""
