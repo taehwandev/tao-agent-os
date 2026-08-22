@@ -670,6 +670,100 @@ class ReviewHookTests(unittest.TestCase):
 
         self.assertTrue(outputs)
 
+    def test_an_accepted_audit_is_advertised_by_the_hook_itself(self) -> None:
+        """The wording is only useful if the hook hands it the real state.
+
+        A call site that stops passing the audit state and the reason breaks no
+        test of the wording function, which is how an advertisement rots into a
+        constant.
+        """
+
+        outputs: list[dict[str, object]] = []
+
+        changed = " M scripts/agent-hook.py\n"
+
+        def git_status(_project: Path) -> tuple[dict[str, object], list[str]]:
+            return {
+                "command": ["git", "status", "--short", "--untracked-files=all"],
+                "cwd": str(ROOT),
+                "returncode": 0,
+                "stdout": changed,
+                "stderr": "",
+            }, [changed.strip()]
+
+        def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+            if command[:3] == ["vibeguard", "audit", "."]:
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": 0,
+                    "stdout": "Overall: Needs review\n",
+                    "stderr": "",
+                }
+            if command[:3] == ["git", "status", "--short"]:
+                return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": changed, "stderr": ""}
+            return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": "", "stderr": ""}
+
+        def finish_with_result(
+            name: str,
+            success: bool,
+            details: list[str],
+            output: Path | None,
+            payload: dict[str, object],
+            repair_cycle: int,
+            invocation_error: bool = False,
+        ) -> int:
+            outputs.append({"name": name, "success": success, "details": details})
+            return 0 if success else 1
+
+        args = SimpleNamespace(
+            project=ROOT,
+            rules=ROOT,
+            evidence=None,
+            review_outcome="pass",
+            code_review_evidence="reviewed scoped change",
+            docs_freshness_evidence="docs unchanged because no durable docs impact",
+            structure_review_evidence=None,
+            boundary_plan_evidence=None,
+            side_effect_audit_evidence="side-effect audit checked diff",
+            review_scope="pathspec",
+            review_path=["scripts/agent-hook.py"],
+            max_changed_paths=25,
+            max_source_file_lines=500,
+            max_function_lines=120,
+            output=None,
+            repair_cycle=0,
+            allow_vibeguard_review="guardrail refresh age, unrelated to this change",
+        )
+
+        with (
+            patch("agent_review_hook.record_review_failure"),
+            patch("agent_review_hook.record_review_gate"),
+            patch("agent_review_hook.record_review_prerequisite_readiness"),
+        ):
+            review_hook(
+                args,
+                run_command,
+                git_status,
+                lambda _project, _rules: ["vibeguard", "audit", "."],
+                lambda output: "Needs review" if "Needs review" in output else "Ready",
+                finish_with_result,
+            )
+
+        details = outputs[0]["details"]
+        self.assertTrue(outputs[0]["success"], details)
+        self.assertTrue(
+            any("VibeGuard overall is Needs review" in detail for detail in details),
+            details,
+        )
+        self.assertTrue(
+            any(
+                "--allow-vibeguard-review" in detail and "finish" in detail
+                for detail in details
+            ),
+            details,
+        )
+
     def test_review_failure_records_resumable_checkpoint(self) -> None:
         from agent_repair_ledger import checkpoint_has_recorded_failure
         from agent_review_hook import record_review_failure
@@ -896,6 +990,58 @@ class ReviewHookTests(unittest.TestCase):
                 and "invalidates this review attestation" in detail
                 for detail in details
             )
+        )
+
+    def test_a_clean_audit_says_passed_and_asks_for_nothing_more(self) -> None:
+        details = review_success_details(
+            {"checked_path_count": 1, "scope": "working-tree"},
+            "working-tree",
+            "Ready",
+            "",
+        )
+
+        self.assertIn("VibeGuard audit passed", details)
+        self.assertFalse(
+            [detail for detail in details if "--allow-vibeguard-review" in detail]
+        )
+
+    def test_an_accepted_audit_reports_its_state_and_what_finish_will_ask(self) -> None:
+        """A review that reports "passed" then a finish that reports "Needs
+        review" reads as a contradiction, and the reason already given has to
+        be found a second time by failing finish."""
+
+        details = review_success_details(
+            {"checked_path_count": 1, "scope": "working-tree"},
+            "working-tree",
+            "Needs review",
+            "guardrail refresh interval, unrelated to this change",
+        )
+
+        self.assertNotIn("VibeGuard audit passed", details)
+        self.assertTrue(
+            any(
+                "VibeGuard overall is Needs review" in detail
+                and "accepted under the reason you passed" in detail
+                for detail in details
+            )
+        )
+        self.assertTrue(
+            any(
+                "--allow-vibeguard-review" in detail and "finish" in detail
+                for detail in details
+            )
+        )
+
+    def test_an_accepted_audit_with_no_reported_state_still_reads_as_not_ready(self) -> None:
+        details = review_success_details(
+            {"checked_path_count": 1, "scope": "working-tree"},
+            "working-tree",
+            "",
+            "accepted for a reason",
+        )
+
+        self.assertTrue(
+            any("VibeGuard overall is not Ready" in detail for detail in details)
         )
 
 
