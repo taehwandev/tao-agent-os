@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_continuation_checkpoint import write_continuation_checkpoint
+from agent_continuation_store import continuation_path, read_continuation_packet
 from agent_continuation_fields import CHECKPOINT_RE, RUN_ID_RE
 from agent_hook_gate_records import preflight_evidence_path
 
@@ -154,6 +155,33 @@ def start_objective(args: argparse.Namespace) -> str:
 
     command = str(getattr(args, "command", "") or "task")
     return f"{command} workflow"
+
+
+def start_checkpoint(args: argparse.Namespace) -> tuple[str, dict[str, Any] | None]:
+    """Name the checkpoint a start writes, and what it may put in it.
+
+    A start does not always begin a run. When the runtime session already owns
+    one, `preflight_evidence_path` adopts it -- and an `initial` checkpoint is
+    refused whenever a valid packet exists, which for an adopted run is always.
+    The refusal is non-blocking, so the start reported SUCCESS while the packet
+    stayed bound to the HEAD of the earlier start; `resume` then called that
+    head_drift and rendered none of the saved work.
+
+    An adopted run is the same run continuing, so its start refreshes the
+    packet instead. It carries no work: the objective it would write is the
+    route enum, and overwriting a recorded objective with that would lose
+    exactly what the refresh is for.
+    """
+
+    binding_path = run_binding_path(args)
+    if binding_path is None:
+        return "initial", {"objective": start_objective(args)}
+    existing = read_continuation_packet(
+        args.project, continuation_path(args.project, binding_path.parent.name)
+    )
+    if existing["status"] == "ok":
+        return "lifecycle", None
+    return "initial", {"objective": start_objective(args)}
 
 
 def gate_checkpoint_name(args: argparse.Namespace) -> str | None:

@@ -489,6 +489,16 @@ a run already begun under an unbindable name can still review and finish. An id 
 is never adopted a second time, since two records sharing one opaque id would
 make "the run" ambiguous for every later lookup.
 
+A start does not always begin a run. When the runtime session already owns
+one, the evidence resolver adopts it, and an `initial` checkpoint is refused
+whenever a valid packet exists -- which for an adopted run is always. Because
+the refusal is non-blocking, the start reported success while the packet stayed
+bound to the HEAD of the earlier start, and a later `resume` called that
+`head_drift` and rendered none of the saved work. An adopted run is the same run
+continuing, so its start writes a `lifecycle` refresh instead, carrying no work:
+the objective a start would write is the route enum, and overwriting a recorded
+one with that would lose exactly what the refresh preserves.
+
 Because the directory is per-lifecycle, a packet is scoped to one run and
 cannot collide with a concurrent session.
 
