@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
@@ -16,6 +18,9 @@ from workflow_skill_paths import canonical_doc_path
 from support.stage_timing import stage
 
 
+CACHE_GENERATIONS = 3
+
+
 def build_doc_graph(root: Path = ROOT) -> dict[str, list[dict[str, object]]]:
     """Return a path -> edge list graph for local Markdown guidance."""
     return _build_doc_graph(str(root.resolve()))
@@ -25,12 +30,18 @@ def build_doc_graph(root: Path = ROOT) -> dict[str, list[dict[str, object]]]:
 def _build_doc_graph(root_text: str) -> dict[str, list[dict[str, object]]]:
     root = Path(root_text)
     with stage("doc_graph_build"):
-        return _graph_for(root)
+        docs = _markdown_docs(root)
+        key = _document_key(root, docs)
+        cached = _read_cached_graph(root, key)
+        if cached is not None:
+            return cached
+        graph = _graph_for(root, docs)
+        _write_cached_graph(root, key, graph)
+        return graph
 
 
-def _graph_for(root: Path) -> dict[str, list[dict[str, object]]]:
+def _graph_for(root: Path, docs: set[str]) -> dict[str, list[dict[str, object]]]:
     graph: dict[str, list[dict[str, object]]] = {}
-    docs = _markdown_docs(root)
     for rel in docs:
         graph.setdefault(rel, [])
 
@@ -38,6 +49,80 @@ def _graph_for(root: Path) -> dict[str, list[dict[str, object]]]:
     _add_legacy_alias_edges(docs, graph)
     _add_surface_rule_edges(root, graph)
     return graph
+
+
+def _document_key(root: Path, docs: set[str]) -> str:
+    """Digest the documents the graph is built from, and nothing else.
+
+    Keyed on the guidance documents rather than on the worktree, because a
+    worktree signature changes with every source edit -- and between a start
+    and the review that follows it, an agent has edited source. A key that
+    tracks the inputs is a key that can hit.
+
+    Size and modification time rather than content: reading the 2 MB the build
+    reads is the cost the cache exists to avoid.
+    """
+
+    digest = hashlib.sha256()
+    for rel in sorted(docs):
+        try:
+            stat = (root / rel).lstat()
+        except OSError:
+            return ""
+        digest.update(rel.encode("utf-8", "surrogateescape"))
+        digest.update(f"\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode("ascii"))
+    return digest.hexdigest()
+
+
+def _cache_directory(root: Path) -> Path | None:
+    """The run-state cache, only where run state already exists.
+
+    `.tao` carries its own ignore file, so writing under it stays out of the
+    repository. A project that has never run a hook has no `.tao`, and creating
+    one here could put a 750 KB file into someone's next commit.
+    """
+
+    state = root / ".tao"
+    return state / "cache" / "doc-graph" if state.is_dir() else None
+
+
+def _read_cached_graph(root: Path, key: str) -> dict[str, list[dict[str, object]]] | None:
+    directory = _cache_directory(root)
+    if not key or directory is None:
+        return None
+    try:
+        payload = json.loads((directory / f"{key}.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_cached_graph(root: Path, key: str, graph: dict[str, list[dict[str, object]]]) -> None:
+    """Store this generation, and keep the cache from growing without bound."""
+
+    directory = _cache_directory(root)
+    if not key or directory is None:
+        return
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        temporary = directory / f"{key}.{os.getpid()}.tmp"
+        temporary.write_text(json.dumps(graph, sort_keys=True), encoding="utf-8")
+        temporary.replace(directory / f"{key}.json")
+        _prune_cache(directory)
+    except OSError:
+        # A cache that cannot be written is a build, not a failure.
+        return
+
+
+def _prune_cache(directory: Path) -> None:
+    generations = sorted(
+        directory.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True
+    )
+    for stale in generations[CACHE_GENERATIONS:]:
+        try:
+            stale.unlink()
+        except OSError:
+            continue
 
 
 def clear_doc_graph_cache() -> None:
