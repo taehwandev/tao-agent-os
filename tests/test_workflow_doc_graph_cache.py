@@ -34,6 +34,7 @@ class DocGraphCacheTests(unittest.TestCase):
 
     def _project(self, directory: str, *, state: bool = True) -> Path:
         project = Path(directory)
+        project.mkdir(exist_ok=True)
         (project / ".tao").mkdir() if state else None
         (project / "AGENTS.md").write_text("# guide\n\nsee [other](other.md)\n", encoding="utf-8")
         (project / "other.md").write_text("# other\n", encoding="utf-8")
@@ -156,6 +157,105 @@ class DocGraphCacheTests(unittest.TestCase):
                 second = build.build_doc_graph(project)
 
         self.assertEqual(first, second)
+
+
+    def test_a_symlinked_document_tracks_what_it_points_at(self) -> None:
+        """The build reads through the link, so the key must too.
+
+        Two tracked documents in this repository are symlinks into a pruned
+        directory, whose targets a walk never visits. With the link's own
+        `lstat` as the key, editing one of those targets changed the graph and
+        not the key.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "outside"
+            outside.mkdir()
+            shared = outside / "shared.md"
+            shared.write_text("[x](AGENTS.md)\n", encoding="utf-8")
+            project = self._project(str(Path(directory) / "proj"))
+            (project / "link.md").symlink_to(shared)
+
+            before = build.build_doc_graph(project)
+            build.clear_doc_graph_cache()
+            shared.write_text("[x](other.md)\n", encoding="utf-8")
+            after = build.build_doc_graph(project)
+
+        self.assertEqual({"AGENTS.md"}, {edge["target"] for edge in before["link.md"]})
+        self.assertEqual({"other.md"}, {edge["target"] for edge in after["link.md"]})
+
+    def test_a_retargeted_link_is_a_change(self) -> None:
+        """Where it points is the only thing that differs here.
+
+        The two targets are given the same size and the same modification
+        time, so following the link produces identical stats and only the
+        link's own target distinguishes the two graphs.
+        """
+
+        import os
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            alpha = project / "alpha.md"
+            omega = project / "omega.md"
+            alpha.write_text("[a](AGENTS.md)\n", encoding="utf-8")
+            omega.write_text("[o](AGENTS.md)\n", encoding="utf-8")
+            stat = alpha.stat()
+            os.utime(omega, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            self.assertEqual(alpha.stat().st_size, omega.stat().st_size)
+            self.assertEqual(alpha.stat().st_mtime_ns, omega.stat().st_mtime_ns)
+
+            link = project / "link.md"
+            link.symlink_to("alpha.md")
+            first = build._document_key(project, build._markdown_docs(project))
+
+            link.unlink()
+            link.symlink_to("omega.md")
+            second = build._document_key(project, build._markdown_docs(project))
+
+        self.assertNotEqual(first, second)
+
+    def test_a_broken_link_does_not_disable_the_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            (project / "link.md").symlink_to("nowhere.md")
+
+            first = build.build_doc_graph(project)
+            build.clear_doc_graph_cache()
+            with patch.object(build, "_graph_for", side_effect=AssertionError("rebuilt")):
+                second = build.build_doc_graph(project)
+
+        self.assertEqual(first, second)
+
+    def test_a_changed_builder_invalidates_every_generation(self) -> None:
+        """A graph built by older code must not be served after it changes."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            docs = build._markdown_docs(project)
+            first = build._document_key(project, docs)
+
+            with patch.object(build, "_builder_digest", return_value="a-later-builder"):
+                second = build._document_key(project, docs)
+
+        self.assertNotEqual(first, second)
+
+    def test_the_builder_version_is_its_source_not_its_timestamp(self) -> None:
+        """A checkout that rewrites the builder unchanged must still hit."""
+
+        import os
+
+        build._builder_digest.cache_clear()
+        self.addCleanup(build._builder_digest.cache_clear)
+        before = build._builder_digest()
+        source = Path(sys.modules["workflow_doc_graph_refs"].__file__)
+        stat = source.stat()
+        os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+        self.addCleanup(os.utime, source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+        build._builder_digest.cache_clear()
+
+        self.assertEqual(before, build._builder_digest())
 
     def test_a_project_with_no_run_state_stores_nothing(self) -> None:
         """`.tao` carries the ignore file; creating one here could be committed."""

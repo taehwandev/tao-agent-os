@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
@@ -69,12 +70,20 @@ def _document_key(root: Path, docs: set[str]) -> str:
     """
 
     digest = hashlib.sha256()
+    digest.update(_builder_digest().encode("ascii"))
     for rel in [*sorted(docs), RULES_FILE]:
+        path = root / rel
         try:
-            stat = (root / rel).lstat()
+            # Follow the link: the build reads through it, so the key must
+            # measure what the build reads. Two tracked documents in this
+            # repository are symlinks into a pruned directory, whose targets
+            # a walk never visits -- with `lstat` here, editing one of those
+            # targets changed the graph and not the key.
+            stat = path.stat()
         except FileNotFoundError:
-            # A project may have no surface rules, and having none is itself a
-            # state the graph depends on.
+            # A project may have no surface rules, and a document may be a
+            # broken link the build skips. Both are states the graph depends
+            # on, and neither is a reason to stop caching.
             digest.update(rel.encode("utf-8", "surrogateescape"))
             digest.update(b"\0absent\0")
             continue
@@ -82,6 +91,45 @@ def _document_key(root: Path, docs: set[str]) -> str:
             return ""
         digest.update(rel.encode("utf-8", "surrogateescape"))
         digest.update(f"\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode("ascii"))
+        if path.is_symlink():
+            # Where it points is part of the input too, in case a retarget
+            # lands on a file with the same size and time.
+            digest.update(b"\0link\0")
+            digest.update(os.readlink(path).encode("utf-8", "surrogateescape"))
+    return digest.hexdigest()
+
+
+# The modules whose code decides what edges exist. A graph built by an older
+# one must not be served after they change, and a version constant is a thing
+# to forget: their own source is the version. A new builder module belongs in
+# this list.
+BUILDER_MODULES = (
+    "workflow_doc_graph_build",
+    "workflow_doc_graph_refs",
+    "workflow_doc_surface_rules",
+    "workflow_doc_surfaces",
+    "workflow_skill_paths",
+)
+
+
+@lru_cache(maxsize=1)
+def _builder_digest() -> str:
+    """Digest the code that produces the graph, so a change to it invalidates.
+
+    Content rather than modification time: a checkout that rewrites these
+    files without changing them should not throw the cache away.
+    """
+
+    digest = hashlib.sha256()
+    for name in BUILDER_MODULES:
+        module = sys.modules.get(name)
+        source = getattr(module, "__file__", None)
+        if not source:
+            return "unversioned"
+        try:
+            digest.update(Path(source).read_bytes())
+        except OSError:
+            return "unversioned"
     return digest.hexdigest()
 
 
