@@ -30,6 +30,7 @@ from agent_hook_continuation import (
     gate_checkpoint_name,
     record_lifecycle_checkpoint,
     start_objective,
+    work_checkpoint_advice,
 )
 from agent_hook_checkpoint import add_checkpoint_arguments, checkpoint_hook
 from agent_hook_gate_records import (
@@ -217,6 +218,7 @@ def start_hook(args: argparse.Namespace) -> int:
                         args, "initial", work={"objective": start_objective(args)}
                     )
                 )
+                details.extend(work_checkpoint_advice(args))
     finally:
         if not committed:
             restore_errors = _restore_preflight_refresh_state(refresh_snapshot)

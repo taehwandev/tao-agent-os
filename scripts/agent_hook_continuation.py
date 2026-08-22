@@ -42,6 +42,31 @@ UNBINDABLE_RUN_DIRECTORY = (
 
 
 
+WORK_CHECKPOINT_ADVICE = (
+    "continuation work state: the initial packet holds only the route name. "
+    "`tao-hook checkpoint --work-stdin` is what puts the objective, non-goals, "
+    "decisions, changed scope, inspected scope, verification, remaining work "
+    "and blockers into it -- the fields a resumed session is handed. Record "
+    "one after "
+    "reading the required docs and scoping the task, and refresh it at each "
+    "material decision; without it a resume recovers the route and the drift "
+    "state but nothing about the work."
+)
+
+
+def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
+    """Say how the packet gets work state, where the packet exists to hold it.
+
+    The `checkpoint` hook is named only inside the session-continuation
+    reference, which a work route does not require, and no hook output
+    mentioned it. A lifecycle followed faithfully therefore produced packets
+    whose objective was the route enum and whose every other field was empty:
+    bound correctly, and useless to resume.
+    """
+
+    return [WORK_CHECKPOINT_ADVICE] if run_binding_path(args) is not None else []
+
+
 def unbindable_run_directory_error(args: argparse.Namespace) -> str:
     """Refuse a run directory that cannot hold a packet, while it can be changed.
 
