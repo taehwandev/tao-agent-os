@@ -42,16 +42,50 @@ UNBINDABLE_RUN_DIRECTORY = (
 
 
 
-WORK_CHECKPOINT_ADVICE = (
+WORK_CHECKPOINT_LEAD = (
     "continuation work state: the initial packet holds only the route name. "
-    "`tao-hook checkpoint --work-stdin` is what puts the objective, non-goals, "
-    "decisions, changed scope, inspected scope, verification, remaining work "
-    "and blockers into it -- the fields a resumed session is handed. Record "
-    "one after "
-    "reading the required docs and scoping the task, and refresh it at each "
-    "material decision; without it a resume recovers the route and the drift "
-    "state but nothing about the work."
+    "`tao-hook checkpoint --work-stdin` reads one work object on stdin and is "
+    "what fills it -- without it a resume recovers the route and the drift "
+    "state but nothing about the work, and the reuse summary it is handed "
+    "reports no accepted decision and no successful verification to skip."
 )
+WORK_CHECKPOINT_CLOSING = (
+    "  every key of an object must be present, null when unknown; record one "
+    "after reading the required docs and scoping the task, and refresh it at "
+    "each material decision"
+)
+
+
+def _work_shape_line() -> str:
+    """Spell the work object out of the schema, so the two cannot drift.
+
+    Naming the fields was not enough to record one: the first attempt failed
+    on object shape, and the shapes are enums and closed key sets that live in
+    the packet validator. Reading them from there means a new role or
+    verification kind reaches this advice without anyone remembering to.
+    """
+
+    from agent_continuation_packet import (
+        DECISION_STATUSES,
+        SCOPE_ROLES,
+        VERIFICATION_KINDS,
+        VERIFICATION_RESULTS,
+    )
+
+    return (
+        "  work shape -- objective, non_goals, blockers: text; "
+        "decisions: {id, status: "
+        + "|".join(DECISION_STATUSES)
+        + ", text}; changed_scope, inspected_scope: {path, role: "
+        + "|".join(SCOPE_ROLES)
+        + "} (a renamed entry carries {from, to, role} instead); "
+        "verification: {id, kind: "
+        + "|".join(VERIFICATION_KINDS)
+        + ", result: "
+        + "|".join(VERIFICATION_RESULTS)
+        + ", evidence_sha256, completed_at}; "
+        "remaining_work: {checkpoint, action}"
+    )
 
 
 def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
@@ -64,7 +98,9 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
     bound correctly, and useless to resume.
     """
 
-    return [WORK_CHECKPOINT_ADVICE] if run_binding_path(args) is not None else []
+    if run_binding_path(args) is None:
+        return []
+    return [WORK_CHECKPOINT_LEAD, _work_shape_line(), WORK_CHECKPOINT_CLOSING]
 
 
 def unbindable_run_directory_error(args: argparse.Namespace) -> str:

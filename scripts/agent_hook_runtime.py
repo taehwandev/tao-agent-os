@@ -24,7 +24,7 @@ from workflow_common import (
     REPAIR_STOP_CONDITION,
     RESUME_SCOPE,
 )
-from support.stage_timing import append_recorded_stages, recorded_stages
+from support.stage_timing import recorded_stages
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 REVIEW_CHANGED_PATH_LIMIT = 25
@@ -132,14 +132,13 @@ def finish_with_result(
         "details": details,
         # Stage names and durations only, for the callers that ask for this
         # record. Most do not: `output` is optional, and the lifecycle's own
-        # review and finish invocations omit it, which is why the durations
-        # are also appended to a run-local file below.
+        # review and finish invocations omit it, which is why the hook entry
+        # also appends them to a run-local file once per invocation.
         **({"timings": recorded_stages()} if recorded_stages() else {}),
         **payload,
     }
     if output:
         write_json(output, evidence)
-    append_recorded_stages(name, evidence["status"])
     print_status(name, success, details)
     return 0 if success else 1
 

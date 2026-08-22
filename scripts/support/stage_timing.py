@@ -50,6 +50,12 @@ def set_timing_sink(path: "Path | None") -> None:
 
     The sink is a run-local file, so the numbers sit beside the evidence
     they describe and inherit its Git-ignored boundary.
+
+    Only the hook CLI may name one, and only for itself. Naming it from the
+    function that resolves an evidence path made every caller a recorder,
+    including a test process resolving paths against the real repository:
+    live runs collected 22-27 second records for hooks nobody invoked, and
+    the numbers were read as a performance finding.
     """
 
     global _SINK

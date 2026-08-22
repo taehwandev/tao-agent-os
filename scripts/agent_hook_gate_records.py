@@ -30,27 +30,21 @@ from agent_finish_documentation import required_doc_target_failures
 from agent_hook_runtime import finish_with_result
 from agent_skill_catalog import canonical_skill_ids
 from agent_runtime_session import resolve_runtime_evidence, runtime_session
-from support.stage_timing import set_timing_sink
 
 
 HOOK_OWNED_GATES = frozenset({"review hook"})
 
 
 def preflight_evidence_path(args: argparse.Namespace) -> Path:
-    """Resolve this hook's evidence path, and point stage timings beside it.
+    """Resolve the evidence path this hook reads and writes.
 
-    Naming the timing sink here rather than in `main` is deliberate: this is
-    the only function that knows which run directory a hook works in, and
-    every caller reaches it after the worker evidence boundary has had its
-    say, so a worker's durations land in the worker's run.
+    This function does not name the timing sink, though it knows the run
+    directory. Anything that resolves an evidence path would then be naming
+    one, and the test suite resolves plenty against this very repository: it
+    wrote its own process lifetime into live runs as 22-27 second hooks that
+    were never invoked. The hook CLI names the sink once, for itself.
     """
 
-    path = _resolve_preflight_evidence_path(args)
-    set_timing_sink(path.parent / "timings.jsonl")
-    return path
-
-
-def _resolve_preflight_evidence_path(args: argparse.Namespace) -> Path:
     if args.evidence:
         return args.evidence
     session = runtime_session()

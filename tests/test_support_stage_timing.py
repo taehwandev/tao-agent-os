@@ -211,14 +211,14 @@ class TimingsSurviveAHookWithNoResultFileTests(unittest.TestCase):
             if line
         ]
 
-    def test_a_hook_asked_for_no_output_still_leaves_its_numbers(self) -> None:
+    def test_an_invocation_leaves_its_numbers_where_the_run_is(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             sink = Path(directory) / "runs" / "one" / "timings.jsonl"
             set_timing_sink(sink)
             with stage("vibeguard"):
                 time.sleep(0.01)
 
-            finish_with_result("review", True, ["detail"], None, {}, 0)
+            append_recorded_stages("review", "SUCCESS")
 
             record = self._lines(sink)[0]
 
@@ -235,11 +235,29 @@ class TimingsSurviveAHookWithNoResultFileTests(unittest.TestCase):
             with stage("preflight"):
                 pass
 
-            finish_with_result("finish", False, ["refused"], None, {}, 0)
+            append_recorded_stages("finish", "FAIL")
 
             record = self._lines(sink)[0]
 
         self.assertEqual("FAIL", record["status"])
+
+    def test_the_shared_result_writer_records_nothing_by_itself(self) -> None:
+        """Any direct caller of a hook function reaches that writer.
+
+        A test process that had already resolved a live run kept appending
+        through it, which is how run directories collected records for hooks
+        nobody invoked.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            sink = Path(directory) / "timings.jsonl"
+            set_timing_sink(sink)
+            with stage("preflight"):
+                pass
+
+            finish_with_result("review", True, ["detail"], None, {}, 0)
+
+            self.assertFalse(sink.exists())
 
     def test_every_hook_in_one_run_is_kept_not_overwritten(self) -> None:
         """A run is a lifecycle; one hook's numbers do not answer the question."""
@@ -285,7 +303,7 @@ class TimingsSurviveAHookWithNoResultFileTests(unittest.TestCase):
         self.assertEqual(["hook_total"], list(record["timings"]))
         self.assertGreater(record["timings"]["hook_total"], 0)
 
-    def test_an_unwritable_sink_does_not_fail_the_hook(self) -> None:
+    def test_an_unwritable_sink_does_not_raise(self) -> None:
         """Measurement must never be the reason a lifecycle hook refuses."""
 
         with tempfile.TemporaryDirectory() as directory:
@@ -295,9 +313,7 @@ class TimingsSurviveAHookWithNoResultFileTests(unittest.TestCase):
             with stage("preflight"):
                 pass
 
-            self.assertEqual(
-                0, finish_with_result("review", True, ["detail"], None, {}, 0)
-            )
+            self.assertIsNone(append_recorded_stages("review", "SUCCESS"))
 
     def test_the_line_carries_names_and_numbers_and_nothing_else(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -315,33 +331,72 @@ class TimingsSurviveAHookWithNoResultFileTests(unittest.TestCase):
         self.assertTrue(all(isinstance(value, int) for value in record["timings"].values()))
 
 
-class TheRunDirectoryNamesTheSinkTests(unittest.TestCase):
-    """Durations belong beside the evidence they describe.
+class OnlyTheHookProcessNamesTheSinkTests(unittest.TestCase):
+    """Naming the sink from a path resolver made every caller a recorder.
 
-    The resolver is the only place that knows which run a hook works in --
-    including a worker, whose evidence path is redirected before any hook body
-    runs -- so it is the place that names the sink.
+    The resolver knows the run directory, which is why it was the tempting
+    place. But anything that resolves an evidence path would then be naming a
+    sink, and the test suite resolves plenty of them against this repository
+    with no hook running: live runs collected 22-27 second records for hooks
+    that were never invoked, which is the process lifetime of the test run.
+    Those numbers were then read as a performance finding.
     """
 
     def setUp(self) -> None:
         reset_stages()
         self.addCleanup(reset_stages)
 
-    def test_resolving_the_evidence_path_points_the_timings_at_that_run(self) -> None:
+    def _args(self, project: Path, hook: str = "review"):
         import types
 
+        return types.SimpleNamespace(
+            project=project,
+            evidence=project / ".tao" / "runs" / RUN_ID / "preflight.json",
+            hook=hook,
+        )
+
+    def test_resolving_an_evidence_path_names_nothing(self) -> None:
         from agent_hook_gate_records import preflight_evidence_path
 
         with tempfile.TemporaryDirectory() as directory:
-            evidence = Path(directory) / "runs" / "chosen" / "preflight.json"
-            args = types.SimpleNamespace(
-                evidence=evidence, project=Path(directory), hook="review"
-            )
+            args = self._args(Path(directory))
 
             resolved = preflight_evidence_path(args)
 
-        self.assertEqual(evidence, resolved)
-        self.assertEqual(evidence.parent / "timings.jsonl", timing_sink())
+        self.assertEqual(args.evidence, resolved)
+        self.assertIsNone(timing_sink())
+
+    def test_the_hook_entry_points_the_timings_at_that_run(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "agent_hook_for_timing_sink", ROOT / "scripts" / "agent-hook.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as directory:
+            args = self._args(Path(directory))
+
+            module._name_timing_sink(args)
+
+            self.assertEqual(args.evidence.parent / "timings.jsonl", timing_sink())
+
+    def test_a_listing_hook_adopts_no_run(self) -> None:
+        """`resume` promises to leave the registry byte-identical."""
+
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "agent_hook_for_timing_sink_resume", ROOT / "scripts" / "agent-hook.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as directory:
+            module._name_timing_sink(self._args(Path(directory), hook="resume"))
+
+        self.assertIsNone(timing_sink())
 
 
 class TheHooksLeaveTheirNumbersInTheRunTests(unittest.TestCase):
