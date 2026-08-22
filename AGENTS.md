@@ -574,7 +574,13 @@ hook command does not point at a stale checkout path.
 
 Omit `--evidence` unless a run genuinely needs a path of its own: start then
 mints `<TARGET_REPO>/.tao/runs/<32-hex-run-id>/preflight.json`, and only a run
-directory named by that opaque id can hold a continuation packet. Naming the
+directory named by that opaque id can hold a continuation packet. That packet
+starts out holding the route name and nothing else; `tao-hook checkpoint
+--work-stdin` is what puts the objective, non-goals, decisions, changed and
+inspected scope, verification, remaining work and blockers into it, which are
+the fields a resumed session is handed. Record one after reading the required
+docs and scoping the task, and refresh it at each material decision -- without
+it a resume recovers the route and the drift state but nothing about the work. Naming the
 directory yourself with anything else -- a date, a branch, a description --
 costs the run every checkpoint and makes `tao-hook resume` unable to continue
 it, so start refuses that name rather than losing the packets quietly.

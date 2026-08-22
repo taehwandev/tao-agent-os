@@ -585,6 +585,12 @@ tao-hook cancel --evidence <SOURCE_PREFLIGHT> \
 The installed stable launcher may expose these as aliases, but all call the
 same common implementation. A runtime adapter does not parse the filesystem.
 
+The `start` hook now says this in its own output whenever the run has a
+reachable packet. It had to: this command was named only here, in a reference a
+work route does not require, so a lifecycle followed faithfully produced packets
+whose `objective` was the route enum and whose every other field was empty --
+bound correctly, and useless to resume.
+
 `--work-stdin` accepts one partial closed `work` object on stdin. It never
 accepts work prose as command-line arguments, so semantic state does not move
 into shell history or process listings. Unknown fields, including `prompt`,

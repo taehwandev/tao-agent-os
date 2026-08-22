@@ -809,5 +809,101 @@ class UnbindableRunDirectoryTests(unittest.TestCase):
         self.assertIn("resume this run", wiring.SKIPPED_DETAIL)
 
 
+
+class WorkCheckpointAdviceTests(unittest.TestCase):
+    """A packet that binds correctly can still be useless to resume.
+
+    `resume --last` hands back the packet's whole `work` object, and the
+    listing renders its objective. A lifecycle that never records one leaves
+    `objective` as the route enum and every other field empty -- which is what
+    happened, because the `checkpoint` hook is named only inside the session
+    continuation reference that a work route does not require, and no hook
+    output mentioned it.
+    """
+
+    def _args(self, project: Path, evidence: Path) -> Namespace:
+        return Namespace(project=project, evidence=evidence)
+
+    def test_a_run_with_a_packet_is_told_how_to_fill_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
+
+            advice = wiring.work_checkpoint_advice(self._args(project, evidence))
+
+        self.assertEqual(1, len(advice))
+        self.assertIn("checkpoint --work-stdin", advice[0])
+
+    def test_the_advice_names_the_fields_a_resume_is_handed(self) -> None:
+        """Naming the hook without naming what it carries is not actionable."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
+
+            advice = wiring.work_checkpoint_advice(self._args(project, evidence))[0]
+
+        from agent_continuation_packet import WORK_FIELDS
+
+        missing = [
+            field
+            for field in WORK_FIELDS
+            if not any(
+                spelling in advice
+                for spelling in (field, field.replace("_", " "), field.replace("_", "-"))
+            )
+        ]
+        self.assertEqual([], missing, advice)
+
+    def test_a_real_start_prints_the_advice_itself(self) -> None:
+        """A constant no hook emits is a comment, not an advertisement."""
+
+        import os
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as state:
+            project = Path(directory) / "proj"
+            project.mkdir()
+            subprocess.run(["git", "init", "-q", "."], cwd=project, check=True)
+            (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
+            # The initial packet is written only after the execution state is
+            # captured, and that needs a HEAD to read.
+            for command in (
+                ["git", "config", "user.email", "probe@example.invalid"],
+                ["git", "config", "user.name", "probe"],
+                ["git", "add", "AGENTS.md"],
+                ["git", "commit", "-q", "-m", "probe", "--no-verify"],
+            ):
+                subprocess.run(command, cwd=project, check=True)
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(SCRIPTS / "agent-hook.py"), "start",
+                    "--project", str(project), "--rules", str(ROOT),
+                    "--command", "triage", "--request", "probe the packet advice",
+                    "--read-only", "--evidence", str(evidence),
+                ],
+                cwd=project, capture_output=True, text=True,
+                env={**os.environ, "TAO_STATE_HOME": state},
+            )
+
+        self.assertIn("checkpoint --work-stdin", result.stdout, result.stdout)
+
+    def test_a_run_without_a_packet_is_told_nothing(self) -> None:
+        """Advice about a packet that cannot exist is noise on every start."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+
+            self.assertEqual(
+                [],
+                wiring.work_checkpoint_advice(
+                    self._args(project, project / ".tao" / "preflight.json")
+                ),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
