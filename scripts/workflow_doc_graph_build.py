@@ -52,21 +52,32 @@ def _graph_for(root: Path, docs: set[str]) -> dict[str, list[dict[str, object]]]
 
 
 def _document_key(root: Path, docs: set[str]) -> str:
-    """Digest the documents the graph is built from, and nothing else.
+    """Digest every input the graph is built from, and nothing else.
 
-    Keyed on the guidance documents rather than on the worktree, because a
-    worktree signature changes with every source edit -- and between a start
-    and the review that follows it, an agent has edited source. A key that
-    tracks the inputs is a key that can hit.
+    Keyed on the inputs rather than on the worktree, because a worktree
+    signature changes with every source edit -- and between a start and the
+    review that follows it, an agent has edited source. A key that tracks the
+    inputs is a key that can hit.
+
+    The inputs are the guidance documents *and* the surface rules file, which
+    contributes the `doc_set`, request-intent and path-surface edges. Leaving
+    it out was a stale hit: changing only the rules file changed the graph and
+    not the key.
 
     Size and modification time rather than content: reading the 2 MB the build
     reads is the cost the cache exists to avoid.
     """
 
     digest = hashlib.sha256()
-    for rel in sorted(docs):
+    for rel in [*sorted(docs), RULES_FILE]:
         try:
             stat = (root / rel).lstat()
+        except FileNotFoundError:
+            # A project may have no surface rules, and having none is itself a
+            # state the graph depends on.
+            digest.update(rel.encode("utf-8", "surrogateescape"))
+            digest.update(b"\0absent\0")
+            continue
         except OSError:
             return ""
         digest.update(rel.encode("utf-8", "surrogateescape"))

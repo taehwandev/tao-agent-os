@@ -106,6 +106,57 @@ class DocGraphCacheTests(unittest.TestCase):
 
         self.assertIn("third.md", rebuilt)
 
+
+    def test_a_changed_surface_rule_is_rebuilt(self) -> None:
+        """The graph is built from the rules file too, not only the documents.
+
+        `doc_set`, request-intent and path-surface rules all add edges. Keying
+        on the documents alone served a stale graph: the rules changed, the
+        graph changed, and the key did not.
+        """
+
+        from workflow_doc_surfaces import RULES_FILE
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            (project / "alpha.md").write_text("# alpha\n", encoding="utf-8")
+            (project / "omega.md").write_text("# omega\n", encoding="utf-8")
+            rules = project / RULES_FILE
+            rules.write_text(
+                json.dumps({"schema_version": 1, "doc_sets": {}}), encoding="utf-8"
+            )
+            before = build.build_doc_graph(project)
+            build.clear_doc_graph_cache()
+
+            rules.write_text(
+                json.dumps(
+                    {"schema_version": 1, "doc_sets": {"pair": ["alpha.md", "omega.md"]}}
+                ),
+                encoding="utf-8",
+            )
+            after = build.build_doc_graph(project)
+
+        # The pair rule adds an edge in each direction, on top of whatever the
+        # fixture's own document links contribute.
+        self.assertEqual(
+            sum(len(edges) for edges in before.values()) + 2,
+            sum(len(edges) for edges in after.values()),
+        )
+        self.assertEqual({"omega.md"}, {edge["target"] for edge in after["alpha.md"]})
+
+    def test_a_project_with_no_surface_rules_still_caches(self) -> None:
+        """Having none is a state, not a reason to stop caching."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+
+            first = build.build_doc_graph(project)
+            build.clear_doc_graph_cache()
+            with patch.object(build, "_graph_for", side_effect=AssertionError("rebuilt")):
+                second = build.build_doc_graph(project)
+
+        self.assertEqual(first, second)
+
     def test_a_project_with_no_run_state_stores_nothing(self) -> None:
         """`.tao` carries the ignore file; creating one here could be committed."""
 
