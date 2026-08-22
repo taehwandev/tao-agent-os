@@ -25,6 +25,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import workflow_doc_graph_build as build
+import workflow_doc_graph_cache as cache
 
 
 class DocGraphCacheTests(unittest.TestCase):
@@ -207,11 +208,11 @@ class DocGraphCacheTests(unittest.TestCase):
 
             link = project / "link.md"
             link.symlink_to("alpha.md")
-            first = build._document_key(project, build._markdown_docs(project))
+            first = cache.document_key(project, build._markdown_docs(project))
 
             link.unlink()
             link.symlink_to("omega.md")
-            second = build._document_key(project, build._markdown_docs(project))
+            second = cache.document_key(project, build._markdown_docs(project))
 
         self.assertNotEqual(first, second)
 
@@ -240,8 +241,8 @@ class DocGraphCacheTests(unittest.TestCase):
             project = self._project(directory)
             (project / "link.md").symlink_to("AGENTS.md")
 
-            with patch.object(build.os, "readlink", side_effect=OSError("vanished")):
-                key = build._document_key(project, build._markdown_docs(project))
+            with patch.object(cache.os, "readlink", side_effect=OSError("vanished")):
+                key = cache.document_key(project, build._markdown_docs(project))
                 build.clear_doc_graph_cache()
                 graph = build.build_doc_graph(project)
 
@@ -263,29 +264,97 @@ class DocGraphCacheTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             project = self._project(directory)
             docs = build._markdown_docs(project)
-            first = build._document_key(project, docs)
+            first = cache.document_key(project, docs)
 
-            with patch.object(build, "_builder_digest", return_value="a-later-builder"):
-                second = build._document_key(project, docs)
+            with patch.object(cache, "_builder_digest", return_value="a-later-builder"):
+                second = cache.document_key(project, docs)
 
         self.assertNotEqual(first, second)
 
+    def _module_copy(self, directory: str) -> Path:
+        """A directory shaped like `scripts/`, so no tracked file is touched."""
+
+        import shutil
+
+        root = Path(directory)
+        for name in cache._builder_modules():
+            source = SCRIPTS / (name.replace(".", "/") + ".py")
+            target = root / (name.replace(".", "/") + ".py")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        return root
+
     def test_the_builder_version_is_its_source_not_its_timestamp(self) -> None:
-        """A checkout that rewrites the builder unchanged must still hit."""
+        """A checkout that rewrites the builder unchanged must still hit.
+
+        Run against a copy of the module tree: a test that rewrites the mtime
+        of a tracked source leaves the checkout dirtier than it found it, and
+        this one only needs a directory shaped like `scripts/`.
+        """
 
         import os
 
-        build._builder_digest.cache_clear()
-        self.addCleanup(build._builder_digest.cache_clear)
-        before = build._builder_digest()
-        source = Path(sys.modules["workflow_doc_graph_refs"].__file__)
-        stat = source.stat()
-        os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
-        self.addCleanup(os.utime, source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        self.addCleanup(cache._builder_digest.cache_clear)
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._module_copy(directory)
+            touched = root / "workflow_doc_graph_refs.py"
 
-        build._builder_digest.cache_clear()
+            with patch.object(cache, "SCRIPTS_ROOT", root):
+                cache._builder_digest.cache_clear()
+                before = cache._builder_digest()
 
-        self.assertEqual(before, build._builder_digest())
+                stat = touched.stat()
+                os.utime(touched, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+                cache._builder_digest.cache_clear()
+                after = cache._builder_digest()
+
+                touched.write_text(
+                    touched.read_text(encoding="utf-8") + "\n# changed\n",
+                    encoding="utf-8",
+                )
+                cache._builder_digest.cache_clear()
+                changed = cache._builder_digest()
+
+        self.assertEqual(before, after)
+        self.assertNotEqual(before, changed)
+
+    def test_every_module_the_builder_imports_is_versioned(self) -> None:
+        """The list is read, not written; a written one drifted past four of nine.
+
+        Asserted against the modules that actually matter rather than against
+        the same walk, so restating the algorithm here could not make this
+        pass.
+        """
+
+        modules = cache._builder_modules()
+
+        for name in (
+            "workflow_doc_graph_build",
+            "workflow_doc_graph_refs",
+            "workflow_doc_surface_rules",
+            "workflow_doc_surfaces",
+            "workflow_skill_paths",
+            "workflow_common",
+            "support.project_tree",
+            "support.bounded_git",
+        ):
+            with self.subTest(module=name):
+                self.assertIn(name, modules)
+
+    def test_a_new_import_in_a_builder_module_is_versioned(self) -> None:
+        """Nobody has to remember: the import itself is what adds it."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._module_copy(directory)
+            (root / "brand_new_helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+            refs = root / "workflow_doc_graph_refs.py"
+            refs.write_text(
+                "from brand_new_helper import VALUE\n" + refs.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            with patch.object(cache, "SCRIPTS_ROOT", root):
+                self.assertIn("brand_new_helper", cache._builder_modules())
 
     def test_a_project_with_no_run_state_stores_nothing(self) -> None:
         """`.tao` carries the ignore file; creating one here could be committed."""
@@ -322,14 +391,14 @@ class DocGraphCacheTests(unittest.TestCase):
     def test_the_cache_does_not_grow_without_bound(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = self._project(directory)
-            for generation in range(build.CACHE_GENERATIONS + 3):
+            for generation in range(cache.CACHE_GENERATIONS + 3):
                 (project / "other.md").write_text(f"# {generation}\n", encoding="utf-8")
                 build.clear_doc_graph_cache()
                 build.build_doc_graph(project)
 
             kept = list(self._cache(project).glob("*.json"))
 
-        self.assertEqual(build.CACHE_GENERATIONS, len(kept))
+        self.assertEqual(cache.CACHE_GENERATIONS, len(kept))
 
     def test_no_temporary_file_is_left_behind(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
