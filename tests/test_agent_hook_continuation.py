@@ -831,7 +831,11 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
 
             advice = wiring.work_checkpoint_advice(self._args(project, evidence))
 
-        self.assertIn("checkpoint --work-stdin", "\n".join(advice))
+        printed = "\n".join(advice)
+
+        self.assertIn("tao-hook checkpoint", printed)
+        self.assertIn("--work-stdin", printed)
+        self.assertIn("--checkpoint-kind", printed)
 
     def test_the_advice_names_the_fields_a_resume_is_handed(self) -> None:
         """Naming the hook without naming what it carries is not actionable."""
@@ -936,7 +940,143 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
                 env={**os.environ, "TAO_STATE_HOME": state},
             )
 
-        self.assertIn("checkpoint --work-stdin", result.stdout, result.stdout)
+        self.assertIn("tao-hook checkpoint", result.stdout, result.stdout)
+        self.assertIn("--checkpoint-kind", result.stdout, result.stdout)
+
+
+
+    def test_every_array_field_is_shown_with_its_cap(self) -> None:
+        """`non_goals: text` is what made the second attempt fail.
+
+        Every field but the objective is an array, and each has a maximum
+        entry count. Both are read from the validator, so a printed number is
+        the enforced number.
+        """
+
+        from agent_continuation_packet import WORK_ITEM_LIMITS
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            advice = "\n".join(
+                wiring.work_checkpoint_advice(
+                    self._args(project, project / ".tao" / "runs" / RUN_ID / "preflight.json")
+                )
+            )
+
+        self.assertIn("array", advice)
+        for field, limit in WORK_ITEM_LIMITS.items():
+            with self.subTest(field=field):
+                self.assertIn(f"{field}[{limit}]", advice)
+        self.assertNotIn("objective[", advice)
+
+    def test_the_printed_cap_is_the_cap_that_refuses(self) -> None:
+        """A number in prose is decoration unless it is the enforced one."""
+
+        from agent_continuation_packet import WORK_ITEM_LIMITS, _work
+
+        limit = WORK_ITEM_LIMITS["non_goals"]
+        empty = {
+            "objective": "o", "non_goals": [], "decisions": [], "changed_scope": [],
+            "inspected_scope": [], "verification": [], "remaining_work": [],
+            "blockers": [],
+        }
+
+        allowed: list = []
+        _work({**empty, "non_goals": ["x"] * limit}, allowed)
+        refused: list = []
+        _work({**empty, "non_goals": ["x"] * (limit + 1)}, refused)
+
+        self.assertEqual([], allowed)
+        self.assertTrue(refused)
+
+    def test_the_advertised_command_records_a_checkpoint_as_printed(self) -> None:
+        """Run what the hook prints, exactly as it prints it.
+
+        Checking that the text names the fields proved nothing about whether
+        it works: the first attempt at following it failed on a missing
+        required flag, the second on `non_goals` being an array rather than a
+        line. This test takes the command out of a real start's own output,
+        substitutes only the paths, and runs it.
+        """
+
+        import os
+        import subprocess
+
+        def git(project: Path, *arguments: str) -> None:
+            subprocess.run(["git", *arguments], cwd=project, check=True,
+                           capture_output=True)
+
+        work = {
+            "objective": "prove the printed command runs",
+            "non_goals": ["changing the packet schema"],
+            "decisions": [
+                {"id": "follow_the_advice", "status": "accepted",
+                 "text": "the advice is the only instruction used here"}
+            ],
+            "changed_scope": [{"path": "scripts/agent_hook_continuation.py",
+                               "role": "modified"}],
+            "inspected_scope": [{"path": "scripts/agent_continuation_packet.py",
+                                 "role": "inspected"}],
+            "verification": [{"id": "e2e", "kind": "unit", "result": "success",
+                              "evidence_sha256": None, "completed_at": None}],
+            "remaining_work": [{"checkpoint": "review hook", "action": "review"}],
+            "blockers": [],
+        }
+
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as state:
+            project = Path(directory) / "proj"
+            project.mkdir()
+            git(project, "init", "-q", ".")
+            git(project, "config", "user.email", "probe@example.invalid")
+            git(project, "config", "user.name", "probe")
+            (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
+            git(project, "add", "AGENTS.md")
+            git(project, "commit", "-q", "-m", "first", "--no-verify")
+            environment = {**os.environ, "TAO_STATE_HOME": state}
+
+            started = subprocess.run(
+                [
+                    sys.executable, str(SCRIPTS / "agent-hook.py"), "start",
+                    "--project", str(project), "--rules", str(ROOT),
+                    "--command", "triage", "--request", "run the printed command",
+                    "--read-only", "--runtime-session-id", "printed-command-probe",
+                ],
+                cwd=project, capture_output=True, text=True, env=environment,
+            )
+            printed = next(
+                line for line in started.stdout.splitlines()
+                if "tao-hook checkpoint" in line
+            )
+            evidence = next((project / ".tao" / "runs").glob("*/preflight.json"))
+
+            # Only the paths are substituted; every flag is the hook's own.
+            argv: list[str] = []
+            for token in printed.split():
+                if token in ("-", "tao-hook"):
+                    continue
+                if token == "<project>":
+                    token = str(project)
+                elif token == "<rules>":
+                    token = str(ROOT)
+                elif token == "<this-run>/preflight.json":
+                    token = str(evidence)
+                elif token in ("<", "work.json"):
+                    continue  # the shell redirect; stdin is piped instead
+                argv.append(token)
+
+            recorded = subprocess.run(
+                [sys.executable, str(SCRIPTS / "agent-hook.py"), *argv],
+                cwd=project, input=json.dumps(work), capture_output=True,
+                text=True, env=environment,
+            )
+            packet = json.loads(
+                (evidence.parent / "continuation.json").read_text(encoding="utf-8")
+            )
+
+        self.assertIn("checkpoint", argv)
+        self.assertEqual(0, recorded.returncode, recorded.stdout + recorded.stderr)
+        self.assertEqual("prove the printed command runs", packet["work"]["objective"])
+        self.assertEqual(["changing the packet schema"], packet["work"]["non_goals"])
 
     def test_a_run_without_a_packet_is_told_nothing(self) -> None:
         """Advice about a packet that cannot exist is noise on every start."""

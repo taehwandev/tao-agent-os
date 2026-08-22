@@ -44,11 +44,15 @@ UNBINDABLE_RUN_DIRECTORY = (
 
 
 WORK_CHECKPOINT_LEAD = (
-    "continuation work state: the initial packet holds only the route name. "
-    "`tao-hook checkpoint --work-stdin` reads one work object on stdin and is "
-    "what fills it -- without it a resume recovers the route and the drift "
-    "state but nothing about the work, and the reuse summary it is handed "
-    "reports no accepted decision and no successful verification to skip."
+    "continuation work state: the initial packet holds only the route name, so "
+    "a resume recovers the route and the drift state but nothing about the "
+    "work, and the reuse summary reports no accepted decision and no "
+    "successful verification to skip. Fill it with:"
+)
+WORK_CHECKPOINT_COMMAND = (
+    "  tao-hook checkpoint --project <project> --rules <rules> "
+    "--evidence <this-run>/preflight.json --checkpoint-kind decision "
+    "--phase acting --work-stdin < work.json"
 )
 WORK_CHECKPOINT_CLOSING = (
     "  every key of an object must be present, null when unknown; record one "
@@ -57,13 +61,14 @@ WORK_CHECKPOINT_CLOSING = (
 )
 
 
-def _work_shape_line() -> str:
+def _work_shape_lines() -> list[str]:
     """Spell the work object out of the schema, so the two cannot drift.
 
-    Naming the fields was not enough to record one: the first attempt failed
-    on object shape, and the shapes are enums and closed key sets that live in
-    the packet validator. Reading them from there means a new role or
-    verification kind reaches this advice without anyone remembering to.
+    Naming the fields was not enough to record one, and neither was naming
+    their enums: the first attempt still failed on a missing required flag,
+    and the second on `non_goals` being a list rather than a line. Every part
+    of this -- which fields are lists, how many entries each takes, and what
+    an entry looks like -- is read from the validator that enforces it.
     """
 
     from agent_continuation_packet import (
@@ -71,22 +76,25 @@ def _work_shape_line() -> str:
         SCOPE_ROLES,
         VERIFICATION_KINDS,
         VERIFICATION_RESULTS,
+        WORK_ITEM_LIMITS,
     )
 
-    return (
-        "  work shape -- objective, non_goals, blockers: text; "
-        "decisions: {id, status: "
-        + "|".join(DECISION_STATUSES)
-        + ", text}; changed_scope, inspected_scope: {path, role: "
-        + "|".join(SCOPE_ROLES)
-        + "} (a renamed entry carries {from, to, role} instead); "
-        "verification: {id, kind: "
-        + "|".join(VERIFICATION_KINDS)
-        + ", result: "
-        + "|".join(VERIFICATION_RESULTS)
-        + ", evidence_sha256, completed_at}; "
-        "remaining_work: {checkpoint, action}"
-    )
+    def cap(field: str) -> str:
+        return f"{field}[{WORK_ITEM_LIMITS[field]}]"
+
+    return [
+        "  work shape -- objective: one text string. Every other field is an "
+        "array, with its maximum entry count in brackets:",
+        f"    {cap('non_goals')}, {cap('blockers')}: text strings",
+        f"    {cap('decisions')}: " + "{id, status: "
+        + "|".join(DECISION_STATUSES) + ", text}",
+        f"    {cap('changed_scope')}, {cap('inspected_scope')}: " + "{path, role: "
+        + "|".join(SCOPE_ROLES) + "}, or {from, to, role} when renamed",
+        f"    {cap('verification')}: " + "{id, kind: "
+        + "|".join(VERIFICATION_KINDS) + ", result: "
+        + "|".join(VERIFICATION_RESULTS) + ", evidence_sha256, completed_at}",
+        f"    {cap('remaining_work')}: " + "{checkpoint, action}",
+    ]
 
 
 def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
@@ -101,7 +109,12 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
 
     if run_binding_path(args) is None:
         return []
-    return [WORK_CHECKPOINT_LEAD, _work_shape_line(), WORK_CHECKPOINT_CLOSING]
+    return [
+        WORK_CHECKPOINT_LEAD,
+        WORK_CHECKPOINT_COMMAND,
+        *_work_shape_lines(),
+        WORK_CHECKPOINT_CLOSING,
+    ]
 
 
 def unbindable_run_directory_error(args: argparse.Namespace) -> str:
