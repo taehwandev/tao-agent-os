@@ -305,7 +305,17 @@ class CallerResultsAreUnchangedTests(unittest.TestCase):
     """
 
     def test_the_document_graph_keeps_exactly_the_documents_it_kept(self) -> None:
-        expected = {
+        """Pruning is still a filter computed once, now over two rules.
+
+        The second rule is new: generated output is not a guidance document.
+        Stating it here as a filter over `rglob` keeps this test what it was --
+        proof that walking less finds the same set as walking everything and
+        discarding -- rather than a restatement of the walk.
+        """
+
+        from support.project_tree import git_ignored
+
+        walked = {
             path.relative_to(ROOT).as_posix()
             for path in ROOT.rglob("*.md")
             if not (
@@ -313,7 +323,9 @@ class CallerResultsAreUnchangedTests(unittest.TestCase):
                 or "/.tao/" in path.relative_to(ROOT).as_posix()
             )
         }
+        expected = walked - git_ignored(ROOT, walked)
 
+        self.assertLess(len(expected), len(walked), "expected generated output to exist")
         self.assertEqual(expected, _markdown_docs(ROOT))
 
     def test_the_validator_keeps_exactly_the_files_it_kept(self) -> None:
@@ -333,6 +345,90 @@ class CallerResultsAreUnchangedTests(unittest.TestCase):
         self.assertIn("graphify", canonical_skill_ids(ROOT, ROOT))
         self.assertIn(".tao", PRUNED_DIRECTORIES)
         self.assertNotIn(".tao", PRUNED_RUN_STATE)
+
+
+
+class GitIgnoredTests(unittest.TestCase):
+    """Generated output is ignored by construction, so Git is the list.
+
+    The document graph walked 140 generated reports -- 6.09 MB of the 8.08 MB
+    it read, contributing 5 of 3105 edges -- while the wikimap search excluded
+    them by name. That name list had also drifted: it missed 47 of the 140,
+    every one of them under a directory it did not know about.
+    """
+
+    def _repo(self, directory: str) -> Path:
+        import subprocess
+
+        project = Path(directory)
+        subprocess.run(["git", "init", "-q", "."], cwd=project, check=True)
+        (project / ".gitignore").write_text("generated/\n", encoding="utf-8")
+        (project / "generated").mkdir()
+        (project / "generated" / "report.md").write_text("#\n", encoding="utf-8")
+        (project / "guide.md").write_text("#\n", encoding="utf-8")
+        return project
+
+    def test_ignored_paths_are_named_and_others_are_not(self) -> None:
+        from support.project_tree import git_ignored
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._repo(directory)
+
+            ignored = git_ignored(project, ["guide.md", "generated/report.md"])
+
+        self.assertEqual({"generated/report.md"}, ignored)
+
+    def test_a_checkout_without_git_keeps_everything(self) -> None:
+        """Losing documents to a missing tool is worse than reading extra ones."""
+
+        from support.project_tree import git_ignored
+
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(
+                set(), git_ignored(Path(directory), ["guide.md", "generated/report.md"])
+            )
+
+    def test_nothing_asked_runs_no_command(self) -> None:
+        from support.project_tree import git_ignored
+
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(set(), git_ignored(Path(directory), []))
+
+
+class GraphDocumentSelectionTests(unittest.TestCase):
+    """What the routing graph is allowed to be built from."""
+
+    def test_generated_output_is_not_a_document_the_graph_routes(self) -> None:
+        import subprocess
+
+        from workflow_doc_graph_build import _markdown_docs
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            subprocess.run(["git", "init", "-q", "."], cwd=project, check=True)
+            (project / ".gitignore").write_text("graphify-out/\n", encoding="utf-8")
+            (project / "graphify-out").mkdir()
+            (project / "graphify-out" / "GRAPH_REPORT.md").write_text("#\n", encoding="utf-8")
+            (project / "AGENTS.md").write_text("#\n", encoding="utf-8")
+            (project / "draft.md").write_text("#\n", encoding="utf-8")
+
+            docs = _markdown_docs(project)
+
+        self.assertEqual({"AGENTS.md", "draft.md"}, docs)
+
+    def test_an_uncommitted_document_still_routes(self) -> None:
+        """Ignored is the test, not untracked: a doc being written must route."""
+
+        import subprocess
+
+        from workflow_doc_graph_build import _markdown_docs
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            subprocess.run(["git", "init", "-q", "."], cwd=project, check=True)
+            (project / "brand-new-card.md").write_text("#\n", encoding="utf-8")
+
+            self.assertIn("brand-new-card.md", _markdown_docs(project))
 
 
 if __name__ == "__main__":
