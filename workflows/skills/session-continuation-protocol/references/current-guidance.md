@@ -601,6 +601,14 @@ work route does not require, so a lifecycle followed faithfully produced packets
 whose `objective` was the route enum and whose every other field was empty --
 bound correctly, and useless to resume.
 
+What it prints is the whole command, including `--checkpoint-kind`, and the
+work object's shape read from the validator: which fields are arrays, how many
+entries each takes, and what an entry looks like. Naming the fields was not
+enough, and neither was naming their enums -- following the earlier wording
+still failed twice, once on the missing required flag and once on `non_goals`
+being an array rather than a line. A test now takes the command out of a real
+start's output, substitutes only the paths, and runs it.
+
 `--work-stdin` accepts one partial closed `work` object on stdin. It never
 accepts work prose as command-line arguments, so semantic state does not move
 into shell history or process listings. Unknown fields, including `prompt`,
