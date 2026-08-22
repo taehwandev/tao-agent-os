@@ -475,7 +475,17 @@ would have shipped inert. A run started with evidence at
 name as its run id, which costs nothing because the name is already an opaque
 per-lifecycle token, and makes the packet reachable from the trust record it
 binds to. Any other evidence path keeps a minted id and simply has no packet;
-the lifecycle says so rather than failing. An id already present in the registry
+the lifecycle says so rather than failing.
+
+Saying so was not enough. 45 of 48 run directories in the reference checkout
+were named readably -- by date, by task -- so every one of those runs recorded
+no checkpoint and none of them could be resumed, while each hook reported the
+skip in a sentence that named the wrong cause. A caller who creates
+`.tao/runs/<name>/` has asked for a per-run directory, so `start` now refuses a
+name that is not a 32-hex run id and says how to get one. The refusal is
+narrowed to that shape: the default `.tao/preflight.json` and worker paths under
+`.tao/workers/` still have no packet by design, and later hooks never refuse, so
+a run already begun under an unbindable name can still review and finish. An id already present in the registry
 is never adopted a second time, since two records sharing one opaque id would
 make "the run" ambiguous for every later lookup.
 

@@ -27,10 +27,43 @@ from agent_hook_gate_records import preflight_evidence_path
 
 RUNS_DIR = "runs"
 SKIPPED_DETAIL = (
-    "continuation checkpoint: skipped; this run's evidence is not a "
-    ".tao/runs/<run-id>/preflight.json path, so no packet is reachable"
+    "continuation checkpoint: skipped; a packet binds to a run directory named "
+    "by an opaque 32-character hex run id, and this run's evidence is not in "
+    "one, so nothing can resume this run"
+)
+UNBINDABLE_RUN_DIRECTORY = (
+    "start --evidence names a run directory whose name is not an opaque "
+    "32-character hex run id. A continuation packet binds to that name, so this "
+    "run would record no checkpoint and `tao-hook resume` could never continue "
+    "it -- silently, for the whole lifecycle. Omit --evidence and start mints an "
+    "opaque run directory for you, or name one yourself with "
+    "`python3 -c \'import uuid; print(uuid.uuid4().hex)\'`."
 )
 
+
+
+def unbindable_run_directory_error(args: argparse.Namespace) -> str:
+    """Refuse a run directory that cannot hold a packet, while it can be changed.
+
+    A caller who creates `.tao/runs/<name>/` has asked for a per-run directory;
+    getting one that silently drops every checkpoint is not what was asked for.
+    The lifecycle deliberately does not fail for evidence kept anywhere else --
+    the default `.tao/preflight.json` and worker paths under `.tao/workers/`
+    have no packet by design -- so the refusal is narrowed to the one shape that
+    is a mistake rather than a choice.
+    """
+
+    evidence = getattr(args, "evidence", None)
+    if not evidence:
+        return ""
+    try:
+        directory = Path(evidence).expanduser().resolve().parent
+        runs_root = (args.project / ".tao" / RUNS_DIR).resolve()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return ""
+    if directory.parent != runs_root or RUN_ID_RE.match(directory.name):
+        return ""
+    return UNBINDABLE_RUN_DIRECTORY
 
 def run_binding_path(args: argparse.Namespace) -> Path | None:
     """Return the run-local trust record a packet may bind to, or nothing.

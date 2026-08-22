@@ -572,9 +572,16 @@ hook command does not point at a stale checkout path.
 <TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" [--approval-record "<JSON_OR_PATH>"] --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
 ```
 
+Omit `--evidence` unless a run genuinely needs a path of its own: start then
+mints `<TARGET_REPO>/.tao/runs/<32-hex-run-id>/preflight.json`, and only a run
+directory named by that opaque id can hold a continuation packet. Naming the
+directory yourself with anything else -- a date, a branch, a description --
+costs the run every checkpoint and makes `tao-hook resume` unable to continue
+it, so start refuses that name rather than losing the packets quietly.
+
 Keep `--output`, `--evidence`, and every custom evidence path inside
 `<TARGET_REPO>/.tao/`. For temporary worktrees, use a project-local path
-such as `<TARGET_REPO>/.tao/runs/<opaque-id>/preflight.json`; a sibling
+such as `<TARGET_REPO>/.tao/runs/<32-hex-run-id>/preflight.json`; a sibling
 temporary directory is outside the execution-capsule trust boundary and will
 make the finish check fail even when every route gate passed. The start hook
 rejects an explicit `--evidence` path outside the target project's

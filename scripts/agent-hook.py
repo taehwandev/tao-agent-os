@@ -26,6 +26,7 @@ from agent_finish_gate_validators import gate_wording_hints
 from agent_handoff_hook import handoff_hook
 from agent_hook_continuation import (
     checkpoint_after_hook,
+    unbindable_run_directory_error,
     gate_checkpoint_name,
     record_lifecycle_checkpoint,
     start_objective,
@@ -1146,7 +1147,9 @@ def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
                 "start --evidence must be under the current project's .tao "
                 "evidence root so later lifecycle hooks can validate the same capsule"
             )
-        return ""
+        # Only start is refused: a run already begun under an unbindable name
+        # must still be able to review and finish.
+        return unbindable_run_directory_error(args)
     try:
         payload = json.loads(args.evidence.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

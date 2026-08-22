@@ -20,6 +20,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+# A run directory is named by an opaque run id; start refuses any other name,
+# because a packet binds to that name and a readable one silently loses it.
+RUN_ID = "0123456789abcdef0123456789abcdef"
+
 from agent_hook_runtime import finish_with_result
 from support.stage_timing import (
     append_recorded_stages,
@@ -113,7 +117,7 @@ class TheHooksAreActuallyInstrumentedTests(unittest.TestCase):
             project.mkdir()
             subprocess.run(["git", "init", "-q", "."], cwd=project, check=True)
             (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
-            evidence = project / ".tao" / "runs" / "probe" / "preflight.json"
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
             evidence.parent.mkdir(parents=True)
             output = project / ".tao" / "start.json"
 
@@ -352,7 +356,7 @@ class TheHooksLeaveTheirNumbersInTheRunTests(unittest.TestCase):
             project.mkdir()
             subprocess.run(["git", "init", "-q", "."], cwd=project, check=True)
             (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
-            evidence = project / ".tao" / "runs" / "probe" / "preflight.json"
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
             evidence.parent.mkdir(parents=True)
 
             subprocess.run(
