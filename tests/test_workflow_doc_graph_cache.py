@@ -227,6 +227,36 @@ class DocGraphCacheTests(unittest.TestCase):
 
         self.assertEqual(first, second)
 
+
+    def test_a_link_that_vanishes_mid_key_does_not_fail_the_build(self) -> None:
+        """Reading the key is two filesystem calls, and a link can go between.
+
+        Every other failure in this module falls back to building. An
+        unguarded `readlink` would have made the cache the one thing able to
+        fail a hook.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            (project / "link.md").symlink_to("AGENTS.md")
+
+            with patch.object(build.os, "readlink", side_effect=OSError("vanished")):
+                key = build._document_key(project, build._markdown_docs(project))
+                build.clear_doc_graph_cache()
+                graph = build.build_doc_graph(project)
+
+            # Asserted inside the temporary directory: outside it, the path is
+            # gone and `exists()` is False whatever the code did.
+            #
+            # An empty key names no generation, so nothing may be stored under
+            # it. Checked by listing rather than globbing, because a `""` key
+            # writes a file literally named `.json`, which `*.json` does not
+            # match and the retention would therefore never remove.
+            self.assertFalse(self._cache(project).exists())
+
+        self.assertEqual("", key)
+        self.assertIn("AGENTS.md", graph)
+
     def test_a_changed_builder_invalidates_every_generation(self) -> None:
         """A graph built by older code must not be served after it changes."""
 

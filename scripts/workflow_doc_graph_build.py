@@ -80,6 +80,11 @@ def _document_key(root: Path, docs: set[str]) -> str:
             # a walk never visits -- with `lstat` here, editing one of those
             # targets changed the graph and not the key.
             stat = path.stat()
+            # Where it points is part of the input too, in case a retarget
+            # lands on a file with the same size and time. Read inside the
+            # same guard: a link can vanish between the two calls, and this
+            # function may never be the reason a build fails.
+            link = os.readlink(path) if path.is_symlink() else ""
         except FileNotFoundError:
             # A project may have no surface rules, and a document may be a
             # broken link the build skips. Both are states the graph depends
@@ -91,11 +96,9 @@ def _document_key(root: Path, docs: set[str]) -> str:
             return ""
         digest.update(rel.encode("utf-8", "surrogateescape"))
         digest.update(f"\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode("ascii"))
-        if path.is_symlink():
-            # Where it points is part of the input too, in case a retarget
-            # lands on a file with the same size and time.
+        if link:
             digest.update(b"\0link\0")
-            digest.update(os.readlink(path).encode("utf-8", "surrogateescape"))
+            digest.update(link.encode("utf-8", "surrogateescape"))
     return digest.hexdigest()
 
 
