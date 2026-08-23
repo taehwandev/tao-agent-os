@@ -46,6 +46,7 @@ from workflow_search import SearchOutcome, search_docs_outcome
 from workflow_skill_paths import canonical_doc_path
 from workflow_wikimap import WIKIMAP_VERSION
 from support.stable_launcher import stable_launcher_path
+from support.stage_timing import stage
 
 
 OPERATING_SKILL = "common/skills/agent-operating-skill/SKILL.md"
@@ -450,6 +451,26 @@ OVERSIZED_DOC_BYTES = 40_000
 
 
 def route_required_docs(
+    command: str,
+    platform: Optional[str],
+    concerns: list[str],
+    profile_docs: tuple[str, ...],
+    surface_docs: list[str] | None = None,
+) -> list[str]:
+    """Select the documents a route requires, and report what selecting cost.
+
+    Profiling a start put 88 ms here, second only to the wikimap, and almost
+    all of it in reading and normalising document bodies to decide which are
+    pointer entrypoints. None of it was visible in the recorded stages.
+    """
+
+    with stage("required_docs"):
+        return _route_required_docs(
+            command, platform, concerns, profile_docs, surface_docs
+        )
+
+
+def _route_required_docs(
     command: str,
     platform: Optional[str],
     concerns: list[str],
