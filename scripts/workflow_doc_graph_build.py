@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from support.project_tree import git_ignored, iter_project_files
+from workflow_doc_graph_cache import document_key, read_cached_graph, write_cached_graph
 from workflow_common import ROOT, unique
 from workflow_doc_graph_refs import frontmatter_doc_refs, markdown_doc_refs
 from workflow_doc_surface_rules import rule_docs, rule_list, string_list
@@ -25,12 +26,18 @@ def build_doc_graph(root: Path = ROOT) -> dict[str, list[dict[str, object]]]:
 def _build_doc_graph(root_text: str) -> dict[str, list[dict[str, object]]]:
     root = Path(root_text)
     with stage("doc_graph_build"):
-        return _graph_for(root)
+        docs = _markdown_docs(root)
+        key = document_key(root, docs)
+        cached = read_cached_graph(root, key)
+        if cached is not None:
+            return cached
+        graph = _graph_for(root, docs)
+        write_cached_graph(root, key, graph)
+        return graph
 
 
-def _graph_for(root: Path) -> dict[str, list[dict[str, object]]]:
+def _graph_for(root: Path, docs: set[str]) -> dict[str, list[dict[str, object]]]:
     graph: dict[str, list[dict[str, object]]] = {}
-    docs = _markdown_docs(root)
     for rel in docs:
         graph.setdefault(rel, [])
 
