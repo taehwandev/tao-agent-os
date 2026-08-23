@@ -27,6 +27,24 @@ from support.runtime_bridge import (
 )
 
 
+
+def _surface_text(path: Path) -> str:
+    """Read a surface, and its siblings when it is one file of a bundle.
+
+    A reference that outgrows the route's mandatory-reading budget is split
+    into routable siblings, and the lifecycle this test pins can then live in
+    either half. Reading the bundle keeps the guarantee -- every distributed
+    surface names one canonical start lifecycle -- without pinning it to a
+    filename that a legitimate split moves.
+    """
+
+    if path.parent.name != "references":
+        return path.read_text(encoding="utf-8")
+    return "\n".join(
+        sibling.read_text(encoding="utf-8")
+        for sibling in sorted(path.parent.glob("*.md"))
+    )
+
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
     def test_all_runtime_bridges_share_start_and_capsule_contract(self) -> None:
         for runtime_name, instruction_file in (
@@ -307,7 +325,7 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
 
         for relative in surface_paths:
             with self.subTest(surface=relative):
-                text = (ROOT / relative).read_text(encoding="utf-8")
+                text = _surface_text(ROOT / relative)
                 normalized = " ".join(text.lower().split())
 
                 # Agent-facing docs carry the launcher placeholder so nothing

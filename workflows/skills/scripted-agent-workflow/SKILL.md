@@ -10,13 +10,15 @@ Use when routed to `workflows/skills/scripted-agent-workflow/SKILL.md` or when w
 
 ## Read
 
-- `references/current-guidance.md` for the detailed guidance for this skill.
+- `references/current-guidance.md` for the route and gate contract this skill runs.
+- `references/evidence-wrappers.md` for the wrapper commands and what each writes.
 - Related `SKILL.md` entrypoints named by the reference before loading their detailed references.
 
 ## Process
 
 1. Read this entrypoint first to confirm this guidance area applies.
-2. Open `references/current-guidance.md` only when the task actually touches this area.
+2. Open `references/current-guidance.md` only when the task actually touches this area,
+   and `references/evidence-wrappers.md` when it changes a wrapper entrypoint.
 3. Follow the reference's decision rules, stop conditions, and verification requirements before editing, reviewing, or reporting completion.
 
 ## Do Not
@@ -27,4 +29,5 @@ Use when routed to `workflows/skills/scripted-agent-workflow/SKILL.md` or when w
 ## Verification
 
 - If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
-- If detailed guidance changes, validate links and frontmatter for `references/current-guidance.md`.
+- If detailed guidance changes, validate links and frontmatter for
+  `references/current-guidance.md` and `references/evidence-wrappers.md`.

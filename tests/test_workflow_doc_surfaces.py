@@ -69,7 +69,7 @@ from support.runtime_bridge import (
 from support.stable_launcher import stable_launcher_path
 from workflow_catalog import COMMANDS, CONCERNS, SPILL_ACTION_LABELS
 from workflow_doc_resolution import resolve_guidance_docs
-from workflow_route import CORE_REQUIRED_DOCS
+from workflow_route import OVERSIZED_DOC_BYTES, CORE_REQUIRED_DOCS
 from workflow_gate_policy import (
     AGENTIC_RUN_STATE_GATE,
     AMBIGUITY_GATE,
@@ -194,6 +194,21 @@ def required_areas(route: dict) -> set[str]:
     """
     return {guidance_area(doc) for doc in route["required_docs"]}
 
+
+
+def _scripted_workflow_guidance() -> str:
+    """Every reference in the scripted-agent-workflow bundle, read as one.
+
+    These assertions are about the skill's guidance, not about which file holds
+    it. The bundle was split when its single reference passed the route's
+    oversized-document guard, and a test that pins a filename would have made
+    that split look like a loss.
+    """
+
+    directory = ROOT / "workflows" / "skills" / "scripted-agent-workflow" / "references"
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(directory.glob("*.md"))
+    )
 
 class WorkflowDocSurfacesTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -486,14 +501,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         )
 
     def test_scripted_workflow_guidance_emits_canonical_graphify_fields(self) -> None:
-        guidance = (
-            ROOT
-            / "workflows"
-            / "skills"
-            / "scripted-agent-workflow"
-            / "references"
-            / "current-guidance.md"
-        ).read_text(encoding="utf-8")
+        guidance = _scripted_workflow_guidance()
 
         self.assertIn(
             "`runtime_ownership`, `project_integration`, `graph`, and `query_smoke`",
@@ -502,28 +510,14 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertNotIn("`git ownership=`", guidance)
 
     def test_scripted_workflow_guidance_separates_claim_refusal_from_repair(self) -> None:
-        guidance = (
-            ROOT
-            / "workflows"
-            / "skills"
-            / "scripted-agent-workflow"
-            / "references"
-            / "current-guidance.md"
-        ).read_text(encoding="utf-8")
+        guidance = _scripted_workflow_guidance()
 
         self.assertIn("`fix_invocation_and_rerun`", guidance)
         self.assertRegex(guidance, r"no\s+checkpoint failed")
         self.assertIn("must not enter `repair-verify`", guidance)
 
     def test_review_guidance_makes_hook_provenance_executable(self) -> None:
-        scripted = (
-            ROOT
-            / "workflows"
-            / "skills"
-            / "scripted-agent-workflow"
-            / "references"
-            / "current-guidance.md"
-        ).read_text(encoding="utf-8")
+        scripted = _scripted_workflow_guidance()
         review = (
             ROOT
             / "workflows"
@@ -562,14 +556,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             self.assertIn("verification", normalized)
 
     def test_review_attestation_is_rechecked_after_final_checks(self) -> None:
-        scripted = (
-            ROOT
-            / "workflows"
-            / "skills"
-            / "scripted-agent-workflow"
-            / "references"
-            / "current-guidance.md"
-        ).read_text(encoding="utf-8")
+        scripted = _scripted_workflow_guidance()
         review = (
             ROOT
             / "workflows"
@@ -584,14 +571,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             self.assertIn("immediately before", guidance)
 
     def test_scripted_guidance_requires_atomic_claim_and_ledger_mutation(self) -> None:
-        guidance = (
-            ROOT
-            / "workflows"
-            / "skills"
-            / "scripted-agent-workflow"
-            / "references"
-            / "current-guidance.md"
-        ).read_text(encoding="utf-8")
+        guidance = _scripted_workflow_guidance()
 
         self.assertIn("one atomic transaction", guidance)
         self.assertIn("project-state -> run-registry -> gate-ledger", guidance)
@@ -1264,19 +1244,24 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         neighbours = {match["path"] for match in route["doc_graph_matches"]}
         self.assertIn("common/skills/local-tools/SKILL.md", neighbours)
         self.assertIn("common/skills/local-tools/SKILL.md", route["reference_docs"])
-        # The original anchor, restored: the oversized scripted-agent-workflow
-        # reference is held out of required_docs by OVERSIZED_DOC_BYTES and stays
-        # reachable as a reference.  This pins the guard's observable effect on a
-        # real route, so it will fail loudly if the guard is removed again before
-        # that document is split.
-        self.assertIn(
-            "workflows/skills/scripted-agent-workflow/references/current-guidance.md",
-            route["reference_docs"],
+        # The guard's observable effect, pinned to a document that still trips
+        # it.  This anchor named the scripted-agent-workflow reference until that
+        # one was split; the assertion kept passing afterwards while its reason
+        # had stopped being true, which is the failure mode it exists to prevent.
+        # It now asks which references are oversized rather than naming one, so
+        # the last split makes it fail loudly instead of quietly meaning nothing.
+        oversized = sorted(
+            path
+            for path in route["reference_docs"]
+            if (ROOT / path).exists() and (ROOT / path).stat().st_size > OVERSIZED_DOC_BYTES
         )
-        self.assertNotIn(
-            "workflows/skills/scripted-agent-workflow/references/current-guidance.md",
-            route["required_docs"],
+        self.assertTrue(
+            oversized,
+            "no oversized reference remains on this route; delete OVERSIZED_DOC_BYTES "
+            "and this assertion together",
         )
+        for path in oversized:
+            self.assertNotIn(path, route["required_docs"])
 
     def test_query_uses_document_graph_to_promote_related_skill_entrypoints(self) -> None:
         results = search_docs(ROOT, "훅으로 문서 검색하고 읽도록", max_results=12)
