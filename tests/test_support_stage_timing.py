@@ -175,6 +175,29 @@ class DiscoveryStagesTests(unittest.TestCase):
             with self.subTest(stage=expected):
                 self.assertIn(expected, timings)
 
+    def test_the_parts_of_a_search_are_reported_separately(self) -> None:
+        """One number for a stage cannot say which half to look at.
+
+        Profiling a start put 384 ms in document search, 196 of it refreshing
+        the wikimap index and most of the rest querying it -- two subprocesses
+        with different reasons to be slow. Required-document resolution added
+        another 88 ms that no stage reported at all.
+        """
+
+        from workflow_route import resolve_docs
+
+        resolve_docs(
+            "task", None, [],
+            request_text="bound every local git read",
+            project_root=ROOT,
+        )
+        timings = recorded_stages()
+
+        for expected in ("wikimap_index", "wikimap_search", "required_docs",
+                         "doc_graph_expand"):
+            with self.subTest(stage=expected):
+                self.assertIn(expected, timings)
+
     def test_search_covers_the_index_refresh_inside_it(self) -> None:
         """Nested stages must nest, or the numbers cannot be read as parts."""
 

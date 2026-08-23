@@ -254,12 +254,14 @@ def _append_graph_expansions(
     if not seed_docs:
         return
     result_paths = {str(item["path"]) for item in results}
-    graph_matches = expand_doc_matches(
-        root,
-        seed_docs,
-        max_depth=1,
-        max_docs=max(max_results * 2, GRAPH_SEED_LIMIT),
-    )
+    # The graph walk that turns search hits into their neighbours.
+    with stage("doc_graph_expand"):
+        graph_matches = expand_doc_matches(
+            root,
+            seed_docs,
+            max_depth=1,
+            max_docs=max(max_results * 2, GRAPH_SEED_LIMIT),
+        )
     for match in graph_matches:
         path = str(match["path"])
         item = documents.get(path) or _document_item(root, path, descriptions, ())
