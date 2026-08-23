@@ -440,12 +440,17 @@ MAX_REQUIRED_DOCS = 8
 # The real fix is to split an oversized reference into separately routable topic
 # siblings, as `platforms/android/skills/android-module-structure` now is -- every
 # piece of that bundle is under 11 KB and routes on its own concern, so this guard
-# never touches it.  Two routable references still trip the guard:
+# never touches it.  The agent-runtime-integration reference has been split the
+# same way: its setup half is now `references/runtime-setup.md`, routed by the
+# `runtime_setup` path surface, and both halves are under this limit.
 #
-#   workflows/skills/scripted-agent-workflow/references/current-guidance.md  (~46 KB)
-#   docs/skills/agent-runtime-integration/references/current-guidance.md     (~41 KB)
+# The list of what still trips it is not written here, because the previous one
+# went stale twice over: it named two documents while three were oversized, and
+# one of the two it named had already been split.  Ask instead:
 #
-# Split those two the same way and this constant, its use in the selection loop
+#   find . -path ./.tao -prune -o -name '*.md' -path '*/references/*' -size +39k -print
+#
+# When that command prints nothing, this constant, its use in the selection loop
 # below, and the bundle-size tests can all be deleted.
 OVERSIZED_DOC_BYTES = 40_000
 
