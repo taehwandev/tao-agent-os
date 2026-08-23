@@ -175,6 +175,19 @@ class DiscoveryStagesTests(unittest.TestCase):
             with self.subTest(stage=expected):
                 self.assertIn(expected, timings)
 
+    def test_the_lesson_summary_reports_what_it_costs(self) -> None:
+        """It reads the whole candidate inbox, which grows with the store.
+
+        Profiled at 51 ms warm and 206 ms cold on a 904-file inbox, on every
+        preflight, and none of it was reported.
+        """
+
+        from agent_global_lessons import lesson_summary
+
+        lesson_summary()
+
+        self.assertIn("lesson_summary", recorded_stages())
+
     def test_the_parts_of_a_search_are_reported_separately(self) -> None:
         """One number for a stage cannot say which half to look at.
 
