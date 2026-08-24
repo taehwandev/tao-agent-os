@@ -36,6 +36,15 @@ HOOK_OWNED_GATES = frozenset({"review hook"})
 
 
 def preflight_evidence_path(args: argparse.Namespace) -> Path:
+    """Resolve the evidence path this hook reads and writes.
+
+    This function does not name the timing sink, though it knows the run
+    directory. Anything that resolves an evidence path would then be naming
+    one, and the test suite resolves plenty against this very repository: it
+    wrote its own process lifetime into live runs as 22-27 second hooks that
+    were never invoked. The hook CLI names the sink once, for itself.
+    """
+
     if args.evidence:
         return args.evidence
     session = runtime_session()

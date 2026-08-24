@@ -21,16 +21,124 @@ from pathlib import Path
 from typing import Any
 
 from agent_continuation_checkpoint import write_continuation_checkpoint
+from agent_continuation_store import continuation_path, read_continuation_packet
 from agent_continuation_fields import CHECKPOINT_RE, RUN_ID_RE
 from agent_hook_gate_records import preflight_evidence_path
 
 
 RUNS_DIR = "runs"
 SKIPPED_DETAIL = (
-    "continuation checkpoint: skipped; this run's evidence is not a "
-    ".tao/runs/<run-id>/preflight.json path, so no packet is reachable"
+    "continuation checkpoint: skipped; a packet binds to a run directory named "
+    "by an opaque 32-character hex run id, and this run's evidence is not in "
+    "one, so nothing can resume this run"
+)
+UNBINDABLE_RUN_DIRECTORY = (
+    "start --evidence names a run directory whose name is not an opaque "
+    "32-character hex run id. A continuation packet binds to that name, so this "
+    "run would record no checkpoint and `tao-hook resume` could never continue "
+    "it -- silently, for the whole lifecycle. Omit --evidence and start mints an "
+    "opaque run directory for you, or name one yourself with "
+    "`python3 -c \'import uuid; print(uuid.uuid4().hex)\'`."
 )
 
+
+
+WORK_CHECKPOINT_LEAD = (
+    "continuation work state: the initial packet holds only the route name, so "
+    "a resume recovers the route and the drift state but nothing about the "
+    "work, and the reuse summary reports no accepted decision and no "
+    "successful verification to skip. Fill it with:"
+)
+WORK_CHECKPOINT_COMMAND = (
+    "  tao-hook checkpoint --project <project> --rules <rules> "
+    "--evidence <this-run>/preflight.json --checkpoint-kind decision "
+    "--phase acting --work-stdin < work.json"
+)
+WORK_CHECKPOINT_CLOSING = (
+    "  every key of an object must be present, null when unknown; record one "
+    "after reading the required docs and scoping the task, and refresh it at "
+    "each material decision"
+)
+
+
+def _work_shape_lines() -> list[str]:
+    """Spell the work object out of the schema, so the two cannot drift.
+
+    Naming the fields was not enough to record one, and neither was naming
+    their enums: the first attempt still failed on a missing required flag,
+    and the second on `non_goals` being a list rather than a line. Every part
+    of this -- which fields are lists, how many entries each takes, and what
+    an entry looks like -- is read from the validator that enforces it.
+    """
+
+    from agent_continuation_packet import (
+        DECISION_STATUSES,
+        SCOPE_ROLES,
+        VERIFICATION_KINDS,
+        VERIFICATION_RESULTS,
+        WORK_ITEM_LIMITS,
+    )
+
+    def cap(field: str) -> str:
+        return f"{field}[{WORK_ITEM_LIMITS[field]}]"
+
+    return [
+        "  work shape -- objective: one text string. Every other field is an "
+        "array, with its maximum entry count in brackets:",
+        f"    {cap('non_goals')}, {cap('blockers')}: text strings",
+        f"    {cap('decisions')}: " + "{id, status: "
+        + "|".join(DECISION_STATUSES) + ", text}",
+        f"    {cap('changed_scope')}, {cap('inspected_scope')}: " + "{path, role: "
+        + "|".join(SCOPE_ROLES) + "}, or {from, to, role} when renamed",
+        f"    {cap('verification')}: " + "{id, kind: "
+        + "|".join(VERIFICATION_KINDS) + ", result: "
+        + "|".join(VERIFICATION_RESULTS) + ", evidence_sha256, completed_at}",
+        f"    {cap('remaining_work')}: " + "{checkpoint, action}",
+    ]
+
+
+def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
+    """Say how the packet gets work state, where the packet exists to hold it.
+
+    The `checkpoint` hook is named only inside the session-continuation
+    reference, which a work route does not require, and no hook output
+    mentioned it. A lifecycle followed faithfully therefore produced packets
+    whose objective was the route enum and whose every other field was empty:
+    bound correctly, and useless to resume.
+    """
+
+    if run_binding_path(args) is None:
+        return []
+    return [
+        WORK_CHECKPOINT_LEAD,
+        WORK_CHECKPOINT_COMMAND,
+        *_work_shape_lines(),
+        WORK_CHECKPOINT_CLOSING,
+    ]
+
+
+def unbindable_run_directory_error(args: argparse.Namespace) -> str:
+    """Refuse a run directory that cannot hold a packet, while it can be changed.
+
+    A caller who creates `.tao/runs/<name>/` has asked for a per-run directory;
+    getting one that silently drops every checkpoint is not what was asked for.
+    The lifecycle deliberately does not fail for evidence kept anywhere else --
+    the default `.tao/preflight.json` and worker paths under `.tao/workers/`
+    have no packet by design -- so the refusal is narrowed to the one shape that
+    is a mistake rather than a choice.
+    """
+
+    evidence = getattr(args, "evidence", None)
+    if not evidence:
+        return ""
+    try:
+        directory = Path(evidence).expanduser().resolve().parent
+        runs_root = (args.project / ".tao" / RUNS_DIR).resolve()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return ""
+    if directory.parent != runs_root or RUN_ID_RE.match(directory.name):
+        return ""
+    return UNBINDABLE_RUN_DIRECTORY
 
 def run_binding_path(args: argparse.Namespace) -> Path | None:
     """Return the run-local trust record a packet may bind to, or nothing.
@@ -60,6 +168,33 @@ def start_objective(args: argparse.Namespace) -> str:
 
     command = str(getattr(args, "command", "") or "task")
     return f"{command} workflow"
+
+
+def start_checkpoint(args: argparse.Namespace) -> tuple[str, dict[str, Any] | None]:
+    """Name the checkpoint a start writes, and what it may put in it.
+
+    A start does not always begin a run. When the runtime session already owns
+    one, `preflight_evidence_path` adopts it -- and an `initial` checkpoint is
+    refused whenever a valid packet exists, which for an adopted run is always.
+    The refusal is non-blocking, so the start reported SUCCESS while the packet
+    stayed bound to the HEAD of the earlier start; `resume` then called that
+    head_drift and rendered none of the saved work.
+
+    An adopted run is the same run continuing, so its start refreshes the
+    packet instead. It carries no work: the objective it would write is the
+    route enum, and overwriting a recorded objective with that would lose
+    exactly what the refresh is for.
+    """
+
+    binding_path = run_binding_path(args)
+    if binding_path is None:
+        return "initial", {"objective": start_objective(args)}
+    existing = read_continuation_packet(
+        args.project, continuation_path(args.project, binding_path.parent.name)
+    )
+    if existing["status"] == "ok":
+        return "lifecycle", None
+    return "initial", {"objective": start_objective(args)}
 
 
 def gate_checkpoint_name(args: argparse.Namespace) -> str | None:

@@ -75,7 +75,11 @@ def search_wikimap(root: Path, queries: Sequence[str], max_results: int) -> Wiki
         str(max_results),
         *normalized_queries,
     ]
-    completed, error = _run(command, root)
+    # Reported apart from `wikimap_index`: refreshing the index and querying
+    # it are two subprocesses with different reasons to be slow, and a single
+    # number for the pair cannot say which one to look at.
+    with stage("wikimap_search"):
+        completed, error = _run(command, root)
     if error:
         return WikimapSearchResult(results=[], error=error)
 

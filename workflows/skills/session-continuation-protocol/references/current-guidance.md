@@ -475,9 +475,29 @@ would have shipped inert. A run started with evidence at
 name as its run id, which costs nothing because the name is already an opaque
 per-lifecycle token, and makes the packet reachable from the trust record it
 binds to. Any other evidence path keeps a minted id and simply has no packet;
-the lifecycle says so rather than failing. An id already present in the registry
+the lifecycle says so rather than failing.
+
+Saying so was not enough. 45 of 48 run directories in the reference checkout
+were named readably -- by date, by task -- so every one of those runs recorded
+no checkpoint and none of them could be resumed, while each hook reported the
+skip in a sentence that named the wrong cause. A caller who creates
+`.tao/runs/<name>/` has asked for a per-run directory, so `start` now refuses a
+name that is not a 32-hex run id and says how to get one. The refusal is
+narrowed to that shape: the default `.tao/preflight.json` and worker paths under
+`.tao/workers/` still have no packet by design, and later hooks never refuse, so
+a run already begun under an unbindable name can still review and finish. An id already present in the registry
 is never adopted a second time, since two records sharing one opaque id would
 make "the run" ambiguous for every later lookup.
+
+A start does not always begin a run. When the runtime session already owns
+one, the evidence resolver adopts it, and an `initial` checkpoint is refused
+whenever a valid packet exists -- which for an adopted run is always. Because
+the refusal is non-blocking, the start reported success while the packet stayed
+bound to the HEAD of the earlier start, and a later `resume` called that
+`head_drift` and rendered none of the saved work. An adopted run is the same run
+continuing, so its start writes a `lifecycle` refresh instead, carrying no work:
+the objective a start would write is the route enum, and overwriting a recorded
+one with that would lose exactly what the refresh preserves.
 
 Because the directory is per-lifecycle, a packet is scoped to one run and
 cannot collide with a concurrent session.
@@ -574,6 +594,20 @@ tao-hook cancel --evidence <SOURCE_PREFLIGHT> \
 
 The installed stable launcher may expose these as aliases, but all call the
 same common implementation. A runtime adapter does not parse the filesystem.
+
+The `start` hook now says this in its own output whenever the run has a
+reachable packet. It had to: this command was named only here, in a reference a
+work route does not require, so a lifecycle followed faithfully produced packets
+whose `objective` was the route enum and whose every other field was empty --
+bound correctly, and useless to resume.
+
+What it prints is the whole command, including `--checkpoint-kind`, and the
+work object's shape read from the validator: which fields are arrays, how many
+entries each takes, and what an entry looks like. Naming the fields was not
+enough, and neither was naming their enums -- following the earlier wording
+still failed twice, once on the missing required flag and once on `non_goals`
+being an array rather than a line. A test now takes the command out of a real
+start's output, substitutes only the paths, and runs it.
 
 `--work-stdin` accepts one partial closed `work` object on stdin. It never
 accepts work prose as command-line arguments, so semantic state does not move

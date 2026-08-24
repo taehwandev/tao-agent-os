@@ -1,4 +1,13 @@
-"""The lifecycle hooks must write checkpoints, and must survive not writing them."""
+"""The lifecycle hooks must write checkpoints, and must survive not writing them.
+
+Three subjects were split out when this module passed the review-pressure
+limit, each with its own file: which evidence paths can carry a packet
+(``test_agent_run_directory_binding``), what `start` tells an agent about
+filling one (``test_agent_work_checkpoint_advice``), and which checkpoint kind
+a start writes when it adopts a run (``test_agent_adopted_run_start``). What
+stays here is the wiring itself: the hooks that record, and their degradation
+when they cannot.
+"""
 
 from __future__ import annotations
 

@@ -130,9 +130,10 @@ def finish_with_result(
         "status": "SUCCESS" if success else "FAIL",
         "policy": policy,
         "details": details,
-        # Stage names and durations only. Every hook already writes this
-        # record, so the measurement rides the evidence that exists rather
-        # than adding a second thing to keep in sync.
+        # Stage names and durations only, for the callers that ask for this
+        # record. Most do not: `output` is optional, and the lifecycle's own
+        # review and finish invocations omit it, which is why the hook entry
+        # also appends them to a run-local file once per invocation.
         **({"timings": recorded_stages()} if recorded_stages() else {}),
         **payload,
     }

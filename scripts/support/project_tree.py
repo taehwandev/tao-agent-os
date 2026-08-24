@@ -1,7 +1,8 @@
 """One rule for which directories a repository-wide walk must not enter.
 
 Owner: the repository-walk boundary.
-Allowed imports: standard-library path and filesystem utilities only.
+Allowed imports: standard-library path and filesystem utilities, and the
+bounded Git reader -- Git is what knows which files are generated.
 Forbidden imports: workflow routing, agent lifecycle, gate policy, or any
 project-specific rule -- this module decides where a walk goes, never what a
 caller does with what it finds.
@@ -29,8 +30,12 @@ deliberately keeps -- so a caller that wants those documents prunes
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
+from typing import Iterable
 from typing import Iterator
+
+from support.bounded_git import run_git
 
 
 # What every caller here already discards: project state and the repository's
@@ -82,3 +87,39 @@ def iter_project_files(
             ):
                 continue
             yield here / file_name
+
+
+def git_ignored(root: Path, relative_paths: Iterable[str]) -> set[str]:
+    """Return which of these repository-relative paths Git ignores.
+
+    Generated output is ignored by construction, which makes Git the list
+    nobody has to maintain. One batched `check-ignore` answers for a whole
+    walk; asking per file would cost a process each.
+
+    Fails open. A checkout without Git, a Git that refuses, or a call that
+    exceeds its bound reports nothing ignored, so a walk keeps everything
+    rather than losing documents to a tool that is not there.
+    """
+
+    paths = [path for path in relative_paths if path]
+    if not paths:
+        return set()
+    completed = run_git(
+        ["git", "check-ignore", "-z", "--stdin"],
+        cwd=root,
+        input="\0".join(paths).encode("utf-8", "surrogateescape"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    # `check-ignore` exits 1 when nothing matched. Both 0 and 1 carry a usable
+    # answer on stdout; anything else -- no repository, a bad path, the
+    # timeout -- carries none. Because the failure answer is also "nothing
+    # ignored", the two are indistinguishable from outside today: this is
+    # Git's contract written down, not a branch a test can observe.
+    if completed.returncode not in (0, 1):
+        return set()
+    return {
+        chunk.decode("utf-8", "surrogateescape")
+        for chunk in completed.stdout.split(b"\0")
+        if chunk
+    }

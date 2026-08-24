@@ -881,6 +881,20 @@
       "reason": "Graphify integration changes must preserve target-project ownership, derived-artifact boundaries, bootstrap instructions, and readiness verification."
     },
     {
+      "name": "runtime_setup",
+      "patterns": [
+        "scripts/setup-agent-hooks.py",
+        "scripts/project-discover.py",
+        "scripts/agent-entry.py",
+        "docs/skills/agent-runtime-integration/references/runtime-setup.md"
+      ],
+      "docs": [
+        "docs/skills/agent-runtime-integration/references/runtime-setup.md",
+        "docs/skills/agent-runtime-integration/SKILL.md"
+      ],
+      "reason": "Installing or wiring a runtime touches entries an installer may own, the setup mode a request needs, and how a runtime finds its project."
+    },
+    {
       "name": "runtime_model_dispatch",
       "patterns": [
         "scripts/workflow_dispatch.py",

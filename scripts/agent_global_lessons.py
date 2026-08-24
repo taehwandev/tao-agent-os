@@ -19,6 +19,7 @@ from workflow_common import (
     REPAIR_STOP_CONDITION,
     RESUME_SCOPE,
 )
+from support.stage_timing import stage
 
 SCHEMA_VERSION = 1
 SAFE_SLUG_RE = re.compile(r"[^a-z0-9_]+")
@@ -38,6 +39,11 @@ def state_home() -> Path:
 
 
 def lesson_summary(limit: int = 10) -> dict[str, Any]:
+    with stage("lesson_summary"):
+        return _lesson_summary(limit)
+
+
+def _lesson_summary(limit: int) -> dict[str, Any]:
     root = state_home()
     summary: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -45,8 +51,7 @@ def lesson_summary(limit: int = 10) -> dict[str, Any]:
         "available": root.exists(),
         "accepted": [],
         "promoted": [],
-        "candidate_count": _count_unique_lessons(root / "lessons" / "inbox"),
-        "top_recurrence": _top_recurring_candidate(root / "lessons" / "inbox"),
+        **_inbox_summary(root / "lessons" / "inbox"),
         "skill_learning": skill_learning_summary(root),
     }
     for status in LESSON_STATUSES:
@@ -164,29 +169,48 @@ def _read_lessons(path: Path, limit: int) -> list[dict[str, Any]]:
     return lessons
 
 
-def _top_recurring_candidate(path: Path) -> dict[str, Any]:
+def _inbox_summary(path: Path) -> dict[str, Any]:
+    """Read the candidate inbox once, for both numbers a summary reports.
+
+    Counting the candidates and finding the most-repeated one each used to walk
+    and parse the whole inbox. On this machine that is 905 files and 3.5 MB,
+    read twice on every preflight -- profiled at 51 ms with a warm filesystem
+    cache and 206 ms without, and it grows with the store rather than with the
+    work. One pass answers both.
+    """
+
+    lesson_ids: set[str] = set()
+    best: dict[str, Any] = {}
+    best_count = 0
+    if path.exists():
+        for lesson_path in sorted(path.glob("*.json")):
+            try:
+                lesson = json.loads(lesson_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(lesson, dict):
+                continue
+            lesson_id = str(lesson.get("lesson_id") or "")
+            if lesson_id:
+                lesson_ids.add(lesson_id)
+            count = lesson.get("occurrence_count")
+            if not isinstance(count, int) or isinstance(count, bool):
+                continue
+            if count > best_count:
+                best, best_count = lesson, count
+    return {
+        "candidate_count": len(lesson_ids),
+        "top_recurrence": _recurrence_notice(best, best_count),
+    }
+
+
+def _recurrence_notice(best: dict[str, Any], best_count: int) -> dict[str, Any]:
     """Name the most-repeated candidate so a count cannot stand in for a repair.
 
     Only safe slugs, an opaque lesson id and a number are returned; the lesson
     records themselves hold no request content.
     """
 
-    best: dict[str, Any] = {}
-    best_count = 0
-    if not path.exists():
-        return {}
-    for lesson_path in sorted(path.glob("*.json")):
-        try:
-            lesson = json.loads(lesson_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(lesson, dict):
-            continue
-        count = lesson.get("occurrence_count")
-        if not isinstance(count, int) or isinstance(count, bool):
-            continue
-        if count > best_count:
-            best, best_count = lesson, count
     if best_count < RECURRENCE_NOTICE_THRESHOLD:
         return {}
     return {
@@ -195,18 +219,3 @@ def _top_recurring_candidate(path: Path) -> dict[str, Any]:
         "occurrence_count": best_count,
         "promotion_status": str(best.get("promotion_status") or ""),
     }
-
-
-def _count_unique_lessons(path: Path) -> int:
-    if not path.exists():
-        return 0
-    lesson_ids: set[str] = set()
-    for lesson_path in path.glob("*.json"):
-        try:
-            lesson = json.loads(lesson_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        lesson_id = str(lesson.get("lesson_id") or "")
-        if lesson_id:
-            lesson_ids.add(lesson_id)
-    return len(lesson_ids)

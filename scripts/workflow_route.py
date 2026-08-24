@@ -46,6 +46,7 @@ from workflow_search import SearchOutcome, search_docs_outcome
 from workflow_skill_paths import canonical_doc_path
 from workflow_wikimap import WIKIMAP_VERSION
 from support.stable_launcher import stable_launcher_path
+from support.stage_timing import stage
 
 
 OPERATING_SKILL = "common/skills/agent-operating-skill/SKILL.md"
@@ -439,17 +440,42 @@ MAX_REQUIRED_DOCS = 8
 # The real fix is to split an oversized reference into separately routable topic
 # siblings, as `platforms/android/skills/android-module-structure` now is -- every
 # piece of that bundle is under 11 KB and routes on its own concern, so this guard
-# never touches it.  Two routable references still trip the guard:
+# never touches it.  The agent-runtime-integration reference has been split the
+# same way: its setup half is now `references/runtime-setup.md`, routed by the
+# `runtime_setup` path surface, and both halves are under this limit.
 #
-#   workflows/skills/scripted-agent-workflow/references/current-guidance.md  (~46 KB)
-#   docs/skills/agent-runtime-integration/references/current-guidance.md     (~41 KB)
+# The list of what still trips it is not written here, because the previous one
+# went stale twice over: it named two documents while three were oversized, and
+# one of the two it named had already been split.  Ask instead:
 #
-# Split those two the same way and this constant, its use in the selection loop
+#   find . -path ./.tao -prune -o -name '*.md' -path '*/references/*' -size +39k -print
+#
+# When that command prints nothing, this constant, its use in the selection loop
 # below, and the bundle-size tests can all be deleted.
 OVERSIZED_DOC_BYTES = 40_000
 
 
 def route_required_docs(
+    command: str,
+    platform: Optional[str],
+    concerns: list[str],
+    profile_docs: tuple[str, ...],
+    surface_docs: list[str] | None = None,
+) -> list[str]:
+    """Select the documents a route requires, and report what selecting cost.
+
+    Profiling a start put 88 ms here, second only to the wikimap, and almost
+    all of it in reading and normalising document bodies to decide which are
+    pointer entrypoints. None of it was visible in the recorded stages.
+    """
+
+    with stage("required_docs"):
+        return _route_required_docs(
+            command, platform, concerns, profile_docs, surface_docs
+        )
+
+
+def _route_required_docs(
     command: str,
     platform: Optional[str],
     concerns: list[str],

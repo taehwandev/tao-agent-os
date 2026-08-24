@@ -26,9 +26,11 @@ from agent_finish_gate_validators import gate_wording_hints
 from agent_handoff_hook import handoff_hook
 from agent_hook_continuation import (
     checkpoint_after_hook,
+    unbindable_run_directory_error,
     gate_checkpoint_name,
     record_lifecycle_checkpoint,
-    start_objective,
+    start_checkpoint,
+    work_checkpoint_advice,
 )
 from agent_hook_checkpoint import add_checkpoint_arguments, checkpoint_hook
 from agent_hook_gate_records import (
@@ -99,7 +101,7 @@ from agent_context_store import (
 )
 from support.global_state import ensure_local_only_state_dir
 from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
-from support.stage_timing import stage
+from support.stage_timing import append_recorded_stages, set_timing_sink, stage
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -211,11 +213,9 @@ def start_hook(args: argparse.Namespace) -> int:
             if success:
                 # The route and objective are known and nothing has been mutated
                 # yet, which is the only moment an initial packet can describe.
-                details.append(
-                    record_lifecycle_checkpoint(
-                        args, "initial", work={"objective": start_objective(args)}
-                    )
-                )
+                kind, work = start_checkpoint(args)
+                details.append(record_lifecycle_checkpoint(args, kind, work=work))
+                details.extend(work_checkpoint_advice(args))
     finally:
         if not committed:
             restore_errors = _restore_preflight_refresh_state(refresh_snapshot)
@@ -1146,7 +1146,9 @@ def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
                 "start --evidence must be under the current project's .tao "
                 "evidence root so later lifecycle hooks can validate the same capsule"
             )
-        return ""
+        # Only start is refused: a run already begun under an unbindable name
+        # must still be able to review and finish.
+        return unbindable_run_directory_error(args)
     try:
         payload = json.loads(args.evidence.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -1362,6 +1364,23 @@ def _validate_hook_arguments_before_repair(
         parser.error("gate requires --gate-name")
 
 
+
+def _name_timing_sink(args: argparse.Namespace) -> None:
+    """Point this process's stage durations at the run it is working in.
+
+    Only the hook CLI names a sink, and only after the worker boundary has
+    redirected the evidence path, so a worker's numbers land in the worker's
+    run. `resume` is excluded because it promises to leave the registry
+    byte-identical and resolving evidence would adopt a path it only reads.
+    """
+
+    if args.hook in ("resume", "fingerprint"):
+        return
+    try:
+        set_timing_sink(preflight_evidence_path(args).parent / "timings.jsonl")
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return
+
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
@@ -1388,6 +1407,26 @@ def main() -> int:
     if worker_error:
         print_status(args.hook, False, [worker_error])
         return 2
+    _name_timing_sink(args)
+    try:
+        code = _dispatch_hook(parser, args)
+    except SystemExit:
+        # An argparse refusal is not a hook result, and recording one would
+        # put a usage error in the run's durations.
+        raise
+    append_recorded_stages(args.hook, "SUCCESS" if code == 0 else "FAIL")
+    return code
+
+
+def _dispatch_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """Run the selected hook. Split from `main` so one invocation records once.
+
+    The durations used to be appended by the shared result writer, which any
+    caller of a hook function reached -- including a test process that had
+    already resolved a live run. One invocation now names the sink, runs, and
+    writes the line, so nothing else in the process can.
+    """
+
     _validate_hook_arguments_before_repair(parser, args)
     # Must follow _apply_worker_evidence_boundary so a worker refreshes its own
     # run, and must skip `start`: start refreshes nothing it is about to sweep,

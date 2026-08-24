@@ -63,6 +63,18 @@ WORK_FIELDS = (
     "verification", "remaining_work", "blockers",
 )
 CHECKPOINT_FIELDS = ("last_completed", "first_unfinished", "mutation_pending")
+# The list fields, and how many entries each accepts. Named rather than spelled
+# at each call so a caller that has to tell an agent what a work object looks
+# like reads the same numbers this validator enforces.
+WORK_ITEM_LIMITS = {
+    "non_goals": 4,
+    "decisions": 12,
+    "changed_scope": 64,
+    "inspected_scope": 64,
+    "verification": 32,
+    "remaining_work": 12,
+    "blockers": 4,
+}
 PENDING_FIELDS = ("kind", "paths", "project", "rules", "started_at")
 DECISION_FIELDS = ("id", "status", "text")
 VERIFICATION_FIELDS = ("id", "kind", "result", "evidence_sha256", "completed_at")
@@ -156,19 +168,26 @@ def _work(value: Any, failures: list) -> None:
         return
     closed_object(value, WORK_FIELDS, "/work", failures)
     prose(value.get("objective"), "/work/objective", failures, MAX_TEXT)
-    items(value.get("non_goals"), "/work/non_goals", failures, 4,
+    items(value.get("non_goals"), "/work/non_goals", failures,
+          WORK_ITEM_LIMITS["non_goals"],
           lambda item, pointer: prose(item, pointer, failures, MAX_SHORT_TEXT))
-    items(value.get("blockers"), "/work/blockers", failures, 4,
+    items(value.get("blockers"), "/work/blockers", failures,
+          WORK_ITEM_LIMITS["blockers"],
           lambda item, pointer: prose(item, pointer, failures, MAX_TEXT))
-    items(value.get("decisions"), "/work/decisions", failures, 12,
+    items(value.get("decisions"), "/work/decisions", failures,
+          WORK_ITEM_LIMITS["decisions"],
           lambda item, pointer: _decision(item, pointer, failures))
-    items(value.get("changed_scope"), "/work/changed_scope", failures, 64,
+    items(value.get("changed_scope"), "/work/changed_scope", failures,
+          WORK_ITEM_LIMITS["changed_scope"],
           lambda item, pointer: _scope(item, pointer, failures))
-    items(value.get("inspected_scope"), "/work/inspected_scope", failures, 64,
+    items(value.get("inspected_scope"), "/work/inspected_scope", failures,
+          WORK_ITEM_LIMITS["inspected_scope"],
           lambda item, pointer: _scope(item, pointer, failures))
-    items(value.get("verification"), "/work/verification", failures, 32,
+    items(value.get("verification"), "/work/verification", failures,
+          WORK_ITEM_LIMITS["verification"],
           lambda item, pointer: _verification(item, pointer, failures))
-    items(value.get("remaining_work"), "/work/remaining_work", failures, 12,
+    items(value.get("remaining_work"), "/work/remaining_work", failures,
+          WORK_ITEM_LIMITS["remaining_work"],
           lambda item, pointer: _remaining(item, pointer, failures))
 
 

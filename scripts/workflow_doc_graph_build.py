@@ -7,7 +7,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
-from support.project_tree import iter_project_files
+from support.project_tree import git_ignored, iter_project_files
+from workflow_doc_graph_cache import document_key, read_cached_graph, write_cached_graph
 from workflow_common import ROOT, unique
 from workflow_doc_graph_refs import frontmatter_doc_refs, markdown_doc_refs
 from workflow_doc_surface_rules import rule_docs, rule_list, string_list
@@ -25,12 +26,18 @@ def build_doc_graph(root: Path = ROOT) -> dict[str, list[dict[str, object]]]:
 def _build_doc_graph(root_text: str) -> dict[str, list[dict[str, object]]]:
     root = Path(root_text)
     with stage("doc_graph_build"):
-        return _graph_for(root)
+        docs = _markdown_docs(root)
+        key = document_key(root, docs)
+        cached = read_cached_graph(root, key)
+        if cached is not None:
+            return cached
+        graph = _graph_for(root, docs)
+        write_cached_graph(root, key, graph)
+        return graph
 
 
-def _graph_for(root: Path) -> dict[str, list[dict[str, object]]]:
+def _graph_for(root: Path, docs: set[str]) -> dict[str, list[dict[str, object]]]:
     graph: dict[str, list[dict[str, object]]] = {}
-    docs = _markdown_docs(root)
     for rel in docs:
         graph.setdefault(rel, [])
 
@@ -57,19 +64,27 @@ def graph_summary(root: Path = ROOT) -> dict[str, int]:
 
 
 def _markdown_docs(root: Path) -> set[str]:
-    """Collect the guidance documents, without walking project state to skip it.
+    """Collect the guidance documents: the tracked ones and the new ones.
 
     Excluding `.tao` after the walk still descended into it, and in an
     integrated checkout that is a second copy of the repository: 885 files
     found to keep 495. The graph is built inside workflow validation, which
     the review hook runs before it can report, so the walk is something a
     person waits for.
+
+    Git-ignored files are dropped for a second reason. 140 of the 498
+    documents this walk found were generated reports -- 6.09 MB of the 8.08 MB
+    it read, contributing 5 of 3105 edges. The wikimap search already excludes
+    them by name; the graph disagreeing with it was the defect. Ignored is the
+    right test rather than untracked: a guidance document being written should
+    route before it is committed.
     """
 
-    return {
+    docs = {
         path.relative_to(root).as_posix()
         for path in iter_project_files(root, "*.md")
     }
+    return docs - git_ignored(root, docs)
 
 
 def _add_markdown_edges(root: Path, docs: set[str], graph: dict[str, list[dict[str, object]]]) -> None:

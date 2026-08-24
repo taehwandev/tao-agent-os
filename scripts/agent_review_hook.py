@@ -368,7 +368,12 @@ def review_hook(
         if invocation_failure
         else review_failure_details(failures, structure, review_scope)
         if failures
-        else review_success_details(structure, review_scope)
+        else review_success_details(
+            structure,
+            review_scope,
+            str((checks.get("vibeguard") or {}).get("overall") or ""),
+            str(getattr(args, "allow_vibeguard_review", "") or "").strip(),
+        )
     )
     return finish_with_result(
         "review",
@@ -1148,8 +1153,13 @@ def _vibeguard_help_command(base_command: list[str]) -> list[str]:
     return [base_command[0], "--help"]
 
 
-def review_success_details(structure: dict[str, Any], review_scope: str) -> list[str]:
-    return [
+def review_success_details(
+    structure: dict[str, Any],
+    review_scope: str,
+    vibeguard_overall: str = "",
+    accepted_vibeguard_reason: str = "",
+) -> list[str]:
+    details = [
         "code review evidence recorded",
         "docs freshness evidence recorded",
         f"review scope: {review_scope}",
@@ -1159,11 +1169,29 @@ def review_success_details(structure: dict[str, Any], review_scope: str) -> list
         "review hook left worktree unchanged",
         "diff whitespace check passed",
         "workflow validation passed",
-        "VibeGuard audit passed",
+        _vibeguard_success_detail(vibeguard_overall, accepted_vibeguard_reason),
         "next required checkpoint: record every remaining route gate and run finish "
         "before commit, push, release, or handoff; changing the worktree first "
         "invalidates this review attestation",
     ]
+    if accepted_vibeguard_reason:
+        # Without this, a review that says "passed" is followed by a finish that
+        # says "VibeGuard overall: Needs review" about the same audit, and the
+        # reason already given here has to be discovered a second time.
+        details.append(
+            "finish judges the same VibeGuard state and does not read this "
+            "review's reason: pass --allow-vibeguard-review to finish as well"
+        )
+    return details
+
+
+def _vibeguard_success_detail(overall: str, accepted_reason: str) -> str:
+    """Say what the audit found, not only that the hook let it through."""
+
+    if not accepted_reason:
+        return "VibeGuard audit passed"
+    state = overall or "not Ready"
+    return f"VibeGuard overall is {state}, accepted under the reason you passed"
 
 
 def review_failure_details(
