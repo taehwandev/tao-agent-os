@@ -173,6 +173,14 @@ def _age_preflight(
 _satisfy_workflow_entry = _write_preflight
 
 
+# The gate stops a call by asking rather than refusing: a refusal is final in
+# the runtime and left the operator unable to approve work in their own
+# repository -- including the edit that would change this gate, and the setting
+# that would turn it off. These tests assert that the call is stopped and why,
+# which is the contract; the word is the runtime's way of asking.
+STOP_DECISION = "ask"
+
+
 class ClaudePreToolGateTests(unittest.TestCase):
     def test_bash_outside_tao_project_is_allowed(self) -> None:
         code, out = _decide({"tool_name": "Bash", "cwd": "/tmp", "session_id": "s"})
@@ -580,8 +588,13 @@ class ClaudePreToolGateTests(unittest.TestCase):
             )
         self.assertEqual(0, code)
         decision = json.loads(out)["hookSpecificOutput"]
-        self.assertEqual("deny", decision["permissionDecision"])
+        self.assertEqual(STOP_DECISION, decision["permissionDecision"])
         self.assertIn("start hook", decision["permissionDecisionReason"])
+        # A stop the operator can act on names both ways out: approve it here,
+        # or turn the gate off. The refusal this replaced named neither, so the
+        # only escape was an environment variable nothing mentioned.
+        self.assertIn("Approve to proceed", decision["permissionDecisionReason"])
+        self.assertIn("TAO_CLAUDE_GATE=0", decision["permissionDecisionReason"])
 
     def test_start_then_edit_is_allowed_and_stays_allowed(self) -> None:
         # Regression: an ordering-based gate denied this, the *correct*, flow
@@ -726,7 +739,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
             self.assertEqual(0, code)
             self.assertEqual(
-                "deny",
+                STOP_DECISION,
                 json.loads(out)["hookSpecificOutput"]["permissionDecision"],
             )
 
@@ -751,7 +764,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
             self.assertEqual(0, code)
             self.assertEqual(
-                "deny",
+                STOP_DECISION,
                 json.loads(out)["hookSpecificOutput"]["permissionDecision"],
             )
 
@@ -767,7 +780,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             )
 
             self.assertEqual(0, code)
-            self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
     def test_preflight_without_a_recorded_session_is_denied(self) -> None:
         # Evidence from a runtime that records no session (or a pre-upgrade
@@ -781,7 +794,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             )
 
             self.assertEqual(0, code)
-            self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
     def test_own_session_evidence_still_expires(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -794,7 +807,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             )
 
             self.assertEqual(0, code)
-            self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
     def test_payload_without_a_session_id_is_denied(self) -> None:
         # Falling back to freshness here would reopen the original bypass for
@@ -806,7 +819,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             code, out = _decide({"tool_name": "Write", "cwd": str(project), "session_id": ""})
 
             self.assertEqual(0, code)
-            self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
     def test_env_kill_switch_disables_the_gate(self) -> None:
         # Escape hatch for a Claude Code older than the release that put
@@ -839,7 +852,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             })
 
             self.assertEqual(0, code)
-            self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
     def test_denied_gate_never_fabricates_a_continuation_packet(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -901,7 +914,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 {"tool_name": "Edit", "cwd": str(nested), "session_id": "s"}
             )
         self.assertEqual(0, code)
-        self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+        self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
     def _write_new_source(self, project: Path, session: str, relative: str) -> tuple[int, str]:
         # Gate 2 (sprawl) is what these tests exercise; put the session past
@@ -943,7 +956,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             code, out = self._write_new_source(project, "sp", "src/file5.py")
         self.assertEqual(0, code)
         decision = json.loads(out)["hookSpecificOutput"]
-        self.assertEqual("deny", decision["permissionDecision"])
+        self.assertEqual(STOP_DECISION, decision["permissionDecision"])
         self.assertIn("proportionality gate", decision["permissionDecisionReason"])
 
     def test_ack_file_unlocks_further_new_source_files(self) -> None:
