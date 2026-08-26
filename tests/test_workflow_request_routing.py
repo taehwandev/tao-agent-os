@@ -323,6 +323,61 @@ class GraphifyOptOutVerbTests(unittest.TestCase):
         )
 
 
+class MixedScriptRequestTests(unittest.TestCase):
+    """A Korean particle attached to an English token hid it from the classifier.
+
+    Hangul is a word character, so `\\bproduction\\b` does not match
+    `production으로`: there is no boundary between `n` and `으`. Korean requests
+    naming an English artifact, destination, path, or verb therefore classified
+    as if those words were absent -- `v1.2.3을 build를 production으로 승격해줘`
+    reached triage while its spaced form did not.
+
+    The property under test is not which route each request gets. It is that
+    attaching a particle cannot change the answer, which is what makes this a
+    normalization bug rather than a pattern list to extend forever.
+    """
+
+    def _classification(self, text: str) -> tuple[str, str]:
+        result = classify_request(text)
+        return result["route_shape"], result["shape_response_mode"]
+
+    def test_a_particle_does_not_change_the_classification(self) -> None:
+        for joined, spaced in (
+            (
+                "v1.2.3을 build를 production으로 승격해줘",
+                "v1.2.3 을 build 를 production 으로 승격해줘",
+            ),
+            (
+                "v1.2.3 tag를 production으로 배포해줘",
+                "v1.2.3 tag 를 production 으로 배포해줘",
+            ),
+            ("working tree를 review해줘", "working tree 를 review 해줘"),
+            (
+                "scripts/workflow.py의 line 10을 fix해줘",
+                "scripts/workflow.py 의 line 10 을 fix 해줘",
+            ),
+        ):
+            with self.subTest(request=joined):
+                self.assertEqual(
+                    self._classification(spaced), self._classification(joined)
+                )
+
+    def test_a_scoped_korean_promotion_naming_english_parts_is_a_release(self) -> None:
+        # The reviewer's case: every release signal is present and every one of
+        # them is an English token carrying a Korean particle.
+        shape, mode = self._classification("v1.2.3을 build를 production으로 승격해줘")
+
+        self.assertEqual("release", shape)
+        self.assertEqual("work", mode)
+
+    def test_the_request_is_echoed_as_the_user_wrote_it(self) -> None:
+        # Normalization is for matching. Spacing the text for the reader would
+        # change what every consumer of this field sees.
+        request = "v1.2.3을 production으로 승격해줘"
+
+        self.assertEqual(request, classify_request(request)["request"])
+
+
 class PromotionReleaseActionTests(unittest.TestCase):
     """A promotion is a release, and it did not route like one.
 

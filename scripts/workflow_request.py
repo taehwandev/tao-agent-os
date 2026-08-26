@@ -175,7 +175,14 @@ def _is_opted_out(concern: str, normalized: str) -> bool:
 
 def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, object]:
     normalized = " ".join(text.strip().split())
-    lowered = normalized.lower()
+    # Matched against the junction-normalized text, echoed as the user wrote it.
+    # Hangul is a word character, so `\bproduction\b` does not match
+    # `production으로`, and a Korean request naming an English artifact,
+    # destination, path, or verb classified as if those words were absent.
+    # `infer_concerns_from_request` already read through `_match_text`; this is
+    # the other consumer of the same tables.
+    matched = _match_text(normalized)
+    lowered = matched.lower()
     _normalize_continuation_scope(continuation_scope)
     direct_question = _matches(DIRECT_QUESTION_PATTERNS, lowered)
     imperative_correction = _matches(
@@ -190,9 +197,9 @@ def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, ob
     answer_only = direct_question and not asks_action
     effort = "quick" if answer_only else "standard"
     model_tier = MODEL_TIER_BY_EFFORT[effort]
-    if requires_code_authoring(normalized) and model_tier == "fast":
+    if requires_code_authoring(matched) and model_tier == "fast":
         model_tier = "balanced"
-    shape, shape_mode = _route_shape(answer_only, normalized, lowered)
+    shape, shape_mode = _route_shape(answer_only, matched, lowered)
     return {
         "request": normalized,
         "clarity": ANSWER_ONLY_CLARITY if answer_only else "vague-action",
