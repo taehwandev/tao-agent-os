@@ -595,6 +595,35 @@ class ClaudePreToolGateTests(unittest.TestCase):
         # only escape was an environment variable nothing mentioned.
         self.assertIn("Approve to proceed", decision["permissionDecisionReason"])
         self.assertIn("TAO_CLAUDE_GATE=0", decision["permissionDecisionReason"])
+        # An edit is what this reader did, so it is what the message names.
+        self.assertIn("before editing files", decision["permissionDecisionReason"])
+        self.assertIn("retry the edit", decision["permissionDecisionReason"])
+
+    def test_a_stopped_command_is_not_described_as_a_file_edit(self) -> None:
+        """The gate covered edits when this message was written.
+
+        It has covered commands since, and kept telling whoever ran
+        `git commit` to run start "before editing files" and then "retry the
+        edit" -- naming a file they had not touched.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git commit -m x"},
+                    "cwd": str(project),
+                    "session_id": "s",
+                }
+            )
+
+        self.assertEqual(0, code)
+        reason = _reason(out)
+        self.assertIn("running a command that changes this project", reason)
+        self.assertIn("retry the command", reason)
+        self.assertNotIn("editing files", reason)
+        self.assertNotIn("retry the edit", reason)
 
     def test_start_then_edit_is_allowed_and_stays_allowed(self) -> None:
         # Regression: an ordering-based gate denied this, the *correct*, flow
