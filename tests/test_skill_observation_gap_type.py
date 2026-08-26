@@ -291,6 +291,121 @@ class CuratorCarriesGapTypes(unittest.TestCase):
         self.assertIn("some_future_reason", details[1])
         self.assertIn("no remedy is recorded", details[1])
 
+    def _reject_after_staging(self, candidate: str) -> None:
+        """Drive a candidate to the state maintenance leaves when it cannot apply."""
+
+        from agent_skill_draft import record_draft
+        from agent_skill_maintenance import complete_verified_skill_maintenance
+
+        bundle = (
+            self.root / "project" / ".agents" / "shared" / "llm-skills" / "branch-cleanup"
+        )
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+        record_draft(
+            self.root,
+            project=self.root / "project",
+            rules=ROOT,
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            proposal=(
+                "The skill does not say which branch survives when two cleanup "
+                "runs claim the same name, so the run guessed. Add a decision "
+                "rule naming the newest claim as canonical."
+            ),
+            occurrence_id="occ-1",
+        )
+        review_candidate(
+            self.root,
+            candidate,
+            decision="stage_patch",
+            gap_type="missing_import_policy",
+            change_type="add_rule",
+            promotion_target="branch_cleanup",
+            min_occurrences=1,
+        )
+        complete_verified_skill_maintenance(
+            self.root,
+            project=self.root / "project",
+            rules=ROOT,
+            candidate_id=candidate,
+            outcome="rejected",
+            verification_kind="",
+            target="",
+            test_selector="",
+        )
+
+    def test_a_gap_the_reviewer_accepted_and_maintenance_never_applied_reopens(self):
+        """Nobody decided this gap needed nothing, so nothing should block it.
+
+        A completed record covers its gaps when a reviewer decided `no_change`,
+        or when the fix was `applied`. A `rejected` record means the opposite:
+        the review said `stage_patch` -- the gap should be fixed -- and
+        maintenance did not apply it. Treating that as covered made an accepted
+        gap unreachable forever, and told the next closeout that a review had
+        already closed it.
+        """
+
+        candidate = candidate_id("branch_cleanup", "missing_rule")
+        record_observation(
+            self.root,
+            occurrence_id="occ-1",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_import_policy",
+        )
+        curate_observations(self.root, min_occurrences=1)
+        self._reject_after_staging(candidate)
+        self.assertEqual(
+            "rejected",
+            json.loads(
+                (self.root / completed_path(candidate)).read_text(encoding="utf-8")
+            )["status"],
+        )
+
+        record_observation(
+            self.root,
+            occurrence_id="occ-2",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_import_policy",
+        )
+        curated = curate_observations(self.root, min_occurrences=1)
+
+        self.assertEqual([candidate], curated["queued"])
+        self.assertEqual([], curated["not_queued"])
+        self.assertFalse((self.root / completed_path(candidate)).exists())
+
+    def test_a_gap_the_reviewer_closed_still_blocks(self):
+        # The reviewer decided this one needed nothing. That decision stands.
+        candidate = candidate_id("branch_cleanup", "missing_rule")
+        record_observation(
+            self.root,
+            occurrence_id="occ-1",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_import_policy",
+        )
+        curate_observations(self.root, min_occurrences=1)
+        review_candidate(
+            self.root, candidate, decision="no_change", min_occurrences=1
+        )
+
+        record_observation(
+            self.root,
+            occurrence_id="occ-2",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_import_policy",
+        )
+        curated = curate_observations(self.root, min_occurrences=1)
+
+        self.assertEqual([], curated["queued"])
+        self.assertEqual(
+            [{"candidate_id": candidate, "reason": "closed_review_no_new_gap"}],
+            curated["not_queued"],
+        )
+
     def test_a_fifth_gap_reopens_and_enters_the_bounded_queue(self):
         candidate = candidate_id("branch_cleanup", "missing_rule")
         covered_gaps = ("gap_alpha", "gap_beta", "gap_delta", "gap_gamma")
