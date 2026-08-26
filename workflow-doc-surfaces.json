@@ -912,6 +912,20 @@
       "reason": "Runtime model dispatch and workflow metering changes require explicit handoff, effort-routing, and local-tool guidance."
     },
     {
+      "name": "evidence_wrappers",
+      "patterns": [
+        "scripts/agent-hook.py",
+        "scripts/agent-preflight.py",
+        "scripts/agent-finish-check.py",
+        "workflows/skills/scripted-agent-workflow/references/evidence-wrappers.md"
+      ],
+      "docs": [
+        "workflows/skills/scripted-agent-workflow/references/evidence-wrappers.md",
+        "workflows/skills/scripted-agent-workflow/SKILL.md"
+      ],
+      "reason": "Changing a wrapper entrypoint changes what a route writes and what a gate can prove, so its invocation and output contract are required reading."
+    },
+    {
       "name": "workflow_router",
       "patterns": [
         "scripts/workflow*.py",
