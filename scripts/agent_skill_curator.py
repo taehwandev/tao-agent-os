@@ -114,6 +114,22 @@ def _valid_completed_candidate(payload: dict[str, Any], candidate: str) -> bool:
     )
 
 
+
+def _covers_gaps(payload: dict[str, Any], gap_types: set[str]) -> bool:
+    """Whether a completed record settles the gaps an observation names.
+
+    Two terminal statuses settle them. `no_change` is a reviewer deciding the
+    gap needs nothing; `applied` is the fix landing. `rejected` is neither: the
+    review said `stage_patch` -- the gap should be fixed -- and maintenance did
+    not apply it. Treating that as settled left an accepted gap unreachable
+    forever and told the next closeout a review had already closed it.
+    """
+
+    if str(payload.get("status") or "") == "rejected":
+        return False
+    return gap_types.issubset(candidate_gap_types(payload))
+
+
 def _terminal_reopen_path(
     root: Path,
     compatible_candidates: set[str],
@@ -142,7 +158,9 @@ def _terminal_reopen_path(
         for candidate, _path, payload in completed
     ):
         return None, "unreadable_completed_record"
-    if any(gap_types.issubset(candidate_gap_types(payload)) for _id, _path, payload in completed):
+    if any(
+        _covers_gaps(payload, gap_types) for _id, _path, payload in completed
+    ):
         # An empty gap set is a subset of everything, so a recurrence that names
         # no gap lands here too. Declining is right -- it carries nothing the
         # closed review did not decide -- but the caller has to be told.
@@ -174,10 +192,17 @@ def _queue_candidate(
                 current = read_json(reopen_path)
                 if not _valid_completed_candidate(current, reopen_path.stem):
                     return False
-                covered_gap_types = candidate_gap_types(current)
-                if observed_gap_types.issubset(covered_gap_types):
+                # The same question _terminal_reopen_path already answered, and
+                # it is asked again here because this is where the write
+                # happens. One definition answers both, or the two drift.
+                if _covers_gaps(current, observed_gap_types):
                     return False
+                covered_gap_types = candidate_gap_types(current)
                 uncovered_gap_types = observed_gap_types - covered_gap_types
+                if not uncovered_gap_types:
+                    # A rejected record settles nothing, so every observed gap
+                    # is still open even when the record already lists it.
+                    uncovered_gap_types = set(observed_gap_types)
                 latest_uncovered = [
                     gap_type
                     for gap_type in latest_gap_types
