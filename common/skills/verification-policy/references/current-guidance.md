@@ -161,6 +161,58 @@ Manual:
 - Observed: redirected to login with the original destination preserved
 ```
 
+## Prove The Claim, Not Something Beside It
+
+A green test is not evidence that the thing it names works. It is evidence that
+*something* works. The two separate only when you break the code on purpose and
+watch the test fail.
+
+Five defects shipped green in one session, all the same shape — the assertion sat
+one level away from the claim:
+
+| the test said | what it actually proved |
+|---|---|
+| the refusal names a stopped command | the phrase appears somewhere in the sentence, which also held while the sentence read `this project in this project` |
+| the compactor takes the writer's lock | the writer and `state_lock` agree on a path — the compactor was free to lock a private file |
+| `promote` is anchored so it is not a release | that request had no release scope, so it was not a release either way |
+| the command runs once when cleanup fails | it runs once when cleanup *succeeds* |
+| the hook prints the reason | the formatter formats — deleting the line that called it stayed green |
+
+None of these was caught by reading. Every one was caught by a mutant.
+
+**Write the mutant that should kill the test, and run it.** If the test survives,
+it is testing its neighbour, not its subject:
+
+- Assert the artifact the consumer receives — the whole sentence, the returned
+  route, the printed line — not a fragment inside it or the helper that builds it.
+- Reach the subject through the call the real caller uses. A test that invokes
+  the helper directly cannot see broken wiring.
+- Set up the failure the test is named for. A concurrency test whose happy path
+  is all it exercises names a case it never runs.
+- When a fix removes wording or behaviour, assert its absence too. An additive
+  fix leaves the wrong thing sitting beside the new one.
+
+### Judge A Mutant By Exit Code
+
+```text
+<test command> > <log> 2>&1; echo "exit=$?"
+```
+
+Not by counting `FAIL:` lines. A mutant that breaks the module — `SyntaxError`,
+`RecursionError`, an import error — prints a traceback and no `FAIL:` line at
+all, and a grep-based detector reports it as a survivor. That misreading happened
+twice in the same session, in both directions: a surviving mutant called dead,
+and a dead mutant called a survivor.
+
+### Do Not Let The Host Answer
+
+A test that reads ambient state — an environment variable, a cache directory, a
+clock, a checkout — passes or fails by who ran it. One asserted that a fallback
+returned success, which held only because that host's cache path happened to be
+writable; in the sandbox the fallback exists for, the same assertion failed.
+
+Set the condition the test depends on, or assert only what holds regardless.
+
 ## When Tests Are Missing
 
 If no useful test exists:
