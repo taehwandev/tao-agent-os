@@ -118,15 +118,20 @@ def _terminal_reopen_path(
     root: Path,
     compatible_candidates: set[str],
     gap_types: set[str],
-) -> tuple[Path | None, bool]:
-    """Return one safe completed record to reopen, or whether state blocks queueing."""
+) -> tuple[Path | None, str]:
+    """Return one safe completed record to reopen, or why state blocks queueing.
+
+    The block is named rather than reported as a bare boolean. Curation reports
+    only how many items it queued, so a declined group looked exactly like no
+    observation at all -- and the way forward, naming the gap, appeared nowhere.
+    """
 
     if any(
         (root / review_queue_path(candidate)).exists()
         or (root / staged_path(candidate)).exists()
         for candidate in compatible_candidates
     ):
-        return None, True
+        return None, "already_awaiting_review"
     completed = [
         (candidate, root / completed_path(candidate), read_json(root / completed_path(candidate)))
         for candidate in compatible_candidates
@@ -136,11 +141,16 @@ def _terminal_reopen_path(
         not _valid_completed_candidate(payload, candidate)
         for candidate, _path, payload in completed
     ):
-        return None, True
+        return None, "unreadable_completed_record"
     if any(gap_types.issubset(candidate_gap_types(payload)) for _id, _path, payload in completed):
-        return None, True
+        # An empty gap set is a subset of everything, so a recurrence that names
+        # no gap lands here too. Declining is right -- it carries nothing the
+        # closed review did not decide -- but the caller has to be told.
+        return None, "closed_review_no_new_gap"
     # Multiple legacy aliases are ambiguous; one state may be reopened safely.
-    return (completed[0][1], False) if len(completed) == 1 else (None, bool(completed))
+    if len(completed) == 1:
+        return completed[0][1], ""
+    return None, "ambiguous_completed_aliases" if completed else ""
 
 
 def _queue_candidate(
@@ -231,6 +241,7 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
         groups.setdefault(canonical_candidate, []).append(normalized_payload)
 
     queued: list[str] = []
+    not_queued: list[dict[str, str]] = []
     eligible_count = 0
     queue_count = json_count(root / "skill-learning" / "review-queue")
     ordered = sorted(
@@ -259,6 +270,7 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
             root, compatible_candidates, gap_type_set
         )
         if blocked:
+            not_queued.append({"candidate_id": candidate, "reason": blocked})
             continue
         if queue_count >= MAX_REVIEW_QUEUE:
             break
@@ -292,6 +304,7 @@ def _curate_observations_locked(root: Path, *, min_occurrences: int) -> dict[str
     return {
         "scanned": sum(len(items) for items in groups.values()),
         "queued": queued,
+        "not_queued": not_queued,
         "ready_count": len(queued),
         "eligible_count": eligible_count,
         "threshold": threshold,
