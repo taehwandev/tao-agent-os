@@ -135,10 +135,20 @@ RELEASE_ACTION_PATTERNS = (
     r"\b(deploy|deployment|release|publish|ship|tag|push)\b",
     r"\bgithub release\b",
     r"\bappcast\b",
+    # The verbs that finish a release, not only the ones that start it. A
+    # promotion carried no release action at all, so it never reached the
+    # release branch and never reached Grill-Me either: it routed as an
+    # ordinary task in work mode. `promote` is anchored to a destination
+    # because this repo promotes lesson candidates too, and that is
+    # maintenance rather than a deploy.
+    r"\b(?:promote|promoting|promotion)\b.*\b(?:prod|production|staging|store|release)\b",
+    r"\broll ?out\b",
     "배포",
     "릴리스",
     "푸쉬",
     "태그",
+    "승격",
+    "롤아웃",
 )
 
 TEST_ACTION_PATTERNS = (
@@ -290,18 +300,21 @@ RELEASE_SCOPE_SIGNAL_PATTERNS = (
         "산출물",
         "패키지",
         "앱",
+        "빌드",
     ),
     (
         # The destination of a release. Korean sat only in RELEASE_ACTION_PATTERNS,
         # so a Korean request named the action but could never name where it went,
         # and the two-signal rule then read a real deploy as an unclear ask.
-        r"\b(?:push|publish|github release|remote|origin|tag|deploy|distribution|app distribution|firebase|testflight|play console|release workflow)\b",
+        r"\b(?:push|publish|github release|remote|origin|tag|deploy|distribution|app distribution|firebase|testflight|play console|release workflow|prod|production|staging)\b",
         "원경",
         "푸쉬",
         "태그",
         "게시",
         "배포",
         "테스터",
+        "프로덕션",
+        "스테이징",
     ),
     (
         r"\b(?:verify|verification|test|build|smoke|package|sign|signed|notary|notarize|rollback|forward-fix)\b",

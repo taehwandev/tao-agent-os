@@ -323,6 +323,52 @@ class GraphifyOptOutVerbTests(unittest.TestCase):
         )
 
 
+class PromotionReleaseActionTests(unittest.TestCase):
+    """A promotion is a release, and it did not route like one.
+
+    `RELEASE_ACTION_PATTERNS` named the verbs that start a release -- deploy,
+    publish, ship, tag, push -- but not the ones that finish one. "Promote the
+    staging build to production" therefore carried no release action, so the
+    release branch never fired and the two-signal scope rule never got the
+    chance to send it to Grill-Me either. It routed as an ordinary `task` in
+    `work` mode: no release readiness, and no clarification.
+    """
+
+    def test_a_promotion_to_production_routes_to_release(self) -> None:
+        for request in (
+            "promote the 1.4.0 staging build to production for the ios app",
+            "roll out the 1.4.0 staging build to production for the ios app",
+            "1.4.0 스테이징 빌드를 프로덕션으로 승격해줘",
+        ):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertEqual("release", result["route_shape"])
+                self.assertEqual("work", result["shape_response_mode"])
+
+    def test_a_bare_promotion_verb_still_asks_for_clarification(self) -> None:
+        # Naming no artifact and no destination is a real ambiguity, not a gap.
+        for request in ("promote it", "승격해줘"):
+            with self.subTest(request=request):
+                self.assertEqual(
+                    "clarify_first", classify_request(request)["response_mode"]
+                )
+
+    def test_promoting_something_that_is_not_a_build_keeps_the_commit_route(self) -> None:
+        """`promote` is anchored to a destination, and this is what that buys.
+
+        Written first as `assertNotEqual("release", ...)` on a bare promotion,
+        which passed with or without the anchor: that request names no release
+        scope, so the two-signal rule rejects it either way. The anchor earns
+        its keep one level down. `commit_release_substep` is false whenever a
+        commit request also carries a release action, so an unanchored
+        `promote` costs this request its commit route entirely.
+        """
+
+        result = classify_request("commit the fix and promote the lesson candidates")
+        self.assertEqual("commit", result["route_shape"])
+        self.assertNotEqual("release", result["route_shape"])
+
+
 class KoreanReleaseScopeSignalTests(unittest.TestCase):
     """Release scope signals were English-only while the action list was not.
 
