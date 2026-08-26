@@ -408,6 +408,53 @@ class PromotionReleaseActionTests(unittest.TestCase):
                     "clarify_first", classify_request(request)["response_mode"]
                 )
 
+    def test_a_destination_named_before_the_verb_is_still_a_promotion(self) -> None:
+        """Korean puts the destination first, and the anchor read one order.
+
+        `promote` is anchored to a destination so this repo's own promotions --
+        lesson candidates -- do not read as deploys. The anchor was written as
+        verb-then-destination, which is English word order;
+        `production으로 promote해줘` names the destination first and carried no
+        release action at all.
+        """
+
+        result = classify_request(
+            "v26.08.5 build를 staging에서 production으로 promote해줘"
+        )
+
+        self.assertEqual("release", result["route_shape"])
+        self.assertEqual("work", result["shape_response_mode"])
+
+    def test_a_single_digit_major_version_is_release_scope(self) -> None:
+        """The version signal required a two-digit major, so v1.2.3 was not one.
+
+        The pattern was written for this project's date-style versions
+        (26.08.5) and excluded ordinary semver. A promotion naming v1.2.3 and a
+        destination then had one scope signal where it needed two.
+        """
+
+        result = classify_request("v1.2.3을 staging에서 production으로 승격해줘")
+
+        self.assertEqual("release", result["route_shape"])
+        self.assertEqual("work", result["shape_response_mode"])
+
+    def test_a_bare_count_is_not_a_version(self) -> None:
+        """Widening the major digit must not make every number a version.
+
+        Written first as `v1.2.3 확인해줘`, which proved nothing: with the
+        version pattern replaced by `\\b\\d+\\b` that request still had one
+        signal and still was not a release. `배포 3건 해줘` is where the
+        difference shows -- an action, a count, and nothing else -- and it must
+        stay a clarification.
+        """
+
+        self.assertNotEqual(
+            "release", classify_request("배포 3건 해줘")["route_shape"]
+        )
+        self.assertNotEqual(
+            "release", classify_request("v1.2.3 확인해줘")["route_shape"]
+        )
+
     def test_promoting_something_that_is_not_a_build_keeps_the_commit_route(self) -> None:
         """`promote` is anchored to a destination, and this is what that buys.
 

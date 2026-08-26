@@ -404,9 +404,6 @@ class LocalSkillsValidationScopeTests(unittest.TestCase):
         self.assertEqual(under_local, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class PromotionTargetIsCheckedBeforeStaging(unittest.TestCase):
     """An unmatchable promotion target reached `staged`, where nothing undoes it.
@@ -471,15 +468,28 @@ class PromotionTargetIsCheckedBeforeStaging(unittest.TestCase):
         self.assertIn("unknown_promotion_target", "\n".join(details))
 
     def test_the_refusal_names_the_catalog(self):
-        # The value looks like a skill and is not one, so the message has to say
-        # which set it was checked against or the caller retries the same slug.
-        _result, details = self._review(f"{SKILL}_current_guidance")
+        """The value looks like a skill, so the message must say which set.
+
+        Asserted as `canonical skill` at first, which the *success* path also
+        prints -- "canonical skill guidance is edited only by the verified
+        maintenance step". Deleting the refusal left this green. The assertion
+        is now a phrase that exists only in the refusal, and it is paired with
+        the outcome so wording alone cannot satisfy it.
+        """
+
+        result, details = self._review(f"{SKILL}_current_guidance")
 
         printed = "\n".join(details)
-        self.assertIn("canonical skill", printed)
+        self.assertFalse(result.get("updated"), printed)
+        self.assertIn("must be a canonical skill id", printed)
+        self.assertNotIn("skill review recorded", printed)
 
     def test_a_catalog_target_still_stages(self):
         result, _details = self._review(SKILL)
 
         self.assertTrue(result.get("updated"), result)
         self.assertTrue(self._is_staged())
+
+
+if __name__ == "__main__":
+    unittest.main()
