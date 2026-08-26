@@ -168,18 +168,40 @@ def run_verification_command(command: list[str], cwd: Path) -> dict[str, Any]:
     A private cache directory removes the dependency without hiding anything:
     `PYTHONDONTWRITEBYTECODE` cannot be used here, because suppressing the write
     is suppressing the check.
+
+    That directory is this function's only filesystem write, and it is the one
+    thing that could make the function raise. Every caller reads a returncode
+    and none guards the call, so a denied temp location must degrade to the
+    inherited environment -- the behaviour before the cache was isolated -- and
+    never become a hook that stops instead of a check that fails.
     """
 
-    with tempfile.TemporaryDirectory(prefix="tao-verify-cache-") as cache:
-        result = subprocess.run(
-            command,
-            cwd=str(cwd),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            env={**os.environ, "PYTHONPYCACHEPREFIX": cache},
-        )
+    try:
+        cache = tempfile.mkdtemp(prefix="tao-verify-cache-")
+    except OSError:
+        return _run_with_cache(command, cwd, None)
+    # Creation and cleanup are separated on purpose. Wrapping both in one try
+    # would re-run the command when cleanup failed, and running a verification
+    # twice is worse than leaving a directory behind.
+    try:
+        return _run_with_cache(command, cwd, cache)
+    finally:
+        shutil.rmtree(cache, ignore_errors=True)
+
+
+def _run_with_cache(command: list[str], cwd: Path, cache: str | None) -> dict[str, Any]:
+    environment = dict(os.environ)
+    if cache is not None:
+        environment["PYTHONPYCACHEPREFIX"] = cache
+    result = subprocess.run(
+        command,
+        cwd=str(cwd),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env=environment,
+    )
     return {
         "returncode": result.returncode,
         "stdout": result.stdout,
