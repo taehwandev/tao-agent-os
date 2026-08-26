@@ -156,5 +156,72 @@ class CopySourcePathRoleTests(unittest.TestCase):
         self.assertIn(self.main, [path for path in roots])
 
 
+class CopyShapedCommandTests(CopySourcePathRoleTests):
+    """The same shape, however the copy is spelled.
+
+    Modelling `cp` alone meant the permitted move worked one way and was
+    refused every other way: `rsync -a`, `install` and `ln -s` copy sources
+    first and destination last exactly as `cp` does, and none of them writes to
+    a source. A person seeding a worktree does not pick between them for
+    safety reasons, so a gate that does is only teaching a spelling.
+    """
+
+    def _skip_unless_present(self, name: str) -> None:
+        import shutil
+
+        if not shutil.which(name):
+            self.skipTest(f"{name} is not installed on this host")
+
+    def test_rsync_sources_name_no_target(self) -> None:
+        self._skip_unless_present("rsync")
+        roots = self._roots(f"rsync -a {self.source} {self.destination}", self.worktree)
+        self.assertNotIn(self.main, roots)
+
+    def test_install_sources_name_no_target(self) -> None:
+        self._skip_unless_present("install")
+        roots = self._roots(f"install -p {self.source} {self.destination}", self.worktree)
+        self.assertNotIn(self.main, roots)
+
+    def test_a_link_target_names_no_target(self) -> None:
+        self._skip_unless_present("ln")
+        roots = self._roots(f"ln -s {self.source} {self.destination}", self.worktree)
+        self.assertNotIn(self.main, roots)
+
+    def test_a_flag_that_writes_the_source_keeps_every_path(self) -> None:
+        """`--remove-source-files` deletes what it read, so it is not a copy."""
+
+        self._skip_unless_present("rsync")
+        roots = self._roots(
+            f"rsync -a --remove-source-files {self.source} {self.destination}",
+            self.worktree,
+        )
+        self.assertIn(self.main, [path for path in roots])
+
+    def test_a_destination_first_flag_keeps_every_path(self) -> None:
+        self._skip_unless_present("install")
+        roots = self._roots(
+            f"install -t {self.worktree} {self.source}", self.worktree
+        )
+        self.assertIn(self.main, [path for path in roots])
+
+    def test_each_command_keeps_its_own_safe_flags(self) -> None:
+        """A shared flag set would lend one command another's guarantees."""
+
+        from claude_bash_paths import COPY_SHAPED_COMMANDS
+
+        self.assertIsNone(COPY_SHAPED_COMMANDS["rsync"][0].fullmatch("-n"))
+        self.assertIsNotNone(COPY_SHAPED_COMMANDS["cp"][0].fullmatch("-n"))
+        self.assertIsNone(COPY_SHAPED_COMMANDS["cp"][0].fullmatch("-s"))
+        self.assertIsNotNone(COPY_SHAPED_COMMANDS["ln"][0].fullmatch("-s"))
+
+    def test_a_spoofed_binary_earns_nothing_for_any_command(self) -> None:
+        for name in ("rsync", "install", "ln"):
+            with self.subTest(command=name):
+                roots = self._roots(
+                    f"/tmp/{name} -a {self.source} {self.destination}", self.worktree
+                )
+                self.assertIn(self.main, [path for path in roots])
+
+
 if __name__ == "__main__":
     unittest.main()
