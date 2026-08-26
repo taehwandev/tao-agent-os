@@ -18,7 +18,7 @@ if str(SCRIPTS) not in sys.path:
 from agent_hook_runtime import repair_context_failures
 from agent_repair_ledger import record_failure_checkpoints
 from agent_repair_verification import create_repair_receipt, validate_repair_receipt
-from agent_verification_command import verification_workdir
+from agent_verification_command import run_verification_command, verification_workdir
 
 
 def _init_repo(project: Path) -> None:
@@ -26,6 +26,50 @@ def _init_repo(project: Path) -> None:
     subprocess.run(
         ["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=str(project), check=True
     )
+
+
+class VerificationCacheIsolationTests(unittest.TestCase):
+    """A check must fail for the file it names, never for a cache path.
+
+    The default interpreter here is Xcode's Python, whose `sys.pycache_prefix`
+    is an absolute path outside the project. `run_verification_command` passed
+    the environment straight through, so where a sandbox denies that path,
+    `py_compile` exits 1 with a PermissionError -- reporting a syntactically
+    perfect file as a failed verification. `unittest` is unaffected: bytecode
+    written at import time is best-effort, and only `py_compile` treats the
+    write as the job.
+    """
+
+    def test_py_compile_passes_where_the_interpreter_cache_path_is_denied(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sound.py"
+            target.write_text("VALUE = 1\n", encoding="utf-8")
+            denied = Path(tmp) / "denied"
+            denied.mkdir()
+            denied.chmod(0o500)
+            os.environ["PYTHONPYCACHEPREFIX"] = str(denied / "cache")
+            self.addCleanup(os.environ.pop, "PYTHONPYCACHEPREFIX", None)
+            try:
+                result = run_verification_command(
+                    [sys.executable, "-m", "py_compile", str(target)], Path(tmp)
+                )
+            finally:
+                # Before the fixture unwinds, or it cannot remove the directory.
+                denied.chmod(0o700)
+
+        self.assertEqual(0, result["returncode"], result["stderr"])
+        self.assertNotIn("PermissionError", result["stderr"])
+
+    def test_a_real_syntax_error_still_fails(self) -> None:
+        # The isolation must not swallow the failure the check exists to find.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "broken.py"
+            target.write_text("def (\n", encoding="utf-8")
+            result = run_verification_command(
+                [sys.executable, "-m", "py_compile", str(target)], Path(tmp)
+            )
+
+        self.assertNotEqual(0, result["returncode"])
 
 
 class AgentRepairVerificationTests(unittest.TestCase):

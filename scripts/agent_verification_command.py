@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -152,14 +154,32 @@ def verification_command(
 
 
 def run_verification_command(command: list[str], cwd: Path) -> dict[str, Any]:
-    result = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    """Run one allowlisted check, and let it fail only for what it checks.
+
+    The environment is inherited except for the bytecode cache location. The
+    default interpreter on a macOS host is Xcode's Python, whose
+    `sys.pycache_prefix` is an absolute path under the user's Library rather
+    than a `__pycache__` beside the source; where a sandbox denies that path,
+    `py_compile` exits non-zero with a PermissionError and a syntactically
+    perfect file is recorded as a failed verification. `unittest` never showed
+    this because bytecode written at import is best-effort -- only `py_compile`
+    treats the write as the job, so only it turns a denied cache into a verdict.
+
+    A private cache directory removes the dependency without hiding anything:
+    `PYTHONDONTWRITEBYTECODE` cannot be used here, because suppressing the write
+    is suppressing the check.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="tao-verify-cache-") as cache:
+        result = subprocess.run(
+            command,
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env={**os.environ, "PYTHONPYCACHEPREFIX": cache},
+        )
     return {
         "returncode": result.returncode,
         "stdout": result.stdout,
