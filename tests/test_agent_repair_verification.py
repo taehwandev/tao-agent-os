@@ -60,6 +60,67 @@ class VerificationCacheIsolationTests(unittest.TestCase):
         self.assertEqual(0, result["returncode"], result["stderr"])
         self.assertNotIn("PermissionError", result["stderr"])
 
+    def test_a_denied_temp_location_does_not_raise_into_the_caller(self) -> None:
+        """Isolating the cache must not become a new way to fail.
+
+        Every caller reads result["returncode"]; none guards the call. Creating
+        a cache directory gave this function a filesystem write of its own, so
+        where the temp location is denied it raised instead of returning a
+        captured failure -- trading a check that fails for a hook that stops.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sound.py"
+            target.write_text("VALUE = 1\n", encoding="utf-8")
+            denied = Path(tmp) / "denied"
+            denied.mkdir()
+            denied.chmod(0o500)
+            original = tempfile.tempdir
+            tempfile.tempdir = str(denied)
+            try:
+                result = run_verification_command(
+                    [sys.executable, "-m", "py_compile", str(target)], Path(tmp)
+                )
+            finally:
+                tempfile.tempdir = original
+                denied.chmod(0o700)
+
+        self.assertEqual(0, result["returncode"], result["stderr"])
+
+    def test_the_command_runs_once_when_the_cache_cannot_be_removed(self) -> None:
+        """Falling back must not mean running the check again.
+
+        The first fallback wrapped creation and cleanup in one try, so a
+        cleanup failure re-entered the runner and executed the verification a
+        second time. Written first against the happy path, which proved
+        nothing: that shape also runs once when cleanup succeeds. The child
+        therefore makes its own cache directory unremovable, and the ledger it
+        appends to has to hold exactly one line.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            holder = Path(tmp) / "holder"
+            holder.mkdir()
+            ledger = Path(tmp) / "runs.txt"
+            script = (
+                "import os, pathlib;"
+                f"pathlib.Path({str(ledger)!r}).open('a').write('run\\n');"
+                # Removing the cache needs write on its parent; deny that.
+                f"os.chmod({str(holder)!r}, 0o500)"
+            )
+            original = tempfile.tempdir
+            tempfile.tempdir = str(holder)
+            try:
+                result = run_verification_command(
+                    [sys.executable, "-c", script], Path(tmp)
+                )
+            finally:
+                tempfile.tempdir = original
+                holder.chmod(0o700)
+
+            self.assertEqual(0, result["returncode"], result["stderr"])
+            self.assertEqual(1, ledger.read_text(encoding="utf-8").count("run"))
+
     def test_a_real_syntax_error_still_fails(self) -> None:
         # The isolation must not swallow the failure the check exists to find.
         with tempfile.TemporaryDirectory() as tmp:
