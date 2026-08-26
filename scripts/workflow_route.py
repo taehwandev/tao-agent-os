@@ -431,29 +431,6 @@ REQUIRED_DOC_BUDGET_BYTES = 30_000
 # replacing the three always-loaded detailed documents with lazy references.
 MAX_REQUIRED_DOCS = 8
 
-# STOPGAP -- not a permanent policy.  A single reference larger than this would
-# monopolise the route's mandatory reading: admitting one exhausts
-# REQUIRED_DOC_BUDGET_BYTES on its own and stops selection, dropping every
-# lower-ranked card that would otherwise have fit.  Oversized documents stay in
-# `reference_docs`, where the agent can still reach them.
-#
-# The real fix is to split an oversized reference into separately routable topic
-# siblings, as `platforms/android/skills/android-module-structure` now is -- every
-# piece of that bundle is under 11 KB and routes on its own concern, so this guard
-# never touches it.  The agent-runtime-integration reference has been split the
-# same way: its setup half is now `references/runtime-setup.md`, routed by the
-# `runtime_setup` path surface, and both halves are under this limit.
-#
-# The list of what still trips it is not written here, because the previous one
-# went stale twice over: it named two documents while three were oversized, and
-# one of the two it named had already been split.  Ask instead:
-#
-#   find . -path ./.tao -prune -o -name '*.md' -path '*/references/*' -size +39k -print
-#
-# When that command prints nothing, this constant, its use in the selection loop
-# below, and the bundle-size tests can all be deleted.
-OVERSIZED_DOC_BYTES = 40_000
-
 
 def route_required_docs(
     command: str,
@@ -603,10 +580,6 @@ def _route_required_docs(
             if len(selected) >= MAX_REQUIRED_DOCS or used >= REQUIRED_DOC_BUDGET_BYTES:
                 return selected
             size = doc_size(ROOT, doc)
-            if size > OVERSIZED_DOC_BYTES:
-                # Skipping here is the one place ranking is not honoured; the
-                # document stays reachable as a reference.
-                continue
             selected.append(doc)
             used += size
     return selected

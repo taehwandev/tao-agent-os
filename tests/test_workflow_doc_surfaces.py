@@ -69,7 +69,7 @@ from support.runtime_bridge import (
 from support.stable_launcher import stable_launcher_path
 from workflow_catalog import COMMANDS, CONCERNS, SPILL_ACTION_LABELS
 from workflow_doc_resolution import resolve_guidance_docs
-from workflow_route import OVERSIZED_DOC_BYTES, CORE_REQUIRED_DOCS
+from workflow_route import CORE_REQUIRED_DOCS
 from workflow_gate_policy import (
     AGENTIC_RUN_STATE_GATE,
     AMBIGUITY_GATE,
@@ -1237,31 +1237,13 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
 
         self.assertIn("doc_graph_matches", route)
         # A markdown-link graph neighbor reaches the agent as a reference doc.
-        # `local-tools` anchors this property independently of OVERSIZED_DOC_BYTES:
-        # it is a small file, so it demonstrates graph-neighbor exposure on its own
-        # merits rather than as a side effect of a size demotion.  This assertion
-        # should outlive the guard.
+        # `local-tools` anchored this property independently of the oversize
+        # guard, which is why it outlived it: a small file demonstrating
+        # graph-neighbor exposure on its own merits rather than as a side
+        # effect of a size demotion.
         neighbours = {match["path"] for match in route["doc_graph_matches"]}
         self.assertIn("common/skills/local-tools/SKILL.md", neighbours)
         self.assertIn("common/skills/local-tools/SKILL.md", route["reference_docs"])
-        # The guard's observable effect, pinned to a document that still trips
-        # it.  This anchor named the scripted-agent-workflow reference until that
-        # one was split; the assertion kept passing afterwards while its reason
-        # had stopped being true, which is the failure mode it exists to prevent.
-        # It now asks which references are oversized rather than naming one, so
-        # the last split makes it fail loudly instead of quietly meaning nothing.
-        oversized = sorted(
-            path
-            for path in route["reference_docs"]
-            if (ROOT / path).exists() and (ROOT / path).stat().st_size > OVERSIZED_DOC_BYTES
-        )
-        self.assertTrue(
-            oversized,
-            "no oversized reference remains on this route; delete OVERSIZED_DOC_BYTES "
-            "and this assertion together",
-        )
-        for path in oversized:
-            self.assertNotIn(path, route["required_docs"])
 
     def test_query_uses_document_graph_to_promote_related_skill_entrypoints(self) -> None:
         results = search_docs(ROOT, "훅으로 문서 검색하고 읽도록", max_results=12)

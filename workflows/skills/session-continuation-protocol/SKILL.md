@@ -29,8 +29,14 @@ not persistence, and belongs to
 
 ## Read
 
-- `references/current-guidance.md` for the packet schema, storage, discovery,
-  drift, and takeover contracts.
+- `references/current-guidance.md` for the ownership boundary, retention,
+  verification, sequencing, and the conditions that stop the work.
+- `references/decisions.md` for why the protocol behaves as it does: when the
+  checkpoint is written, what drift does, how takeover works, and how the
+  content boundary is enforced.
+- `references/packet-contract.md` for the packet schema, storage, the run and
+  packet state machine, the discovery and CLI contract, and what a runtime
+  adapter must provide.
 - `workflows/skills/agent-handoff-continuation/SKILL.md` for what state is worth
   carrying at all; this card only persists what that card selects.
 - `workflows/skills/scripted-agent-workflow/SKILL.md` for the run lifecycle and

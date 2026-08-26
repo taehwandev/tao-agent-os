@@ -28,7 +28,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from workflow_doc_resolution import doc_size  # noqa: E402
 from workflow_route import (  # noqa: E402
-    OVERSIZED_DOC_BYTES,
     REQUIRED_DOC_BUDGET_BYTES,
     resolve_docs,
 )
@@ -173,23 +172,6 @@ class BundleSizeTests(unittest.TestCase):
         }
 
         self.assertEqual({}, oversized)
-
-    def test_no_bundle_document_trips_the_oversized_doc_guard(self) -> None:
-        """The property that lets `OVERSIZED_DOC_BYTES` eventually be deleted.
-
-        The guard exists only for references that are still too large to split;
-        this bundle is no longer one of them.  Asserting it directly -- rather
-        than relying on the stricter budget check above -- means the guard's
-        cost to this bundle stays visibly zero, and that a future edit regrowing
-        a sibling past the cutoff fails against the cutoff by name.
-        """
-        tripping = {
-            path: doc_size(ROOT, path)
-            for path in (CORE, *TOPIC_DOCS)
-            if doc_size(ROOT, path) > OVERSIZED_DOC_BYTES
-        }
-
-        self.assertEqual({}, tripping)
 
 
 class BundleContentPreservationTests(unittest.TestCase):
