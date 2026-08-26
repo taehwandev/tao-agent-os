@@ -331,6 +331,11 @@ def stopped_action(tool: str) -> tuple[str, str]:
     commands since. It kept saying "before editing files" and "retry the edit"
     while stopping `git commit`, `git push` and `git checkout -b`, so a reader
     whose commit was stopped was told about a file they had not touched.
+
+    Each phrase carries "this project" itself rather than leaving it to the
+    sentence around it, because a command is stopped for changing the project
+    and an edit for touching files in it -- two different places for the same
+    words, and a shared suffix produced "this project in this project".
     """
 
     if tool in BASH_TOOLS:
@@ -338,7 +343,7 @@ def stopped_action(tool: str) -> tuple[str, str]:
             "running a command that changes this project",
             "retry the command",
         )
-    return ("editing files", "retry the edit")
+    return ("editing files in this project", "retry the edit")
 
 
 def deny_reason(root: Path, session_id: str = "", tool: str = "") -> str:
@@ -360,8 +365,7 @@ def deny_reason(root: Path, session_id: str = "", tool: str = "") -> str:
         cause = f"Preflight evidence at {evidence} does not satisfy the workflow entry gate."
     action, retry = stopped_action(tool)
     return (
-        f"Tao Agent OS: run the workflow start hook before {action} in this "
-        f"project. {cause} "
+        f"Tao Agent OS: run the workflow start hook before {action}. {cause} "
         f"Run `{stable_launcher_path()} start --project "
         f"{root} --rules <TAO_ROOT> --command <route> --request \"<user "
         f"request>\"`, read the route required_docs, then {retry}. Set "

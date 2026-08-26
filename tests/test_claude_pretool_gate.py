@@ -596,7 +596,12 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertIn("Approve to proceed", decision["permissionDecisionReason"])
         self.assertIn("TAO_CLAUDE_GATE=0", decision["permissionDecisionReason"])
         # An edit is what this reader did, so it is what the message names.
-        self.assertIn("before editing files", decision["permissionDecisionReason"])
+        # Asserted as the whole sentence: a fragment check passed while the
+        # sentence around it read "this project in this project".
+        self.assertIn(
+            "run the workflow start hook before editing files in this project.",
+            decision["permissionDecisionReason"],
+        )
         self.assertIn("retry the edit", decision["permissionDecisionReason"])
 
     def test_a_stopped_command_is_not_described_as_a_file_edit(self) -> None:
@@ -620,10 +625,18 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         reason = _reason(out)
-        self.assertIn("running a command that changes this project", reason)
+        # The whole sentence, not the phrase inside it. Asserting only
+        # "running a command that changes this project" passed while the
+        # sentence read "... changes this project in this project."
+        self.assertIn(
+            "run the workflow start hook before running a command that "
+            "changes this project.",
+            reason,
+        )
         self.assertIn("retry the command", reason)
         self.assertNotIn("editing files", reason)
         self.assertNotIn("retry the edit", reason)
+        self.assertNotIn("this project in this project", reason)
 
     def test_start_then_edit_is_allowed_and_stays_allowed(self) -> None:
         # Regression: an ordering-based gate denied this, the *correct*, flow
