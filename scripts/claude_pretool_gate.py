@@ -64,6 +64,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         bash_command,
         bash_command_kind,
         bash_invocation,
+        copy_source_token_indices,
         git_common_dir,
         has_unresolvable_expansion,
         path_arguments,
@@ -113,6 +114,11 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def raw_path_arguments(command: str) -> "list[Path]":
         return []
+
+    def copy_source_token_indices(tokens: list[str]) -> "frozenset[int]":
+        # A broken install claims no operand is read-only, so every path stays
+        # a target and the gate keeps its strictest reading.
+        return frozenset()
 
     def has_unresolvable_expansion(command: str) -> bool:
         return False
@@ -680,10 +686,22 @@ def _main_checkout_for(root: Path) -> Path | None:
 
 
 def bash_target_project_roots(tokens: list[str], cwd: Path) -> list[Path]:
-    """Protected projects named by the command's own path arguments."""
+    """Protected projects named by the command's own path arguments.
 
+    A trusted plain `cp` only reads from every operand but its last, so those
+    exact token positions name no target. Dropping them is what lets a linked
+    worktree be seeded with the gitignored local files the main checkout alone
+    holds -- the move this gate's own denial message asks for, and one no other
+    source can supply, since an ignored file is not in the object store. The
+    destination and any identical spelling in a later segment are still judged.
+    """
+
+    source_indices = copy_source_token_indices(tokens)
+    targets = [
+        token for index, token in enumerate(tokens) if index not in source_indices
+    ]
     roots: list[Path] = []
-    for path in path_arguments(tokens):
+    for path in path_arguments(targets):
         try:
             root = _owning_project(path if path.is_absolute() else cwd / path)
         except UnresolvableTarget:

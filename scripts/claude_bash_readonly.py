@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
+import shutil
+import stat
+import sys
 from pathlib import Path
 
 from claude_bash_git import git_command_kind
@@ -18,6 +24,7 @@ from claude_bash_syntax import (
     unmodelled_operator,
 )
 from claude_bash_paths import (  # noqa: F401
+    copy_source_token_indices,
     path_arguments,
     raw_path_arguments,
 )
@@ -128,6 +135,13 @@ RUNTIME_CONTROL_HOOKS = frozenset(
     }
 )
 WORKFLOW_START_HOOK = "start"
+# The declaration is injected by the parent hook environment, rather than read
+# from agent-writable state. Each entry binds one canonical script path to its
+# exact content. An operator revokes it by removing the environment declaration
+# and refreshes it by recomputing the digest after an intentional script edit.
+READ_ONLY_PYTHON_SCRIPTS_ENV = "TAO_CLAUDE_READ_ONLY_PYTHON_SCRIPTS"
+READ_ONLY_PYTHON_SCRIPTS_SCHEMA_VERSION = 1
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 def inert_env_assignment(token: str) -> bool:
@@ -165,18 +179,18 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     executable_path = Path(tokens[0]).expanduser()
     try:
         executable_path = executable_path.resolve()
-    except OSError:
+    except (OSError, ValueError):
         return None
     if executable_path == stable_launcher_path().expanduser().resolve() and len(tokens) > 1:
         if tokens[1] == WORKFLOW_START_HOOK:
             return "workflow_start"
         return "bootstrap" if tokens[1] in RUNTIME_CONTROL_HOOKS else None
-    if executable_path.name not in {"python", "python3"} or len(tokens) <= 2:
+    if not _current_python_interpreter(tokens[0]) or len(tokens) <= 2:
         return None
     script = Path(tokens[1]).expanduser()
     try:
         script = script.resolve()
-    except OSError:
+    except (OSError, ValueError):
         return None
     expected = Path(__file__).resolve().with_name("agent-hook.py")
     if script != expected:
@@ -184,6 +198,135 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     if tokens[2] == WORKFLOW_START_HOOK:
         return "workflow_start"
     return "bootstrap" if tokens[2] in RUNTIME_CONTROL_HOOKS else None
+
+
+def read_only_python_scripts() -> dict[Path, str]:
+    """Strict digest-bound declarations supplied by the parent hook.
+
+    One malformed entry invalidates the entire declaration. Partial acceptance
+    would make an operator typo indistinguishable from an intentionally omitted
+    check, so the only safe fallback is no script allowance.
+    """
+
+    raw_declaration = os.environ.get(READ_ONLY_PYTHON_SCRIPTS_ENV, "")
+    if not raw_declaration:
+        return {}
+    try:
+        raw = json.loads(raw_declaration)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(raw, dict) or set(raw) != {"schema_version", "scripts"}:
+        return {}
+    if raw.get("schema_version") != READ_ONLY_PYTHON_SCRIPTS_SCHEMA_VERSION:
+        return {}
+    entries = raw.get("scripts")
+    if not isinstance(entries, list):
+        return {}
+    declarations: dict[Path, str] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
+            return {}
+        raw_path = entry.get("path")
+        digest = entry.get("sha256")
+        if not isinstance(raw_path, str) or not isinstance(digest, str):
+            return {}
+        if SHA256_RE.fullmatch(digest) is None:
+            return {}
+        script = _canonical_regular_file(raw_path)
+        if script is None or script in declarations:
+            return {}
+        if _file_sha256(script) != digest:
+            return {}
+        declarations[script] = digest
+    return declarations
+
+
+def _canonical_regular_file(raw_path: str) -> Path | None:
+    """Return an absolute canonical regular non-symlink path, or nothing."""
+
+    if not raw_path or "\x00" in raw_path:
+        return None
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        return None
+    try:
+        if candidate.is_symlink():
+            return None
+        resolved = candidate.resolve(strict=True)
+        if candidate != resolved or not stat.S_ISREG(candidate.lstat().st_mode):
+            return None
+    except (OSError, ValueError):
+        return None
+    return candidate
+
+
+def _file_sha256(path: Path) -> str | None:
+    digest = hashlib.sha256()
+    descriptor: int | None = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as source:
+            descriptor = None
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                return None
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except (OSError, ValueError):
+        return None
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    return digest.hexdigest()
+
+
+def _current_python_interpreter(token: str) -> bool:
+    """Whether a token resolves to the Python running this hook."""
+
+    if not token or "\x00" in token:
+        return False
+    selected = Path(token)
+    if selected.is_absolute():
+        candidate = selected
+    elif selected.name == token:
+        located = shutil.which(token)
+        if not located:
+            return False
+        candidate = Path(located)
+    else:
+        return False
+    try:
+        resolved = candidate.resolve(strict=True)
+        runtime = Path(sys.executable).resolve(strict=True)
+        return resolved == runtime and stat.S_ISREG(resolved.stat().st_mode)
+    except (OSError, ValueError):
+        return False
+
+
+def read_only_script_kind(tokens: list[str]) -> str | None:
+    """Read-only when a digest-bound script is what the interpreter runs.
+
+    The script has to be the interpreter's first argument, which is what keeps
+    `-c`, `-m` and `-i` out: none of them can occupy that position and still
+    resolve to a declared path. An unresolvable or undeclared path returns None
+    and falls through to the mutating default, so the allowance fails closed.
+    """
+
+    if len(tokens) < 2:
+        return None
+    if not _current_python_interpreter(tokens[0]):
+        return None
+    script = _canonical_regular_file(tokens[1])
+    if script is None:
+        return None
+    declarations = read_only_python_scripts()
+    expected_digest = declarations.get(script)
+    if expected_digest is None or _file_sha256(script) != expected_digest:
+        return None
+    return "read_only"
 
 
 def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
@@ -223,6 +366,9 @@ def simple_command_kind(tokens: list[str]) -> str:
     runtime_kind = runtime_control_kind(command)
     if runtime_kind is not None:
         return runtime_kind
+    script_kind = read_only_script_kind(command)
+    if script_kind is not None:
+        return script_kind
     executable = Path(command[0]).name
     if executable in READ_ONLY_COMMANDS:
         if executable == "rg" and any(arg == "--pre" or arg.startswith("--pre=") for arg in command[1:]):

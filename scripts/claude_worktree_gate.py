@@ -13,6 +13,7 @@ from claude_bash_readonly import (  # noqa: F401
     bash_command,
     bash_command_kind,
     bash_invocation,
+    copy_source_token_indices,
     has_unresolvable_expansion,
     path_arguments,
     raw_path_arguments,

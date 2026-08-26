@@ -260,6 +260,40 @@ Claude:
   `Bash(/absolute/home/.tao/bin/tao-hook *)`. Do not
   approve or document broad `python3`, relative `scripts/<name>.py`, or
   argument-specific variants for shared wrappers.
+- A non-runtime Python query helper may run read-only in a protected checkout
+  only when the environment inherited from Claude's parent process contains
+  `TAO_CLAUDE_READ_ONLY_PYTHON_SCRIPTS`. The value is strict JSON with this
+  exact shape:
+
+  ```json
+  {
+    "schema_version": 1,
+    "scripts": [
+      {
+        "path": "/canonical/absolute/path/to/query.py",
+        "sha256": "<64 lowercase hexadecimal characters>"
+      }
+    ]
+  }
+  ```
+
+  Generate that declaration in operator-controlled launcher setup before
+  starting Claude. The path must already be canonical, must name a regular
+  non-symlink file, and the digest must be the SHA-256 of its current bytes.
+  Invoke it with the resolved Python executable used by the hook and repeat the
+  same absolute canonical script path as the first operand; relative operands,
+  including `cd /path && python query.py`, are never allowed. Arguments are not
+  classified, so declare only a helper that cannot write for any accepted
+  argument. `TAO_STATE_HOME/read-only-scripts.json` is not an authorization
+  surface and is ignored.
+- Remove `TAO_CLAUDE_READ_ONLY_PYTHON_SCRIPTS` from the parent environment to
+  revoke all helper access. Editing a declared script revokes that entry
+  automatically because its digest no longer matches; after an intentional,
+  reviewed edit, compute the new lowercase SHA-256 and refresh the parent
+  declaration before starting a new Claude process. Malformed JSON, unknown
+  fields, duplicate paths, missing files, non-canonical or relative paths,
+  symlinks, digest mismatches, and a Python executable other than the hook's
+  current runtime all fail closed.
 - The managed Claude `UserPromptSubmit` workflow label hook uses
   `workflow route triage --advisory`. That hook fires on every prompt and never
   sees the prompt text, so it has no request to classify: `--advisory` emits the
