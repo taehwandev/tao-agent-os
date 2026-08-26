@@ -192,6 +192,25 @@ it is testing its neighbour, not its subject:
 - When a fix removes wording or behaviour, assert its absence too. An additive
   fix leaves the wrong thing sitting beside the new one.
 
+### Fix Every Copy Of The Rule
+
+A fix that passes its own test and changes nothing means the rule it edited was
+not the only one. Guards get restated where the work happens: a decision made in
+one function, then re-derived in the function that writes the result.
+
+Curation declined to reopen a candidate. The reopen check was corrected, the
+test still showed nothing queued — the writer asked the same subset question
+again, in its own words, and answered it the old way. Both call sites had to
+read one helper before the behaviour moved.
+
+The signal is precise: **the fix is right and the symptom survives.** Before
+looking for a second cause, search for the rule you just changed and count the
+places that decide it.
+
+Hand-maintained lists fail the same way. A module list, an ignore list, a set of
+patterns — each is a rule written down twice, and the copy nobody edits is the
+one that decides. Derive the list, or make one definition the only one.
+
 ### Judge A Mutant By Exit Code
 
 ```text
