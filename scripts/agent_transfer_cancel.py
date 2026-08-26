@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,57 @@ from agent_transfer_validate import git, validate_transfer
 
 
 CANCEL_RECEIPT_NAME = "cancel.json"
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+
+
+def cancellation_receipt_failure(
+    cancellation: dict,
+    *,
+    source_run_id: str | None = None,
+    request_fingerprint: str | None = None,
+) -> str | None:
+    """Return why a transfer-cancellation receipt cannot be trusted."""
+
+    if cancellation.get("schema_version") != 1:
+        return "cancellation receipt schema_version must be 1"
+    if cancellation.get("status") != "cancelled":
+        return "cancellation receipt status must be cancelled"
+    if cancellation.get("reason") != "transferred_to_completed_linked_worktree":
+        return "cancellation receipt reason is not a completed linked-worktree transfer"
+
+    for field in ("source_run_id", "replacement_run_id"):
+        value = cancellation.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return f"cancellation receipt {field} must be a non-empty string"
+
+    fingerprint = cancellation.get("request_fingerprint")
+    if not isinstance(fingerprint, str) or SHA256_PATTERN.fullmatch(fingerprint) is None:
+        return "cancellation receipt request_fingerprint must be a SHA-256 hex digest"
+
+    created_at = cancellation.get("created_at")
+    if not isinstance(created_at, str) or not created_at.strip():
+        return "cancellation receipt created_at must be a timezone-aware timestamp"
+    try:
+        created = datetime.fromisoformat(created_at)
+    except ValueError:
+        return "cancellation receipt created_at must be a parseable timestamp"
+    if created.tzinfo is None or created.utcoffset() is None:
+        return "cancellation receipt created_at must be timezone-aware"
+
+    signature = cancellation.get("verified_worktree_signature")
+    if not isinstance(signature, str) or SHA256_PATTERN.fullmatch(signature) is None:
+        return (
+            "cancellation receipt verified_worktree_signature must be a SHA-256 hex digest"
+        )
+
+    if source_run_id is not None and cancellation["source_run_id"] != source_run_id:
+        return "cancellation receipt source_run_id does not match the bound source run"
+    if (
+        request_fingerprint is not None
+        and cancellation["request_fingerprint"] != request_fingerprint
+    ):
+        return "cancellation receipt request_fingerprint does not match the bound source run"
+    return None
 
 
 def worktree_signature(project: Path) -> str | None:
@@ -36,9 +88,10 @@ def cancellation_worktree_drift(project: Path, cancellation: dict) -> str | None
     only a claim.
     """
 
-    recorded = cancellation.get("verified_worktree_signature")
-    if not isinstance(recorded, str) or not recorded:
-        return None
+    receipt_failure = cancellation_receipt_failure(cancellation)
+    if receipt_failure is not None:
+        return receipt_failure
+    recorded = cancellation["verified_worktree_signature"]
     current = worktree_signature(project)
     if current is None:
         return "source checkout Git status could not be verified against the cancellation"
@@ -65,6 +118,25 @@ def restore_missing_receipt(args: Any, evidence: Path) -> int | None:
     cancellation = run.get("cancellation")
     if not isinstance(cancellation, dict):
         return None
+    receipt_failure = cancellation_receipt_failure(
+        cancellation,
+        source_run_id=str(run.get("run_id") or ""),
+        request_fingerprint=str(run.get("request_fingerprint") or ""),
+    )
+    if receipt_failure is not None:
+        return finish_with_result(
+            "cancel",
+            False,
+            [
+                "source run is settled as cancelled",
+                receipt_failure,
+                "repair the registry cancellation record before restoring its receipt",
+            ],
+            args.output,
+            {"cancellation": cancellation},
+            args.repair_cycle,
+            invocation_error=True,
+        )
     # The recorded signature exists to be checked, and until this read it was
     # written and never compared -- a claim of detectability with no detector.
     # A cancellation vouches for the checkout it saw, and the residual race it

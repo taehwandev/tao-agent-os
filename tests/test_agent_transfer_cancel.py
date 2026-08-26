@@ -20,7 +20,90 @@ if str(SCRIPTS) not in sys.path:
 
 from agent_run_registry import register_run, registered_run, transition_run
 import agent_transfer_cancel as transfer_cancel
-from agent_transfer_cancel import CANCEL_RECEIPT_NAME, cancel_transferred_run
+from agent_transfer_cancel import (
+    CANCEL_RECEIPT_NAME,
+    cancel_transferred_run,
+    cancellation_receipt_failure,
+)
+
+
+class CancellationReceiptValidationTests(unittest.TestCase):
+    def valid_receipt(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "status": "cancelled",
+            "reason": "transferred_to_completed_linked_worktree",
+            "source_run_id": "0123456789abcdef0123456789abcdef",
+            "replacement_run_id": "fedcba9876543210fedcba9876543210",
+            "request_fingerprint": "1" * 64,
+            "created_at": "2026-08-26T00:00:00+00:00",
+            "verified_worktree_signature": "2" * 64,
+        }
+
+    def test_complete_production_receipt_is_valid(self) -> None:
+        receipt = self.valid_receipt()
+
+        self.assertIsNone(
+            cancellation_receipt_failure(
+                receipt,
+                source_run_id=str(receipt["source_run_id"]),
+                request_fingerprint=str(receipt["request_fingerprint"]),
+            )
+        )
+
+    def test_missing_or_malformed_signature_fails_closed(self) -> None:
+        for signature in (None, "", "not-a-sha-256", "f" * 63, "g" * 64):
+            with self.subTest(signature=signature):
+                receipt = self.valid_receipt()
+                if signature is None:
+                    receipt.pop("verified_worktree_signature")
+                else:
+                    receipt["verified_worktree_signature"] = signature
+
+                failure = cancellation_receipt_failure(receipt)
+
+                self.assertIsNotNone(failure)
+                self.assertIn("verified_worktree_signature", str(failure))
+
+    def test_drift_boundary_rejects_a_missing_signature_without_reading_git(
+        self,
+    ) -> None:
+        receipt = self.valid_receipt()
+        receipt.pop("verified_worktree_signature")
+
+        with patch.object(transfer_cancel, "worktree_signature") as signature_read:
+            failure = transfer_cancel.cancellation_worktree_drift(Path("project"), receipt)
+
+        signature_read.assert_not_called()
+        self.assertIn("verified_worktree_signature", str(failure))
+
+    def test_missing_naive_or_unparseable_created_at_fails_closed(self) -> None:
+        for created_at in (None, "", "not-a-time", "2026-08-26T00:00:00"):
+            with self.subTest(created_at=created_at):
+                receipt = self.valid_receipt()
+                if created_at is None:
+                    receipt.pop("created_at")
+                else:
+                    receipt["created_at"] = created_at
+
+                failure = cancellation_receipt_failure(receipt)
+
+                self.assertIsNotNone(failure)
+                self.assertIn("created_at", str(failure))
+
+    def test_malformed_request_fingerprint_fails_closed(self) -> None:
+        for fingerprint in (None, "", "not-a-sha-256", "f" * 63, "g" * 64):
+            with self.subTest(fingerprint=fingerprint):
+                receipt = self.valid_receipt()
+                if fingerprint is None:
+                    receipt.pop("request_fingerprint")
+                else:
+                    receipt["request_fingerprint"] = fingerprint
+
+                failure = cancellation_receipt_failure(receipt)
+
+                self.assertIsNotNone(failure)
+                self.assertIn("request_fingerprint", str(failure))
 
 
 class TransferredRunCancellationTests(unittest.TestCase):

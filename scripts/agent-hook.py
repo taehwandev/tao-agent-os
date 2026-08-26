@@ -82,6 +82,7 @@ from agent_review_structure import (
 )
 from agent_run_registry import (
     claim_run,
+    registered_run,
     release_run_claim,
     register_run,
     resume_run_for_closeout,
@@ -90,7 +91,11 @@ from agent_run_registry import (
 )
 from agent_route_state import request_fingerprint
 from agent_runtime_session import recorded_session_id, runtime_session, settle_superseded_session_runs
-from agent_transfer_cancel import cancel_transferred_run
+from agent_transfer_cancel import (
+    cancel_transferred_run,
+    cancellation_receipt_failure,
+    cancellation_worktree_drift,
+)
 from workflow_intent_envelope import SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
@@ -363,6 +368,35 @@ def _start_capsule_detail(args: argparse.Namespace) -> str:
 
 
 def finish_hook(args: argparse.Namespace) -> int:
+    transferred_cancellation, cancellation_failure = _transferred_cancellation(args)
+    if cancellation_failure is not None:
+        return finish_with_result(
+            "finish",
+            False,
+            [
+                "bound source run carries transferred-cancellation evidence",
+                cancellation_failure,
+                "source finish gates were not evaluated and cancellation evidence was preserved",
+            ],
+            args.output,
+            {"cancellation": transferred_cancellation or {}},
+            args.repair_cycle,
+            invocation_error=True,
+        )
+    if transferred_cancellation is not None:
+        return finish_with_result(
+            "finish",
+            True,
+            [
+                "bound source run is already settled as cancelled",
+                "completed linked-worktree replacement owns the finished lifecycle",
+                "source gate evidence remains immutable and was not re-evaluated",
+            ],
+            args.output,
+            {"cancellation": transferred_cancellation},
+            args.repair_cycle,
+        )
+
     command = [
         "--project",
         str(args.project),
@@ -419,6 +453,46 @@ def finish_hook(args: argparse.Namespace) -> int:
         pending_closeout=result["returncode"] == 3,
         refreshable_failure=_is_refreshable_finish_drift(result),
     )
+
+
+def _transferred_cancellation(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return the validated terminal record for a transferred source run.
+
+    Cancellation already proves the completed replacement before it atomically
+    settles the source run. Replaying finish against that immutable run must not
+    ask the source checkout to reproduce gates owned by the replacement.
+    """
+
+    try:
+        evidence_path = preflight_evidence_path(args)
+        preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
+        run_id = str(preflight.get("agent_run_id") or "").strip()
+        run = registered_run(args.project, evidence_path, run_id=run_id)
+    except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(run, dict):
+        return None, None
+    cancellation = run.get("cancellation")
+    if not isinstance(cancellation, dict):
+        return None, None
+    receipt_failure = cancellation_receipt_failure(
+        cancellation,
+        source_run_id=run_id,
+        request_fingerprint=str(run.get("request_fingerprint") or ""),
+    )
+    if receipt_failure is not None:
+        return cancellation, receipt_failure
+    if run.get("state") != "cancelled":
+        return (
+            cancellation,
+            "transferred cancellation is not in the settled cancelled state",
+        )
+    drift = cancellation_worktree_drift(args.project, cancellation)
+    if drift is not None:
+        return cancellation, drift
+    return cancellation, None
 
 
 def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:

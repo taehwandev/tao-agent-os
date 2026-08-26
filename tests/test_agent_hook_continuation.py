@@ -56,6 +56,7 @@ from agent_repair_ledger import (
 from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import (
     ACTIVE_RUN_STATES,
+    cancel_run,
     register_run,
     registry_path,
     transition_run,
@@ -430,6 +431,223 @@ class DispatchTests(unittest.TestCase):
                 agent_hook.main()
 
             self.assertEqual(["completed"], states)
+
+    def test_finish_accepts_a_completed_linked_worktree_cancellation(self) -> None:
+        """A transferred source run is already closed and owes no local gates."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            preflight = json.loads(run.evidence.read_text(encoding="utf-8"))
+            preflight["agent_run_id"] = run.run_id
+            run.evidence.write_text(json.dumps(preflight), encoding="utf-8")
+            cancellation = {
+                "schema_version": 1,
+                "status": "cancelled",
+                "reason": "transferred_to_completed_linked_worktree",
+                "source_run_id": run.run_id,
+                "replacement_run_id": "fedcba9876543210fedcba9876543210",
+                "request_fingerprint": run.run["request_fingerprint"],
+                "created_at": "2026-08-26T00:00:00+00:00",
+                "verified_worktree_signature": "0" * 64,
+            }
+            cancel_run(
+                run.project,
+                run.evidence,
+                run_id=run.run_id,
+                precondition=lambda: None,
+                cancellation=cancellation,
+            )
+            output = io.StringIO()
+
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    ["agent-hook.py", "finish", *self._common(run)],
+                ),
+                patch.dict("os.environ", {}, clear=True),
+                patch.object(
+                    agent_hook,
+                    "run_script_main",
+                    return_value={
+                        "returncode": 1,
+                        "stdout": "FAIL: local gates are missing\n",
+                        "stderr": "",
+                    },
+                ) as finish_check,
+                patch.object(
+                    agent_hook,
+                    "cancellation_worktree_drift",
+                    return_value=None,
+                ) as drift_check,
+                redirect_stdout(output),
+            ):
+                code = agent_hook.main()
+
+            current = json.loads(
+                registry_path(run.project).read_text(encoding="utf-8")
+            )
+            state = next(
+                item["state"]
+                for item in current["runs"]
+                if item["run_id"] == run.run_id
+            )
+
+        self.assertEqual(0, code, output.getvalue())
+        finish_check.assert_not_called()
+        drift_check.assert_called_once_with(run.project.resolve(), cancellation)
+        self.assertEqual("cancelled", state)
+        self.assertIn("SUCCESS finish", output.getvalue())
+        self.assertIn("completed linked-worktree replacement", output.getvalue())
+
+    def test_finish_rejects_a_transfer_cancellation_with_an_invalid_signature(
+        self,
+    ) -> None:
+        """Malformed terminal evidence cannot replace source finish gates."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            preflight = json.loads(run.evidence.read_text(encoding="utf-8"))
+            preflight["agent_run_id"] = run.run_id
+            run.evidence.write_text(json.dumps(preflight), encoding="utf-8")
+            cancellation = {
+                "schema_version": 1,
+                "status": "cancelled",
+                "reason": "transferred_to_completed_linked_worktree",
+                "source_run_id": run.run_id,
+                "replacement_run_id": "fedcba9876543210fedcba9876543210",
+                "request_fingerprint": run.run["request_fingerprint"],
+                "created_at": "2026-08-26T00:00:00+00:00",
+                "verified_worktree_signature": "not-a-sha-256",
+            }
+            cancel_run(
+                run.project,
+                run.evidence,
+                run_id=run.run_id,
+                precondition=lambda: None,
+                cancellation=cancellation,
+            )
+            output = io.StringIO()
+
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    ["agent-hook.py", "finish", *self._common(run)],
+                ),
+                patch.dict("os.environ", {}, clear=True),
+                patch.object(agent_hook, "run_script_main") as finish_check,
+                redirect_stdout(output),
+            ):
+                code = agent_hook.main()
+
+            current = json.loads(
+                registry_path(run.project).read_text(encoding="utf-8")
+            )
+            state = next(
+                item["state"]
+                for item in current["runs"]
+                if item["run_id"] == run.run_id
+            )
+
+        self.assertEqual(1, code)
+        finish_check.assert_not_called()
+        self.assertEqual("cancelled", state)
+        self.assertIn("FAIL finish", output.getvalue())
+        self.assertIn("verified_worktree_signature", output.getvalue())
+
+    def test_finish_rejects_a_transfer_cancellation_after_source_drift(self) -> None:
+        """The receipt remains valid only while its source checkout matches."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            preflight = json.loads(run.evidence.read_text(encoding="utf-8"))
+            preflight["agent_run_id"] = run.run_id
+            run.evidence.write_text(json.dumps(preflight), encoding="utf-8")
+            cancellation = {
+                "schema_version": 1,
+                "status": "cancelled",
+                "reason": "transferred_to_completed_linked_worktree",
+                "source_run_id": run.run_id,
+                "replacement_run_id": "fedcba9876543210fedcba9876543210",
+                "request_fingerprint": run.run["request_fingerprint"],
+                "created_at": "2026-08-26T00:00:00+00:00",
+                "verified_worktree_signature": "0" * 64,
+            }
+            cancel_run(
+                run.project,
+                run.evidence,
+                run_id=run.run_id,
+                precondition=lambda: None,
+                cancellation=cancellation,
+            )
+            output = io.StringIO()
+
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    ["agent-hook.py", "finish", *self._common(run)],
+                ),
+                patch.dict("os.environ", {}, clear=True),
+                patch.object(agent_hook, "run_script_main") as finish_check,
+                patch.object(
+                    agent_hook,
+                    "cancellation_worktree_drift",
+                    return_value=(
+                        "source checkout no longer matches the state the "
+                        "cancellation verified"
+                    ),
+                ),
+                redirect_stdout(output),
+            ):
+                code = agent_hook.main()
+
+            current = json.loads(
+                registry_path(run.project).read_text(encoding="utf-8")
+            )
+            state = next(
+                item["state"]
+                for item in current["runs"]
+                if item["run_id"] == run.run_id
+            )
+
+        self.assertEqual(1, code)
+        finish_check.assert_not_called()
+        self.assertEqual("cancelled", state)
+        self.assertIn("FAIL finish", output.getvalue())
+        self.assertIn("no longer matches", output.getvalue())
+
+    def test_finish_does_not_accept_a_generic_cancelled_run(self) -> None:
+        """Only the transfer contract may replace finish gate evaluation."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = HookRun(directory)
+            preflight = json.loads(run.evidence.read_text(encoding="utf-8"))
+            preflight["agent_run_id"] = run.run_id
+            run.evidence.write_text(json.dumps(preflight), encoding="utf-8")
+            transition_run(run.project, run.evidence, "cancelled", run_id=run.run_id)
+            output = io.StringIO()
+
+            with (
+                patch.object(sys, "argv", ["agent-hook.py", "finish", *self._common(run)]),
+                patch.dict("os.environ", {}, clear=True),
+                patch.object(
+                    agent_hook,
+                    "run_script_main",
+                    return_value={
+                        "returncode": 1,
+                        "stdout": "FAIL: local gates are missing\n",
+                        "stderr": "",
+                    },
+                ) as finish_check,
+                redirect_stdout(output),
+            ):
+                code = agent_hook.main()
+
+        self.assertEqual(1, code)
+        finish_check.assert_called_once()
+        self.assertIn("FAIL finish", output.getvalue())
 
     def _finish_state(self, run: HookRun, returncode: int) -> str:
         with (
