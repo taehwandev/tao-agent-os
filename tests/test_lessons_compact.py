@@ -17,6 +17,7 @@ import importlib.util
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -26,6 +27,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from agent_lesson_store import upsert_retrospective_candidate
+from agent_state_lock import state_lock
 
 _spec = importlib.util.spec_from_file_location("lessons_compact", SCRIPTS / "lessons-compact.py")
 compact = importlib.util.module_from_spec(_spec)
@@ -116,6 +118,93 @@ class CompactionTests(unittest.TestCase):
         compact.apply_plan(self.inbox, compact.plan(self.inbox)["folds"])
 
         self.assertEqual({"abc.json", "def.json"}, self._files())
+
+    def test_a_write_landing_after_the_plan_is_not_deleted_unread(self) -> None:
+        """The plan reads; the apply deletes. A write in between was lost.
+
+        `plan` computed the merge from what it read, and `apply_plan` unlinked
+        every path that read had named. A candidate written in between -- the
+        writer holds this lesson's lock, the compactor held none -- was deleted
+        without ever being merged, and its occurrences went with it.
+        """
+
+        for day in ("01", "02"):
+            self._write(
+                f"2026-01-{day}T00-00-00-lesson.json",
+                _candidate("lesson", f"2026-01-{day}T00:00:00+00:00"),
+            )
+        folds = compact.plan(self.inbox)["folds"]
+
+        # The window: a real writer creates this between the two calls.
+        self._write(
+            "2026-01-09T00-00-00-lesson.json",
+            _candidate("lesson", "2026-01-09T00:00:00+00:00"),
+        )
+
+        compact.apply_plan(self.inbox, folds)
+
+        merged = json.loads((self.inbox / "lesson.json").read_text(encoding="utf-8"))
+        self.assertEqual(3, merged["occurrence_count"])
+        self.assertIn("key-2026-01-09T00:00:00+00:00", merged["occurrence_keys"])
+        self.assertEqual("2026-01-09T00:00:00+00:00", merged["last_seen_at"])
+
+    def test_a_legacy_name_the_store_cannot_find_is_still_merged(self) -> None:
+        """The two readers disagree by design, so the apply reads both.
+
+        The store finds a lesson by filename, which is what the writer creates.
+        This script groups by the `lesson_id` inside the record, which is how it
+        finds legacy files named by no convention. Reading under the lock
+        through the store's reader alone would orphan those: not merged, so
+        their occurrences are missing from the canonical record, and not
+        removed, so every later report keeps offering the same fold. The
+        reference store holds one such record today.
+        """
+
+        self._write("legacy-name.json", _candidate("lesson", "2026-01-01T00:00:00+00:00"))
+        self._write(
+            "2026-01-02T00-00-00-lesson.json",
+            _candidate("lesson", "2026-01-02T00:00:00+00:00"),
+        )
+
+        compact.apply_plan(self.inbox, compact.plan(self.inbox)["folds"])
+
+        merged = json.loads((self.inbox / "lesson.json").read_text(encoding="utf-8"))
+        self.assertEqual(2, merged["occurrence_count"])
+        self.assertIn("key-2026-01-01T00:00:00+00:00", merged["occurrence_keys"])
+        self.assertEqual({"lesson.json"}, self._files())
+
+    def test_the_apply_waits_on_the_lock_the_writer_holds(self) -> None:
+        """The apply must take the writer's lock, not merely take a lock.
+
+        Written first as a test that held `state_lock` itself and watched an
+        upsert wait. That proved the writer and `state_lock` agree on the path
+        and said nothing about `apply_plan`: pointing the apply at a private
+        lock file left it green. So the writer's lock is held here and the
+        apply is the one that has to wait.
+        """
+
+        for day in ("01", "02"):
+            self._write(
+                f"2026-01-{day}T00-00-00-lesson.json",
+                _candidate("lesson", f"2026-01-{day}T00:00:00+00:00"),
+            )
+        folds = compact.plan(self.inbox)["folds"]
+        entered = threading.Event()
+        finished = threading.Event()
+
+        def apply() -> None:
+            entered.set()
+            compact.apply_plan(self.inbox, folds)
+            finished.set()
+
+        # The writer's own transaction boundary for this lesson.
+        with state_lock(self.inbox / "lesson.json"):
+            worker = threading.Thread(target=apply)
+            worker.start()
+            self.assertTrue(entered.wait(5))
+            self.assertFalse(finished.wait(0.5), "the apply did not wait for the lock")
+        worker.join(10)
+        self.assertTrue(finished.is_set())
 
     def test_a_lesson_already_canonical_and_alone_is_left_alone(self) -> None:
         self._write("abc.json", _candidate("abc", "2026-01-01T00:00:00Z"))

@@ -1,8 +1,9 @@
 """Fold a lesson candidate inbox down to one record per lesson.
 
 Owner: the global lesson store's maintenance boundary.
-Allowed imports: the standard library, and the store's own merge rules --
-compaction must not invent a second definition of what a merged candidate is.
+Allowed imports: the standard library, and the store's own merge rules, record
+reader, and lock -- compaction must not invent a second definition of what a
+merged candidate is, which files belong to a lesson, or how a lesson is locked.
 Forbidden imports: the workflow route, the agent lifecycle, and anything that
 would let a maintenance pass change what a lesson means.
 Callers/tests: run by hand; coverage lives in
@@ -33,7 +34,9 @@ SCRIPTS = Path(__file__).resolve().parent
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from agent_lesson_files import _read_lesson_records  # noqa: E402
 from agent_lesson_store import _merged_occurrence_keys  # noqa: E402
+from agent_state_lock import state_lock  # noqa: E402
 from support.global_state import global_state_dir  # noqa: E402
 
 
@@ -115,21 +118,65 @@ def plan(inbox: Path) -> dict:
     }
 
 
+def _lesson_records_now(
+    inbox: Path, lesson_id: str, known: list[Path]
+) -> tuple[list[dict], list[Path]]:
+    """Re-read one lesson's records while its lock is held.
+
+    Two sources, because the two readers disagree by design. The store finds a
+    lesson by filename, which is what the writer creates and therefore what can
+    appear after a report was taken. This script groups by the `lesson_id`
+    inside each record, which is how it finds legacy files whose names follow no
+    convention. Merging fewer records than were read would drop occurrences, so
+    the union is read and each record is checked against the lesson it claims.
+    """
+
+    records, paths = _read_lesson_records(inbox, lesson_id)
+    seen = set(paths)
+    for path in known:
+        if path in seen:
+            continue
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(record, dict) and str(record.get("lesson_id") or "") == lesson_id:
+            records.append(record)
+            paths.append(path)
+            seen.add(path)
+    return records, paths
+
+
 def apply_plan(inbox: Path, folds: list[dict]) -> int:
-    """Write each merged record, then remove the files it was merged from."""
+    """Merge and replace each lesson under the lock the writer already uses.
+
+    A report's merge is advisory. It was computed from a read taken before any
+    lock was held, and the writer can add a candidate for that lesson
+    afterwards; applying the old merge would delete that candidate unread and
+    take its occurrences with it. Each lesson is re-read inside
+    `state_lock(inbox/<lesson_id>.json)` -- the exact path
+    `upsert_retrospective_candidate` locks -- so what gets merged is what is
+    there, and what gets removed is what got merged.
+    """
 
     written = 0
     for fold in folds:
-        target = inbox / f"{fold['lesson_id']}.json"
-        temporary = target.with_suffix(".compact.tmp")
-        temporary.write_text(
-            json.dumps(fold["merged"], indent=1, sort_keys=True), encoding="utf-8"
-        )
-        temporary.replace(target)
-        written += 1
-        for path in fold["paths"]:
-            if path != target:
-                path.unlink(missing_ok=True)
+        lesson_id = fold["lesson_id"]
+        target = inbox / f"{lesson_id}.json"
+        with state_lock(target):
+            records, paths = _lesson_records_now(inbox, lesson_id, fold["paths"])
+            if not records:
+                continue
+            temporary = target.with_suffix(".compact.tmp")
+            temporary.write_text(
+                json.dumps(merge_group(records), indent=1, sort_keys=True),
+                encoding="utf-8",
+            )
+            temporary.replace(target)
+            written += 1
+            for path in paths:
+                if path != target:
+                    path.unlink(missing_ok=True)
     return written
 
 
