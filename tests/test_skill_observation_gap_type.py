@@ -23,6 +23,7 @@ if str(SCRIPTS) not in sys.path:
 
 from agent_skill_curator import MAX_QUEUED_GAP_TYPES, _observed_gap_types, curate_observations
 from agent_skill_learning import record_observation, review_candidate
+from agent_skill_feedback import _declined_curation_details
 from agent_skill_state import candidate_id, completed_path, review_queue_path
 
 
@@ -191,6 +192,104 @@ class CuratorCarriesGapTypes(unittest.TestCase):
             reopened["gap_types"],
             ["missing_error_policy", "missing_import_policy"],
         )
+
+    def test_an_unnamed_gap_against_a_closed_candidate_is_reported(self):
+        """Declining to queue is right here; declining in silence is not.
+
+        A recurrence that names no gap carries nothing a closed review did not
+        already decide, so it must not reopen the candidate. But `queued 0` is
+        indistinguishable from `nothing was observed`, and the way forward --
+        name the gap -- appears nowhere. A closeout that hits this reads its own
+        observation as accepted and never learns why review never came.
+        """
+
+        candidate = candidate_id("branch_cleanup", "missing_rule")
+        record_observation(
+            self.root,
+            occurrence_id="occ-1",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_import_policy",
+        )
+        curate_observations(self.root, min_occurrences=1)
+        review_candidate(
+            self.root, candidate, decision="no_change", min_occurrences=1
+        )
+
+        record_observation(
+            self.root,
+            occurrence_id="occ-2",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+        )
+        curated = curate_observations(self.root, min_occurrences=1)
+
+        self.assertEqual([], curated["queued"])
+        self.assertEqual(
+            [{"candidate_id": candidate, "reason": "closed_review_no_new_gap"}],
+            curated["not_queued"],
+        )
+
+    def test_a_queued_group_is_not_reported_as_declined(self):
+        # The report must distinguish declined from queued, or it is noise.
+        record_observation(
+            self.root,
+            occurrence_id="occ-1",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+        )
+        curated = curate_observations(self.root, min_occurrences=1)
+
+        self.assertEqual([candidate_id("branch_cleanup", "missing_rule")], curated["queued"])
+        self.assertEqual([], curated["not_queued"])
+
+    def test_the_hook_prints_the_reason_and_the_way_forward(self):
+        """The reason has to reach the caller through the hook that prints.
+
+        Written first against `_declined_curation_details` alone, which proved
+        the formatting and nothing about the wiring: deleting the line that
+        calls it left that test green. `record_skill_curation` builds the lines
+        the hook prints, so the assertion belongs there.
+        """
+
+        import agent_skill_feedback
+
+        candidate = candidate_id("branch_cleanup", "missing_rule")
+        record_observation(
+            self.root,
+            occurrence_id="occ-1",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+            gap_type="missing_import_policy",
+        )
+        curate_observations(self.root, min_occurrences=1)
+        review_candidate(self.root, candidate, decision="no_change", min_occurrences=1)
+        record_observation(
+            self.root,
+            occurrence_id="occ-2",
+            skill_id="branch_cleanup",
+            signal="missing_rule",
+        )
+
+        with patch.object(agent_skill_feedback, "state_home", return_value=self.root):
+            _result, details = agent_skill_feedback.record_skill_curation(
+                min_occurrences=1
+            )
+
+        printed = "\n".join(details)
+        self.assertIn("observations not queued for review: 1", printed)
+        self.assertIn(candidate, printed)
+        self.assertIn("closed_review_no_new_gap", printed)
+        self.assertIn("--feedback-gap", printed)
+
+    def test_an_unknown_reason_still_names_itself(self):
+        # A reason added later must not print as a blank line.
+        details = _declined_curation_details(
+            [{"candidate_id": "abc123", "reason": "some_future_reason"}]
+        )
+
+        self.assertIn("some_future_reason", details[1])
+        self.assertIn("no remedy is recorded", details[1])
 
     def test_a_fifth_gap_reopens_and_enters_the_bounded_queue(self):
         candidate = candidate_id("branch_cleanup", "missing_rule")

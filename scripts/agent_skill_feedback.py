@@ -179,7 +179,41 @@ def record_skill_curation(
             f"{result['legacy_unmapped_count']}"
         ),
     ]
+    details.extend(_declined_curation_details(result.get("not_queued") or []))
     return result, details
+
+
+# Why a group was declined, and what the caller can do about it. Without these
+# lines a declined group reads exactly like no observation at all.
+DECLINED_CURATION_REMEDIES = {
+    "closed_review_no_new_gap": (
+        "a review already closed this skill and signal, and this recurrence "
+        "named no new gap; pass --feedback-gap to reopen it"
+    ),
+    "already_awaiting_review": (
+        "this skill and signal is already queued or staged; review that item "
+        "instead of queueing a second one"
+    ),
+    "unreadable_completed_record": (
+        "the completed record for this skill and signal cannot be read, so "
+        "reopening it is unsafe; repair that record before observing again"
+    ),
+    "ambiguous_completed_aliases": (
+        "more than one completed record maps to this skill and signal, so "
+        "which to reopen is ambiguous"
+    ),
+}
+
+
+def _declined_curation_details(not_queued: list[dict[str, Any]]) -> list[str]:
+    if not not_queued:
+        return []
+    details = [f"observations not queued for review: {len(not_queued)}"]
+    for item in not_queued:
+        reason = str(item.get("reason") or "")
+        remedy = DECLINED_CURATION_REMEDIES.get(reason, "no remedy is recorded for this reason")
+        details.append(f"    {item.get('candidate_id')}: {reason} -- {remedy}")
+    return details
 
 
 def record_skill_review(
