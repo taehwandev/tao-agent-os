@@ -60,21 +60,31 @@ class VerificationCacheIsolationTests(unittest.TestCase):
         self.assertEqual(0, result["returncode"], result["stderr"])
         self.assertNotIn("PermissionError", result["stderr"])
 
-    def test_a_denied_temp_location_does_not_raise_into_the_caller(self) -> None:
-        """Isolating the cache must not become a new way to fail.
+    def _denied_temp_location(self, tmp: Path):
+        denied = Path(tmp) / "denied"
+        denied.mkdir()
+        denied.chmod(0o500)
+        return denied
 
-        Every caller reads result["returncode"]; none guards the call. Creating
-        a cache directory gave this function a filesystem write of its own, so
-        where the temp location is denied it raised instead of returning a
-        captured failure -- trading a check that fails for a hook that stops.
+    def test_a_denied_temp_location_runs_with_the_inherited_environment(self) -> None:
+        """The fallback's promise is the previous behaviour, not success.
+
+        Asserted as returncode 0 at first, which only held because the ambient
+        cache path happens to be writable on this host. Where it is not -- the
+        sandbox this whole change exists for -- the inherited environment is the
+        broken one, py_compile exits 1, and the assertion failed for being
+        stronger than anything the fallback can promise. The ambient cache is
+        therefore set here rather than inherited from whoever runs the suite.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "sound.py"
             target.write_text("VALUE = 1\n", encoding="utf-8")
-            denied = Path(tmp) / "denied"
-            denied.mkdir()
-            denied.chmod(0o500)
+            writable = Path(tmp) / "ambient"
+            writable.mkdir()
+            os.environ["PYTHONPYCACHEPREFIX"] = str(writable)
+            self.addCleanup(os.environ.pop, "PYTHONPYCACHEPREFIX", None)
+            denied = self._denied_temp_location(Path(tmp))
             original = tempfile.tempdir
             tempfile.tempdir = str(denied)
             try:
@@ -86,6 +96,35 @@ class VerificationCacheIsolationTests(unittest.TestCase):
                 denied.chmod(0o700)
 
         self.assertEqual(0, result["returncode"], result["stderr"])
+
+    def test_a_denied_temp_location_returns_instead_of_raising(self) -> None:
+        """With nowhere to write bytecode at all, the answer is still a result.
+
+        Both the temp location and the ambient cache are denied here, so
+        py_compile genuinely cannot run and the check genuinely fails. What must
+        not happen is an exception: every caller reads result["returncode"] and
+        none guards the call, so raising turns a check that fails into a hook
+        that stops.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sound.py"
+            target.write_text("VALUE = 1\n", encoding="utf-8")
+            denied = self._denied_temp_location(Path(tmp))
+            os.environ["PYTHONPYCACHEPREFIX"] = str(denied / "cache")
+            self.addCleanup(os.environ.pop, "PYTHONPYCACHEPREFIX", None)
+            original = tempfile.tempdir
+            tempfile.tempdir = str(denied)
+            try:
+                result = run_verification_command(
+                    [sys.executable, "-m", "py_compile", str(target)], Path(tmp)
+                )
+            finally:
+                tempfile.tempdir = original
+                denied.chmod(0o700)
+
+        self.assertIsInstance(result["returncode"], int)
+        self.assertIn("stderr", result)
 
     def test_the_command_runs_once_when_the_cache_cannot_be_removed(self) -> None:
         """Falling back must not mean running the check again.
