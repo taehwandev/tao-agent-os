@@ -724,7 +724,10 @@ class ReviewHookTests(unittest.TestCase):
             code_review_evidence="reviewed scoped change",
             docs_freshness_evidence="docs unchanged because no durable docs impact",
             structure_review_evidence=None,
-            boundary_plan_evidence=None,
+            boundary_plan_evidence=(
+                "owned scope scripts/agent-hook.py; nearest verification "
+                "tests.test_agent_review_hook"
+            ),
             side_effect_audit_evidence="side-effect audit checked diff",
             review_scope="pathspec",
             review_path=["scripts/agent-hook.py"],
@@ -1103,6 +1106,35 @@ class StructureReviewEvidenceInvocationTests(unittest.TestCase):
         self.assertIn("--structure-review-evidence", details[-1])
         self.assertIn("no lifecycle checkpoint failed", details[-1])
         self.assertNotIn("repair-verify", " ".join(details))
+
+    def test_missing_vibeguard_allow_reason_is_a_correctable_invocation(self) -> None:
+        from agent_review_hook import (
+            review_input_invocation_failure,
+            review_input_invocation_failure_details,
+        )
+
+        failures = ["VibeGuard overall is Needs review"]
+
+        self.assertTrue(review_input_invocation_failure(failures))
+        details = review_input_invocation_failure_details(
+            failures,
+            {"scope": "pathspec", "checked_paths": []},
+            "pathspec: scripts/agent_review_hook.py",
+        )
+        self.assertIn("--allow-vibeguard-review", details[-1])
+        self.assertIn("concrete reason", details[-1])
+        self.assertIn("no lifecycle checkpoint failed", details[-1])
+        self.assertNotIn("repair-verify", " ".join(details))
+
+    def test_vibeguard_advisory_does_not_hide_a_real_review_failure(self) -> None:
+        from agent_review_hook import review_input_invocation_failure
+
+        failures = [
+            "VibeGuard overall is Needs review",
+            "code review evidence is required",
+        ]
+
+        self.assertFalse(review_input_invocation_failure(failures))
 
 
 class ContentLossIsReviewableTests(unittest.TestCase):

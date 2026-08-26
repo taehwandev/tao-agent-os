@@ -857,6 +857,7 @@ def review_input_invocation_failure(failures: list[str]) -> bool:
     return bool(failures) and all(
         failure.startswith(invocation_failure_prefixes)
         or is_stale_base_invocation_failure(failure)
+        or is_vibeguard_allow_reason_invocation_failure(failure)
         for failure in failures
     )
 
@@ -868,6 +869,10 @@ def is_stale_base_invocation_failure(failure: str) -> bool:
         and "rewrites paths that already moved on " in failure
         and "Stop before review." in failure
     )
+
+
+def is_vibeguard_allow_reason_invocation_failure(failure: str) -> bool:
+    return failure == "VibeGuard overall is Needs review"
 
 
 def review_input_invocation_failure_details(
@@ -906,6 +911,12 @@ def review_input_invocation_failure_details(
             "invocation request: correct --side-effect-audit-evidence by naming every reported "
             "path, removed content, and reason, then rerun the same review hook; no lifecycle "
             "checkpoint failed"
+        )
+    if any(is_vibeguard_allow_reason_invocation_failure(failure) for failure in failures):
+        details.append(
+            "invocation request: when the reported VibeGuard Needs review advisory is acceptable, "
+            "rerun the same review hook with --allow-vibeguard-review and a concrete reason; "
+            "otherwise resolve the finding first; no lifecycle checkpoint failed"
         )
     return details
 
