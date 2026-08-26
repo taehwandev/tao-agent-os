@@ -66,6 +66,8 @@ def _draft_proposal(args: Any) -> str:
 
 def skill_review_hook(args: Any) -> int:
     review, details = record_skill_review(
+        project=args.project,
+        rules=getattr(args, "rules", Path(__file__).resolve().parents[1]),
         candidate_id=args.feedback_candidate_id,
         decision=args.skill_review_outcome,
         gap_type=args.feedback_gap,

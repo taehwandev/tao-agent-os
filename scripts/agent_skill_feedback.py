@@ -216,14 +216,45 @@ def _declined_curation_details(not_queued: list[dict[str, Any]]) -> list[str]:
     return details
 
 
+
+def _is_canonical_skill(project: Path, rules: Path, skill_id: str) -> bool:
+    # Imported here because the catalog walks the project tree, and the other
+    # entry points in this module must not pay for that.
+    from agent_skill_catalog import canonical_skill_ids
+
+    normalized = normalize_skill_id(skill_id)
+    return bool(normalized) and normalized in canonical_skill_ids(project, rules)
+
+
 def record_skill_review(
     *,
+    project: Path,
+    rules: Path,
     candidate_id: str,
     decision: str,
     gap_type: str,
     change_type: str,
     promotion_target: str,
 ) -> tuple[dict[str, Any], list[str]]:
+    """Stage a reviewed patch, but only against a target maintenance can reach.
+
+    Maintenance compares the staged promotion target with the skill segment of
+    the path it is given, so a plausible-looking value such as
+    `<skill>_current_guidance` can never match. That mismatch used to surface a
+    hook later, by which point queued had become staged -- a transition with no
+    reverse -- and the candidate could only be closed as rejected.
+
+    The catalog settles it, and `record_draft` already checks the skill id
+    against the same catalog. Refusing here leaves the candidate reviewable.
+    """
+
+    if decision == "stage_patch" and not _is_canonical_skill(
+        project, rules, promotion_target
+    ):
+        return {"updated": False, "reason": "unknown_promotion_target"}, [
+            "bounded skill review skipped: unknown_promotion_target; the promotion "
+            "target must be a canonical skill id, and completed tasks are unchanged"
+        ]
     try:
         result = review_candidate(
             state_home(),

@@ -27,6 +27,7 @@ from agent_skill_draft import (  # noqa: E402
 from agent_skill_learning import record_observation, curate_observations, review_candidate  # noqa: E402
 from agent_skill_maintenance import complete_verified_skill_maintenance  # noqa: E402
 from agent_skill_state import candidate_id  # noqa: E402
+from unittest.mock import patch  # noqa: E402
 
 SKILL = "code_conventions"
 SIGNAL = "missing_rule"
@@ -405,3 +406,80 @@ class LocalSkillsValidationScopeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromotionTargetIsCheckedBeforeStaging(unittest.TestCase):
+    """An unmatchable promotion target reached `staged`, where nothing undoes it.
+
+    `review_candidate` accepted any safe slug. Maintenance then compares that
+    value against the skill segment of the target path, so
+    `verification_policy_current_guidance` -- where the segment is
+    `verification_policy` -- could never be applied. The mismatch surfaced one
+    hook later, and queued to staged has no reverse: the candidate was closable
+    only as rejected.
+
+    The catalog is what settles it, and `record_draft` already checks against
+    the same catalog. Refusing at review keeps the candidate reviewable.
+    """
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.project = _project_with_skill(self.root, SKILL)
+        self.candidate = candidate_id(SKILL, SIGNAL)
+        record_observation(
+            self.root, skill_id=SKILL, signal=SIGNAL, occurrence_id="run-1",
+            gap_type="missing_decision_rule",
+        )
+        curate_observations(self.root, min_occurrences=1)
+        record_draft(
+            self.root, project=self.project, rules=ROOT, skill_id=SKILL,
+            signal=SIGNAL, proposal=PROPOSAL, occurrence_id="run-1",
+        )
+
+    def _review(self, promotion_target: str):
+        import agent_skill_feedback
+
+        with patch.object(agent_skill_feedback, "state_home", return_value=self.root):
+            return agent_skill_feedback.record_skill_review(
+                project=self.project,
+                rules=ROOT,
+                candidate_id=self.candidate,
+                decision="stage_patch",
+                gap_type="missing_decision_rule",
+                change_type="add_rule",
+                promotion_target=promotion_target,
+            )
+
+    def _is_staged(self) -> bool:
+        return (
+            self.root / "skill-learning" / "staged" / f"{self.candidate}.json"
+        ).exists()
+
+    def _is_still_reviewable(self) -> bool:
+        return (
+            self.root / "skill-learning" / "review-queue" / f"{self.candidate}.json"
+        ).exists()
+
+    def test_a_target_outside_the_catalog_does_not_stage(self):
+        result, details = self._review(f"{SKILL}_current_guidance")
+
+        self.assertFalse(result.get("updated"), result)
+        self.assertFalse(self._is_staged())
+        self.assertTrue(self._is_still_reviewable())
+        self.assertIn("unknown_promotion_target", "\n".join(details))
+
+    def test_the_refusal_names_the_catalog(self):
+        # The value looks like a skill and is not one, so the message has to say
+        # which set it was checked against or the caller retries the same slug.
+        _result, details = self._review(f"{SKILL}_current_guidance")
+
+        printed = "\n".join(details)
+        self.assertIn("canonical skill", printed)
+
+    def test_a_catalog_target_still_stages(self):
+        result, _details = self._review(SKILL)
+
+        self.assertTrue(result.get("updated"), result)
+        self.assertTrue(self._is_staged())
