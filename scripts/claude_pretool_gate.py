@@ -324,7 +324,24 @@ def safe_session_id(session_id: str) -> str:
     return cleaned or "unknown-session"
 
 
-def deny_reason(root: Path, session_id: str = "") -> str:
+def stopped_action(tool: str) -> tuple[str, str]:
+    """Name what was stopped, and what retrying it means.
+
+    The gate covered edits when this message was written and has covered
+    commands since. It kept saying "before editing files" and "retry the edit"
+    while stopping `git commit`, `git push` and `git checkout -b`, so a reader
+    whose commit was stopped was told about a file they had not touched.
+    """
+
+    if tool in BASH_TOOLS:
+        return (
+            "running a command that changes this project",
+            "retry the command",
+        )
+    return ("editing files", "retry the edit")
+
+
+def deny_reason(root: Path, session_id: str = "", tool: str = "") -> str:
     """Explain the denial in terms of what is actually wrong with the evidence.
 
     Reporting "no fresh evidence" when a stamped-but-foreign or unstamped
@@ -341,12 +358,13 @@ def deny_reason(root: Path, session_id: str = "") -> str:
         cause = f"Preflight evidence at {evidence} is older than the freshness window."
     else:
         cause = f"Preflight evidence at {evidence} does not satisfy the workflow entry gate."
+    action, retry = stopped_action(tool)
     return (
-        "Tao Agent OS: run the workflow start hook before editing files in this "
+        f"Tao Agent OS: run the workflow start hook before {action} in this "
         f"project. {cause} "
         f"Run `{stable_launcher_path()} start --project "
         f"{root} --rules <TAO_ROOT> --command <route> --request \"<user "
-        "request>\"`, read the route required_docs, then retry the edit. Set "
+        f"request>\"`, read the route required_docs, then {retry}. Set "
         "TAO_CLAUDE_GATE_MAX_AGE_SECONDS to tune the freshness window."
     )
 
@@ -811,7 +829,7 @@ def decide(payload: dict) -> int:
         return deny(worktree_reason)
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
-        return deny(deny_reason(root, session_id))
+        return deny(deny_reason(root, session_id, tool))
     sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
     if sprawl_reason:
         return deny(sprawl_reason)
@@ -823,7 +841,7 @@ def decide(payload: dict) -> int:
         # The active claim can disappear between the workflow-entry check and
         # the mutation checkpoint. Do not turn that registry race into an
         # uncheckpointed edit.
-        return deny(deny_reason(root, session_id))
+        return deny(deny_reason(root, session_id, tool))
     if tool in EDIT_TOOLS and is_run_local_continuation_evidence(root, evidence):
         adapter = continuation_adapter()
         if adapter is not None:
