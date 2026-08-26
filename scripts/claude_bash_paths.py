@@ -101,9 +101,38 @@ def raw_path_arguments(command: str) -> list[Path]:
 # Only the plain form is modelled. `-t` and `--target-directory` put the
 # destination first, so a flag outside this set leaves the command judged by
 # every path it names, which is the stricter reading.
+#
+# `cp` was the first command modelled, and for a while the only one -- which
+# meant the permitted move worked when spelled one way and was refused when
+# spelled any other. `rsync -a`, `install` and `ln -s` copy in exactly the same
+# shape, sources first and destination last, and none of them writes to a
+# source. Each carries its own safe-flag set, because each has flags that break
+# the shape or turn a source into a target: `rsync --remove-source-files`
+# deletes what it read, and `-t`/`--target-directory` moves the destination to
+# the front. A flag outside its command's set leaves every path judged, which
+# is the stricter reading.
 COPY_SAFE_SHORT_FLAG_RE = re.compile(r"-[aLPRfnprv]+")
 COPY_SEGMENT_SEPARATORS = SHELL_PUNCTUATION - REDIRECTIONS
 TRUSTED_COPY_LOCATIONS = (Path("/bin/cp"), Path("/usr/bin/cp"))
+# name -> (safe short-flag pattern, trusted absolute locations). Long flags are
+# never accepted: `--parents`, `--target-directory` and `--remove-source-files`
+# all change the shape or the direction, and an allowlist of the safe ones
+# would be a list nobody maintains.
+COPY_SHAPED_COMMANDS = {
+    "cp": (COPY_SAFE_SHORT_FLAG_RE, TRUSTED_COPY_LOCATIONS),
+    "install": (
+        re.compile(r"-[bCcpSsv]+"),
+        (Path("/usr/bin/install"), Path("/bin/install")),
+    ),
+    "ln": (
+        re.compile(r"-[Ffhinsv]+"),
+        (Path("/bin/ln"), Path("/usr/bin/ln")),
+    ),
+    "rsync": (
+        re.compile(r"-[aHlprtvzD]+"),
+        (Path("/usr/bin/rsync"), Path("/usr/local/bin/rsync"), Path("/opt/homebrew/bin/rsync")),
+    ),
+}
 
 
 def copy_source_token_indices(tokens: list[str]) -> frozenset[int]:
@@ -127,15 +156,19 @@ def copy_source_token_indices(tokens: list[str]) -> frozenset[int]:
 
 
 def _copy_segment_source_indices(tokens: list[str], offset: int) -> list[int]:
-    """Read-only operands of one simple `cp`, or nothing when unsure.
+    """Read-only operands of one simple copy-shaped command, or nothing.
 
     The destination is the last operand, so every earlier operand is a source.
     Returning an empty list is the safe answer: the caller then keeps judging
     the command by all of its paths.
     """
 
-    if not tokens or not _trusted_copy_executable(tokens[0]):
+    if not tokens:
         return []
+    modelled = _trusted_copy_command(tokens[0])
+    if modelled is None:
+        return []
+    safe_flags = modelled
     rest = tokens[1:]
     if any(_copy_segment_token_is_uncertain(token) for token in rest):
         return []
@@ -146,11 +179,28 @@ def _copy_segment_source_indices(tokens: list[str], offset: int) -> list[int]:
             separator_seen = True
             continue
         if not separator_seen and token.startswith("-"):
-            if COPY_SAFE_SHORT_FLAG_RE.fullmatch(token) is None:
+            if safe_flags.fullmatch(token) is None:
                 return []
             continue
         operands.append(offset + relative_index)
     return operands[:-1] if len(operands) >= 2 else []
+
+
+def _trusted_copy_command(token: str) -> "re.Pattern[str] | None":
+    """The safe-flag pattern for this token's command, if it is one we model.
+
+    A bare name is resolved through the hook's PATH, matching what its child
+    shell will execute; a path spelling must be absolute. Either way the
+    resolved file must be one of that command's trusted locations, so a planted
+    `/tmp/rsync` earns nothing.
+    """
+
+    for name, (safe_flags, locations) in COPY_SHAPED_COMMANDS.items():
+        if token != name and Path(token).name != name:
+            continue
+        if _resolves_to_trusted(token, name, locations):
+            return safe_flags
+    return None
 
 
 def _copy_segment_token_is_uncertain(token: str) -> bool:
@@ -159,16 +209,16 @@ def _copy_segment_token_is_uncertain(token: str) -> bool:
     return bool(token) and set(token) <= OPERATOR_CHARS
 
 
-def _trusted_copy_executable(token: str) -> bool:
-    """Whether the shell token selects the host's trusted system `cp`.
+def _resolves_to_trusted(token: str, name: str, locations: tuple) -> bool:
+    """Whether the shell token selects one of that command's trusted binaries.
 
     A bare name is resolved through the hook's PATH, matching what its child
     shell will execute. A path spelling must be absolute. Both forms must
-    resolve to a regular system copy executable; a basename match such as
-    `/tmp/cp` is never enough.
+    resolve to a regular file among the trusted locations; a basename match
+    such as `/tmp/cp` is never enough.
     """
 
-    if token == "cp":
+    if token == name:
         candidate = shutil.which(token)
         if not candidate:
             return False
@@ -182,12 +232,18 @@ def _trusted_copy_executable(token: str) -> bool:
         mode = resolved.stat().st_mode
         trusted = {
             candidate.resolve(strict=True)
-            for candidate in TRUSTED_COPY_LOCATIONS
+            for candidate in locations
             if candidate.exists()
         }
     except (OSError, ValueError):
         return False
     return stat.S_ISREG(mode) and resolved in trusted
+
+
+def _trusted_copy_executable(token: str) -> bool:
+    """Kept for the tests that named the `cp`-only rule directly."""
+
+    return _resolves_to_trusted(token, "cp", TRUSTED_COPY_LOCATIONS)
 
 
 def path_arguments(tokens: list[str]) -> list[Path]:
