@@ -141,7 +141,12 @@ RELEASE_ACTION_PATTERNS = (
     # ordinary task in work mode. `promote` is anchored to a destination
     # because this repo promotes lesson candidates too, and that is
     # maintenance rather than a deploy.
+    # Both orders, because the anchor is about what is named and not where.
+    # Written verb-then-destination at first, which is English word order:
+    # `production으로 promote해줘` names the destination first and carried no
+    # release action at all. REVIEW_ACTION_PATTERNS already pairs its orders.
     r"\b(?:promote|promoting|promotion)\b.*\b(?:prod|production|staging|store|release)\b",
+    r"\b(?:prod|production|staging|store|release)\b.*\b(?:promote|promoting|promotion)\b",
     r"\broll ?out\b",
     "배포",
     "릴리스",
@@ -283,7 +288,11 @@ RELEASE_BLOCKING_RISK_PATTERNS = (
 
 RELEASE_SCOPE_SIGNAL_PATTERNS = (
     (
-        r"\b(?:v)?\d{2,4}\.\d{1,2}\.\d+(?:[-+][A-Za-z0-9.-]+)?\b",
+        # A one-digit major counts. Written as {2,4} for this project's
+        # date-style versions (26.08.5), which excluded ordinary semver: a
+        # promotion naming v1.2.3 and a destination had one signal of the two
+        # the scope rule needs.
+        r"\b(?:v)?\d{1,4}\.\d{1,2}\.\d+(?:[-+][A-Za-z0-9.-]+)?\b",
         r"\bversion\b",
         r"\brelease candidate\b",
         "버전",
