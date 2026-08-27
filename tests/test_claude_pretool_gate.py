@@ -173,12 +173,10 @@ def _age_preflight(
 _satisfy_workflow_entry = _write_preflight
 
 
-# The gate stops a call by asking rather than refusing: a refusal is final in
-# the runtime and left the operator unable to approve work in their own
-# repository -- including the edit that would change this gate, and the setting
-# that would turn it off. These tests assert that the call is stopped and why,
-# which is the contract; the word is the runtime's way of asking.
-STOP_DECISION = "ask"
+# Policy violations are deterministic refusals.  Returning ``ask`` here makes
+# Claude turn every stopped Edit, Write, or Bash call into an operator prompt,
+# even though the agent can repair workflow-entry failures itself.
+STOP_DECISION = "deny"
 
 
 class ClaudePreToolGateTests(unittest.TestCase):
@@ -590,10 +588,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
         decision = json.loads(out)["hookSpecificOutput"]
         self.assertEqual(STOP_DECISION, decision["permissionDecision"])
         self.assertIn("start hook", decision["permissionDecisionReason"])
-        # A stop the operator can act on names both ways out: approve it here,
-        # or turn the gate off. The refusal this replaced named neither, so the
-        # only escape was an environment variable nothing mentioned.
-        self.assertIn("Approve to proceed", decision["permissionDecisionReason"])
+        self.assertNotIn("Approve to proceed", decision["permissionDecisionReason"])
         self.assertIn("TAO_CLAUDE_GATE=0", decision["permissionDecisionReason"])
         # An edit is what this reader did, so it is what the message names.
         # Asserted as the whole sentence: a fragment check passed while the
@@ -838,7 +833,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             self.assertEqual(0, code)
             self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
-    def test_own_session_evidence_still_expires(self) -> None:
+    def test_own_session_evidence_still_expires_without_asking(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _write_preflight(project, "s7")
@@ -849,7 +844,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
             )
 
             self.assertEqual(0, code)
-            self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertEqual(
+                STOP_DECISION,
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
 
     def test_payload_without_a_session_id_is_denied(self) -> None:
         # Falling back to freshness here would reopen the original bypass for

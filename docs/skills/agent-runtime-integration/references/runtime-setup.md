@@ -150,7 +150,9 @@ when the required pre-mutation checkpoint cannot be written. The post hooks
 clear the pending mutation after success or failure and block the next agentic
 step when reconciliation is required. Non-edit tools and directories outside
 Tao Agent OS remain outside this gate. Tune the freshness window with
-`TAO_CLAUDE_GATE_MAX_AGE_SECONDS` (default 8 hours).
+`TAO_CLAUDE_GATE_MAX_AGE_SECONDS` (default 8 hours). Policy violations return a
+deterministic denial instead of an operator confirmation, so Claude repairs the
+workflow or worktree boundary without asking for every Edit, Write, or Bash call.
 
 After a new parent `start` has atomically promoted its claim to `running`, it
 may self-heal same-session ambiguity by cancelling older active parent claims

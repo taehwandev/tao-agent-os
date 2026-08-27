@@ -46,8 +46,9 @@ def _decide(payload: dict) -> tuple[bool, str]:
     if not raw:
         return True, ""
     decision = json.loads(raw)["hookSpecificOutput"]
-    # A stop is an ask, not a refusal: the gate asks the operator rather than
-    # answering for them. Anything that is not a stop is an allowance.
+    # Both legacy asks and deterministic refusals stop the tool.  The gate's
+    # contract now uses only the latter so ordinary work never becomes a stream
+    # of operator prompts.
     allowed = decision.get("permissionDecision") not in ("ask", "deny")
     return allowed, decision.get("permissionDecisionReason", "")
 

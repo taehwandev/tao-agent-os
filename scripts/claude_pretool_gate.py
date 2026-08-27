@@ -207,9 +207,9 @@ SOURCE_SUFFIXES = {
 }
 
 
-GATE_OVERRIDE_HINT = (
-    "Approve to proceed anyway, or set TAO_CLAUDE_GATE=0 in the runtime "
-    "environment to turn this gate off for the session."
+GATE_DISABLE_HINT = (
+    "Set TAO_CLAUDE_GATE=0 in the runtime environment to turn this gate off "
+    "for the session."
 )
 
 
@@ -224,21 +224,13 @@ def allow() -> int:
 
 
 def deny(reason: str) -> int:
-    """Stop the call, and put the decision in front of the person.
+    """Stop a policy violation without turning it into an operator prompt.
 
-    This emitted `deny`, which a runtime treats as final: no prompt is offered,
-    so the operator could not approve work in their own repository even when
-    they said so out loud. `git add`, `git commit`, `git push` and
-    `git checkout -b` were all unreachable until the session restarted with an
-    environment variable the refusal never named -- and the refusal also
-    covered edits to this file and to the settings that hold that variable, so
-    the gate stopped both its own repair and the remedy it recommends.
-
-    Every stop here is a judgement about the operator's own checkouts: an
-    unstarted run, a protected checkout, a sprawling edit. Each has a person
-    present who can weigh it. `ask` keeps the whole stopping power -- nothing
-    proceeds without an answer -- and returns the judgement to them. The reason
-    is unchanged; it is now something a person can act on rather than only read.
+    ``ask`` makes Claude request confirmation for every gated Edit, Write, and
+    Bash call.  These failures have deterministic remedies -- enter the
+    workflow, move to a permitted worktree, or reduce/justify the edit -- so the
+    agent should apply the remedy instead of delegating every decision to the
+    operator.
     """
 
     print(
@@ -246,8 +238,8 @@ def deny(reason: str) -> int:
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "permissionDecision": "ask",
-                    "permissionDecisionReason": f"{reason} {GATE_OVERRIDE_HINT}",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": f"{reason} {GATE_DISABLE_HINT}",
                 }
             }
         )
@@ -385,7 +377,8 @@ def workflow_entry_allows(root: Path, session_id: str) -> bool:
     the first edit attempt can never be newer than it).
 
     Freshness stays as a second condition so an abandoned session cannot be
-    resumed days later on its original evidence.
+    resumed days later on its original evidence. A stale claim is refused, not
+    turned into an operator prompt; the agent must refresh workflow entry.
     """
     if not session_id:
         # Nothing to attribute the evidence to. Falling back to freshness here
