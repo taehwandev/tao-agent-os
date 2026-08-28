@@ -89,7 +89,7 @@ def _layout_node_entry(node: dict[str, Any], parent_id: str | None, depth: int) 
         "paddingRight", "paddingBottom", "paddingLeft", "cornerRadius", "rectangleCornerRadii", "minWidth",
         "maxWidth", "minHeight", "maxHeight", "constraints", "clipsContent", "overflowDirection", "opacity",
         "blendMode", "isMask", "maskType", "rotation", "relativeTransform", "size", "strokeWeight",
-        "strokeAlign", "individualStrokeWeights", "strokeDashes",
+        "strokeAlign", "individualStrokeWeights", "strokeDashes", "visible",
     )
     for field in fields:
         if field in node:

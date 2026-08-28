@@ -114,6 +114,9 @@ def validate_summary(summary: Any) -> list[str]:
             continue
         require(bool(node.get("id")), f"layoutNodes[{index}].id missing")
         require("type" in node, f"layoutNodes[{index}].type missing")
+        visible = node.get("visible")
+        if visible is not None:
+            require(isinstance(visible, bool), f"layoutNodes[{index}].visible not a boolean: {visible!r}")
         opacity = node.get("opacity")
         if opacity is not None:
             require(

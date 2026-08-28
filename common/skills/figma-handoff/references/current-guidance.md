@@ -131,7 +131,10 @@ Use `summary/design-summary.json` for exact measurements,
 `design-handoff.md` for the human-readable overview, `raw/nodes.json` for
 precise conversions and gap recovery, and `frames/` for visual comparison, in
 that order. Never estimate measurements from `design-handoff.md` or the
-full-frame PNG alone.
+full-frame PNG alone. This applies to a value already stated as correct by a
+teammate, a prior session, or an existing comment in the target code, not only
+to a value the implementing AI would otherwise guess: re-check it against the
+node's actual field in `design-summary.json` before relying on it.
 
 For an implementation request, do not stop at bundle creation. Build reusable
 units from `components` and `componentBlueprints`, and land the individual
@@ -142,6 +145,43 @@ implementation.
 States absent from Figma — loading, empty, error, validation, dark mode,
 responsive, accessibility — follow the target product's sources and existing
 patterns, and are reported separately as `Missing State`.
+
+### 6-1. Hard Gates — Violations Fail The Handoff
+
+These are gates, not advice. Do not report an implementation that breaks one.
+
+1. **A node with `visible: false` or `opacity: 0` does not exist.** Check the
+   node's `visible` field (absent means visible) before implementing it, and
+   cross-check against the rendered frame image in `frames/` — a node's
+   presence in `layoutNodes` is not on its own proof it should be implemented.
+2. **An INSTANCE box size is not the glyph size.** Draw an icon at its inner
+   VECTOR size, not the component box. `Icon/Plus2` at 20x20 wrapping a 16x16
+   vector is a 16dp icon.
+3. **Confirm the vertical extent of every background band by scanning a column
+   of the rendered frame.** A `fill` on a `Header` node does not prove the band
+   covers that header. Establish where the panel starts and ends from pixels.
+4. **Compute overhang from `absoluteBoundingBox` differences.** When a child
+   crosses its parent's right or bottom edge, carry that delta as an offset.
+   Alignment alone produces a flush edge that does not match the design.
+5. **Keep design copy verbatim, but repair an obvious typo or truncation and
+   report it as a mismatch.**
+
+### 6-2. Scope Gate — Never Fold A New Design Into Existing Components
+
+**Implement a new design with new components. Visual similarity to an existing
+screen is not a reason to reuse or modify that screen's shared component.**
+
+- Another screen's design is a separate specification. Two designs that look
+  alike today change independently tomorrow.
+- Touching a shared component changes screens nobody asked about. That is a
+  scope violation, not a refactor.
+- Extract, share, or parameterise only when the user explicitly asks.
+  "It is duplicated" and "reuse is cleaner" are not authorisation.
+- Before implementing, write down the files this design will own and the files
+  it will not touch. An existing file appearing in the diff is the signal to
+  stop and ask.
+- Once a question is raised about touching shared code, do not act until the
+  answer arrives.
 
 ## 7. Verify And Report
 

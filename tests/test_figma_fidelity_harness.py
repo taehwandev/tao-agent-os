@@ -117,6 +117,14 @@ def _fixture_documents() -> dict[str, dict]:
                 ],
             },
             {
+                "id": "1:9",
+                "name": "Hidden",
+                "type": "RECTANGLE",
+                "visible": False,
+                "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 20},
+                "fills": [{"type": "SOLID", "color": {"r": 1, "g": 0, "b": 0, "a": 1}}],
+            },
+            {
                 "id": "1:8",
                 "name": "CTA",
                 "type": "RECTANGLE",
@@ -187,6 +195,12 @@ class FidelityHarnessTests(unittest.TestCase):
         self.assertEqual(overlay["size"], {"x": 100, "y": 50})
         self.assertIn("absoluteRenderBounds", overlay)
         self.assertEqual(overlay["individualStrokeWeights"]["bottom"], 0.5)
+
+    def test_node_visibility_surfaced(self) -> None:
+        hidden = next(n for n in self.summary["layoutNodes"] if n.get("name") == "Hidden")
+        self.assertEqual(hidden["visible"], False)
+        overlay = next(n for n in self.summary["layoutNodes"] if n.get("name") == "Overlay")
+        self.assertNotIn("visible", overlay)
 
     def test_text_fields_and_runs(self) -> None:
         title = next(s for s in self.summary["textStyles"] if s.get("italic"))

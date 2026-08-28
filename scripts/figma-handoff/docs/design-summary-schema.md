@@ -82,7 +82,11 @@ that exist on the source node.
 - `primaryAxisSizingMode` and `counterAxisSizingMode`: `FIXED` or `AUTO`
 - `layoutSizingHorizontal` / `layoutSizingVertical`: `FIXED`, `HUG`, or `FILL`
 - `layoutPositioning`: `AUTO` or `ABSOLUTE`; `layoutAlign`; `layoutGrow`
-- `itemSpacing`, `counterAxisSpacing`, and four-sided padding in pixels
+- `itemSpacing`, `counterAxisSpacing`, and four-sided padding in pixels. When
+  `primaryAxisAlignItems` is `SPACE_BETWEEN`, `itemSpacing` is only the
+  auto-layout minimum; the rendered gap is derived at layout time from the
+  children's sizes and must be measured from consecutive children's
+  `absoluteBoundingBox`, not read off this field.
 - `minWidth`, `maxWidth`, `minHeight`, `maxHeight`
 - `constraints` `{horizontal,vertical}`: `MIN`, `MAX`, `CENTER`, `STRETCH`, or
   `SCALE`
@@ -91,6 +95,9 @@ that exist on the source node.
 
 - `cornerRadius` or `rectangleCornerRadii` `[tl,tr,br,bl]`; individual radii win
 - `clipsContent`, `overflowDirection`
+- `visible`: `false` only when Figma marks the node hidden; absent means
+  visible (Figma's own default). A node's presence in `layoutNodes` is not
+  proof it should be implemented — check this field before drawing it.
 - `opacity`: node-level opacity from `0` to `1`; it is not included in color hex
   values and must be applied separately
 - `blendMode`: `PASS_THROUGH`, `MULTIPLY`, and other Figma blend modes

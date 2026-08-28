@@ -29,8 +29,9 @@ API.
 - **Gradient geometry**: original stops and handle positions
 - **Effect values**: shadow color/offset/radius/spread and blur radius
 - **Visual properties**: `opacity`, `blendMode`, `isMask`, `maskType`,
-  `rotation`, `strokeWeight`, `strokeAlign`, `individualStrokeWeights`, and
-  `absoluteRenderBounds`
+  `rotation`, `strokeWeight`, `strokeAlign`, `individualStrokeWeights`,
+  `absoluteRenderBounds`, and `visible` (absent means visible; check it before
+  implementing a listed node)
 
 ## Tier 2 — Summary Plus Raw Data Or Correction
 

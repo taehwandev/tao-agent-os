@@ -36,6 +36,11 @@ results, not an implementation asset.
 Rebuilding a whole screen as one eyeballed generic layout drifts component
 boundaries and icon positions. Build components first, then compose instances.
 
+Hard gates on visibility, icon sizing, background extent, overhang, and text
+fidelity, plus the component/file scope boundary, are owned by
+[current-guidance.md](current-guidance.md) sections 6-1 and 6-2 — read those
+before implementing, not a copy here.
+
 ## Measurements That Go Wrong
 
 - `rotation` is in radians. Convert with `radians x 180 / pi` only for APIs that need degrees.
@@ -45,6 +50,8 @@ boundaries and icon positions. Build components first, then compose instances.
 - A rotated node's `absoluteBoundingBox` is the circumscribed rectangle; use `size`, `rotation`, and `relativeTransform` for the real shape.
 - `strokeAlign` and `individualStrokeWeights` affect occupied size and clipping.
 - Never substitute `blendMode`, masks, or `clipsContent` with a plain color or border.
+- When `primaryAxisAlignItems` is `SPACE_BETWEEN`, that node's `itemSpacing` is only the auto-layout minimum, not the rendered gap. Compute the real gap from consecutive children's `absoluteBoundingBox` (the `y` delta for `VERTICAL`, `x` delta for `HORIZONTAL`) instead of trusting the raw field.
+- Any value used for implementation — including one a teammate or a prior session already stated as correct — is re-verified against its node's actual field in `design-summary.json` before it ships. A wrong number is a wrong number whether the AI guessed it or a human wrote it down; the failure is skipping the check, not who produced the value.
 
 ## Design Tokens And Text
 
