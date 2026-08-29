@@ -154,6 +154,14 @@ Tao Agent OS remain outside this gate. Tune the freshness window with
 deterministic denial instead of an operator confirmation, so Claude repairs the
 workflow or worktree boundary without asking for every Edit, Write, or Bash call.
 
+The Bash allowance is command- and option-aware. A compound line is read-only
+only when every command it executes is read-only; loop and branch keywords are
+syntax, but their conditions and bodies are still classified. `find`, `sort`,
+and `sed` may traverse, order, print, or substitute inspection output, while
+delete/exec actions, named output or temporary-file locations, external
+compression programs, in-place edits, and scripts that write or execute remain
+denied. Any shell or option shape the classifier cannot prove safe fails closed.
+
 After a new parent `start` has atomically promoted its claim to `running`, it
 may self-heal same-session ambiguity by cancelling older active parent claims
 for that exact runtime session. The registry performs that cancellation as a

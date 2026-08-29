@@ -20,6 +20,7 @@ from claude_bash_syntax import (
     command_segments,
     has_unresolvable_expansion,
     mask_substitutions,
+    shell_keyword_command,
     substitution_bodies,
     unmodelled_operator,
 )
@@ -74,7 +75,15 @@ RUNTIME_HOOK_ENV_ASSIGNMENTS = frozenset(
 )
 # Only commands that cannot write through an argument belong here, because a
 # redirection is the sole write path this module strips out. That rules out
-# `sort -o`, `uniq <in> <out>`, `tee`, `awk`, and `find -delete/-exec`.
+# `uniq <in> <out>`, `tee`, and `awk`, whose write paths are the ordinary way
+# to invoke them.
+#
+# `find` and `sort` are not in that company and used to be excluded anyway.
+# Their write paths are spelled as options -- `find -delete/-exec`; `sort -o`,
+# `-T`, and `--compress-program` -- so excluding the command denied every use
+# of it, and listing a directory or ordering a listing became impossible inside
+# a protected checkout. They are classified by their options below, the way
+# `rg --pre` and `vibeguard --fix` already were.
 READ_ONLY_COMMANDS = frozenset(
     {
         "basename",
@@ -329,6 +338,140 @@ def read_only_script_kind(tokens: list[str]) -> str | None:
     return "read_only"
 
 
+# A `sed` script writes through `w`, `W` and the `s///w` flag, and `-i`
+# rewrites the operand in place. What remains -- printing a line range and
+# substituting text on the way through a pipe -- writes nothing, and refusing
+# it meant no pipeline could reshape the output it was reading.
+SED_INERT_FLAGS = frozenset(
+    {
+        "--null-data",
+        "--posix",
+        "--quiet",
+        "--regexp-extended",
+        "--separate",
+        "--silent",
+        "--unbuffered",
+        "-E",
+        "-n",
+        "-r",
+        "-s",
+        "-u",
+        "-z",
+    }
+)
+SED_ADDRESS = r"(?:\d+|\$|/(?:\\.|[^/\\])*/)(?:,(?:\d+|\$|/(?:\\.|[^/\\])*/))?"
+# The delimiter is barred from being a word character, which is what stops a
+# `w` command from being spelled as one. The flags omit `w`, which opens the
+# file it names, and `e`, which hands the result to a shell.
+SED_SUBSTITUTION = (
+    r"s(?P<delimiter>[^\\\w\s])"
+    r"(?:\\.|(?!(?P=delimiter))[^\\])*(?P=delimiter)"
+    r"(?:\\.|(?!(?P=delimiter))[^\\])*(?P=delimiter)"
+    r"[gpiImM0-9]*"
+)
+SED_READ_ONLY_COMMAND_RE = re.compile(
+    rf"\s*(?:{SED_ADDRESS})?\s*(?:{SED_SUBSTITUTION}|p|=)\s*"
+)
+
+
+def sed_script_is_read_only(script: str) -> bool:
+    """Whether every command in a script only prints or substitutes.
+
+    Split on `;` without regard for a delimiter that holds one, so `s/a;b/c/`
+    fails to parse and is refused. That is the strict direction: a script this
+    module cannot read is one it cannot claim writes nothing.
+    """
+
+    return bool(script.strip()) and all(
+        SED_READ_ONLY_COMMAND_RE.fullmatch(part) for part in script.split(";")
+    )
+
+
+def sed_kind(args: list[str]) -> str:
+    """Read-only when sed neither edits in place nor writes from its script.
+
+    Options are read wherever they appear rather than only in front of the
+    script, because GNU sed accepts them after the operands too: judging only a
+    leading run would have read `sed 's/a/b/' -i notes.txt` as a pipe filter
+    while it rewrote the file.
+    """
+
+    scripts: list[str] = []
+    script_taken = False
+    index = 0
+    while index < len(args):
+        argument = args[index]
+        if argument in {"-e", "--expression"}:
+            if index + 1 >= len(args):
+                return "mutating"
+            scripts.append(args[index + 1])
+            script_taken = True
+            index += 2
+            continue
+        if argument.startswith("--expression="):
+            scripts.append(argument.split("=", 1)[1])
+            script_taken = True
+            index += 1
+            continue
+        if argument in SED_INERT_FLAGS:
+            index += 1
+            continue
+        if argument.startswith("-") and argument != "-":
+            return "mutating"
+        if not script_taken:
+            scripts.append(argument)
+            script_taken = True
+        index += 1
+    if not scripts:
+        return "mutating"
+    return "read_only" if all(map(sed_script_is_read_only, scripts)) else "mutating"
+
+
+def find_writes(args: list[str]) -> bool:
+    """Whether a `find` invocation carries an action that runs or writes.
+
+    Matched by prefix rather than by exact spelling, so the `dir` and `f`
+    variants an enumeration keeps missing -- `-execdir`, `-okdir`, `-fprintf`,
+    `-fprint0` -- are covered by the option they extend. Every other primary is
+    a test or a traversal option and opens nothing.
+    """
+
+    return any(
+        argument in {"-delete", "-fls"}
+        or argument.startswith(("-exec", "-ok", "-fprint"))
+        for argument in args
+    )
+
+
+def sort_writes(args: list[str]) -> bool:
+    """Whether a `sort` invocation names a write or executable path.
+
+    Long options are compared the way the Git module compares unsafe options:
+    an abbreviation is what the option starts with, so `--outp` is caught
+    without enumerating every prefix. Besides writing its output, `sort` can
+    create temporary files in a caller-selected directory and invoke a named
+    compression program. The short write options can be bundled into a cluster
+    (`-uo out`, `-uT .`), so the cluster's letters decide.
+    """
+
+    unsafe_long_options = (
+        "--compress-program",
+        "--output",
+        "--temporary-directory",
+    )
+    for argument in args:
+        name = argument.split("=", 1)[0]
+        if name.startswith("--"):
+            if len(name) > 2 and any(
+                option.startswith(name) for option in unsafe_long_options
+            ):
+                return True
+            continue
+        if name.startswith("-") and any(option in name[1:] for option in "oT"):
+            return True
+    return False
+
+
 def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
     # Checked before either path: a clustered operator such as `>|` or `&>`
     # carries no metacharacter the simple path would notice and no punctuation
@@ -350,7 +493,13 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
     segments = command_segments(tokens) if tokens else None
     if not segments:
         return "mutating"
-    kinds = {simple_command_kind(segment) for segment in segments}
+    # A segment that is only a shell keyword runs nothing, so it earns no kind.
+    # Every command a loop or branch actually runs still arrives as its own
+    # segment and is classified below.
+    commands = [shell_keyword_command(segment) for segment in segments]
+    kinds = {simple_command_kind(command) for command in commands if command}
+    if not kinds:
+        return "read_only"
     # Ordered strictest first, so the weakest allowance any part needs is the
     # one the whole command gets.
     for kind in ("mutating", "workflow_start", "bootstrap"):
@@ -375,15 +524,13 @@ def simple_command_kind(tokens: list[str]) -> str:
             return "mutating"
         return "read_only"
     if executable == "sed":
-        args = command[1:]
-        # The file operand is optional: a print-only sed reading stdin at the
-        # end of a pipe writes nothing either.
-        print_only = (
-            len(args) >= 2
-            and args[0] == "-n"
-            and re.fullmatch(r"(?:\d+|\$)(?:,(?:\d+|\$))?p", args[1]) is not None
-        )
-        return "read_only" if print_only else "mutating"
+        # The file operand is optional: a sed reading stdin at the end of a
+        # pipe writes nothing either.
+        return sed_kind(command[1:])
+    if executable == "find":
+        return "mutating" if find_writes(command[1:]) else "read_only"
+    if executable == "sort":
+        return "mutating" if sort_writes(command[1:]) else "read_only"
     if executable == "git":
         return git_command_kind(command)
     if executable == "vibeguard":

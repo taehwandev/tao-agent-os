@@ -412,5 +412,129 @@ class ReadOnlyScriptDeclarationTests(unittest.TestCase):
         self.assertEqual(self._kind(command), "mutating")
 
 
+class OptionJudgedInspectionCommandTests(unittest.TestCase):
+    """A command with one narrow write path is judged by its options.
+
+    `find` and `sort` were excluded outright because each can be made to write,
+    which denied every use of them and left no way to list or order a directory
+    inside a protected checkout. `sed` was admitted only as `-n <range>p`, so a
+    pipeline could read output but not reshape it.
+    """
+
+    @staticmethod
+    def _kind(command: str) -> str:
+        payload = {"tool_input": {"command": command}}
+        _, tokens, simple = worktree_gate.bash_invocation(payload, Path("/tmp"))
+        return worktree_gate.bash_command_kind(tokens, simple)
+
+    def test_find_without_an_action_only_reads(self) -> None:
+        self.assertEqual(self._kind("find . -type f"), "read_only")
+        self.assertEqual(self._kind("find src -name '*.kt' | sort"), "read_only")
+        self.assertEqual(self._kind("find . -maxdepth 2 -type d -newer x"), "read_only")
+
+    def test_every_find_action_that_runs_or_writes_is_mutating(self) -> None:
+        self.assertEqual(self._kind("find . -delete"), "mutating")
+        self.assertEqual(self._kind("find . -name '*.tmp' -delete"), "mutating")
+        self.assertEqual(self._kind("find . -exec rm {} \\;"), "mutating")
+        self.assertEqual(self._kind("find . -execdir rm {} \\;"), "mutating")
+        self.assertEqual(self._kind("find . -ok rm {} \\;"), "mutating")
+        self.assertEqual(self._kind("find . -okdir rm {} \\;"), "mutating")
+        self.assertEqual(self._kind("find . -fprint out.txt"), "mutating")
+        self.assertEqual(self._kind("find . -fprintf out.txt '%p'"), "mutating")
+        self.assertEqual(self._kind("find . -fls out.txt"), "mutating")
+
+    def test_sort_output_and_temporary_file_options_are_mutating(self) -> None:
+        self.assertEqual(self._kind("sort notes.txt"), "read_only")
+        self.assertEqual(self._kind("sort -u -r notes.txt | head -5"), "read_only")
+        self.assertEqual(self._kind("sort -o sorted.txt notes.txt"), "mutating")
+        self.assertEqual(self._kind("sort --output=sorted.txt notes.txt"), "mutating")
+        self.assertEqual(self._kind("sort -uo sorted.txt notes.txt"), "mutating")
+        self.assertEqual(self._kind("sort -T . notes.txt"), "mutating")
+        self.assertEqual(
+            self._kind("sort --temporary-directory=. notes.txt"), "mutating"
+        )
+
+    def test_sort_cannot_run_a_compression_program(self) -> None:
+        self.assertEqual(
+            self._kind("sort --compress-program=/tmp/writer notes.txt"), "mutating"
+        )
+
+    def test_an_abbreviated_sort_output_option_is_still_a_write(self) -> None:
+        """Long options abbreviate, so an exact-string check reads one as a word."""
+
+        self.assertEqual(self._kind("sort --outp=sorted.txt notes.txt"), "mutating")
+        self.assertEqual(self._kind("sort --out sorted.txt notes.txt"), "mutating")
+        self.assertEqual(self._kind("sort --temp=. notes.txt"), "mutating")
+        self.assertEqual(self._kind("sort --comp=/tmp/writer notes.txt"), "mutating")
+
+    def test_a_printing_or_substituting_sed_writes_nothing(self) -> None:
+        self.assertEqual(self._kind("sed -n '1,5p' notes.txt"), "read_only")
+        self.assertEqual(self._kind("ls | sed 's|.*/||'"), "read_only")
+        self.assertEqual(self._kind("sed 's/a/b/g' notes.txt"), "read_only")
+        self.assertEqual(self._kind("sed -n 's/a/b/p' notes.txt"), "read_only")
+        self.assertEqual(self._kind("sed -e 's/a/b/' -e '1,2p' notes.txt"), "read_only")
+
+    def test_a_sed_that_opens_a_file_or_a_shell_is_mutating(self) -> None:
+        self.assertEqual(self._kind("sed -i 's/a/b/' notes.txt"), "mutating")
+        self.assertEqual(self._kind("sed -i.bak 's/a/b/' notes.txt"), "mutating")
+        self.assertEqual(self._kind("sed 's/a/b/w out.txt' notes.txt"), "mutating")
+        self.assertEqual(self._kind("sed 'w out.txt' notes.txt"), "mutating")
+        self.assertEqual(self._kind("sed 's/a/b/e' notes.txt"), "mutating")
+        self.assertEqual(self._kind("sed"), "mutating")
+
+    def test_a_sed_option_after_the_script_is_still_read(self) -> None:
+        """GNU sed accepts options after its operands, so position decides nothing."""
+
+        self.assertEqual(self._kind("sed 's/a/b/' -i notes.txt"), "mutating")
+
+    def test_an_unreadable_sed_script_is_refused(self) -> None:
+        """A delimiter holding the separator makes the script unparseable here."""
+
+        self.assertEqual(self._kind("sed 's/a;b/c/' notes.txt"), "mutating")
+
+
+class ShellKeywordSegmentTests(unittest.TestCase):
+    """A loop or branch is judged by the commands in it, not by its keywords.
+
+    Splitting on `;` left `for`, `do` and `done` sitting where a program name
+    belongs, so every loop was mutating and the one shape that iterates over
+    files could not be used to look at a protected checkout.
+    """
+
+    @staticmethod
+    def _kind(command: str) -> str:
+        payload = {"tool_input": {"command": command}}
+        _, tokens, simple = worktree_gate.bash_invocation(payload, Path("/tmp"))
+        return worktree_gate.bash_command_kind(tokens, simple)
+
+    def test_a_loop_over_read_only_commands_is_read_only(self) -> None:
+        self.assertEqual(
+            self._kind('for f in a.kt b.kt; do head -3 "$f"; done'), "read_only"
+        )
+        self.assertEqual(
+            self._kind('while true; do ls; done'), "read_only"
+        )
+
+    def test_a_write_inside_a_loop_body_still_decides(self) -> None:
+        self.assertEqual(self._kind('for f in *; do rm "$f"; done'), "mutating")
+        self.assertEqual(
+            self._kind('for f in *; do cat "$f" > out.txt; done'), "mutating"
+        )
+
+    def test_a_branch_is_judged_by_both_of_its_arms(self) -> None:
+        self.assertEqual(self._kind('if grep -q x f; then cat f; fi'), "read_only")
+        self.assertEqual(self._kind('if ls; then rm -rf build; fi'), "mutating")
+
+    def test_an_else_arm_is_not_skipped(self) -> None:
+        """A keyword that opens a block is stripped, never treated as the whole part."""
+
+        self.assertEqual(
+            self._kind('if ls; then cat f; else rm -rf build; fi'), "mutating"
+        )
+
+    def test_a_terminator_carrying_more_words_is_not_understood(self) -> None:
+        self.assertEqual(self._kind('ls; done rm -rf build'), "mutating")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -39,6 +39,26 @@ FD_OPERAND_RE = re.compile(r"\d+|-")
 INPUT_REDIRECTIONS = frozenset({"<", "<<"})
 DISCARD_TARGETS = frozenset({"/dev/null"})
 ENV_ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=.*$")
+# The shell's own words, which name no program. These all stand in front of a
+# command that still follows, so each is stripped and what remains is what runs.
+# Putting a word that opens a block into the terminator set below instead would
+# drop the command behind it unclassified, which is how `else rm -rf build`
+# would have been read as running nothing at all.
+#
+# `time` is deliberately absent: it takes a command as its operand, and this
+# module would rather see that command in a segment of its own than model a
+# keyword that swallows one. `case` is absent because its arms end in `)`, which
+# the lexer hands back inside a word, so no reading of those segments is
+# trustworthy and the mutating default is the honest verdict.
+BLOCK_OPENING_KEYWORDS = frozenset(
+    {"!", "do", "elif", "else", "if", "then", "until", "while", "{"}
+)
+# A terminator closes a block and takes no operand. It is recognised only when
+# it is the whole segment, because anything following one is text this module
+# did not expect and has no reading for.
+BLOCK_TERMINATORS = frozenset({"done", "esac", "fi", "}"})
+# `for` and `select` are followed by a name and a word list, never a command.
+WORD_LIST_KEYWORDS = frozenset({"for", "select"})
 # The one brace form this module resolves, matched positively. Listing the
 # operators instead -- strip, default, replace, slice -- was an enumeration
 # with the same failure mode as every other one here: `${!REF}` was not on the
@@ -149,6 +169,37 @@ def command_segments(tokens: list[str]) -> list[list[str]] | None:
         index += 1
     segments.append(current)
     return segments if all(segments) else None
+
+
+def shell_keyword_command(tokens: list[str]) -> list[str] | None:
+    """The command a segment runs, or None when the segment only shapes a block.
+
+    Splitting on `;` leaves the shell's own keywords sitting where a program
+    name is expected, so `for f in *.kt; do head "$f"; done` was read as calls
+    to `for`, `do` and `done` -- none of them on the allowlist, all of them
+    mutating. A loop was therefore the one shape that could not be used to look
+    at a protected checkout, which is the self-blocking this gate has been
+    repaired for before.
+
+    Dropping a keyword allows nothing on its own: the body of every loop and
+    branch still arrives as its own segment and is classified there, so `for f
+    in *; do rm "$f"; done` stays mutating because `rm` does. A `for` or
+    `select` header is the one segment that runs nothing at all -- what follows
+    `in` is a word list the shell expands, never a command -- and a
+    substitution written inside one was already refused before tokenisation.
+    """
+
+    keywords = 0
+    while keywords < len(tokens) and tokens[keywords] in BLOCK_OPENING_KEYWORDS:
+        keywords += 1
+    command = tokens[keywords:]
+    if not command:
+        return None
+    if command[0] in WORD_LIST_KEYWORDS:
+        return None
+    if len(command) == 1 and command[0] in BLOCK_TERMINATORS:
+        return None
+    return command
 
 
 def unmodelled_operator(tokens: list[str]) -> bool:
