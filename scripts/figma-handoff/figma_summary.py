@@ -58,22 +58,39 @@ def build_summary(
         )
 
     parsed_variables = parse_variables(variables)
+    layout_nodes = LayoutAnalysis.summarize_layout_nodes(list(node_documents.values()))
+    implementation_inventory = LayoutAnalysis.build_implementation_inventory(layout_nodes)
+    rendered_node_ids = set(implementation_inventory["renderedNodeIds"])
+    implementation_nodes = [
+        node
+        for node in all_nodes
+        if normalize_node_id(str(node.get("id", ""))) in rendered_node_ids
+    ]
     interactions = [
         {**interaction, "toName": node_names.get(interaction.get("toNodeId", ""), "")}
-        for interaction in summarize_flow_interactions(all_nodes)
+        for interaction in summarize_flow_interactions(implementation_nodes)
     ]
-    components = ComponentAnalysis.summarize_components(node_documents, component_index)
+    components = ComponentAnalysis.summarize_components(
+        node_documents,
+        component_index,
+        rendered_node_ids,
+    )
     component_labels = {
         component["componentId"]: component.get("componentSetName") or component.get("name") or ""
         for component in components
     }
-    asset_candidates = _asset_candidates_with_fallback(all_nodes, node_documents, component_labels)
+    asset_candidates = _asset_candidates_with_fallback(
+        implementation_nodes,
+        node_documents,
+        component_labels,
+    )
     asset_keys = {
         candidate["id"]: candidate["dedupKey"]
         for candidate in asset_candidates
         if candidate.get("id") and candidate.get("dedupKey")
     }
     return {
+        "schemaVersion": 4,
         "meta": {
             "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
             "fileKey": file_key,
@@ -84,6 +101,7 @@ def build_summary(
         "flowEdges": [
             {**edge, "toName": node_names.get(edge["toNodeId"], "")}
             for edge in flow_edges
+            if normalize_node_id(str(edge.get("fromNodeId", ""))) in rendered_node_ids
         ],
         "flowInteractions": interactions,
         "designTokens": {
@@ -94,14 +112,20 @@ def build_summary(
         },
         "referencedStyles": StyleParser.build_referenced_styles(file_styles, node_documents),
         "components": components,
-        "componentBlueprints": ComponentAnalysis.summarize_component_blueprints(node_documents, components, asset_keys),
-        "colors": ColorAnalysis.summarize_colors(all_nodes, parsed_variables),
-        "gradients": ColorAnalysis.summarize_gradients(all_nodes),
-        "textStyles": ColorAnalysis.summarize_text_styles(all_nodes),
-        "textRuns": LayoutAnalysis.summarize_text_runs(all_nodes),
-        "effects": ColorAnalysis.summarize_effects(all_nodes),
-        "layoutMetrics": LayoutAnalysis.summarize_layout_metrics(all_nodes),
-        "layoutNodes": LayoutAnalysis.summarize_layout_nodes(list(node_documents.values())),
+        "componentBlueprints": ComponentAnalysis.summarize_component_blueprints(
+            node_documents,
+            components,
+            asset_keys,
+            included_node_ids=rendered_node_ids,
+        ),
+        "colors": ColorAnalysis.summarize_colors(implementation_nodes, parsed_variables),
+        "gradients": ColorAnalysis.summarize_gradients(implementation_nodes),
+        "textStyles": ColorAnalysis.summarize_text_styles(implementation_nodes),
+        "textRuns": LayoutAnalysis.summarize_text_runs(implementation_nodes),
+        "effects": ColorAnalysis.summarize_effects(implementation_nodes),
+        "layoutMetrics": LayoutAnalysis.summarize_layout_metrics(implementation_nodes),
+        "layoutNodes": layout_nodes,
+        "implementationInventory": implementation_inventory,
         "assetCandidates": asset_candidates,
         "assetInventory": AssetAnalysis.build_asset_inventory(asset_candidates),
         "warnings": warnings,

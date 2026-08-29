@@ -394,7 +394,7 @@ class FigmaHandoffRegressionTests(unittest.TestCase):
             ),
         )
         self.assertEqual(manifest["tool"], "figma-handoff.py")
-        self.assertEqual(manifest["schemaVersion"], 3)
+        self.assertEqual(manifest["schemaVersion"], 4)
         self.assertEqual(manifest["summary"]["flowInteractionCount"], 1)
         self.assertEqual(manifest["summary"]["componentCount"], 0)
 

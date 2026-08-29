@@ -32,6 +32,17 @@ def coverage_report(summary: Any) -> dict[str, Any]:
     variables = _sequence(_mapping(_mapping(root.get("designTokens")).get("variables")).get("variables"))
     components = [item for item in _sequence(root.get("components")) if isinstance(item, dict)]
     inventory = [item for item in _sequence(root.get("assetInventory")) if isinstance(item, dict)]
+    implementation_inventory = _mapping(root.get("implementationInventory"))
+    rendered_node_ids = {
+        item
+        for item in _sequence(implementation_inventory.get("renderedNodeIds"))
+        if isinstance(item, str)
+    }
+    excluded_nodes = [
+        item
+        for item in _sequence(implementation_inventory.get("excludedNodes"))
+        if isinstance(item, dict)
+    ]
 
     def count_with(field: str) -> int:
         return sum(1 for node in layout_nodes if node.get(field) is not None)
@@ -52,6 +63,9 @@ def coverage_report(summary: Any) -> dict[str, Any]:
         },
         "layoutNodes": {
             "total": len(layout_nodes),
+            "rendered": len(rendered_node_ids) if implementation_inventory else len(layout_nodes),
+            "excluded": len(excluded_nodes),
+            "withRenderedPaints": sum(bool(node.get("renderedPaints")) for node in layout_nodes),
             "withOpacity": count_with("opacity"),
             "withStrokeWeight": count_with("strokeWeight"),
             "withRotation": count_with("rotation"),

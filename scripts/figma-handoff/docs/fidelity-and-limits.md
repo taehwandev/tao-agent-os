@@ -32,6 +32,11 @@ API.
   `rotation`, `strokeWeight`, `strokeAlign`, `individualStrokeWeights`,
   `absoluteRenderBounds`, and `visible` (absent means visible; check it before
   implementing a listed node)
+- **Effective visibility**: schema v4 applies hidden and zero-opacity ancestors,
+  writes the rendered allowlist to `implementationInventory`, and keeps
+  excluded nodes as explicit negative evidence
+- **Node-scoped paints**: `layoutNodes[].renderedPaints` binds solid alpha,
+  gradients, and image paint metadata to the node that owns them
 
 ## Tier 2 — Summary Plus Raw Data Or Correction
 
@@ -62,6 +67,9 @@ API.
   authorized process.
 - **Markdown truncation**: `design-handoff.md` caps long sections such as
   `layoutNodes`; use `design-summary.json` for exact values.
+- **Legacy summaries**: v3-compatible summaries have no executable
+  `implementationInventory`. Resolve self and ancestor visibility manually and
+  compare the rendered frame before implementing from one.
 
 ## Icons, Vectors, And Images
 

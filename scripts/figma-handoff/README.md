@@ -141,6 +141,9 @@ python3 scripts/figma-handoff/figma-handoff.py \
 `design-summary.json` fields and units are defined by the
 [design-summary schema](docs/design-summary-schema.md). `design-handoff.md`
 truncates long lists, so it is not the authoritative text for exact values.
+Schema v4 makes effective visibility an explicit implementation allowlist,
+keeps excluded nodes as negative evidence, and attaches rendered paint stacks
+to their owning nodes.
 API and tool reproduction limits follow the
 [fidelity document](docs/fidelity-and-limits.md).
 

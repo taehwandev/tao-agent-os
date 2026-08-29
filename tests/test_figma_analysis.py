@@ -59,6 +59,18 @@ class OverlappingDocumentAnalysisTests(unittest.TestCase):
         self.assertEqual(summary["components"][0]["usageCount"], 1)
         self.assertEqual(summary["componentBlueprints"][0]["usageCount"], 1)
 
+    def test_hidden_ancestor_wins_when_overlapping_child_root_arrives_first(self) -> None:
+        self.section["visible"] = False
+        documents = {"2:1": self.frame, "1:1": self.section}
+
+        layout_nodes = summarize_layout_nodes(list(documents.values()))
+        by_id = {node["id"]: node for node in layout_nodes}
+
+        self.assertFalse(by_id["2:1"]["effectiveVisible"])
+        self.assertEqual(by_id["2:1"]["visibilityReasons"], ["ancestor:1:1.visible=false"])
+        self.assertFalse(by_id["2:2"]["effectiveVisible"])
+        self.assertEqual(by_id["2:2"]["visibilityReasons"], ["ancestor:1:1.visible=false"])
+
 
 if __name__ == "__main__":
     unittest.main()

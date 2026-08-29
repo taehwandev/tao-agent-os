@@ -121,8 +121,36 @@ def _format_layout_node(node: dict[str, Any]) -> str:
         "strokeWeight", "strokeAlign",
     )
     details = " ".join(f"{key}={node[key]}" for key in fields if node.get(key) is not None)
+    paint_details = _format_rendered_paints(node.get("renderedPaints", {}))
+    if paint_details:
+        details = " ".join(part for part in (details, paint_details) if part)
     parent = f" parent=`{node['parentId']}`" if node.get("parentId") else ""
     return f"`{node['id']}` {node.get('name', '')} ({node.get('type', '')}){parent}{' ' + details if details else ''}"
+
+
+def _format_rendered_paints(paint_stack: dict[str, Any]) -> str:
+    fields: list[str] = []
+    for field, paints in paint_stack.items():
+        if not isinstance(paints, list):
+            continue
+        values: list[str] = []
+        for paint in paints:
+            if not isinstance(paint, dict):
+                continue
+            if paint.get("hex"):
+                values.append(str(paint["hex"]))
+            elif isinstance(paint.get("gradient"), dict):
+                values.append(_format_gradient(paint["gradient"]))
+            else:
+                values.append(str(paint.get("type", "")))
+        if values:
+            fields.append(f"{field}=[{'; '.join(values)}]")
+    return " ".join(fields)
+
+
+def _format_excluded_node(node: dict[str, Any]) -> str:
+    reasons = ", ".join(str(reason) for reason in node.get("reasons", [])) or "reason unavailable"
+    return f"- `{node.get('id', '')}` {node.get('name', '')} ({node.get('type', '')}) — {reasons}"
 
 
 def _format_layout_metric(key: str, values: list[dict[str, Any]]) -> str:
@@ -133,6 +161,48 @@ def _format_layout_metric(key: str, values: list[dict[str, Any]]) -> str:
 def _section(lines: list[str], title: str, rows: Iterable[str], empty: str = "- None") -> None:
     rendered = list(rows)
     lines.extend(["", f"## {title}", "", *(rendered or [empty])])
+
+
+def _render_visibility_gate(lines: list[str], summary: dict[str, Any]) -> None:
+    inventory = summary.get("implementationInventory")
+    if not isinstance(inventory, dict):
+        _section(
+            lines,
+            "Implementation Visibility Gate",
+            (),
+            "- Legacy summary without an implementation inventory. Resolve node and ancestor visibility from `layoutNodes` and the rendered frame before implementation.",
+        )
+        return
+
+    rendered_node_ids = inventory.get("renderedNodeIds", [])
+    excluded_nodes = inventory.get("excludedNodes", [])
+    lines.extend([
+        "",
+        "## Implementation Visibility Gate",
+        "",
+        f"- Implement only the {len(rendered_node_ids)} nodes in `implementationInventory.renderedNodeIds`.",
+        f"- Do not implement the {len(excluded_nodes)} nodes listed under `excludedNodes`, including their controls, callbacks, actions, assets, or styles.",
+        "- A listed component or raw layout node is not implementation evidence unless it is effectively visible in the rendered state.",
+    ])
+    _section(
+        lines,
+        "Do Not Implement — Excluded Nodes",
+        (_format_excluded_node(node) for node in excluded_nodes),
+    )
+
+
+def _render_implementation_checklist(lines: list[str]) -> None:
+    lines.extend([
+        "", "## Platform-neutral Implementation Checklist", "",
+        "- Read the target repository's instructions, screen entry points, navigation, and state ownership first.",
+        "- Start from `implementationInventory.renderedNodeIds`; never implement a node in `excludedNodes`.",
+        "- Map each visible node's exact `renderedPaints` to the target product's tokens. A nearby token is valid only when it reproduces the same paint stack.",
+        "- Implement reusable components from `componentBlueprints` and `components` first.",
+        "- Use the full-frame image only as a comparison reference; implement the actual structure and individual assets.",
+        "- Before completion, compare visible controls and emitted actions in both directions and require zero unmatched implementation items.",
+        "- Follow the target repository's current accessibility, responsive behavior, tests, and preview rules.",
+        "", "## Missing State Log", "", "- Add states that Figma does not specify to this section during implementation.",
+    ])
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
@@ -152,6 +222,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         return f"- `{screen['id']}` {screen.get('name', '')} ({screen.get('type', '')}{size}){image}"
 
     _section(lines, "Screens", (screen_row(screen) for screen in summary["screens"]))
+    _render_visibility_gate(lines, summary)
     _section(
         lines, "Prototype Flow Edges",
         (f"- `{edge['fromNodeId']}` {edge.get('fromName', '')} -> `{edge['toNodeId']}`{' ' + edge['toName'] if edge.get('toName') else ''}" for edge in summary["flowEdges"]),
@@ -198,7 +269,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         variant_text = f" [{', '.join(f'{key}={value}' for key, value in variants.items())}]" if variants else ""
         label = component.get("componentSetName") or component.get("name", "")
         component_rows.append(f"- `{component['componentId']}` {label}{variant_text} x{component['usageCount']} ({len(component.get('usedInScreens', []))} screens)")
-    _section(lines, "Components (usage order — implementation work list)", component_rows, "- None (no instances or component definitions in the payload)")
+    _section(lines, "Components (usage order — rendered implementation work list)", component_rows, "- None (no visible instances or component definitions in the payload)")
 
     blueprint_rows = []
     for blueprint in summary.get("componentBlueprints", [])[:8]:
@@ -214,33 +285,34 @@ def render_markdown(summary: dict[str, Any]) -> str:
             blueprint_rows.append(f"  {indent}- {item.get('name', '')} ({item.get('type', '')}){dims}{reference}{asset}{text}")
     _section(lines, "Component Blueprints (internal structure — assemble from this)", blueprint_rows)
 
-    _section(lines, "Color Candidates (usage order)", (
+    _section(lines, "Rendered Color Candidates (usage order)", (
         f"- `{color['hex']}` x{color['count']}{' [var: ' + (color.get('boundVariableNames') or color.get('boundVariableIds'))[0] + ']' if (color.get('boundVariableNames') or color.get('boundVariableIds')) else ''} ({', '.join(color.get('sources', [])[:3])})"
         for color in summary["colors"][:20]
     ))
-    _section(lines, "Gradient Candidates", (f"- {_format_gradient(item)} x{item['count']} ({', '.join(item.get('sources', [])[:3])})" for item in summary.get("gradients", [])[:20]))
+    _section(lines, "Gradient Candidates (rendered nodes only)", (f"- {_format_gradient(item)} x{item['count']} ({', '.join(item.get('sources', [])[:3])})" for item in summary.get("gradients", [])[:20]))
     _section(lines, "Text Style Candidates (usage order)", (_text_candidate_row(style) for style in summary["textStyles"][:20]))
     _section(lines, "Text Override Runs", (_text_run_row(run) for run in summary.get("textRuns", [])[:60]))
     _section(lines, "Effect Candidates", (f"- {_format_effect_list([effect])} x{effect['count']} ({', '.join(effect.get('sources', [])[:2])})" for effect in summary.get("effects", [])[:20]))
     _section(lines, "Layout Metric Candidates", (_format_layout_metric(key, values) for key, values in summary["layoutMetrics"].items()))
-    _section(lines, "Layout Nodes", (f"- {_format_layout_node(node)}" for node in summary.get("layoutNodes", [])[:120]))
+    rendered_layout_nodes = [
+        node
+        for node in summary.get("layoutNodes", [])
+        if node.get("effectiveVisible") is not False
+    ]
+    _section(
+        lines,
+        "Rendered Layout Nodes (implementation allowlist)",
+        (f"- {_format_layout_node(node)}" for node in rendered_layout_nodes[:120]),
+    )
     _section(lines, "Unique Icon Inventory (deduplication — avoid duplicate implementations)", (
         f"- {item.get('name', '')}{' (component: ' + item['nearestComponentName'] + ')' if item.get('nearestComponentName') else ''} ({item.get('type', '')}) x{item['usageCount']}{' ⚠️name unclear' if item.get('nameUnclear') else ''}"
         for item in summary.get("assetInventory", [])[:60]
     ))
-    _section(lines, "Asset Candidates", (
+    _section(lines, "Rendered Asset Candidates", (
         f"- `{asset['id']}` {asset.get('name', '')} ({asset.get('type', '')})"
         f"{' [component: ' + asset['nearestComponentName'] + ']' if asset.get('nearestComponentName') else ''}"
         for asset in summary["assetCandidates"][:50]
     ))
-    lines.extend([
-        "", "## Platform-neutral Implementation Checklist", "",
-        "- Read the target repository's instructions, screen entry points, navigation, and state ownership first.",
-        "- Map Figma values to the target product's existing color, typography, and spacing tokens before copying values directly.",
-        "- Implement reusable components from `componentBlueprints` and `components` first.",
-        "- Use the full-frame image only as a comparison reference; implement the actual structure and individual assets.",
-        "- Follow the target repository's current accessibility, responsive behavior, tests, and preview rules.",
-        "", "## Missing State Log", "", "- Add states that Figma does not specify to this section during implementation.",
-    ])
+    _render_implementation_checklist(lines)
     _section(lines, "Warnings", (f"- {warning}" for warning in summary["warnings"])) if summary["warnings"] else None
     return "\n".join(lines) + "\n"

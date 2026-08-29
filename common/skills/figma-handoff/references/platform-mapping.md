@@ -43,6 +43,9 @@ Web target — deliver only handoff outputs or confirm the destination.
   weight, baseline, and platform conventions match.
 - Density, display scale, color space, and font availability are per-platform
   verification items.
+- Map a semantic token only after comparing its rendered output with the
+  node-scoped solid alpha or complete gradient in `renderedPaints`; token
+  names and visual proximity are not equality evidence.
 - Navigation, state containers, dependency injection, naming, and test
   structure belong to the target repository's instructions, not the handoff.
 - Never guess responsive/adaptive behavior from a single Figma frame; decide

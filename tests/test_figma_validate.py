@@ -37,6 +37,43 @@ def _valid_summary() -> dict:
     }
 
 
+def _valid_v4_summary() -> dict:
+    summary = _valid_summary()
+    summary.update(
+        {
+            "schemaVersion": 4,
+            "layoutNodes": [
+                {
+                    "id": "1:1",
+                    "name": "Screen",
+                    "type": "FRAME",
+                    "effectiveVisible": True,
+                },
+                {
+                    "id": "1:2",
+                    "name": "HiddenFilter",
+                    "type": "INSTANCE",
+                    "visible": False,
+                    "effectiveVisible": False,
+                    "visibilityReasons": ["self.visible=false"],
+                },
+            ],
+            "implementationInventory": {
+                "renderedNodeIds": ["1:1"],
+                "excludedNodes": [
+                    {
+                        "id": "1:2",
+                        "name": "HiddenFilter",
+                        "type": "INSTANCE",
+                        "reasons": ["self.visible=false"],
+                    }
+                ],
+            },
+        }
+    )
+    return summary
+
+
 class FigmaValidatorShapeTests(unittest.TestCase):
     def test_non_object_summary_returns_violation_and_safe_coverage(self) -> None:
         self.assertEqual(validate_summary([]), ["summary is not an object"])
@@ -78,6 +115,24 @@ class FigmaValidatorShapeTests(unittest.TestCase):
 
     def test_valid_summary_remains_valid(self) -> None:
         self.assertEqual(validate_summary(_valid_summary()), [])
+
+    def test_valid_schema_v4_visibility_inventory_passes(self) -> None:
+        self.assertEqual(validate_summary(_valid_v4_summary()), [])
+
+    def test_schema_v4_rejects_partition_overlap_and_hidden_asset_leak(self) -> None:
+        summary = _valid_v4_summary()
+        summary["implementationInventory"]["renderedNodeIds"].append("1:2")
+        summary["assetCandidates"].append({"id": "1:2"})
+        summary["flowEdges"].append({"fromNodeId": "1:2", "toNodeId": "1:1"})
+        summary["flowInteractions"].append({"fromNodeId": "1:2"})
+        problems = validate_summary(summary)
+        self.assertIn(
+            "implementationInventory rendered and excluded node ids overlap: 1:2",
+            problems,
+        )
+        self.assertIn("assetCandidates includes excluded node id: 1:2", problems)
+        self.assertIn("flowEdges includes excluded source node id: 1:2", problems)
+        self.assertIn("flowInteractions includes excluded source node id: 1:2", problems)
 
 
 if __name__ == "__main__":

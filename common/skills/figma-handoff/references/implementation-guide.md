@@ -22,15 +22,20 @@ results, not an implementation asset.
 
 ## Structure To Recover First
 
-1. Scope the screens and transitions to implement from `screens` and `flowInteractions`.
-2. Treat `components` as a work list ordered by usage frequency. Variants sharing a
+1. Build the implementation allowlist from
+   `implementationInventory.renderedNodeIds`. Treat `excludedNodes` as hard
+   negative evidence, including descendants of hidden or zero-opacity ancestors.
+2. Scope the screens and transitions to implement from `screens` and `flowInteractions`.
+3. Treat `components` as a work list ordered by usage frequency. Variants sharing a
    `componentSetId` collapse into one code component with state parameters.
-3. Recover internal structure from the representative subtree in
+4. Recover internal structure from the representative subtree in
    `componentBlueprints`. Nested nodes with different `componentId` values stay
    separate components even when they look similar.
-4. Apply parent, depth, layout, size, padding, spacing, positioning, and
+5. Apply parent, depth, layout, size, padding, spacing, positioning, and
    constraints from `layoutNodes`.
-5. Deduplicate assets with `assetInventory` and connect blueprints to real files
+6. Apply each visible node's exact `renderedPaints`; do not infer a fill or
+   stroke from the global color candidate order.
+7. Deduplicate assets with `assetInventory` and connect blueprints to real files
    through `assetDedupKey`.
 
 Rebuilding a whole screen as one eyeballed generic layout drifts component
@@ -59,6 +64,9 @@ Never scatter Figma hex and font values directly into target code. Map them to
 the target repository's semantic color, typography, spacing, and radius tokens
 first; only when no token matches, decide whether a new token or a local value
 is warranted.
+A token matches only when its rendered solid alpha or full gradient stack equals
+the node-scoped `renderedPaints`; a similar name or nearby color is not a
+match.
 
 Variable names can be empty depending on the Figma plan and library scope. Do
 not invent a name for a bare `VariableID`; connect it to the target team's
@@ -92,5 +100,7 @@ After implementing, verify in order:
 2. Previews/stories/examples for renderable screens and reusable components
 3. Screenshot comparison at the same viewport, scale, and state
 4. The visual impact of missing assets, font substitution, and API limits
+5. A bidirectional visible-control/action inventory with zero unmatched
+   implementation items
 
 Never claim "1:1" or "pixel perfect" without an executed pixel diff.

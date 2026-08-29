@@ -154,6 +154,10 @@ These are gates, not advice. Do not report an implementation that breaks one.
    node's `visible` field (absent means visible) before implementing it, and
    cross-check against the rendered frame image in `frames/` — a node's
    presence in `layoutNodes` is not on its own proof it should be implemented.
+   For schema v4 bundles, start from
+   `implementationInventory.renderedNodeIds` and treat every entry in
+   `excludedNodes` as a hard negative, including descendants excluded by a
+   hidden or zero-opacity ancestor.
 2. **An INSTANCE box size is not the glyph size.** Draw an icon at its inner
    VECTOR size, not the component box. `Icon/Plus2` at 20x20 wrapping a 16x16
    vector is a 16dp icon.
@@ -165,6 +169,64 @@ These are gates, not advice. Do not report an implementation that breaks one.
    Alignment alone produces a flush edge that does not match the design.
 5. **Keep design copy verbatim, but repair an obvious typo or truncation and
    report it as a mismatch.**
+6. **Treat each rendered state as an allowlist for visible interactive
+   affordances.** Before coding, inventory the visible controls in every
+   requested frame or state. Then compare in both directions: every visible
+   design control must be represented, and every visible implementation
+   control, callback, or emitted action must cite either the exact visible
+   Figma node/state or an explicit accepted product source. A hidden node, an
+   entry in `layoutNodes`, an asset name, a neighboring screen, a reusable
+   component default, or an implementation-created action is not source
+   evidence. An unmatched implementation item is excess UI; remove it or stop
+   for clarification.
+7. **Component reuse may not widen the requested surface.** Reuse tokens,
+   styling primitives, and assets only when the resulting component can omit
+   every slot and interaction absent from the requested frame. Do not inherit
+   another screen's leading or trailing control, menu, filter, badge, callback,
+   or state merely because its container looks similar. If the reusable unit
+   cannot render the exact requested surface, compose a feature-local unit or
+   stop before changing the shared component.
+8. **Do not turn implementation assumptions into product evidence.** A
+   behavior absent from the user request, rendered frames, prototype
+   interactions, and accepted product/spec sources remains unresolved. Record
+   it as a `Missing State` or open decision; do not add it to a PRD, acceptance
+   criterion, callback contract, or test after implementation to justify the
+   implementation retroactively.
+9. **Figma completion requires negative evidence for excess UI.** Capture each
+   implemented full-frame state and compare it side by side or by overlay with
+   the exact reference. Also record the implementation-to-source inventory for
+   visible controls and emitted actions, with zero unmatched items. If the
+   production route is not wired, a state cannot be captured, or an unmatched
+   item remains, visual verification is incomplete. Previews, builds, unit
+   tests, source-text assertions, and summary measurements do not replace this
+   evidence.
+10. **A semantic token name is not paint evidence.** For each rendered node,
+    compare the complete `renderedPaints` fill/stroke/background stack — solid
+    alpha or every gradient stop and handle — with the implementation output. A
+    nearby theme token is acceptable only when it reproduces that stack;
+    otherwise use an approved local value or stop for a design-system decision.
+11. **A visually condition-dependent element needs a matching state field, not
+    a hardcoded token.** When Figma shows an interactive element with more
+    than one appearance for different conditions — component variant
+    properties, or a distinguishable state frame such as an initial/empty
+    state — check whether the target design system already exposes a token
+    set for that condition (for example a `disabled` variant next to
+    `primary`). If it does, the screen model must carry the field that
+    selects between them. Rendering only the active/default token regardless
+    of the driving condition is a Missing State, not a completed
+    implementation, even when no node is hidden and no extra control was
+    added.
+
+### 6-1-1. Common Rationalizations
+
+| Rationalization | Required response |
+|---|---|
+| "The node appears in `layoutNodes`, so Figma must want it." | Check `visible`, opacity, and the rendered state. Listed-but-hidden is excluded. |
+| "A similar screen already has this trailing control." | Similarity authorizes token or asset reuse only; omit every control and action not evidenced in this design. |
+| "Adding the callback now will make the screen future-proof." | A callback is product behavior. Remove it unless the request, visible/prototype evidence, or an accepted product source requires it. |
+| "We can document the inferred behavior in the PRD afterward." | An implementation-authored document cannot retroactively become evidence for its own assumption. Restore the independent source or stop for a decision. |
+| "Preview and unit tests passed, so the design is verified." | Require the full-frame state comparison and the zero-unmatched implementation inventory. |
+| "The button always uses the active/primary color; nothing in the request called for a disabled look." | Check whether Figma renders the same element differently under different conditions. If it does and the design system already has the matching token (e.g. `disabled`), the screen model needs the field that drives it — a single hardcoded token is a Missing State. |
 
 ### 6-2. Scope Gate — Never Fold A New Design Into Existing Components
 
@@ -202,6 +264,8 @@ Include in the completion report:
 - Processing mode and target platform/UI stack
 - Bundle or input handoff location
 - What was actually implemented and verified
+- Visible-control/action provenance, including any unmatched design or
+  implementation items
 - Warnings, missing assets, API limits, and Missing States
 - Verifications run and verifications not run
 
@@ -213,6 +277,8 @@ Include in the completion report:
   short-lived `raw/` output.
 - The measurement source of truth and the visual reference keep separate
   roles.
+- Every visible implementation control and emitted action has direct source
+  provenance, and the bidirectional comparison has no unmatched excess UI.
 - An implementation request ends with real structure, style, and individual
   assets landed plus target-repository verification.
 - An AI without execution capability can still interpret an existing bundle

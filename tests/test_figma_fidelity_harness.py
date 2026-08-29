@@ -102,6 +102,16 @@ def _fixture_documents() -> dict[str, dict]:
                         ],
                     }
                 ],
+                "strokes": [
+                    {
+                        "type": "GRADIENT_LINEAR",
+                        "gradientHandlePositions": [{"x": 0, "y": 0}, {"x": 1, "y": 1}],
+                        "gradientStops": [
+                            {"position": 0, "color": {"r": 1, "g": 1, "b": 1, "a": 0.45}},
+                            {"position": 1, "color": {"r": 1, "g": 1, "b": 1, "a": 0.05}},
+                        ],
+                    }
+                ],
             },
             {
                 "id": "1:6",
@@ -118,11 +128,39 @@ def _fixture_documents() -> dict[str, dict]:
             },
             {
                 "id": "1:9",
-                "name": "Hidden",
-                "type": "RECTANGLE",
+                "name": "HiddenFilter",
+                "type": "INSTANCE",
+                "componentId": "90:900",
                 "visible": False,
+                "interactions": [
+                    {
+                        "trigger": {"type": "ON_CLICK"},
+                        "actions": [{"type": "NODE", "destinationId": "1:1"}],
+                    }
+                ],
                 "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 20},
-                "fills": [{"type": "SOLID", "color": {"r": 1, "g": 0, "b": 0, "a": 1}}],
+                "children": [
+                    {
+                        "id": "1:10",
+                        "name": "HiddenFilterGlyph",
+                        "type": "VECTOR",
+                        "fills": [{"type": "SOLID", "color": {"r": 1, "g": 0, "b": 0, "a": 1}}],
+                    }
+                ],
+            },
+            {
+                "id": "1:11",
+                "name": "TransparentAction",
+                "type": "FRAME",
+                "opacity": 0,
+                "children": [
+                    {
+                        "id": "1:12",
+                        "name": "TransparentActionGlyph",
+                        "type": "VECTOR",
+                        "fills": [{"type": "SOLID", "color": {"r": 1, "g": 1, "b": 0, "a": 1}}],
+                    }
+                ],
             },
             {
                 "id": "1:8",
@@ -173,7 +211,10 @@ class FidelityHarnessTests(unittest.TestCase):
             start_node_id="1:1",
             source_url="https://figma.com/design/FILE123/x?node-id=1-1",
             node_documents=_fixture_documents(),
-            flow_edges=[],
+            flow_edges=[
+                {"fromNodeId": "1:8", "fromName": "CTA", "toNodeId": "1:1"},
+                {"fromNodeId": "1:9", "fromName": "HiddenFilter", "toNodeId": "1:1"},
+            ],
             image_paths={},
             named_styles={},
             style_node_details={},
@@ -197,10 +238,65 @@ class FidelityHarnessTests(unittest.TestCase):
         self.assertEqual(overlay["individualStrokeWeights"]["bottom"], 0.5)
 
     def test_node_visibility_surfaced(self) -> None:
-        hidden = next(n for n in self.summary["layoutNodes"] if n.get("name") == "Hidden")
+        hidden = next(n for n in self.summary["layoutNodes"] if n.get("name") == "HiddenFilter")
         self.assertEqual(hidden["visible"], False)
+        self.assertEqual(hidden["effectiveVisible"], False)
+        self.assertEqual(hidden["visibilityReasons"], ["self.visible=false"])
+        hidden_child = next(n for n in self.summary["layoutNodes"] if n.get("name") == "HiddenFilterGlyph")
+        self.assertEqual(hidden_child["effectiveVisible"], False)
+        self.assertEqual(hidden_child["visibilityReasons"], ["ancestor:1:9.visible=false"])
+        transparent = next(n for n in self.summary["layoutNodes"] if n.get("name") == "TransparentAction")
+        self.assertEqual(transparent["effectiveVisible"], False)
+        self.assertEqual(transparent["visibilityReasons"], ["self.opacity=0"])
+        transparent_child = next(
+            n for n in self.summary["layoutNodes"] if n.get("name") == "TransparentActionGlyph"
+        )
+        self.assertEqual(transparent_child["visibilityReasons"], ["ancestor:1:11.opacity=0"])
         overlay = next(n for n in self.summary["layoutNodes"] if n.get("name") == "Overlay")
         self.assertNotIn("visible", overlay)
+        self.assertEqual(overlay["effectiveVisible"], True)
+        self.assertNotIn("visibilityReasons", overlay)
+
+        inventory = self.summary["implementationInventory"]
+        self.assertIn("1:3", inventory["renderedNodeIds"])
+        self.assertNotIn("1:9", inventory["renderedNodeIds"])
+        self.assertEqual(
+            {node["id"] for node in inventory["excludedNodes"]},
+            {"1:9", "1:10", "1:11", "1:12"},
+        )
+
+    def test_implementation_worklists_exclude_hidden_or_transparent_nodes(self) -> None:
+        self.assertNotIn("90:900", {component["componentId"] for component in self.summary["components"]})
+        asset_ids = {asset["id"] for asset in self.summary["assetCandidates"]}
+        self.assertNotIn("1:10", asset_ids)
+        self.assertNotIn("1:12", asset_ids)
+        self.assertNotIn("#FF0000", {color["hex"] for color in self.summary["colors"]})
+        self.assertNotIn("#FFFF00", {color["hex"] for color in self.summary["colors"]})
+        self.assertEqual(
+            [edge["fromNodeId"] for edge in self.summary["flowEdges"]],
+            ["1:8"],
+        )
+        self.assertEqual(self.summary["flowInteractions"], [])
+
+    def test_node_scoped_rendered_paints_preserve_exact_stroke_gradient(self) -> None:
+        overlay = next(n for n in self.summary["layoutNodes"] if n.get("name") == "Overlay")
+        self.assertEqual(overlay["renderedPaints"]["fills"][0]["hex"], "#000000CC")
+        self.assertEqual(overlay["renderedPaints"]["strokes"][0]["hex"], "#808080")
+
+        gradient = next(n for n in self.summary["layoutNodes"] if n.get("name") == "Gradient")
+        stroke = gradient["renderedPaints"]["strokes"][0]
+        self.assertEqual(stroke["type"], "GRADIENT_LINEAR")
+        self.assertEqual(stroke["gradient"]["angleDegrees"], 135)
+        self.assertEqual(stroke["gradient"]["stops"][0]["hex"], "#FFFFFF73")
+        self.assertEqual(stroke["gradient"]["stops"][1]["hex"], "#FFFFFF0D")
+
+    def test_markdown_leads_with_visibility_allowlist_and_exclusion_gate(self) -> None:
+        markdown = render_markdown(self.summary)
+        self.assertIn("## Implementation Visibility Gate", markdown)
+        self.assertIn("## Do Not Implement — Excluded Nodes", markdown)
+        self.assertIn("`1:9` HiddenFilter", markdown)
+        self.assertIn("## Rendered Layout Nodes (implementation allowlist)", markdown)
+        self.assertIn("strokes=[GRADIENT_LINEAR", markdown)
 
     def test_text_fields_and_runs(self) -> None:
         title = next(s for s in self.summary["textStyles"] if s.get("italic"))
@@ -233,6 +329,9 @@ class FidelityHarnessTests(unittest.TestCase):
         self.assertGreaterEqual(cov["layoutNodes"]["withOpacity"], 1)
         self.assertGreaterEqual(cov["layoutNodes"]["withRotation"], 1)
         self.assertGreaterEqual(cov["layoutNodes"]["withRenderBounds"], 1)
+        self.assertEqual(cov["layoutNodes"]["rendered"], 8)
+        self.assertEqual(cov["layoutNodes"]["excluded"], 4)
+        self.assertGreaterEqual(cov["layoutNodes"]["withRenderedPaints"], 1)
         self.assertTrue(cov["variables"]["metadataAvailable"])
 
 

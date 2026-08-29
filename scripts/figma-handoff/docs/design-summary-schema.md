@@ -12,8 +12,8 @@ Markdown output truncates long sections such as `layoutNodes`; always use the
 JSON for exact values.
 
 This document defines the units, coordinate systems, and meaning of the JSON
-fields. Check the `schemaVersion` field in `manifest.json` to identify the
-structure version (currently `3`).
+fields. Check the `schemaVersion` field in `manifest.json` and the summary
+root to identify the structure version (currently `4`).
 
 ## Common Rules
 
@@ -32,19 +32,21 @@ structure version (currently `3`).
 
 | Key | Meaning |
 |---|---|
+| `schemaVersion` | Summary contract version; v4 adds executable visibility and paint provenance |
 | `meta` | `fileKey`, `startNodeId`, `sourceUrl`, and `generatedAt` (UTC ISO) |
 | `screens` | Render targets with id, name, type, dimensions, and image path |
-| `flowEdges` | Prototype transition edges (`from` to `to`) |
-| `flowInteractions` | Trigger, action, navigation, and transition details |
+| `flowEdges` | Prototype transition edges (`from` to `to`) whose source node is effectively visible |
+| `flowInteractions` | Trigger, action, navigation, and transition details from effectively visible source nodes |
 | `designTokens` | Named color/text/effect styles and variables |
 | `referencedStyles` | Style catalog recovered from node `styles` references |
-| `components` | Components actually used by screens, ordered by usage |
+| `components` | Effectively visible components used by rendered screens, ordered by usage |
 | `componentBlueprints` | Representative internal subtree for each component |
-| `colors` / `gradients` / `textStyles` / `effects` | Usage-ordered candidates |
+| `colors` / `gradients` / `textStyles` / `effects` | Usage-ordered candidates from effectively visible nodes |
 | `textRuns` | Partial text-style override runs |
 | `layoutMetrics` | Frequency summaries for padding, spacing, and alignment |
 | `layoutNodes` | Per-node layout and visual properties |
-| `assetCandidates` | Icon/vector/image-fill candidates and optional asset paths |
+| `implementationInventory` | Rendered-node allowlist plus hidden/transparent-node denylist |
+| `assetCandidates` | Effectively visible icon/vector/image-fill candidates and optional asset paths |
 | `assetInventory` | Unique assets grouped by deduplication key |
 | `warnings` | Items skipped or failed during this run |
 
@@ -100,9 +102,34 @@ that exist on the source node.
   proof it should be implemented — check this field before drawing it.
 - `opacity`: node-level opacity from `0` to `1`; it is not included in color hex
   values and must be applied separately
+- `effectiveVisible`: explicit implementation eligibility after applying the
+  node's own `visible`/`opacity` and every ancestor's visibility. Schema v4
+  always emits this boolean.
+- `visibilityReasons`: present only when `effectiveVisible=false`. Values name
+  the self or ancestor rule that excluded the node, such as
+  `self.visible=false` or `ancestor:1:9.opacity=0`.
+- `renderedPaints`: node-scoped visible `background`, `backgroundColor`,
+  `fills`, and `strokes`. Solid entries preserve `hex`; gradients preserve
+  `type`, stops, handles, and angle under `gradient`; image entries preserve
+  the image reference and scale mode when present. Use this field instead of
+  assigning a global color candidate to a node by name.
 - `blendMode`: `PASS_THROUGH`, `MULTIPLY`, and other Figma blend modes
 - `isMask` / `maskType`: mask and clipping information
 - `strokeWeight`, `strokeAlign`, `individualStrokeWeights`, and `strokeDashes`
+
+## `implementationInventory` — Implementation Boundary
+
+- `renderedNodeIds`: the complete allowlist for the requested rendered states.
+- `excludedNodes`: `{id,name,type,reasons[]}` entries for every node removed
+  by its own or an ancestor's `visible:false` or `opacity:0`.
+- The two lists are disjoint and partition every `layoutNodes[].id` in schema
+  v4. The validator rejects overlap, missing ids, visibility disagreement,
+  excluded asset candidates, and excluded component instance ids.
+- A hidden node remains in `layoutNodes` as negative evidence but is excluded
+  from component, color, gradient, text, effect, interaction, flow-edge, and
+  asset implementation work lists.
+- Summaries without a root `schemaVersion` are treated as legacy v3-compatible
+  input by the validator; they do not provide this executable allowlist.
 
 ## `colors[]` — Hex Rules
 
@@ -205,7 +232,7 @@ platform components are defined before their screens.
 
 Each item contains:
 
-- `componentId`, `name`, and `usageCount`
+- `componentId`, `name`, `usageCount`, and visible `instanceNodeIds`
 - `usedInScreens`
 - `componentSetId` / `componentSetName` when variants belong to one component set
 - `variantProperties` for `VARIANT` properties such as `{state: on/off}`

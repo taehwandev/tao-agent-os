@@ -25,10 +25,14 @@ network.
 - `test_figma_metadata_fetch.py`: optional variable metadata when Dev Mode or
   the current account/plan denies the variables endpoint
 - `test_figma_analysis.py`: overlapping-root deduplication
-- `test_figma_validate.py`: malformed summary shapes and validator CLI behavior
+- `test_figma_validate.py`: malformed summary shapes, schema-v4 visibility
+  partition leaks, excluded asset/action leaks, and validator CLI behavior
 - `test_figma_live_smoke.py`: frame-scale and non-empty layout negative controls
 - `test_figma_fidelity_harness.py`: synthetic golden coverage for rotation,
-  opacity, strokes, masks, blend modes, gradients, variable aliases, and text runs
+  opacity, strokes, masks, blend modes, gradients, variable aliases, text runs,
+  inherited visibility, hidden work-list/action exclusion, and node-scoped paints
+- `test_figma_visibility_analysis.py`: focused self/ancestor visibility,
+  implementation partition, and exact node-paint provenance
 - `test_figma_standalone.py`: dry-run behavior from another working directory,
   Python isolated mode, default output, and safe error information
 - `test_figma_secrets_boundary.py`: local-path, token-material, and runtime
@@ -62,6 +66,10 @@ python3 scripts/figma-handoff/figma_validate.py \
 The CLI runs the same validator during bundle creation and reports problems in
 `warnings` and stderr. When adding or changing summary fields, update the
 validator, schema document, and synthetic fidelity fixture together.
+
+For schema v4, include a negative control that injects an excluded node into a
+rendered implementation list. The validator must reject the overlap or leak;
+a passing happy-path fixture alone does not prove the guard.
 
 ## 3. Live Smoke
 

@@ -8,7 +8,7 @@ __all__ = ["build_manifest"]
 
 def build_manifest(summary: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "schemaVersion": 3,
+        "schemaVersion": summary.get("schemaVersion", 3),
         "tool": "figma-handoff.py",
         "arguments": {
             "format": args.format,
@@ -37,6 +37,12 @@ def build_manifest(summary: dict[str, Any], args: argparse.Namespace) -> dict[st
             "textRunCount": len(summary.get("textRuns", [])),
             "effectCandidateCount": len(summary.get("effects", [])),
             "layoutNodeCount": len(summary.get("layoutNodes", [])),
+            "renderedNodeCount": len(
+                summary.get("implementationInventory", {}).get("renderedNodeIds", [])
+            ),
+            "excludedNodeCount": len(
+                summary.get("implementationInventory", {}).get("excludedNodes", [])
+            ),
             "assetCandidateCount": len(summary["assetCandidates"]),
             "assetInventoryCount": len(summary.get("assetInventory", [])),
         },

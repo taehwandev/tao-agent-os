@@ -11,6 +11,7 @@ __all__ = ["ComponentAnalysis"]
 def _summarize_components(
     node_documents: dict[str, dict[str, Any]],
     component_index: dict[str, Any] | None,
+    included_node_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build a usage-ordered component list without double-counting overlapping roots."""
     index = component_index or {}
@@ -33,6 +34,8 @@ def _summarize_components(
                 continue
             if node_id:
                 seen_node_ids.add(node_id)
+            if included_node_ids is not None and node_id not in included_node_ids:
+                continue
             if node.get("type") != "INSTANCE":
                 continue
             raw_component_id = node.get("componentId")
@@ -41,9 +44,17 @@ def _summarize_components(
             component_id = normalize_node_id(raw_component_id)
             entry = usage.setdefault(
                 component_id,
-                {"usageCount": 0, "usedInScreens": [], "variantProperties": {}, "instanceName": ""},
+                {
+                    "usageCount": 0,
+                    "usedInScreens": [],
+                    "instanceNodeIds": [],
+                    "variantProperties": {},
+                    "instanceName": "",
+                },
             )
             entry["usageCount"] += 1
+            if node_id:
+                entry["instanceNodeIds"].append(node_id)
             if screen_id not in entry["usedInScreens"]:
                 entry["usedInScreens"].append(screen_id)
             if not entry["variantProperties"]:
@@ -61,6 +72,7 @@ def _summarize_components(
             "name": meta.get("name") or use["instanceName"],
             "usageCount": use["usageCount"],
             "usedInScreens": use["usedInScreens"],
+            "instanceNodeIds": use["instanceNodeIds"],
         }
         raw_set_id = meta.get("componentSetId")
         if isinstance(raw_set_id, str) and raw_set_id:
@@ -90,11 +102,15 @@ def _flatten_component_properties(value: Any, variant_only: bool = False) -> dic
     }
 
 
-def _descendant_count(node: dict[str, Any]) -> int:
+def _descendant_count(node: dict[str, Any], included_node_ids: set[str] | None) -> int:
     return 1 + sum(
-        _descendant_count(child)
+        _descendant_count(child, included_node_ids)
         for child in (node.get("children") or [])
         if isinstance(child, dict)
+        and (
+            included_node_ids is None
+            or normalize_node_id(str(child.get("id", ""))) in included_node_ids
+        )
     )
 
 
@@ -103,6 +119,7 @@ def _summarize_component_blueprints(
     components: list[dict[str, Any]],
     asset_dedup_by_id: dict[str, str] | None = None,
     max_nodes: int = 80,
+    included_node_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     asset_dedup_by_id = asset_dedup_by_id or {}
     instances: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -115,6 +132,8 @@ def _summarize_component_blueprints(
         duplicate = bool(node_id and node_id in seen_node_ids)
         if node_id and not duplicate:
             seen_node_ids.add(node_id)
+        if included_node_ids is not None and node_id not in included_node_ids:
+            return
         if not duplicate and node.get("type") == "INSTANCE":
             raw_component_id = node.get("componentId")
             if isinstance(raw_component_id, str) and raw_component_id:
@@ -128,13 +147,15 @@ def _summarize_component_blueprints(
     catalog_by_id = {component["componentId"]: component for component in components}
     blueprints: list[dict[str, Any]] = []
     for component_id, nodes in instances.items():
-        representative = max(nodes, key=_descendant_count)
+        representative = max(nodes, key=lambda node: _descendant_count(node, included_node_ids))
         structure: list[dict[str, Any]] = []
 
         def emit(node: dict[str, Any], depth: int) -> None:
             if len(structure) >= max_nodes:
                 return
             node_id = normalize_node_id(str(node.get("id", "")))
+            if included_node_ids is not None and node_id not in included_node_ids:
+                return
             bounds = node.get("absoluteBoundingBox") or {}
             item: dict[str, Any] = {"name": node.get("name", ""), "type": node.get("type", ""), "depth": depth}
             if bounds.get("width") is not None:

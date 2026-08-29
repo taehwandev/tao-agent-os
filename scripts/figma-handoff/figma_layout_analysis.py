@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any
 
 from figma_util import extract_text_style, format_number, is_number, normalize_node_id, round_number
+from figma_visibility_analysis import VisibilityAnalysis
 
 __all__ = ["LayoutAnalysis"]
 
@@ -47,35 +48,69 @@ def _summarize_layout_nodes(documents: list[dict[str, Any]]) -> list[dict[str, A
     """Flatten layout trees once even when fetched roots overlap."""
     result: list[dict[str, Any]] = []
     seen_node_ids: set[str] = set()
+    entry_by_id: dict[str, dict[str, Any]] = {}
 
-    def walk(node: Any, parent_id: str | None, depth: int) -> None:
+    def walk(
+        node: Any,
+        parent_id: str | None,
+        depth: int,
+        ancestor_reasons: list[str],
+    ) -> None:
         if not isinstance(node, dict):
             return
         node_id = normalize_node_id(str(node.get("id", "")))
         duplicate = bool(node_id and node_id in seen_node_ids)
         if node_id and not duplicate:
             seen_node_ids.add(node_id)
-        if not duplicate:
-            entry = _layout_node_entry(node, parent_id, depth)
+        own_reasons = VisibilityAnalysis.own_reasons(node)
+        visibility_reasons = [*ancestor_reasons, *own_reasons]
+        if duplicate and node_id and visibility_reasons:
+            entry = entry_by_id[node_id]
+            merged_reasons = list(
+                dict.fromkeys([*entry.get("visibilityReasons", []), *visibility_reasons])
+            )
+            entry["effectiveVisible"] = False
+            entry["visibilityReasons"] = merged_reasons
+        elif not duplicate:
+            entry = _layout_node_entry(
+                node,
+                parent_id,
+                depth,
+                visibility_reasons,
+            )
             if entry:
                 result.append(entry)
+                if node_id:
+                    entry_by_id[node_id] = entry
         current_id = node_id or parent_id
+        child_reasons = [
+            *ancestor_reasons,
+            *(VisibilityAnalysis.ancestor_reasons(node, node_id) if own_reasons else []),
+        ]
         for child in node.get("children", []) or []:
-            walk(child, current_id, depth + 1)
+            walk(child, current_id, depth + 1, child_reasons)
 
     for document in documents:
-        walk(document, None, 0)
+        walk(document, None, 0, [])
     return result
 
 
-def _layout_node_entry(node: dict[str, Any], parent_id: str | None, depth: int) -> dict[str, Any]:
+def _layout_node_entry(
+    node: dict[str, Any],
+    parent_id: str | None,
+    depth: int,
+    visibility_reasons: list[str],
+) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "id": normalize_node_id(str(node.get("id", ""))),
         "name": node.get("name", ""),
         "type": node.get("type", ""),
         "parentId": parent_id,
         "depth": depth,
+        "effectiveVisible": not visibility_reasons,
     }
+    if visibility_reasons:
+        entry["visibilityReasons"] = visibility_reasons
     bounds = _rounded_mapping(node.get("absoluteBoundingBox"))
     if bounds:
         entry["absoluteBoundingBox"] = bounds
@@ -100,6 +135,9 @@ def _layout_node_entry(node: dict[str, Any], parent_id: str | None, depth: int) 
     component_properties = _flatten_component_properties(node.get("componentProperties"))
     if component_properties:
         entry["componentProperties"] = component_properties
+    rendered_paints = VisibilityAnalysis.rendered_paints(node)
+    if rendered_paints:
+        entry["renderedPaints"] = rendered_paints
     return entry if len(entry) > 5 else {}
 
 
@@ -186,6 +224,7 @@ def _append_text_run(
 class LayoutAnalysis:
     """Layout metrics, flattened nodes, and text-run analysis family."""
 
+    build_implementation_inventory = staticmethod(VisibilityAnalysis.build_inventory)
     summarize_layout_metrics = staticmethod(_summarize_layout_metrics)
     summarize_layout_nodes = staticmethod(_summarize_layout_nodes)
     summarize_text_runs = staticmethod(_summarize_text_runs)
