@@ -745,13 +745,13 @@ class ClaudePreToolGateTests(unittest.TestCase):
             for command in ("git commit -m x", "git cherry-pick abc123"):
                 with self.subTest(command=command):
                     self.assertEqual(STOP_DECISION, decision(command))
-            for command in (
-                "git push --force origin main",
-                "rm -rf build",
-                "python3 build.py",
-            ):
+            with self.subTest(command="git push --force origin main"):
+                self.assertEqual("ask", decision("git push --force origin main"))
+            # A program that is not Git is left to Claude's permission rules,
+            # which already hold the operator's standing answers.
+            for command in ("rm -rf build", "python3 build.py"):
                 with self.subTest(command=command):
-                    self.assertEqual("ask", decision(command))
+                    self.assertEqual("silent", decision(command))
 
     def test_landing_needs_a_simple_command_line(self) -> None:
         # The allowance reads one command. A compound line can carry anything
@@ -832,9 +832,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
     def test_a_tool_that_names_no_path_still_answers_to_the_cwd(self) -> None:
         # The cwd fallback is what covers Bash, whose effects are not bounded by
-        # its arguments. Removing it would leave the checkout unprotected; what
-        # it produces is a question rather than a refusal, because a session
-        # standing here has nowhere else to run the command.
+        # its arguments, and it still resolves the checkout. What this gate does
+        # with a non-Git command there is step aside: a hook's `ask` overrides
+        # the permission rules, so answering here would re-ask about commands
+        # the operator has already allowed.
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project)
@@ -849,9 +850,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             )
 
             self.assertEqual(0, code)
-            self.assertEqual(
-                "ask", json.loads(out)["hookSpecificOutput"]["permissionDecision"]
-            )
+            self.assertEqual("", out)
 
     def test_running_a_command_here_is_a_question_not_a_wall(self) -> None:
         """A refusal with no remedy is what makes people switch a gate off.
@@ -888,11 +887,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                         }
                     )
                     self.assertEqual(0, code)
-                    self.assertEqual(
-                        "ask",
-                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-                        command,
-                    )
+                    self.assertEqual("", out, command)
 
     def test_a_command_the_gate_cannot_read_keeps_its_refusal(self) -> None:
         """A prompt cannot describe what computed text will do.
@@ -1196,9 +1191,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
         # It reaches the operator rather than being refused, and what matters
         # here is that it is not mistaken for inspection and waved through.
         self.assertEqual(0, code)
-        self.assertEqual(
-            "ask", json.loads(out)["hookSpecificOutput"]["permissionDecision"]
-        )
+        self.assertEqual("", out)
 
     def test_vibeguard_audit_is_allowed_but_fix_is_denied_in_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1227,9 +1220,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, read_code)
         self.assertEqual("", read_out)
         self.assertEqual(0, write_code)
-        self.assertEqual(
-            "ask", json.loads(write_out)["hookSpecificOutput"]["permissionDecision"]
-        )
+        self.assertEqual("", write_out)
 
     def test_npx_vibeguard_audit_is_allowed_but_fix_is_denied_in_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1262,9 +1253,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, read_code)
         self.assertEqual("", read_out)
         self.assertEqual(0, write_code)
-        self.assertEqual(
-            "ask", json.loads(write_out)["hookSpecificOutput"]["permissionDecision"]
-        )
+        self.assertEqual("", write_out)
 
     def test_worktree_bootstrap_bash_is_allowed_in_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1406,10 +1395,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 }
             )
         self.assertEqual(0, code)
-        self.assertEqual(
-            "ask",
-            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-        )
+        self.assertEqual("", out)
 
     def test_local_environment_can_bridge_policy_until_the_tracked_marker_arrives(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1431,10 +1417,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     }
                 )
         self.assertEqual(0, code)
-        self.assertEqual(
-            "ask",
-            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-        )
+        self.assertEqual("", out)
 
     def test_read_command_cannot_hide_mutation_in_a_shell_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1479,10 +1462,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 }
             )
         self.assertEqual(0, code)
-        self.assertEqual(
-            "ask",
-            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-        )
+        self.assertEqual("", out)
 
     def test_malformed_tracked_policy_still_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1500,10 +1480,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 }
             )
         self.assertEqual(0, code)
-        self.assertEqual(
-            "ask",
-            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-        )
+        self.assertEqual("", out)
 
     def test_protected_branch_is_denied_even_in_a_linked_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
