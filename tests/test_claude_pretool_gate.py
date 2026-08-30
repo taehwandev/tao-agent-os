@@ -723,6 +723,19 @@ class ClaudePreToolGateTests(unittest.TestCase):
             with self.subTest(command="git switch main"):
                 self.assertEqual("allow", decision("git switch main"))
 
+            # Unstaging joins them from the other direction. It changes what is
+            # staged and nothing else -- the files keep their contents, no ref
+            # moves -- so there is no work for the question to be about, and a
+            # single stray index entry is the smallest thing there is to tidy.
+            for command in (
+                "git reset -- .claude/worktrees/gone",
+                "git reset -q -- src/app.py",
+                "git reset HEAD -- src/app.py",
+                "git restore --staged src/app.py",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("allow", decision(command))
+
             # The rest write a commit or discard uncommitted work here, which
             # is a decision even though it authors nothing new.
             for command in (
@@ -733,6 +746,20 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "git restore src/app.py",
                 "git stash",
                 "git reset --hard origin/main",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("ask", decision(command))
+
+            # A reset that names no pathspec is not an unstage: it moves HEAD.
+            # Nor is one that keeps `--hard`, or a restore that also writes the
+            # working tree. `-S` is `--staged`, but this gate does not read the
+            # short spelling, and an option it cannot read must not be the one
+            # that opens the allowance.
+            for command in (
+                "git reset origin/main",
+                "git reset --hard -- src/app.py",
+                "git restore --staged --worktree src/app.py",
+                "git restore -S src/app.py",
             ):
                 with self.subTest(command=command):
                     self.assertEqual("ask", decision(command))
