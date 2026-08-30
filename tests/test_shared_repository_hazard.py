@@ -21,6 +21,7 @@ rebuilds the machine that only takes Enter; one that misses a member hands
 
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -257,6 +258,117 @@ class TheVerdictIsAskNotDenyTests(unittest.TestCase):
                 json.loads(buffer.getvalue())["hookSpecificOutput"]["permissionDecision"]
             )
         self.assertEqual(["deny", "ask", "allow"], decisions)
+
+
+class WhichBranchDecidesTests(unittest.TestCase):
+    """A prompt from a hook cannot be answered permanently.
+
+    The asking tier was designed on the belief that Claude's prompt carries
+    "don't ask again", so a routine hazard would cost one answer ever. It does
+    not: a hook's `ask` offers yes or no, every time. So `git branch -D` on a
+    merged topic branch asked on the last step of every task, forever -- and a
+    squash merge leaves that branch looking unmerged to `-d`, which makes `-D`
+    the ordinary spelling rather than the reckless one.
+
+    The flag was the wrong thing to read. What must not go quietly is the
+    branch this repository names as protected, and the policy file already
+    says which those are.
+    """
+
+    PROTECTED = frozenset({"develop", "main"})
+
+    def _hazard(self, command: str, protected=None):
+        if protected is None:
+            protected = self.PROTECTED
+        return gate.shared_repository_hazard(command.split(), protected)
+
+    def test_cleaning_up_a_topic_branch_is_quiet(self) -> None:
+        for command in (
+            "git branch -D taehwandev/fix/thing",
+            "git branch -D topic",
+            "git branch -vD spike",
+            "git branch -M old new",
+            "git branch --delete --force spike",
+            "git push origin --delete topic",
+            "git push origin :topic",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("", self._hazard(command))
+
+    def test_a_protected_branch_still_asks(self) -> None:
+        for command in (
+            "git branch -D main",
+            "git branch -D develop",
+            "git branch -vD main",
+            "git branch -M main",
+            "git branch --delete --force main",
+            "git push origin --delete main",
+            "git push origin --delete refs/heads/main",
+            "git push origin --delete heads/develop",
+            "git push origin :main",
+        ):
+            with self.subTest(command=command):
+                self.assertNotEqual("", self._hazard(command), command)
+
+    def test_naming_no_branch_asks(self) -> None:
+        # Deleting without saying what is exactly when to ask.
+        for command in ("git branch -D", "git push origin --delete"):
+            with self.subTest(command=command):
+                self.assertNotEqual("", self._hazard(command), command)
+
+    def test_an_unreadable_policy_protects_everything(self) -> None:
+        # Called directly: the helper's default stands in for "policy known",
+        # so the unreadable case has to bypass it.
+        for command in ("git branch -D topic", "git push origin --delete topic"):
+            with self.subTest(command=command):
+                self.assertNotEqual(
+                    "", gate.shared_repository_hazard(command.split(), None), command
+                )
+
+    def test_force_pushing_is_a_hazard_wherever_it_points(self) -> None:
+        """Not softened by the target: it can discard work on any branch."""
+
+        for command in (
+            "git push --force origin topic",
+            "git push -f",
+            "git push --force-with-lease origin topic",
+            "git push --mirror",
+            "git push origin +topic",
+        ):
+            with self.subTest(command=command):
+                self.assertNotEqual("", self._hazard(command), command)
+
+    def test_the_names_come_from_the_project_policy(self) -> None:
+        """Read from the policy file, not a second list written here."""
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "proj"
+            policy = project / gate.WORKTREE_POLICY_PATH
+            policy.parent.mkdir(parents=True)
+            policy.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "require_linked_worktree": True,
+                        "protected_branches": ["trunk"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            names = gate.protected_branch_names(project)
+
+            self.assertEqual(frozenset({"trunk"}), names)
+            self.assertNotEqual("", self._hazard("git branch -D trunk", names))
+            self.assertEqual("", self._hazard("git branch -D main", names))
+
+    def test_a_missing_policy_reads_as_unknown(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(gate.protected_branch_names(Path(tmp)))
 
 
 if __name__ == "__main__":

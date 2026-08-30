@@ -1020,7 +1020,48 @@ def worktree_policy_satisfied(root: Path) -> bool:
     return worktree_policy(root) is not None and worktree_denial(root) is None
 
 
-def shared_repository_hazard(tokens: list[str]) -> str:
+def names_a_protected_branch(words: list[str], protected: frozenset[str] | None) -> bool:
+    """Whether this command's targets include a branch the repository protects.
+
+    Fails closed twice over: an unreadable policy (`None`) and a command that
+    names no branch at all are both answered "yes". Deleting without saying
+    what, or without knowing what is protected, is exactly when a question is
+    worth asking.
+
+    A refspec may arrive as `topic`, `:topic` or `heads/topic`; all three name
+    the same branch, and matching only the first spelling would let the other
+    two through.
+    """
+
+    if protected is None or not words:
+        return True
+    for word in words:
+        candidate = word.split(":")[-1].strip()
+        if not candidate:
+            continue
+        for prefix in ("refs/heads/", "heads/"):
+            if candidate.startswith(prefix):
+                candidate = candidate[len(prefix) :]
+        if candidate in protected:
+            return True
+    return False
+
+
+def protected_branch_names(root: Path) -> frozenset[str] | None:
+    """The branches this project protects, or `None` when that cannot be read."""
+
+    policy = worktree_policy(root)
+    if not policy:
+        return None
+    names = policy.get("protected_branches")
+    if not isinstance(names, list):
+        return None
+    return frozenset(str(name) for name in names)
+
+
+def shared_repository_hazard(
+    tokens: list[str], protected: frozenset[str] | None = None
+) -> str:
     """Why this Git command deserves one question, or "" for the ordinary kind.
 
     A linked worktree isolates the working tree and nothing else. Refs,
@@ -1067,11 +1108,26 @@ def shared_repository_hazard(tokens: list[str]) -> str:
         # `-D`, not mistaken for an unrelated listing option.
         forced_long = "--force" in flags and flags & {"--delete", "--move"}
         if short_flags & {"D", "M", "f"} or forced_long:
-            return "deletes or overwrites a branch every worktree shares"
+            # Which branch decides, not which flag. A squash merge leaves the
+            # topic branch looking unmerged to `-d`, so `-D` is the ordinary way
+            # to clean it up -- and asking about every one of those put a prompt
+            # on the last step of every task. What must not go quietly is the
+            # branch this repository names as protected.
+            if names_a_protected_branch(words, protected):
+                return "deletes or overwrites a branch this repository protects"
     if subcommand == "push":
-        force_flags = {"--delete", "--force", "--force-with-lease", "--mirror"}
-        if "f" in short_flags or flags & force_flags:
+        if "f" in short_flags or flags & {"--force", "--force-with-lease", "--mirror"}:
             return "rewrites or deletes a published branch"
+        deleting = "--delete" in flags or "d" in short_flags
+        # `git push origin :main` deletes main too: a refspec with an empty
+        # source pushes nothing onto the target. It carries no flag, so a check
+        # that looked only at `--delete` let the older spelling through.
+        colon_deletes = [word for word in words[1:] if word.startswith(":")]
+        if deleting or colon_deletes:
+            # `git push <remote> --delete <branch>`: the first word is the
+            # remote, so the branches are what follow it.
+            if names_a_protected_branch(colon_deletes or words[1:], protected):
+                return "deletes a published branch this repository protects"
         if any(word.startswith("+") for word in words):
             return "force-pushes: a leading + in a refspec rewrites the remote"
     if subcommand == "reset" and "--hard" in flags:
@@ -1171,7 +1227,9 @@ def decide(payload: dict) -> int:
         # way entirely.
         session_root = find_project_root(cwd)
         if session_root is not None and worktree_policy_satisfied(session_root):
-            hazard = shared_repository_hazard(tokens)
+            hazard = shared_repository_hazard(
+                tokens, protected_branch_names(session_root)
+            )
             if hazard:
                 return ask(
                     "This command leaves the worktree to reach another "
@@ -1193,7 +1251,7 @@ def decide(payload: dict) -> int:
             and Path(tokens[0]).name == "git"
             and worktree_policy_satisfied(root)
             and _ordinary_git_invocation(tokens)
-            and not shared_repository_hazard(tokens)
+            and not shared_repository_hazard(tokens, protected_branch_names(root))
         ):
             return _approve(
                 "This is an ordinary Git command inside the isolated linked worktree."
@@ -1235,7 +1293,7 @@ def decide(payload: dict) -> int:
             )
         return deny(worktree_reason)
     if worktree_policy_satisfied(root):
-        hazard = shared_repository_hazard(tokens)
+        hazard = shared_repository_hazard(tokens, protected_branch_names(root))
         if hazard:
             return ask(
                 "This worktree isolates ordinary file edits, but this Git command "
