@@ -69,11 +69,36 @@ def claude_project_permission_entries(scripts_dir: Path, *, spill_available: boo
     # The stable launcher is a user-level machine path. Project settings stay
     # portable and rely on the user-level Claude permission installed above.
     entries: list[str] = []
-    for subcommand in ("log", "status", "diff", "show", "branch"):
+    for subcommand in ("log", "status", "diff", "show"):
         entries.append(f"Bash(git -C * {subcommand} *)")
+    entries.extend(_branch_listing_permission_entries())
     entries.extend(_worktree_permission_entries())
     for command in _common_tao_tool_commands():
         _add_permission_command_entries(entries, "Bash", command)
+    return entries
+
+
+def _branch_listing_permission_entries() -> list[str]:
+    """Auto-approve reading branches, never deleting or renaming one.
+
+    `Bash(git -C * branch *)` reads as "inspecting branches", but the matcher's
+    `*` is any remainder, so it approved `git branch -D main` and `-M` with it.
+    Refs live in the one Git directory every worktree shares, so that is the
+    protected checkout's history, deleted without a prompt.
+
+    A Bash rule matches a prefix and cannot express "except these flags", so the
+    listing flags are named instead. They come from the gate's own read-only
+    classifier: a second hand-written list here would be the copy that drifts,
+    and the direction it drifts is toward approving more than the gate reads.
+    """
+
+    from claude_bash_git import BRANCH_READ_ONLY_OPTIONS
+
+    entries = ["Bash(git -C * branch)"]
+    entries.extend(
+        f"Bash(git -C * branch {option}*)"
+        for option in sorted(BRANCH_READ_ONLY_OPTIONS)
+    )
     return entries
 
 
@@ -90,18 +115,28 @@ def _worktree_permission_entries() -> list[str]:
     dispatcher uses; spelling it again here would be a second definition, and
     the copy nobody edits is the one that stops matching.
 
+    The leading slash anchors the pattern at the directory holding the settings
+    file -- the project root -- while a bare `.tao/...` is read relative to the
+    working directory. The two agree only while the agent sits at the root, and
+    the whole point of these rules is the moment it does not: from inside
+    `<project>/.tao/worktrees/<hex>` the unanchored form asks for a second
+    `.tao/worktrees` nested under the first, matches nothing, and every path
+    prompts again -- the failure these entries exist to end.
+
     Reading, writing and entering only. Removing a worktree deletes work and
     stays a decision rather than a default.
     """
 
     from agent_worktree_identity import WORKTREE_DIRNAME
 
-    root = f".tao/{WORKTREE_DIRNAME}"
+    root = f"/.tao/{WORKTREE_DIRNAME}"
     return [
         f"Read({root}/**)",
         f"Edit({root}/**)",
         f"Write({root}/**)",
-        f"Bash(cd {root}/*)",
+        # A Bash rule matches command text, not a path, so it keeps the
+        # spelling an agent actually types -- no leading slash to anchor.
+        f"Bash(cd {root[1:]}/*)",
     ]
 
 

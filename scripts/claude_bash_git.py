@@ -22,6 +22,22 @@ UNSAFE_GIT_OPTIONS = frozenset(
     }
 )
 GIT_SAFE_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
+# The `git branch` options that only list. Named here rather than inline
+# because the installer's permission rules are built from the same set: a
+# second hand-written copy is the one that drifts toward approving `-D`.
+BRANCH_READ_ONLY_OPTIONS = frozenset(
+    {
+        "-a",
+        "-r",
+        "-v",
+        "-vv",
+        "--contains",
+        "--list",
+        "--merged",
+        "--no-merged",
+        "--show-current",
+    }
+)
 GIT_SAFE_FLAG_OPTIONS = frozenset(
     {
         "--bare",
@@ -97,8 +113,11 @@ def git_command_kind(tokens: list[str]) -> str:
     }:
         return "read_only"
     if command == "branch":
-        allowed = {"-a", "-r", "-v", "-vv", "--contains", "--list", "--merged", "--no-merged", "--show-current"}
-        return "read_only" if not args or all(arg in allowed for arg in args) else "mutating"
+        return (
+            "read_only"
+            if not args or all(arg in BRANCH_READ_ONLY_OPTIONS for arg in args)
+            else "mutating"
+        )
     if command == "remote":
         return "read_only" if not args or args[0] in {"-v", "get-url"} else "mutating"
     if command == "config":
