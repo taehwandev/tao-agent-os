@@ -504,6 +504,71 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertEqual("", out, command)
 
+    def test_a_subcommand_nobody_read_still_asks(self) -> None:
+        """Approving by default handed the unknown an outright approval.
+
+        The protected checkout was written as "refuse authoring, approve the
+        rest", and the rest turned out to include subcommands that rewrite this
+        working tree: `sparse-checkout` removes files from it, `checkout-index`
+        and `read-tree` overwrite them, `bisect` checks out other commits,
+        `symbolic-ref` moves HEAD without moving the index, `replace` changes
+        what a commit resolves to for the whole repository. None is authoring,
+        so none was refused; none was named, so all were approved -- and an
+        approval bypasses Claude's permission flow entirely.
+
+        Everywhere else in this gate the unknown case asks. The approval list
+        is positive for the same reason.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            def decision(command: str) -> str:
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "no-evidence",
+                        "tool_input": {"command": command},
+                    }
+                )
+                self.assertEqual(0, code)
+                if not out:
+                    return "silent"
+                return json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+
+            for command in (
+                "git sparse-checkout set src",
+                "git sparse-checkout disable",
+                "git checkout-index -a -f",
+                "git read-tree -u HEAD",
+                "git bisect start",
+                "git bisect reset",
+                "git submodule update --force",
+                "git symbolic-ref HEAD refs/heads/other",
+                "git replace HEAD abc123",
+                "git notes add -m x",
+                "git archive -o /tmp/x.tar HEAD",
+                "git worktree add --force /tmp/w main",
+                "git brand-new-verb thing",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("ask", decision(command), command)
+
+            # And the routine list still is routine.
+            for command in (
+                "git branch -D topic",
+                "git tag v2",
+                "git remote add up git@e:x.git",
+                "git push origin topic",
+                "git switch main",
+                "git gc",
+                "git config user.email a@b.c",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("allow", decision(command), command)
+
     def test_authoring_there_is_what_stays_refused(self) -> None:
         """The boundary is named by what it refuses, so it covers the unlisted.
 

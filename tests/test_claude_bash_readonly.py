@@ -686,6 +686,30 @@ class TheWorktreeLifecycleIsOneThingTests(unittest.TestCase):
 
         self.assertEqual("read_only", git_command_kind("git worktree list".split()))
 
+    def test_forcing_add_is_not_routine_either(self) -> None:
+        """Git refuses to add a worktree over a path it already registers.
+
+        `--force` overrides that, so it is the same shape as the forced
+        removal and gets the same answer.
+        """
+
+        from claude_pretool_gate import shared_repository_hazard
+
+        for command in (
+            "git worktree add --force /tmp/w main",
+            "git worktree add -f /tmp/w main",
+        ):
+            with self.subTest(command=command):
+                self.assertNotEqual(
+                    "", shared_repository_hazard(command.split(), frozenset({"main"}))
+                )
+        self.assertEqual(
+            "",
+            shared_repository_hazard(
+                "git worktree add /tmp/w main".split(), frozenset({"main"})
+            ),
+        )
+
     def test_forcing_is_what_discards_work(self) -> None:
         from claude_bash_git import git_command_kind
 

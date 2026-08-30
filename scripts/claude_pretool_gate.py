@@ -820,6 +820,13 @@ AUTHORING_GIT_SUBCOMMANDS = frozenset(
 COMMITTING_OR_DISCARDING_SUBCOMMANDS = frozenset(
     {"checkout", "clean", "merge", "pull", "reset", "restore", "stash"}
 )
+# Reference maintenance: moving or removing things that already exist, without
+# touching the working tree. These are what a task's last step is made of, so
+# they are approved outright -- and the list is positive, so a subcommand
+# nobody has read still asks.
+ROUTINE_PROTECTED_SUBCOMMANDS = frozenset(
+    {"branch", "config", "fetch", "gc", "push", "remote", "switch", "tag", "worktree"}
+)
 
 
 def protected_checkout_verdict(
@@ -889,7 +896,19 @@ def protected_checkout_verdict(
         return "ask"
     if shared_repository_hazard(tokens, protected):
         return "ask"
-    return "allow"
+    # Approve only what has been read and found routine. Defaulting the other
+    # way was the mistake: it handed an outright approval -- which bypasses
+    # Claude's permission flow entirely -- to every subcommand nobody had
+    # thought about, and several of those rewrite this working tree.
+    # `sparse-checkout` removes files from it, `checkout-index` and `read-tree`
+    # overwrite them, `bisect` checks out other commits, `symbolic-ref` moves
+    # HEAD without moving the index, `replace` changes what a commit resolves
+    # to for the whole repository. None of them is authoring, so none was
+    # refused, and none was named, so all were approved.
+    #
+    # Everywhere else in this gate the unknown case asks. This is the same
+    # rule, applied where it was skipped.
+    return "allow" if subcommand in ROUTINE_PROTECTED_SUBCOMMANDS else "ask"
 
 
 def _ordinary_git_invocation(tokens: list[str]) -> bool:
@@ -1190,12 +1209,14 @@ def shared_repository_hazard(
         return "changes a remote every worktree shares"
     if subcommand == "stash" and first in {"drop", "clear"}:
         return "drops stashed work every worktree shares"
-    if subcommand == "worktree" and first == "remove" and flags & {"-f", "--force"}:
-        # Only the forced form. Git itself refuses to remove a worktree holding
-        # modified or untracked files, so the plain removal cannot lose work --
-        # asking about it put a prompt on the step that closes every task, on
-        # top of a check git was already making.
-        return "discards a worktree that still holds uncommitted work"
+    if subcommand == "worktree" and flags & {"-f", "--force"}:
+        # Only the forced forms. Git refuses to remove a worktree holding
+        # modified or untracked files, and refuses to add one over a path it
+        # already registers; the plain forms therefore cannot lose anything,
+        # and asking about them put a prompt on the step that closes every
+        # task, on top of a check git was already making. `--force` is what
+        # overrides both refusals.
+        return "forces past git's own refusal to overwrite or drop a worktree"
     if subcommand == "submodule" and first in {"deinit", "foreach", "set-url"}:
         return "removes files, changes shared config, or executes a nested command"
     if subcommand == "config":
