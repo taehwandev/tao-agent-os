@@ -166,6 +166,23 @@ class RequiredDocDriftRecoveryTests(unittest.TestCase):
             )
         )
 
+    def test_it_offers_a_recovery_for_a_change_the_run_did_not_make(self) -> None:
+        """The guidance must not leave a false claim as the only way out.
+
+        A concurrent session can rewrite a shared required document while this
+        run works. Naming only `decision=updated` told that run to assert an
+        edit it never made, so the recovery has to name `unchanged` too and say
+        the document must be re-read first.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            text = self._recovery(Path(directory))
+
+        self.assertIn("decision=unchanged", text)
+        self.assertIn("another session", text)
+        self.assertIn("re-read", text)
+        self.assertIn("Do not claim decision=updated", text)
+
     def test_it_hands_over_the_current_bytes_rather_than_describing_them(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             rules = Path(directory)

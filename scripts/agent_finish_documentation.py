@@ -37,7 +37,12 @@ def documented_required_doc_updates(
         updates.pop(target, None)
         if entry.get("status") != "SUCCESS":
             continue
-        if fields.get("decision", "").strip().lower() != "updated":
+        # `unchanged` is accepted alongside `updated` because a concurrent
+        # session can rewrite a shared required document mid-run. That run did
+        # not change the document, so `updated` would be a false claim; the
+        # receipt still binds the bytes it re-read, and the writer computes
+        # them either way.
+        if fields.get("decision", "").strip().lower() not in {"updated", "unchanged"}:
             continue
         receipt = validated_required_doc_update_receipt(fields)
         if receipt is not None:
