@@ -23,11 +23,11 @@ contract intentionally exposes:
 | Android entry API | Activity route/request keys or another Android capability contract that genuinely needs framework types. | Use an Android library only when the public contract cannot remain platform-free; keep concrete Activities, manifests, and launch execution in implementation. |
 
 A Compose entry API is valid when another module must render, register, swap,
-or test a feature surface without importing the feature implementation. The
+or test a feature surface without importing its concrete Compose UI. The
 contract should be an interface or role-sized entry object. A top-level
 `@Composable` function with a concrete body is implementation, not merely an
-API declaration; keep it in the feature implementation, feature-common, or
-design-system owner unless that module intentionally ships reusable UI.
+API declaration; keep it in the feature `ui`, feature-common, or design-system
+owner.
 
 Example caller contract in a Compose-capable API boundary:
 
@@ -55,43 +55,44 @@ declare or call composable code also need the Compose compiler plugin, and every
 consumer needs the minimal Compose annotation/runtime types on its compile
 classpath when they are part of the ABI. Export that minimal dependency through
 the build system, but do not expose Material, navigation, lifecycle, ViewModel,
-or feature implementation dependencies unless the contract actually requires
+or concrete UI/platform implementation dependencies unless the contract requires
 them.
 
 ## Dedicated Feature UI Module
 
 A Compose-capable `api` contract and a feature `ui` module solve different
 problems. Use the `api` contract when a host must discover, register, swap, or
-invoke an abstract entry without importing its implementation. Use `ui` when a
-named consumer outside `impl` must directly reuse the concrete Compose surface.
+invoke an abstract entry. Use `ui` for the concrete screen-level Compose
+feature that the host runs without an Activity implementation.
 
 When `ui` exists:
 
-- Put public stateless composables, visual UI models, callback or slot
-  contracts, previews, and UI tests in `ui`.
+- Put the holder `Route`, ViewModel, UI state/actions/effects, stateless
+  `Screen`, visual UI models, callbacks or slots, UI mapping, Compose
+  `NavEntry` or entry provider, previews, and UI/ViewModel tests in `ui`.
 - Keep route keys, arguments, deep-link specs, public route events, and abstract
   registry entry contracts in `api` when callers need them.
-- Keep the entry object implementation, `NavEntry` or provider registration,
-  `Route`, `ViewModel`, state loading, mapping, DI, Activity, manifest, Intent,
-  and result handling in `impl`.
-- Let `impl` depend on `ui`; let `ui` depend on `api` only for stable value or
-  event types that are genuinely part of the visual contract. Neither `api`
-  nor `ui` may depend on `impl`.
+- Keep only the optional Android platform entry in `impl`: concrete Activity,
+  manifest, Intent/request/result mapping, Activity launcher, SDK entry adapter,
+  and platform DI.
+- Let `ui` depend on `api` and stable repository/domain ports. Let an optional
+  `impl` depend on both `api` and `ui`. Neither `api` nor `ui` may depend on
+  `impl`.
 
 Do not copy the same composable signature into both `api` and `ui`. A dedicated
-`ui` module owns the concrete reusable Compose API. Keep a Compose-capable
-interface in `api` only when the host needs the abstract registry or replacement
-seam itself. An Activity wrapper remains in `impl`; it may call `ui`, but the
-wrapper does not make `ui` an Android entry module.
+`ui` module owns the concrete Compose API. Keep a Compose-capable interface in
+`api` only when the host needs an abstract registry or replacement seam. An
+Activity wrapper remains in `impl` and delegates to `ui`; it does not own a
+second Route or ViewModel.
 
 The optional reusable-UI packet is:
 
 ```text
-api navigation/entry identity (only when cross-module callers need it)
-  + ui concrete reusable Compose surface (only when an outside consumer exists)
-  -> impl route holder, entry-provider/DI registration, or Activity adapter
-  -> selected host depends on impl for execution
-  -> focused API compile + UI render + implementation integration verification
+api navigation/entry identity
+  + ui holder Route + ViewModel + stateless Screen + Compose entry
+  -> Compose host can run the feature without impl
+  -> optional impl adds Activity/Intent/result execution and calls ui
+  -> focused API compile + UI run/render + optional Activity integration verification
 ```
 
 ## Entry Contract Completion Packet
@@ -102,15 +103,14 @@ production entry contract, implement the smallest end-to-end packet:
 
 ```text
 api contract
-  -> concrete implementation in impl
-  -> implementation-owned DI binding or generated registration
-  -> selected host/app variant depends on the implementation module
-  -> injected registry/coordinator consumes the binding
-  -> focused contract + integration/compile verification
+  -> concrete Compose entry in ui
+  -> selected Compose host depends on api + ui
+  -> optional Activity implementation depends on api + ui
+  -> focused contract + UI + optional platform integration verification
 ```
 
-For an additive Compose registry, the implementation module can contribute its
-entry object while keeping the composable body private to the implementation:
+For an additive Compose registry, the UI module can contribute its entry object
+and keep the holder and screen beside the ViewModel:
 
 ```kotlin
 class FeedComposeRouteEntry @Inject constructor() : ComposeRouteEntry {
@@ -122,7 +122,7 @@ class FeedComposeRouteEntry @Inject constructor() : ComposeRouteEntry {
         onRouteEvent: (RouteEvent) -> Unit,
     ) {
         require(route.route == routeKey)
-        FeedRouteHolder(onRouteEvent = onRouteEvent)
+        FeedRoute(onRouteEvent = onRouteEvent)
     }
 }
 
@@ -137,10 +137,11 @@ abstract class FeedComposeRouteEntryModule {
 }
 ```
 
-The host injects a registry or `Set<ComposeRouteEntry>` and hands that object to
-the Compose route/holder boundary. Hilt creates the entry objects; Compose still
-invokes their `@Composable` methods during composition. Do not describe this as
-DI constructing or directly calling a composable function.
+The host injects a registry or `Set<ComposeRouteEntry>` from selected UI modules
+and hands that object to the Compose navigation boundary. Hilt creates the entry
+objects; Compose still invokes their `@Composable` methods during composition.
+Do not describe this as DI constructing or directly calling a composable
+function.
 
 Prefer `@IntoMap` when a stable unique route key can be encoded as a compile-time
 Dagger map-key annotation value, such as `@StringKey("feed")` or a custom
@@ -171,20 +172,21 @@ For Activity-backed entries:
 - Ensure the selected app/host includes the implementation dependency so Hilt
   aggregation and manifest merging can discover the binding and Activity.
 
-Standalone access means a host can depend on the API plus one selected
-implementation and reach the surface through the route/entry contract. It does
-not mean a feature API can execute without an implementation on the runtime
-classpath. Provide fake or preview implementations for tests when useful, and
-fail clearly when a production host omits a required entry.
+Standalone UI access means a Compose host can depend on `api + ui` and reach the
+surface through the route/entry contract without the feature's Activity
+`impl`. The UI ViewModel may still require repository or domain ports; the host
+provides production bindings and previews or tests provide fakes. Fail clearly
+when a production host omits a required port or entry.
 
 Minimum verification for a new entry packet:
 
 - compile the API module with its declared public Compose/Android surface
-- compile the implementation and the smallest host that selects it
-- prove the DI graph contains the implementation binding
+- compile the UI module and the smallest Compose host that selects it
+- prove the DI graph contains the UI entry and ViewModel dependencies
 - test registry behavior for a known route, unknown route, and duplicate key
 - render/preview or Compose-test the concrete composable entry when UI changed
-- test Activity route-to-Intent/handler behavior and manifest inclusion when an
+- compile the optional implementation and test Activity route-to-Intent/handler
+  behavior and manifest inclusion when an
   Activity entry changed
-- confirm callers import the API/registry contract rather than the concrete
-  screen or Activity class
+- confirm Compose callers import `api + ui`, while Activity callers use the API
+  contract rather than the concrete Activity class

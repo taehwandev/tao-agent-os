@@ -14,15 +14,17 @@ before approval or commit.
 - Is this package/module the lowest boundary that protects the real owner?
 - Does each `api` module have at least one caller that should avoid the
   implementation dependency?
-- Does `impl` own the feature's Compose UI by default instead of treating
-  implementation as an Activity-only wrapper?
-- If `feature-ui` exists, can the review name a real Compose consumer outside
-  `impl`, and would that consumer otherwise need the implementation dependency?
-- Does `feature-ui` contain only reusable composables, visual models, callbacks
-  or slots, previews, and UI tests while ViewModels, repositories, DI,
-  navigation execution, Activities, Intents, and results remain in `impl`?
-- Do dependencies point `impl -> ui` without any `api -> impl`, `api -> ui`, or
-  `ui -> impl` edge?
+- Does `api` own the navigation key, arguments, result, and stable ports without
+  importing either UI or platform implementation?
+- Does `feature-ui` own the complete independently runnable Compose feature:
+  holder Route, ViewModel, state, stateless Screen, mapping, previews, and
+  focused UI/ViewModel tests?
+- Can a Compose host compile, render, preview, and test the feature through
+  `api + ui` without importing `impl`?
+- Is `impl` present only when a concrete Activity, manifest, Intent/result
+  adapter, platform launcher, or another Android entry surface requires it?
+- Do dependencies point `impl -> api + ui` and `ui -> api` without any
+  `api -> impl`, `api -> ui`, or `ui -> impl` edge?
 - Is a feature-specific reusable surface kept in feature `ui` while only
   domain-free, broadly shared primitives move to the design system?
 - Does each `assertions` module expose role-sized fixtures, fakes, recorders,

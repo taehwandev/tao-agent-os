@@ -11,8 +11,8 @@ own concern and the guard never touches it.  The guard itself remains in place
 for the two references that are still oversized.
 
 These tests hold the fix in place from both ends: every piece must be reachable
-through the real selection path for its own concern, and the split must not have
-lost any rule on the way out of the original document.
+through the real selection path for its own concern, and the bundle must retain
+its required topics while allowing reviewed rules to evolve.
 """
 
 from __future__ import annotations
@@ -174,8 +174,8 @@ class BundleSizeTests(unittest.TestCase):
         self.assertEqual({}, oversized)
 
 
-class BundleContentPreservationTests(unittest.TestCase):
-    """The split was a move, not an edit."""
+class BundleContentCoverageTests(unittest.TestCase):
+    """The split retains its topics without freezing every old sentence."""
 
     def bundle_text(self) -> str:
         return "\n".join(
@@ -192,26 +192,12 @@ class BundleContentPreservationTests(unittest.TestCase):
         self.assertEqual(20, len(headings))
         self.assertEqual([], [h for h in headings if h not in bundle])
 
-    def test_every_original_fenced_code_block_survives_somewhere_in_the_bundle(
-        self,
-    ) -> None:
-        original = original_reference_text()
-        blocks = re.findall(r"```.*?```", original, re.S)
+    def test_boundary_examples_cover_compose_and_activity_entry_shapes(self) -> None:
         bundle = self.bundle_text()
 
-        self.assertEqual(18, len(blocks))
-        self.assertEqual([], [b for b in blocks if b not in bundle])
-
-    def test_no_original_rule_line_was_dropped(self) -> None:
-        """Headings and code blocks alone would not catch a lost prose rule."""
-        original_lines = [
-            line for line in original_reference_text().splitlines() if line.strip()
-        ]
-        bundle_lines = {
-            line for line in self.bundle_text().splitlines() if line.strip()
-        }
-
-        self.assertEqual([], [l for l in original_lines if l not in bundle_lines])
+        self.assertIn("`api` + `ui`", bundle)
+        self.assertIn("`api` + `impl`", bundle)
+        self.assertIn("`api` + `ui` + `impl`", bundle)
 
 
 class BundleShapeTests(unittest.TestCase):
@@ -239,20 +225,56 @@ class BundleShapeTests(unittest.TestCase):
 
 
 class FeatureUiBoundaryContractTests(unittest.TestCase):
-    def test_canonical_contract_keeps_ui_in_impl_until_external_reuse(self) -> None:
+    def test_canonical_contract_puts_complete_compose_feature_in_ui(self) -> None:
         text = (ROOT / BOUNDARIES).read_text()
 
-        self.assertIn("`impl` owns Compose UI by default", text)
-        self.assertIn("real named consumer outside the implementation", text)
-        self.assertIn("An Activity that wraps Compose remains in `impl`", text)
+        self.assertIn("holder `Route`, ViewModel, `UiState`", text)
+        self.assertIn("`ui` is standalone from the feature's `impl`", text)
+        self.assertIn("`api + ui`", text)
+        self.assertIn("`api + impl`", text)
+        self.assertIn("`api` + `ui` + `impl`", text)
 
     def test_dependent_guidance_preserves_ui_dependency_direction(self) -> None:
         layout = (ROOT / LAYOUT).read_text()
         entry = (ROOT / COMPOSE_ENTRY).read_text()
 
-        self.assertIn("`feature-ui -> feature implementation`", layout)
-        self.assertRegex(entry, r"Neither `api`\s+nor `ui` may depend on `impl`")
+        self.assertIn("`feature-ui -> feature-impl`", layout)
+        self.assertRegex(
+            entry,
+            r"Neither `api`\s+nor `ui` may depend on\s+`impl`",
+        )
         self.assertIn("Do not copy the same composable signature", entry)
+
+    def test_activity_platform_code_stays_in_optional_impl(self) -> None:
+        boundaries = (ROOT / BOUNDARIES).read_text()
+        layout = (ROOT / LAYOUT).read_text()
+
+        self.assertIn("concrete Activities, manifest", boundaries)
+        self.assertIn("Intent/request/result mapping", layout)
+
+    def test_route_example_uses_hilt_assisted_creation_for_the_key(self) -> None:
+        text = (ROOT / BOUNDARIES).read_text()
+
+        self.assertIn("@HiltViewModel(assistedFactory", text)
+        self.assertIn("creationCallback = { factory -> factory.create(key) }", text)
+        self.assertNotIn("profileViewModel(", text)
+        self.assertNotIn("LaunchedEffect(key)", text)
+
+    def test_legacy_ui_ownership_rules_do_not_return(self) -> None:
+        text = "\n".join(
+            (ROOT / path).read_text()
+            for path in (
+                CORE,
+                BOUNDARIES,
+                LAYOUT,
+                COMPOSE_ENTRY,
+                SPLIT_MIGRATION,
+                REVIEW_CHECKLIST,
+            )
+        )
+
+        self.assertNotIn("`impl` owns Compose UI by default", text)
+        self.assertNotIn("`ui` must not own ViewModels", text)
 
 
 if __name__ == "__main__":

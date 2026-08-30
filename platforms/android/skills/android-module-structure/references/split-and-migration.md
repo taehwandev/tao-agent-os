@@ -20,60 +20,61 @@ Choose a single feature module when:
 - implementation dependencies are acceptable to callers
 - the boundary is still changing quickly
 
-If the repo's architecture baseline is `api` plus implementation modules, follow
-that convention, but keep the SOLID reason explicit. The `api` module is the
-caller-facing interface: role-sized contracts, route/deep-link events, ports,
-entities, and delegates. The implementation module owns concrete screens,
-ViewModels, adapters, mappers, DI bindings, platform launchers, and runtime
-wiring. Do not let the split become two files that mirror each other without
-reducing imports, cycles, test weight, or implementation leakage.
+If the repo's architecture baseline uses feature module families, keep the
+reason explicit. The `api` module is the caller-facing interface: role-sized
+contracts, route/deep-link events, ports, entities, and delegates. The `ui`
+module owns the screen-level Compose feature, including its holder Route,
+ViewModel, state, mapping, screen, and Compose entry. The optional `impl` module
+owns an Activity or another platform-specific entry around that UI. Do not let
+the split become files that mirror each other without reducing imports, cycles,
+test weight, or platform leakage.
 
-Choose a `feature-api` plus `feature` implementation pair when:
+Choose `feature-api + feature-ui` when a Compose host navigates to the feature:
 
 - another feature, holder, app module, or navigation graph must reference the
-  destination without depending on implementation
-- route data, activity/fragment/Compose entrypoints, or public events cross the
-  feature boundary
-- the implementation has heavy dependencies such as camera, webview, ads,
-  billing, SDK integrations, or large UI libraries
+  destination key without importing the screen implementation
+- the Compose feature must own and test its ViewModel-to-Screen flow without an
+  Activity wrapper
+- route data, Compose entrypoints, or public events cross the feature boundary
 - the split prevents circular dependencies
-- a fake, dev, paid/free, flavor-specific, or replaceable implementation is
-  realistic
+- another Compose host, form factor, preview, or test needs the same feature
+  surface and state owner
 
-The feature implementation owns Compose UI by default. Its internal
-`compose/` or `ui/` package does not imply a separate Gradle module. Extract an
-optional `feature-ui` module only when a named module outside the implementation
-must reuse the concrete stateless surface without importing ViewModels, DI,
-repositories, navigation execution, or Android entry adapters.
+Choose `feature-api + feature-impl` when the feature is entered through an
+Activity or another platform shell and there is no reusable Compose surface.
+Choose `feature-api + feature-ui + feature-impl` when that Activity wraps a
+Compose feature that must also run without the Activity.
 
 Use these extraction checks:
 
-- Name the outside consumer and the composable or visual contract it imports.
-- Keep reusable composables, UI models, callbacks or slots, previews, and UI
-  tests in `ui`.
-- Keep `Route`, `ViewModel`, loading/orchestration state, mappers, DI,
-  `NavEntry` or entry-provider registration, Activities, manifests, Intents,
-  and result handling in `impl`.
-- Let `impl` depend on `ui`; never let `ui` or `api` depend on `impl`.
-- Collapse `ui` back into `impl` when no outside Compose consumer remains.
+- Name the Compose host and the route key or entry contract it imports.
+- Keep holder `Route`, ViewModel, loading/orchestration state, mappers,
+  stateless Screen, feature components, `NavEntry` or Compose entry-provider
+  registration, previews, and UI/ViewModel tests in `ui`.
+- Keep Activities, manifests, Intents, Activity launch/result handling, SDK
+  entry adapters, and platform DI in `impl`.
+- Let `impl` depend on `api + ui`; never let `ui` or `api` depend on `impl`.
+- Prove `ui` with a host, preview, or test that does not include `impl`.
 - Promote only domain-free, broadly shared primitives to the design system;
   keep feature-specific reusable surfaces in feature `ui`.
 
-An Activity wrapper is not a reason to split `ui`. The Activity stays in
-`impl` and may render a composable exported by `ui` only when that composable
-already has a separate reuse reason.
+An Activity wrapper is a reason to add `impl`, not to move UI execution into
+it. The Activity reads the platform request, calls the feature `ui`, and maps
+the result back to Android. When the Activity has no Compose surface to wrap,
+`api + impl` is sufficient.
 
 For Navigation 3-style apps, keep navigation keys, route data, deep-link
 contracts, and public route events in the feature `api` module. Keep `NavEntry`,
-entry-provider builders, composable content, and screen state holders in the
-feature implementation or app-shell module. The app module assembles entry
-providers, synthetic back stacks, host/scheme policy, and Activity task-stack
-behavior.
+entry-provider builders, the holder Route, ViewModel, composable content, and
+screen state in `ui`. The app module assembles entry providers, synthetic back
+stacks, host/scheme policy, and Activity task-stack behavior.
 
-That Navigation 3 shape is the default. When concrete content has a proven
-external Compose consumer and moves to `ui`, keep the keys in `api` and the
-`NavEntry` or provider execution in `impl`; the implementation invokes the
-reusable `ui` surface instead of moving navigation execution with it.
+Official Navigation 3 documentation calls the content module `impl`. In the
+feature family defined here, `ui` owns that same navigable Compose content so
+it can run without an Activity, while `impl` is reserved for the optional
+Activity/platform adapter. Preserve the dependency rule rather than copying
+the module label: keys in `api`, navigable Compose content in `ui`, and Android
+entry execution in `impl` only when needed.
 
 Choose a repository `api` plus implementation pair when:
 
@@ -167,11 +168,13 @@ When modernizing an old Android feature:
 5. Add or update tests/previews for the moved boundary.
 6. Remove only old code that is no longer referenced.
 
-For a `ui` extraction, move the stateless surface and its smallest visual input
-contract first, compile the outside consumer against `ui`, then adapt the
-existing `impl` route holder to the new surface. Do not move the ViewModel,
-repository calls, DI binding, navigation provider, or Activity merely to make
-the new module appear self-contained.
+For a `ui` extraction, move the holder Route, ViewModel, UI state/action/effect
+types, mapping, stateless Screen, and Compose entry as one screen-level feature.
+Change the ViewModel to depend on stable repository or domain ports, compile a
+Compose host against `api + ui`, and verify the feature with fake ports before
+adapting an optional Activity `impl`. Do not move concrete repository
+implementations, Activity, manifest, Intent, or Activity result handling into
+`ui` merely to make it appear self-contained.
 
 Do not combine broad module moves with behavior changes unless the behavior
 change is necessary to make the split correct.

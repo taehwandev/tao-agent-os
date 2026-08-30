@@ -24,8 +24,8 @@ families:
 | `data` / `core-data` | Repository contracts, repository implementations, local/remote data sources, DTO mapping, DataStore/Room/cache ownership. | Compose UI, navigation decisions, screen state. |
 | `domain` | Optional use cases and product policies reused across screens or risky enough to test independently. | Pass-through wrappers around one repository call. |
 | `feature-api` | Navigation contracts, public entrypoints, route data, events, small caller-facing models. | Screens, ViewModels, repository implementations, DI bindings with heavy dependencies. |
-| `feature-ui` | Optional feature-specific Compose surfaces reused outside `impl`: stateless composables, UI models, callbacks or slots, previews, and UI tests. | ViewModels, use cases, repositories, feature DI, navigation execution, Activities, manifests, Intents, or result handling. |
-| `feature` / `feature-impl` | Route holders, stateless screens, ViewModels, feature-local components, UI mappers, feature DI. | Shared design primitives or cross-feature data contracts. |
+| `feature-ui` | Independently runnable Compose feature: holder Route, screen ViewModel, UI state/actions/effects, stateless Screen, UI mappers, feature components, Compose navigation entry, previews, and UI/ViewModel tests. | Concrete Activities, manifests, Intent construction, Activity results, or dependencies on the feature platform implementation. |
+| `feature-impl` | Optional Android platform entry: Activity, manifest, Intent/request/result mapping, Activity launch handler, SDK entry adapter, and platform DI. | A second copy of the feature ViewModel, Compose Route, Screen, or shared design primitives. |
 | `feature-common` / `holder` | Reused product UI or workflow holders with a named owner and stable caller contract. | Dumping ground for unrelated screen fragments. |
 | `dev` / `testing` / `assertions` | Dev-only screens, reusable fakes, recording adapters, fixture builders, assertion DSLs, and contract test helpers. | Production-only behavior that callers need at runtime, or dependencies on production implementation modules by default. |
 
@@ -55,10 +55,11 @@ Review should stop when a module is called `core`, `common`, `shared`,
 Kotlin, Android runtime, Compose runtime, tests, or app-shell code. Split the
 module, rename it, or keep the helper local until the import surface is clear.
 
-`feature` / `feature-impl` remains the default owner of a feature's Compose UI.
-Create `feature-ui` only as the externally reusable visual slice defined by
-[`module-boundaries.md`](module-boundaries.md), not as a mandatory sibling of
-every `feature-api` or implementation module.
+For a navigable Compose feature, use `feature-api + feature-ui`: `api` owns the
+key and caller contract, while `ui` owns the complete screen-level Compose
+feature. Add `feature-impl` only when Android needs an Activity or another
+platform-specific entry around it. A local feature that has no cross-module
+caller may still remain unsplit.
 
 If the repo already uses convention plugins, apply the nearest plugin instead of
 copying dependency blocks by hand. If no convention exists, update or add one
@@ -69,10 +70,14 @@ only when at least two modules will share the same setup.
 Keep dependencies acyclic and predictable:
 
 ```text
-app
-  -> feature-api and selected feature implementations
-feature implementation
+Compose host
+  -> feature-api + feature-ui
+Activity host
+  -> feature-api + selected feature-impl
+feature-ui
   -> own feature-api, design system, core utilities, repository-api, domain
+feature-impl
+  -> own feature-api + own feature-ui when it wraps Compose
 feature-api
   -> small route/data contracts and stable core contracts only
 repository implementation
@@ -83,20 +88,20 @@ core/designsystem
   -> platform primitives, resources, tokens, reusable UI contracts
 ```
 
-When a feature has a proven reusable Compose surface, add only these edges:
+When an Activity wraps a reusable Compose feature, add only this platform edge:
 
 ```text
-feature implementation -> own feature-ui
-external Compose consumer -> feature-ui
-feature-ui -> own feature-api only for stable value/event types when necessary
+feature-impl -> own feature-api + own feature-ui
+Compose host -> feature-api + feature-ui
+feature-ui -> own feature-api
 feature-ui -> design system and stable core UI/value contracts
 ```
 
 Forbidden edges:
 
-- `feature-api -> feature implementation`
+- `feature-api -> feature-impl`
 - `feature-api -> feature-ui`
-- `feature-ui -> feature implementation`
+- `feature-ui -> feature-impl`
 - `repository-api -> repository implementation`
 - `repository -> feature`
 - `core/designsystem -> feature`
@@ -112,8 +117,8 @@ dependency direction rather than from type names. Use the focused gate in
 flow and audit the split; the layout below remains a vocabulary of possible
 owners, not a required directory tree.
 
-Inside a feature implementation module, prefer packages that reveal behavior and
-dependency direction:
+Inside a feature UI module, prefer packages that reveal behavior and dependency
+direction:
 
 ```text
 <feature>/
@@ -138,24 +143,30 @@ Do not create one of these subpackages merely because a type has that name. A
 new boundary needs a caller, owner, dependency, release, or test seam that can
 be verified; otherwise keep the owners together and record the audit result.
 
-When another module must reuse the concrete feature Compose surface, extract
-only the visual contract and keep execution in `impl`:
+When the Compose feature crosses a module boundary, keep its state holder and
+rendering together in `ui`, then add `impl` only for an Activity or another
+platform entry:
 
 ```text
 feature/<name>/ui/src/main/.../<name>/
-  <Name>Screen.kt           public stateless surface
-  model/                    reusable UI models only
+  <Name>Route.kt            lifecycle, ViewModel, effects, navigation callbacks
+  <Name>ViewModel.kt        screen state and action owner
+  <Name>Screen.kt           stateless rendering surface
+  model/                    UiState, UiAction, UiEffect, UI display models
+  mapper/                   domain/repository -> UI model mapping
   component/                feature-specific reusable components
-  preview/                  previews for the exported surface
+  navigation/               Compose NavEntry or entry provider when used
+  preview/                  previews for the screen surface
 
 feature/<name>/impl/src/main/.../<name>/
-  <Name>Route.kt            lifecycle, ViewModel, effects, navigation
-  <Name>ViewModel.kt        state and action owner
-  mapper/                   domain/repository -> UI model mapping
-  navigation/               entry provider or route registration
   activity/                 Activity/Intent/result adapter when required
-  di/                       implementation bindings
+  di/                       platform-entry bindings
 ```
+
+The `ui` module is standalone from `impl`, not from all dependencies. Its
+ViewModel may depend on stable repository or domain ports, and a real host may
+bind those ports. Preview and focused tests use fakes without importing the
+Activity implementation.
 
 ## Repository Package Layout
 
@@ -193,9 +204,9 @@ caller contract and repeated use:
   reused across features.
 - Use feature-common modules for product UI patterns shared by several feature
   owners.
-- Use a feature `ui` module for a feature-specific concrete Compose surface with
-  a named consumer outside its implementation. Keep it in `impl` when the only
-  consumers are that implementation's own screens, previews, or tests.
+- Use a feature `ui` module for a feature-specific Compose destination that a
+  Compose host can navigate to and run without the optional Activity
+  implementation. Keep a purely local screen in one unsplit feature module.
 - Use holder modules for reusable workflow entrypoints or embedded surfaces that
   own their own state/effects and have a clear lifecycle.
 - Keep analytics labels, permission policy, route decisions, and repository

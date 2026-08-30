@@ -22,16 +22,21 @@ one folder per type, or move every file into a new package without changing an
 import rule. Prefer a flat cohesive package until behavior, dependency
 direction, or test ownership requires another boundary.
 
-For `api` / `impl` / `assertions` module families:
+For `api` / `ui` / `impl` / `assertions` module families:
 
 - `api` owns caller-facing contracts: route keys, deep-link specs, events,
   commands, public models, value types, repository ports, provider contracts,
   and entrypoint interfaces. Subpackage only when callers should import one
   contract family without seeing the others.
-- `impl` owns execution: `NavEntry` or entry-provider builders, route-to-screen
-  mapping, Activity launch adapters, ViewModels, screens, DI bindings, SDK
-  adapters, mappers, and state holders. Subpackage by behavior owner or
-  dependency, not by matching every API file.
+- `ui` owns Compose execution: `NavEntry` or entry-provider builders for the
+  Compose destination, holder `Route` composables, ViewModels, screen state,
+  screens, UI mappers, feature components, previews, UI tests, and the narrow
+  DI wiring needed to construct those UI owners. It may depend on stable
+  repository or domain ports, but not on the feature's platform `impl`.
+- `impl` is the optional platform-entry adapter: concrete Activities, manifest
+  declarations, Intent mapping, Activity result contracts, launch handlers,
+  SDK entry adapters, and their platform DI bindings. It may depend on `api`
+  and `ui`; `ui` must be able to compile and run without it.
 - `assertions` owns reusable test contracts: fixtures, builders, recording
   fakes, assertion subjects, matchers, and contract tests. It depends on `api`
   and must not depend on production `impl` by default.
@@ -40,17 +45,23 @@ Minimal shape:
 
 ```text
 feature/profile/api
-  ProfileRoute.kt
+  ProfileKey.kt
   ProfileEvent.kt
   ProfileRepository.kt
   model/Profile.kt
 
-feature/profile/impl
-  ProfileRouteHolder.kt
+feature/profile/ui
+  ProfileRoute.kt
   ProfileViewModel.kt
   ProfileScreen.kt
   mapper/ProfileUiMapper.kt
-  di/ProfileModule.kt
+  navigation/ProfileEntryProvider.kt
+
+feature/profile/impl              only when an Activity entry is required
+  ProfileActivity.kt
+  ProfileIntentFactory.kt
+  ProfileActivityResultContract.kt
+  di/ProfileActivityModule.kt
 
 feature/profile/assertions
   ProfileFixtures.kt
@@ -58,26 +69,24 @@ feature/profile/assertions
   ProfileRouteSubject.kt
 ```
 
-The `api` module exposes what callers need to compile. The `impl` module owns
-how the feature runs. The `assertions` module owns reusable test helpers that
-compile against `api` and avoid pulling app, DI, network, database, WebView,
-camera, or other production implementations into tests.
+The `api` module exposes what callers need to compile. The `ui` module owns the
+complete Compose feature. The optional `impl` module lets Android enter that
+feature through an Activity or another platform shell. The `assertions` module
+owns reusable test helpers that compile against `api` and avoid pulling app,
+platform entry, network, database, WebView, camera, or other production
+implementations into tests.
 
 ## Feature API, UI, And Implementation Contract
 
-`impl` owns Compose UI by default. It is the feature implementation boundary,
-not an Activity-only wrapper. Keep `Route`, `ViewModel`, `UiState`, mapping, DI,
-navigation execution, and the feature's `compose/` or `ui/` packages together in
-`impl` until a real import boundary proves that one part must move.
-
-Treat `api` and `ui` as independent optional promotions:
+Do not treat `api`, `ui`, and `impl` as three layers that every feature must
+have. Choose the shape from the entry surface:
 
 | Proven Need | Smallest Feature Shape |
 | --- | --- |
-| No outside contract or Compose consumer | `impl` |
-| Stable caller or navigation contract only | `api` + `impl` |
-| Concrete Compose reuse outside the implementation only | `ui` + `impl` |
-| Both stable contracts and reusable Compose UI | `api` + `ui` + `impl` |
+| Feature stays local to one module | one unsplit feature module |
+| Host navigates directly to a reusable Compose feature | `api` + `ui` |
+| Host launches an Activity and there is no reusable Compose surface | `api` + `impl` |
+| Activity wraps a Compose feature that other hosts can also use | `api` + `ui` + `impl` |
 
 Ownership rules:
 
@@ -87,56 +96,63 @@ Ownership rules:
   entry contract is the explicit exception described in
   [`compose-entry-contracts.md`](compose-entry-contracts.md); it must not become
   a duplicate home for the concrete reusable UI API.
-- Extract `ui` only when a real named consumer outside the implementation must
-  render, embed, preview, or Compose-test the concrete feature surface without
-  importing `impl`. It owns reusable stateless composables, feature-specific UI
-  models, callback or slot contracts, previews, and UI tests.
-- `ui` must not own ViewModels, use cases, repositories, domain-to-UI loading
-  orchestration, DI registration, `NavEntry` or entry-provider execution,
-  Activities, manifests, `Intent` construction, or Activity result handling.
-- `impl` owns execution. When `ui` is absent, it also owns `Screen`, feature
-  components, and previews. When `ui` is present, `impl` adapts state and events
-  to that surface and still owns route holders, ViewModels, mappers, DI,
-  navigation registration, and Android entry adapters.
-- An Activity that wraps Compose remains in `impl`. The Activity may render a
-  surface from `ui`, but needing an Activity does not by itself justify a `ui`
-  module.
+- `ui` owns the reusable Compose feature as a complete screen-level unit:
+  holder `Route`, ViewModel, `UiState`, actions and effects, domain-to-UI
+  mapping, `Screen`, feature components, Compose entry or `NavEntry` mapping,
+  previews, and UI/ViewModel tests. Keep the leaf `Screen` stateless even
+  though the `ui` module also owns the stateful holder and ViewModel.
+- `ui` is standalone from the feature's `impl`: a Compose host can depend on
+  `api + ui`, navigate to the feature, construct the ViewModel with real or
+  fake ports, render previews, and run UI/ViewModel tests without importing an
+  Activity, manifest, Intent builder, or Activity result adapter. Standalone
+  does not mean the production ViewModel has no data dependencies; it means
+  those dependencies are stable ports supplied without `impl`.
+- `impl` owns only the additional platform entry. An Activity-backed
+  implementation reads or writes Intents and results, owns the manifest and
+  platform DI binding, and delegates the actual screen to `ui` when that UI is
+  reusable. It must not become a second home for the ViewModel or screen.
+- When no Compose surface exists, `api + impl` is sufficient. When Compose is
+  the direct entry and no Activity is needed, `api + ui` is sufficient.
 
 Keep dependency direction explicit:
 
 ```text
-app or navigation host -> feature api + selected feature impl
-external Compose consumer -> feature ui
-feature impl -> own feature api (when present) + own feature ui (when extracted)
-feature ui -> own feature api only for stable value/event types when necessary
+Compose host -> feature api + feature ui
+Activity host -> feature api + selected feature impl
+feature impl -> own feature api + own feature ui when it wraps Compose
+feature ui -> own feature api + stable repository/domain ports
 feature api -X-> feature ui or feature impl
 feature ui -X-> feature impl
 ```
 
-Tests and previews inside `impl` do not count as outside consumers. If the named
-consumer disappears, collapse `ui` back into `impl`. If the reusable surface
-becomes domain-free and broadly shared, promote it to the design system; keep a
-feature-named or product-specific surface in the feature `ui` module.
+The host that navigates directly to the Compose feature is a valid `ui`
+consumer; it does not need an Activity wrapper merely to justify the module.
+If the surface becomes domain-free and broadly shared, promote it to the design
+system; keep a feature-named or product-specific surface in the feature `ui`
+module.
 
 Optional extracted shape:
 
 ```text
 feature/profile/api
-  ProfileRoute.kt
+  ProfileKey.kt
   ProfileEvent.kt
+  ProfileRepository.kt
 
 feature/profile/ui
-  ProfileScreen.kt
-  model/ProfileUiModel.kt
-  component/ProfileCard.kt
-
-feature/profile/impl
-  ProfileRouteHolder.kt
+  ProfileRoute.kt
   ProfileViewModel.kt
+  model/ProfileUiState.kt
+  ProfileScreen.kt
   mapper/ProfileUiMapper.kt
+  component/ProfileCard.kt
   navigation/ProfileEntryProvider.kt
-  activity/ProfileActivity.kt       only when an Activity entry is required
-  di/ProfileModule.kt
+
+feature/profile/impl              only when an Activity entry is required
+  activity/ProfileActivity.kt
+  activity/ProfileIntentFactory.kt
+  activity/ProfileResultContract.kt
+  di/ProfileActivityModule.kt
 ```
 
 Example API contract:
@@ -145,7 +161,7 @@ Example API contract:
 @JvmInline
 value class ProfileId(val value: String)
 
-data class ProfileRoute(val id: ProfileId)
+data class ProfileKey(val id: ProfileId)
 
 sealed interface ProfileEvent {
     data class OpenProfile(val id: ProfileId) : ProfileEvent
@@ -157,20 +173,59 @@ interface ProfileRepository {
 }
 ```
 
-Example implementation boundary:
+Example UI state-owner boundary:
 
 ```kotlin
-class ProfileViewModel(
+@HiltViewModel(assistedFactory = ProfileViewModel.Factory::class)
+class ProfileViewModel @AssistedInject constructor(
+    @Assisted private val key: ProfileKey,
     private val repository: ProfileRepository,
     private val noticeSink: NoticeSink,
     private val routeSink: RouteEventSink<ProfileEvent>,
 ) : ViewModel() {
+    private val _state = MutableStateFlow(ProfileUiState())
+    val state = _state.asStateFlow()
+    init {
+        load(key.id)
+    }
+
     fun onAction(action: ProfileAction) {
         when (action) {
             ProfileAction.BackClick -> routeSink.tryEmit(ProfileEvent.Back)
-            ProfileAction.RetryClick -> load()
+            ProfileAction.RetryClick -> load(key.id)
         }
     }
+
+    private fun load(id: ProfileId) {
+        viewModelScope.launch {
+            _state.value = repository.loadProfile(id).toUiState()
+        }
+    }
+
+    @AssistedFactory
+    interface Factory {
+        fun create(key: ProfileKey): ProfileViewModel
+    }
+}
+```
+
+The ViewModel belongs beside the screen state it produces. Keep the stateless
+screen below the holder boundary:
+
+```kotlin
+@Composable
+fun ProfileRoute(
+    key: ProfileKey,
+    onEvent: (ProfileEvent) -> Unit,
+    viewModel: ProfileViewModel = hiltViewModel<
+        ProfileViewModel,
+        ProfileViewModel.Factory,
+    >(
+        creationCallback = { factory -> factory.create(key) },
+    ),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    ProfileScreen(state = state, onAction = viewModel::onAction)
 }
 ```
 
@@ -253,16 +308,20 @@ collapse rule:
 Example packet:
 
 ```text
-transferable lesson: keep route contracts pure; execute Activity launches in runtime
-target boundary: feature/settings/api + feature/settings/impl + core/route/runtime
+transferable lesson: keep navigation identity in api, Compose execution in ui,
+  and optional Activity execution in impl
+target boundary: feature/settings/api + feature/settings/ui + feature/settings/impl
 lowest acceptable ownership level: feature-local until a second caller needs route data
-minimal file/module sketch: SettingsRouteKey in api, SettingsRouteHolder in impl,
-  ActivityRouteLauncher in runtime
-allowed imports: api -> Kotlin value types; impl -> own api + Compose; runtime -> Android
+minimal file/module sketch: SettingsKey in api, SettingsRoute and SettingsViewModel
+  in ui, SettingsActivity and Intent mapping in impl
+allowed imports: api -> Kotlin value types; ui -> own api + stable ports + Compose;
+  impl -> own api + own ui + Android
 forbidden imports: api -> Activity, Context, Intent, NavController, Compose UI
-first caller or test: app route coordinator imports SettingsRouteKey only
-nearest verification: compile api/impl/runtime and run route assertion tests
-collapse rule: if no caller needs SettingsRouteKey without impl, keep one feature module
+first caller or test: app route coordinator imports SettingsKey only
+nearest verification: compile api/ui, run UI/ViewModel tests, and compile impl only
+  when the Activity entry is selected
+collapse rule: if no cross-module caller needs SettingsKey, keep one feature module;
+  if no Activity entry exists, omit impl
 ```
 
 Stop instead of generating structure when the packet cannot name a real caller,
@@ -276,7 +335,7 @@ Use examples at these boundaries before creating shared modules:
 
 | Boundary | Minimum Example Required | Collapse Or Stop When |
 | --- | --- | --- |
-| `feature-api` plus implementation | One route key/event or public port, one implementation file, one caller that should avoid implementation dependencies. | The API has no caller without the implementation. |
+| `feature-api` plus UI or platform implementation | One key/event or public port, one `ui` Route/ViewModel or `impl` Activity adapter, and one caller that should avoid the other implementation boundary. | The API has no cross-module caller, or the feature can remain unsplit. |
 | Repository `api` plus implementation | One stable entity or repository port, one DTO/cache mapper kept inside implementation, one feature or use case caller. | Callers would still import DTOs, SDK types, or concrete data sources. |
 | `assertions` module | Fixture, recording fake, and assertion subject that depend on `api` only. | Only one test needs the helper, or the fake imports production `impl`. |
 | App-runtime helper | One small contract, one runtime adapter/host, and one caller that should not know Android/Compose details. | The helper starts owning product route policy, repositories, analytics, or screen state. |
