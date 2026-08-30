@@ -123,20 +123,62 @@ class HazardsAreNamedTests(unittest.TestCase):
                 self.assertNotIn("\n", reason)
 
     def test_globals_before_the_subcommand_do_not_hide_it(self) -> None:
-        """`-C <path>` takes an argument; skipping one token read it as the verb."""
+        """Being wrong by one token about a global option moves the verb.
 
-        self.assertNotEqual("", hazard("git -C /tmp/repo branch -D main"))
-        self.assertNotEqual("", hazard("git -c core.pager=cat push --force"))
-        self.assertEqual("", hazard("git -C /tmp/repo commit -m x"))
+        Each of these was a real miss: `--exec-path` was treated as taking a
+        value, so `branch` was skipped and `-D main` read as the subcommand;
+        `--namespace` does take one and was absent, so its argument `n` read as
+        the subcommand. Both returned "no hazard" for a branch deletion.
+        """
+
+        for command in (
+            "git -C /tmp/repo branch -D main",
+            "git -c core.pager=cat push --force",
+            "git --git-dir=/x branch -D main",
+            "git --git-dir /x branch -D main",
+            "git --work-tree /x reset --hard",
+            "git --exec-path branch -D main",
+            "git --namespace n branch -D main",
+            "git --super-prefix p branch -D main",
+            "git --config-env=k=E push -f",
+        ):
+            with self.subTest(command=command):
+                self.assertNotEqual("", hazard(command), command)
+
+        for command in (
+            "git -C /tmp/repo commit -m x",
+            "git --no-pager log",
+            "git -p status",
+            "git --literal-pathspecs add .",
+            "git --exec-path",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("", hazard(command), command)
+
+    def test_an_unreadable_option_costs_a_question_rather_than_a_pass(self) -> None:
+        """The parser fails closed, because failing open has a direction.
+
+        An option outside the known vocabulary makes the subcommand's position
+        a guess, and the guess that reads one token too far turns
+        `branch -D main` into an unremarkable word. So "cannot tell" is treated
+        as the dangerous case -- it costs one prompt, never a silent pass.
+        """
+
+        self.assertIsNone(gate.git_subcommand(["git", "--unknown-global", "log"])[0])
+        self.assertNotEqual("", hazard("git --unknown-global branch -D main"))
+        self.assertNotEqual("", hazard("git --unknown-global log"))
 
     def test_the_subcommand_is_found_past_global_options(self) -> None:
         verb, arguments = gate.git_subcommand(["git", "-C", "/tmp", "branch", "-D", "x"])
         self.assertEqual("branch", verb)
         self.assertEqual(["-D", "x"], arguments)
 
-    def test_git_with_no_subcommand_does_not_crash(self) -> None:
+    def test_git_with_no_subcommand_is_not_the_unreadable_case(self) -> None:
+        # `""` means "nothing to run"; `None` means "cannot tell". Collapsing
+        # them would make a bare `git` prompt and an unknown option pass.
         self.assertEqual(("", []), gate.git_subcommand(["git"]))
         self.assertEqual(("", []), gate.git_subcommand(["git", "-C"]))
+        self.assertEqual("", hazard("git"))
 
 
 class TheVerdictIsAskNotDenyTests(unittest.TestCase):

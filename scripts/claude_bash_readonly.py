@@ -211,9 +211,19 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     # could only be repaired by a hand-run TAO_ALLOW_MAIN_CHECKOUT_EDIT=1. A
     # guard that removes its own undo is worse than the state it guards.
     #
-    # Matched by exact path beside this module, never by name, so a script an
-    # agent can write cannot claim the allowance.
-    if script == here.with_name("setup-agent-hooks.py"):
+    # Matched by position inside a checkout -- `<root>/scripts/` -- never by
+    # name, so a script an agent drops in /tmp cannot claim the allowance.
+    #
+    # Beside *this* module was too narrow, and the case it excluded is the one
+    # that matters: a session running the worktree's gate needs to repair the
+    # bridge by running the *main checkout's* installer, and those are two
+    # different paths. Anchoring only to this file left that command classified
+    # as an ordinary mutation and denied -- the recovery path closed again, by
+    # the fix meant to open it.
+    if script.name == "setup-agent-hooks.py" and all(
+        (script.parent / sibling).is_file()
+        for sibling in ("agent-hook.py", "claude_pretool_gate.py")
+    ):
         return "bootstrap"
     expected = here.with_name("agent-hook.py")
     if script != expected or len(tokens) <= 2:

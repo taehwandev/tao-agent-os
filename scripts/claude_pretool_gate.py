@@ -56,6 +56,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         is_project_state_dir,
         prefer_git_root,
     )
+    from claude_bash_git import git_subcommand
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -135,6 +136,15 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def worktree_denial(root: Path) -> str | None:
         return None
+
+    def git_subcommand(tokens: list[str]) -> tuple[str | None, list[str]]:
+        # A broken install is not a policy violation, and the stubs around this
+        # one all answer "nothing to report" for that reason. Returning "cannot
+        # tell" here instead would make every Git command prompt on an install
+        # that is already failing, which is the shape of gate the operator
+        # switches off.
+        return "", []
+
 
 def __getattr__(name: str):
     """Load the continuation adapter the first time anything asks for it.
@@ -831,23 +841,6 @@ def worktree_policy_satisfied(root: Path) -> bool:
     return worktree_policy(root) is not None and worktree_denial(root) is None
 
 
-def git_subcommand(tokens: list[str]) -> tuple[str, list[str]]:
-    """The subcommand and its arguments, past Git's own global options."""
-
-    rest = tokens[1:]
-    index = 0
-    while index < len(rest):
-        token = rest[index]
-        if token in {"-C", "-c", "--git-dir", "--work-tree", "--exec-path"}:
-            index += 2
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        return token, rest[index + 1 :]
-    return "", []
-
-
 def shared_repository_hazard(tokens: list[str]) -> str:
     """Why this Git command deserves one question, or "" for the ordinary kind.
 
@@ -867,6 +860,8 @@ def shared_repository_hazard(tokens: list[str]) -> str:
     if not tokens or Path(tokens[0]).name != "git":
         return ""
     subcommand, arguments = git_subcommand(tokens)
+    if subcommand is None:
+        return "uses a Git option this gate cannot read, so what it does is unknown"
     flags = {argument.split("=", 1)[0] for argument in arguments}
     words = [argument for argument in arguments if not argument.startswith("-")]
     first = words[0] if words else ""
@@ -958,9 +953,9 @@ def decide(payload: dict) -> int:
         if not hazard:
             return allow()
         return ask(
-            f"This worktree is isolated, but `git {git_subcommand(tokens)[0]}` "
-            f"{hazard} -- worktrees share one Git directory. Allow it only if "
-            "that is what you meant."
+            "This worktree isolates its files, but every worktree shares one "
+            f"Git directory and this command {hazard}. Allow it only if that "
+            "is what you meant."
         )
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):

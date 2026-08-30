@@ -18,6 +18,7 @@ shares the name cannot claim the allowance.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -50,7 +51,7 @@ class InstallerIsReachableTests(unittest.TestCase):
                 )
 
     def test_a_look_alike_elsewhere_is_not_the_installer(self) -> None:
-        """Recognised by exact path, never by name.
+        """Recognised by position in a checkout, never by name alone.
 
         A script an agent can write is not a script that may authorize itself,
         which is the rule the protected-checkout hardening already set.
@@ -59,6 +60,33 @@ class InstallerIsReachableTests(unittest.TestCase):
         self.assertEqual(
             "mutating", _kind(f"{sys.executable} /tmp/setup-agent-hooks.py")
         )
+
+    def test_another_checkouts_installer_is_also_recognised(self) -> None:
+        """The repair runs the *main* checkout's installer, not this one.
+
+        Anchoring to the file beside this module was too narrow, and the case
+        it excluded is the only one that matters: a session running a
+        worktree's gate repairs a mis-written bridge by running the main
+        checkout's installer, and those are different paths. That command came
+        back `mutating` and was denied -- the recovery path closed again, by
+        the fix meant to open it.
+
+        The allowance still requires a real checkout around the script: the
+        sibling hooks must be there, so a lone file dropped anywhere is not it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = Path(tmp) / "other-checkout" / "scripts"
+            scripts.mkdir(parents=True)
+            installer = scripts / "setup-agent-hooks.py"
+            installer.touch()
+
+            # Alone, it is just a file with a familiar name.
+            self.assertEqual("mutating", _kind(f"{sys.executable} {installer}"))
+
+            for sibling in ("agent-hook.py", "claude_pretool_gate.py"):
+                (scripts / sibling).touch()
+            self.assertEqual("bootstrap", _kind(f"{sys.executable} {installer}"))
 
     def test_a_chained_command_does_not_inherit_the_allowance(self) -> None:
         # The allowance covers the installer, not whatever follows it.
