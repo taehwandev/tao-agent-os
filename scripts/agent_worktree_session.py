@@ -83,6 +83,31 @@ def create_worker_worktree(
 
     last_error = ""
     with _creation_lock(project):
+        if worktree_path.exists():
+            # Continuing a task in the worktree it already has. `git worktree
+            # add` refuses a path that exists, so resuming always meant a new
+            # worktree and a fresh checkout: the work in progress was left
+            # behind, and separating tasks by worktree stopped being something
+            # you could carry on inside.
+            #
+            # Reuse is granted only on the same proof that ends a creation --
+            # the path must be this project's registered linked worktree, at
+            # its top level, sharing Git's common directory, reached through no
+            # symlink. A path that cannot show that falls through to `add`,
+            # which fails closed exactly as before.
+            try:
+                verified_path = validate_worker_worktree_identity(
+                    project, worktree_path
+                )
+            except WorktreeSessionError:
+                verified_path = None
+            if verified_path is not None:
+                try:
+                    return capture_worktree_state(verified_path)
+                except RuntimeError as error:
+                    raise WorktreeSessionError(
+                        "existing worker worktree failed fingerprint validation"
+                    ) from error
         for attempt in range(MAX_CREATE_ATTEMPTS):
             completed = subprocess.run(
                 [
