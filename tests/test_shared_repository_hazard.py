@@ -1,0 +1,179 @@
+"""A worktree is free to work in; a few commands still leave it.
+
+The worktree waiver treats a linked worktree as proof of isolation, and for
+files it is: they belong to that checkout alone. Git's refs, remotes, tags,
+config, object store and reflog do not -- every worktree shares one Git
+directory, so `git push --force` from inside one reaches what it would reach
+from the protected checkout.
+
+The first attempt at this excluded Git entirely from the waiver, which denied
+`git commit` inside the agent's own worktree: the whole point of having one.
+So the boundary is drawn around the commands whose actual effect is losing
+shared work, and the verdict there is `ask`, not `deny` -- each of them is
+sometimes exactly what was meant, and Claude's prompt carries "don't ask
+again" for the operator who means it routinely.
+
+Both halves are load-bearing. A hazard list that grows to cover ordinary Git
+rebuilds the machine that only takes Enter; one that misses a member hands
+`branch -D main` a silent allow.
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import claude_pretool_gate as gate  # noqa: E402
+
+
+def hazard(command: str) -> str:
+    return gate.shared_repository_hazard(command.split())
+
+
+ORDINARY = [
+    # The working half: everything an agent does on its own branch.
+    "git add -A",
+    "git commit -m 'x'",
+    "git checkout -b topic",
+    "git switch main",
+    "git merge topic",
+    "git rebase main",
+    "git cherry-pick abc123",
+    "git revert abc123",
+    "git stash",
+    "git stash pop",
+    "git push origin topic",
+    "git fetch origin",
+    "git pull",
+    "git worktree add ../x",
+    "git tag v1",
+    "git remote add upstream git@example.com:x.git",
+    "git config user.email a@b.c",
+    "git reset --soft HEAD~1",
+    "git reset HEAD~1",
+    "git branch -d merged-topic",
+    "git branch --list",
+    "git gc",
+    "git reflog",
+]
+
+HAZARDS = [
+    "git branch -D main",
+    "git branch -M main",
+    "git branch --delete --force main",
+    "git push --force origin main",
+    "git push -f",
+    "git push --force-with-lease origin main",
+    "git push --delete origin topic",
+    "git push --mirror",
+    "git push origin +main",
+    "git reset --hard origin/main",
+    "git tag -d v1.0.0",
+    "git tag --delete v1.0.0",
+    "git update-ref -d refs/heads/x",
+    "git filter-branch --all",
+    "git filter-repo --path x",
+    "git reflog expire --all",
+    "git reflog delete HEAD@{0}",
+    "git gc --prune=now",
+    "git remote remove origin",
+    "git remote rm origin",
+    "git remote set-url origin git@evil.example:x.git",
+    "git stash clear",
+    "git stash drop",
+    "git worktree remove ../other",
+    "git worktree prune",
+    "git config --global user.email a@b.c",
+    "git config --system core.editor vi",
+]
+
+
+class OrdinaryGitStaysSilentTests(unittest.TestCase):
+    def test_the_everyday_commands_are_not_hazards(self) -> None:
+        for command in ORDINARY:
+            with self.subTest(command=command):
+                self.assertEqual("", hazard(command))
+
+    def test_a_command_that_is_not_git_is_never_a_hazard(self) -> None:
+        for command in ("python3 build.py", "npm test", "rm -rf build", "gitk"):
+            with self.subTest(command=command):
+                self.assertEqual("", hazard(command))
+
+    def test_an_empty_command_line_is_not_a_hazard(self) -> None:
+        # Edit and Write reach the same check with no command line at all.
+        self.assertEqual("", gate.shared_repository_hazard([]))
+
+    def test_git_by_an_absolute_path_is_still_git(self) -> None:
+        self.assertNotEqual("", hazard("/usr/bin/git branch -D main"))
+        self.assertEqual("", hazard("/usr/bin/git commit -m x"))
+
+
+class HazardsAreNamedTests(unittest.TestCase):
+    def test_each_hazard_is_recognised_and_explained(self) -> None:
+        for command in HAZARDS:
+            with self.subTest(command=command):
+                reason = hazard(command)
+                self.assertNotEqual("", reason, command)
+                self.assertNotIn("\n", reason)
+
+    def test_globals_before_the_subcommand_do_not_hide_it(self) -> None:
+        """`-C <path>` takes an argument; skipping one token read it as the verb."""
+
+        self.assertNotEqual("", hazard("git -C /tmp/repo branch -D main"))
+        self.assertNotEqual("", hazard("git -c core.pager=cat push --force"))
+        self.assertEqual("", hazard("git -C /tmp/repo commit -m x"))
+
+    def test_the_subcommand_is_found_past_global_options(self) -> None:
+        verb, arguments = gate.git_subcommand(["git", "-C", "/tmp", "branch", "-D", "x"])
+        self.assertEqual("branch", verb)
+        self.assertEqual(["-D", "x"], arguments)
+
+    def test_git_with_no_subcommand_does_not_crash(self) -> None:
+        self.assertEqual(("", []), gate.git_subcommand(["git"]))
+        self.assertEqual(("", []), gate.git_subcommand(["git", "-C"]))
+
+
+class TheVerdictIsAskNotDenyTests(unittest.TestCase):
+    """A hazard is a decision, so it reaches the operator as one.
+
+    `deny` is for violations with a deterministic remedy the agent applies
+    itself. Force-pushing has no remedy -- it is either wanted or not -- and
+    only `ask` renders a prompt the operator can answer once and for all.
+    """
+
+    def test_ask_emits_the_prompting_decision(self) -> None:
+        import contextlib
+        import io
+        import json
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            gate.ask("because")
+        emitted = json.loads(buffer.getvalue())["hookSpecificOutput"]
+        self.assertEqual("ask", emitted["permissionDecision"])
+        self.assertIn("because", emitted["permissionDecisionReason"])
+
+    def test_deny_and_ask_are_different_decisions(self) -> None:
+        import contextlib
+        import io
+        import json
+
+        decisions = []
+        for emit in (gate.deny, gate.ask):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                emit("reason")
+            decisions.append(
+                json.loads(buffer.getvalue())["hookSpecificOutput"]["permissionDecision"]
+            )
+        self.assertEqual(["deny", "ask"], decisions)
+
+
+if __name__ == "__main__":
+    unittest.main()

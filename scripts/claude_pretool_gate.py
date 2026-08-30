@@ -251,6 +251,34 @@ def deny(reason: str) -> int:
     return 0
 
 
+def ask(reason: str) -> int:
+    """Put one decision to the operator, for the rare kind that is a decision.
+
+    ``deny`` is right wherever the remedy is deterministic: the agent enters the
+    workflow, moves to a permitted worktree, or reduces the edit, and no human
+    needs to watch it happen. A destructive command that is *sometimes exactly
+    what was meant* has no such remedy -- denying it hides a real choice, and
+    asking about everything buries that choice among the ordinary calls until
+    the prompt stops carrying information.
+
+    So this is reserved for the short hazard list, where Claude's prompt also
+    offers "don't ask again": an operator who force-pushes daily answers once.
+    """
+
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "ask",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
+    return 0
+
+
 def max_age_seconds() -> int:
     raw = os.environ.get("TAO_CLAUDE_GATE_MAX_AGE_SECONDS", "").strip()
     if not raw:
@@ -803,6 +831,78 @@ def worktree_policy_satisfied(root: Path) -> bool:
     return worktree_policy(root) is not None and worktree_denial(root) is None
 
 
+def git_subcommand(tokens: list[str]) -> tuple[str, list[str]]:
+    """The subcommand and its arguments, past Git's own global options."""
+
+    rest = tokens[1:]
+    index = 0
+    while index < len(rest):
+        token = rest[index]
+        if token in {"-C", "-c", "--git-dir", "--work-tree", "--exec-path"}:
+            index += 2
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        return token, rest[index + 1 :]
+    return "", []
+
+
+def shared_repository_hazard(tokens: list[str]) -> str:
+    """Why this Git command deserves one question, or "" for the ordinary kind.
+
+    A linked worktree isolates the working tree and nothing else. Refs,
+    remotes, tags, config, the object store and the reflog live in the common
+    Git directory every worktree shares, so a handful of commands reach exactly
+    what they would reach from the protected checkout.
+
+    That is a reason to name those commands, not to distrust Git. Committing,
+    branching, merging, stashing and pushing inside your own worktree is the
+    work, and stopping it stops everything for the sake of the rare case. So
+    this returns a reason only for the short list below, where losing shared
+    work is the command's actual effect -- and the answer there is `ask`, not
+    `deny`, because each of these is sometimes precisely what was meant.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return ""
+    subcommand, arguments = git_subcommand(tokens)
+    flags = {argument.split("=", 1)[0] for argument in arguments}
+    words = [argument for argument in arguments if not argument.startswith("-")]
+    first = words[0] if words else ""
+
+    if subcommand == "branch":
+        # `-d` refuses to drop unmerged work; `-D` and `-M` do not.
+        if flags & {"-D", "-M"} or ("--delete" in flags and flags & {"-f", "--force"}):
+            return "deletes or overwrites a branch every worktree shares"
+    if subcommand == "push":
+        if flags & {"-f", "--force", "--force-with-lease", "--delete", "--mirror"}:
+            return "rewrites or deletes a published branch"
+        if any(word.startswith("+") for word in words):
+            return "force-pushes: a leading + in a refspec rewrites the remote"
+    if subcommand == "reset" and "--hard" in flags:
+        return "discards committed work reachable only from here"
+    if subcommand == "tag" and flags & {"-d", "--delete"}:
+        return "deletes a tag every worktree shares"
+    if subcommand == "update-ref" and flags & {"-d", "--stdin"}:
+        return "writes a shared ref directly, past the commands that check it"
+    if subcommand in {"filter-branch", "filter-repo"}:
+        return "rewrites the entire shared history"
+    if subcommand == "reflog" and first in {"expire", "delete"}:
+        return "removes the reflog, which is how the rest of this list is undone"
+    if subcommand == "gc" and "--prune" in flags:
+        return "prunes objects the reflog would otherwise recover"
+    if subcommand == "remote" and first in {"remove", "rm", "set-url"}:
+        return "changes a remote every worktree shares"
+    if subcommand == "stash" and first in {"drop", "clear"}:
+        return "drops stashed work every worktree shares"
+    if subcommand == "worktree" and first in {"remove", "prune"}:
+        return "removes another worktree, which may hold unfinished work"
+    if subcommand == "config" and flags & {"--global", "--system"}:
+        return "changes Git configuration outside this repository"
+    return ""
+
+
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
@@ -815,6 +915,10 @@ def decide(payload: dict) -> int:
     except OSError:
         return allow()
     bash_kind = ""
+    # An Edit or Write has no command line, and the hazard check below runs for
+    # every tool. Leaving this unbound made that check raise for exactly the
+    # calls the waiver exists to allow.
+    tokens: list[str] = []
     if tool in BASH_TOOLS:
         effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
         bash_kind = bash_command_kind(tokens, syntax_is_simple)
@@ -850,7 +954,14 @@ def decide(payload: dict) -> int:
     if worktree_reason:
         return deny(worktree_reason)
     if worktree_policy_satisfied(root):
-        return allow()
+        hazard = shared_repository_hazard(tokens)
+        if not hazard:
+            return allow()
+        return ask(
+            f"This worktree is isolated, but `git {git_subcommand(tokens)[0]}` "
+            f"{hazard} -- worktrees share one Git directory. Allow it only if "
+            "that is what you meant."
+        )
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
         return deny(deny_reason(root, session_id, tool))

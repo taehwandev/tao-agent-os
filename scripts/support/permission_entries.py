@@ -71,9 +71,38 @@ def claude_project_permission_entries(scripts_dir: Path, *, spill_available: boo
     entries: list[str] = []
     for subcommand in ("log", "status", "diff", "show", "branch"):
         entries.append(f"Bash(git -C * {subcommand} *)")
+    entries.extend(_worktree_permission_entries())
     for command in _common_tao_tool_commands():
         _add_permission_command_entries(entries, "Bash", command)
     return entries
+
+
+def _worktree_permission_entries() -> list[str]:
+    """Cover the whole worktree root, because each worktree name is new.
+
+    A task runs in its own linked worktree under `.tao/worktrees/<16-hex>`, and
+    that directory name is generated fresh every time. A permission approved for
+    one worktree therefore never matches the next, so the prompts never stop and
+    the honest response is to switch permissions off -- which discards the
+    protection along with the noise.
+
+    The directory name comes from `agent_worktree_identity`, which is what the
+    dispatcher uses; spelling it again here would be a second definition, and
+    the copy nobody edits is the one that stops matching.
+
+    Reading, writing and entering only. Removing a worktree deletes work and
+    stays a decision rather than a default.
+    """
+
+    from agent_worktree_identity import WORKTREE_DIRNAME
+
+    root = f".tao/{WORKTREE_DIRNAME}"
+    return [
+        f"Read({root}/**)",
+        f"Edit({root}/**)",
+        f"Write({root}/**)",
+        f"Bash(cd {root}/*)",
+    ]
 
 
 def agy_permission_entries(scripts_dir: Path, *, spill_available: bool = True) -> list[str]:

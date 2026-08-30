@@ -250,6 +250,57 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
+    def test_a_linked_worktree_may_run_ordinary_git(self) -> None:
+        """Committing on your own branch is the reason to have a worktree.
+
+        The first cut of the shared-state rule excluded Git from the waiver
+        wholesale, which denied `git commit` inside the agent's own worktree.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            for command in ("git commit -m x", "git checkout -b topic", "git stash"):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out)
+
+    def test_a_shared_state_hazard_reaches_the_operator_as_a_question(self) -> None:
+        """`ask`, not `deny`: force-pushing is a decision, not a mistake.
+
+        Every worktree shares one Git directory, so these commands leave the
+        isolation the waiver is granted for. They are also sometimes exactly
+        what was meant, and only `ask` renders a prompt the operator can settle
+        once with "don't ask again" -- a `deny` here would have no remedy the
+        agent could apply, which is what `deny` is for.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            for command in ("git push --force origin main", "git branch -D main"):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    decision = json.loads(out)["hookSpecificOutput"]
+                    self.assertEqual("ask", decision["permissionDecision"])
+                    self.assertIn("worktree", decision["permissionDecisionReason"])
+
     def test_the_main_checkout_is_still_refused_by_the_worktree_gate(self) -> None:
         # Waiving evidence inside a worktree must not waive the policy itself.
         with tempfile.TemporaryDirectory() as tmp:
