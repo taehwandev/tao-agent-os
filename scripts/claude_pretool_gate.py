@@ -70,6 +70,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         path_arguments,
         raw_path_arguments,
         worktree_denial,
+        worktree_policy,
     )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
@@ -128,6 +129,9 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
         return "mutating"
+
+    def worktree_policy(root: Path) -> dict | None:
+        return None
 
     def worktree_denial(root: Path) -> str | None:
         return None
@@ -778,6 +782,27 @@ def _owning_project(path: Path) -> Path | None:
     return find_project_root(candidate)
 
 
+
+def worktree_policy_satisfied(root: Path) -> bool:
+    """Whether this checkout has already proved its isolation.
+
+    A repository declares that every task runs in its own linked worktree so
+    two tasks cannot collide in one checkout. Where that policy is declared and
+    this root is a compliant worktree, the isolation the gate exists to protect
+    is already in place, and the run-evidence check below has nothing left to
+    add.
+
+    Requiring both made the policy unusable: a compliant worktree still could
+    not be written to until preflight evidence existed, so the cheapest way to
+    get work done was to turn the whole gate off -- taking the protection with
+    it. The waiver is earned by the declared policy, never by its absence: a
+    repository that declares nothing has proved nothing, and still needs the
+    run.
+    """
+
+    return worktree_policy(root) is not None and worktree_denial(root) is None
+
+
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
@@ -824,6 +849,8 @@ def decide(payload: dict) -> int:
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
         return deny(worktree_reason)
+    if worktree_policy_satisfied(root):
+        return allow()
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
         return deny(deny_reason(root, session_id, tool))

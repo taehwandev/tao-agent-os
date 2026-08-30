@@ -76,7 +76,25 @@ def git_command_kind(tokens: list[str]) -> str:
     args = tokens[index + 1 :]
     if any(names_unsafe_git_option(arg) for arg in args):
         return "mutating"
-    if command in {"check-ignore", "diff", "log", "ls-files", "rev-parse", "show", "status"}:
+    # `blame`, `describe`, `shortlog` and `whatchanged` read history the same
+    # way `log` and `show` do. They were absent rather than excluded, and a
+    # review of the current branch is where that shows: reading who last
+    # touched a line is inspection, and denying it left the reviewer unable to
+    # answer the question a review is for.
+    if command in {
+        "blame",
+        "check-ignore",
+        "describe",
+        "diff",
+        "log",
+        "ls-files",
+        "ls-tree",
+        "rev-parse",
+        "shortlog",
+        "show",
+        "status",
+        "whatchanged",
+    }:
         return "read_only"
     if command == "branch":
         allowed = {"-a", "-r", "-v", "-vv", "--contains", "--list", "--merged", "--no-merged", "--show-current"}

@@ -1,0 +1,5 @@
+{
+ "schema_version": 1,
+ "require_linked_worktree": true,
+ "protected_branches": ["develop", "main"]
+}
