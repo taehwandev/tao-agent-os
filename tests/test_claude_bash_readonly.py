@@ -656,5 +656,111 @@ class InspectionIsNotMutationTests(unittest.TestCase):
                 self.assertEqual("mutating", git_command_kind(command.split()))
 
 
+class AskingGitHubIsInspectionTests(unittest.TestCase):
+    """`gh` was unclassified, so every use of it counted as a mutation.
+
+    Reading a pull request or a CI run is inspection in the same sense
+    `git log` is, and treating it as a write meant that from a protected
+    checkout `gh pr view` was refused outright, with no prompt to answer. That
+    is the shape that ends with the gate switched off.
+    """
+
+    def test_reporting_subcommands_only_report(self) -> None:
+        from claude_bash_readonly import gh_command_kind
+
+        for command in (
+            "pr view 75", "pr list", "pr diff 75", "pr checks", "pr status",
+            "issue view 12", "issue list", "run list", "run view 42",
+            "release view v1", "repo view", "workflow list", "auth status",
+            "search prs needle",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", gh_command_kind(command.split()))
+
+    def test_anything_that_changes_something_is_not(self) -> None:
+        from claude_bash_readonly import gh_command_kind
+
+        for command in (
+            "pr create --fill", "pr merge 75 --squash", "pr close 75",
+            "pr comment 75 --body x", "release create v1", "repo delete x",
+            "run rerun 42", "workflow run deploy", "issue create --title x",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", gh_command_kind(command.split()))
+
+    def test_an_option_can_turn_a_report_into_a_write(self) -> None:
+        """`gh api` defaults to GET, and `-X`/`-f` change that.
+
+        `-D`/`--dir` writes what it fetches to disk, which is a write however
+        harmless the subcommand looks.
+        """
+
+        from claude_bash_readonly import gh_command_kind
+
+        for command in (
+            "api repos/x/y -X DELETE",
+            "api repos/x/y --method POST",
+            "api repos/x/y -f name=value",
+            "run view 42 -D /tmp/artifacts",
+            "run view 42 --dir /tmp/artifacts",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", gh_command_kind(command.split()))
+
+    def test_an_unknown_or_bare_invocation_is_not_assumed_safe(self) -> None:
+        from claude_bash_readonly import gh_command_kind
+
+        for command in ("", "pr", "something new", "extension exec thing"):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", gh_command_kind(command.split()))
+
+    def test_it_is_reached_through_the_command_classifier(self) -> None:
+        # Named by the executable, so an absolute path is still gh.
+        self.assertEqual("read_only", bash_readonly.bash_command_kind(
+            ["gh", "pr", "view", "75"], True))
+        self.assertEqual("read_only", bash_readonly.bash_command_kind(
+            ["/opt/homebrew/bin/gh", "run", "list"], True))
+        self.assertEqual("mutating", bash_readonly.bash_command_kind(
+            ["gh", "pr", "merge", "75", "--squash"], True))
+
+
+class AnyPythonRunsTheInstallerTests(unittest.TestCase):
+    """Recognition follows the script, not the caller's spelling of python.
+
+    Requiring an exact match with the hook's own `sys.executable` made the
+    repair command depend on which build `which python3` happens to find: on
+    this machine the ordinary spelling was refused while an absolute path to
+    the hook's interpreter worked. A recovery path that turns on that is not a
+    recovery path. The script is still proved by its position and siblings.
+    """
+
+    def test_a_python_that_is_not_this_one_still_counts(self) -> None:
+        import shutil
+
+        from claude_bash_readonly import _python_interpreter
+
+        self.assertTrue(_python_interpreter(sys.executable))
+        for spelling in ("python3", "/usr/bin/python3"):
+            with self.subTest(spelling=spelling):
+                if shutil.which(spelling) or Path(spelling).exists():
+                    self.assertTrue(_python_interpreter(spelling), spelling)
+
+    def test_something_that_is_not_python_does_not(self) -> None:
+        from claude_bash_readonly import _python_interpreter
+
+        for token in ("", "sh", "/bin/sh", "node", "pythonn-not-real",
+                      "./relative/python3", "/does/not/exist/python3"):
+            with self.subTest(token=token):
+                self.assertFalse(_python_interpreter(token), token)
+
+    def test_the_digest_bound_path_keeps_the_exact_interpreter(self) -> None:
+        """A declaration says what *this* interpreter will do with that file."""
+
+        from claude_bash_readonly import _current_python_interpreter
+
+        self.assertTrue(_current_python_interpreter(sys.executable))
+        self.assertFalse(_current_python_interpreter("/bin/sh"))
+
+
 if __name__ == "__main__":
     unittest.main()

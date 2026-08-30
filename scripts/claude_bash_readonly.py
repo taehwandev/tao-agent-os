@@ -196,7 +196,16 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
         return "bootstrap" if tokens[1] in RUNTIME_CONTROL_HOOKS else None
     # Two tokens is enough for the installer, which takes no subcommand. The
     # hook below needs a third, and says so itself.
-    if not _current_python_interpreter(tokens[0]) or len(tokens) < 2:
+    #
+    # Any Python, not only the one running this hook. What is being recognised
+    # is the script -- proved by its path and its siblings below -- and the
+    # interpreter does not change which script runs. Requiring an exact match
+    # with `sys.executable` made recognition depend on how the caller spelled
+    # `python3`: on a machine where `which python3` finds a different build,
+    # the ordinary spelling of the repair command was refused while an absolute
+    # path to this hook's own interpreter worked. A recovery path that turns on
+    # that is not a recovery path.
+    if not _python_interpreter(tokens[0]) or len(tokens) < 2:
         return None
     script = Path(tokens[1]).expanduser()
     try:
@@ -316,8 +325,90 @@ def _file_sha256(path: Path) -> str | None:
     return digest.hexdigest()
 
 
+# `gh` subcommand pairs that only report. Asking GitHub what a pull request
+# says is inspection in the same sense `git log` is, and leaving `gh`
+# unclassified made every one of them a mutation -- so reading a review from a
+# protected checkout was refused outright, with no prompt to answer.
+READ_ONLY_GH_SUBCOMMANDS = frozenset(
+    {
+        ("auth", "status"),
+        ("issue", "list"),
+        ("issue", "status"),
+        ("issue", "view"),
+        ("label", "list"),
+        ("pr", "checks"),
+        ("pr", "diff"),
+        ("pr", "list"),
+        ("pr", "status"),
+        ("pr", "view"),
+        ("release", "list"),
+        ("release", "view"),
+        ("repo", "list"),
+        ("repo", "view"),
+        ("run", "list"),
+        ("run", "view"),
+        ("search", "code"),
+        ("search", "issues"),
+        ("search", "prs"),
+        ("search", "repos"),
+        ("workflow", "list"),
+        ("workflow", "view"),
+    }
+)
+# Options that turn `gh api` from its default GET into a write, and options
+# that write what they fetch to a file.
+GH_WRITE_OPTIONS = frozenset(
+    {"-X", "--method", "-f", "-F", "--input", "--raw-field", "--field", "-D", "--dir"}
+)
+
+
+def gh_command_kind(arguments: list[str]) -> str:
+    """Read-only when the subcommand only reports and nothing writes a file."""
+
+    words = [argument for argument in arguments if not argument.startswith("-")]
+    names = {argument.split("=", 1)[0] for argument in arguments}
+    if names & GH_WRITE_OPTIONS:
+        return "mutating"
+    if len(words) < 2:
+        return "mutating"
+    return "read_only" if (words[0], words[1]) in READ_ONLY_GH_SUBCOMMANDS else "mutating"
+
+
+def _python_interpreter(token: str) -> bool:
+    """Whether a token names a Python interpreter, whichever build it is.
+
+    Used where the script decides the verdict and the interpreter only carries
+    it. Stricter than it looks: the token must resolve to a real executable
+    file, so a shell function or a missing name is not one.
+    """
+
+    if not token or "\x00" in token:
+        return False
+    selected = Path(token)
+    if selected.is_absolute():
+        candidate = selected
+    elif selected.name == token:
+        located = shutil.which(token)
+        if not located:
+            return False
+        candidate = Path(located)
+    else:
+        return False
+    if not candidate.name.startswith("python"):
+        return False
+    try:
+        resolved = candidate.resolve(strict=True)
+        return stat.S_ISREG(resolved.stat().st_mode) and os.access(resolved, os.X_OK)
+    except (OSError, ValueError):
+        return False
+
+
 def _current_python_interpreter(token: str) -> bool:
-    """Whether a token resolves to the Python running this hook."""
+    """Whether a token resolves to the Python running this hook.
+
+    Kept strict for the digest-bound read-only scripts, where the declaration
+    says what *this* interpreter will do with that file.
+    """
 
     if not token or "\x00" in token:
         return False
@@ -557,6 +648,8 @@ def simple_command_kind(tokens: list[str]) -> str:
         return "mutating" if sort_writes(command[1:]) else "read_only"
     if executable == "git":
         return git_command_kind(command)
+    if executable == "gh":
+        return gh_command_kind(command[1:])
     if executable == "vibeguard":
         args = command[1:]
         writes = any(arg == "--fix" or arg.startswith("--fix=") for arg in args)

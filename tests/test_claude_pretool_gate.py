@@ -508,6 +508,57 @@ class ClaudePreToolGateTests(unittest.TestCase):
                         command,
                     )
 
+    def test_shipping_from_the_protected_checkout_is_not_a_dead_end(self) -> None:
+        """`gh` writes nothing into this working tree.
+
+        Opening or merging a pull request talks to GitHub. Refusing it outright
+        left the protected checkout unable to ship at all, with no prompt to
+        answer -- while `git push`, which does the same job at a lower level,
+        was already asked about.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            for command in ("gh pr create --fill", "gh pr merge 75 --squash",
+                            "gh release create v1"):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        "ask",
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        command,
+                    )
+
+    def test_reading_from_github_needs_no_decision_at_all(self) -> None:
+        # Classified read-only, so it is allowed before the protected-checkout
+        # question is ever reached.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            for command in ("gh pr view 75", "gh run list", "gh pr checks"):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out, command)
+
     def test_an_unreadable_git_option_asks_rather_than_passing(self) -> None:
         # The same fail-closed reading the hazard check uses: an option that
         # hides which subcommand runs is the dangerous case.
