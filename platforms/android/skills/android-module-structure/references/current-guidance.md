@@ -46,11 +46,14 @@ navigation, testing, or ownership boundary needs a split. Multi-module apps need
 clear dependency direction; otherwise the extra modules only move complexity into
 Gradle.
 
-For a feature, treat `impl` (or an unsplit feature module serving the same role)
-as the default owner of Compose UI. Add `api` only for a stable caller or
-navigation contract, and add `ui` only when a named consumer outside `impl` must
-reuse the concrete Compose surface. These are independent promotions, not three
-modules that every feature must create. The canonical ownership and dependency
+For a cross-module feature family, name modules by the entry surface they own.
+Keep navigation identity and caller-facing contracts in `api`. Put the
+independently runnable Compose feature in `ui`, including its holder `Route`,
+screen `ViewModel`, UI state, screen, and feature components. Add `impl` only
+when Android needs another platform entry around that feature, such as a
+concrete Activity, manifest entry, Intent mapping, Activity result adapter, or
+another platform launcher. A local feature that does not cross a module
+boundary may still stay in one module. The canonical ownership and dependency
 rules live in [`module-boundaries.md`](module-boundaries.md).
 
 ## File And Class Split
