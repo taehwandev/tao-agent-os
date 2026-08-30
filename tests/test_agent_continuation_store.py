@@ -242,7 +242,16 @@ class GuardedReadTests(unittest.TestCase):
     def _written(self, project: Path) -> Path:
         return write_continuation_packet(project, packet(run_id=RUN_ID))
 
-    def test_an_unexpected_link_count_is_refused(self) -> None:
+    def test_a_foreign_hard_link_does_not_refuse_the_packet(self) -> None:
+        """A backup or sync daemon's second link must not deny the run.
+
+        Backup, sync, and indexing daemons hold a durable extra link to files
+        in a user's home; on a machine doing that, refusing the link count
+        denied real work for as long as the link lived. The link cannot hurt
+        this store, because every write renames a fresh inode over the name,
+        so the extra link only ever holds an orphaned older generation.
+        """
+
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             path = self._written(project)
@@ -250,8 +259,23 @@ class GuardedReadTests(unittest.TestCase):
 
             result = read_continuation_packet(project, path)
 
-            self.assertEqual("local_boundary_failed", result["status"])
-            self.assertIn("unexpected_link_count", rules(result["failures"]))
+            self.assertEqual("ok", result["status"])
+            self.assertEqual([], result["failures"])
+            self.assertIsNotNone(result["packet"])
+
+    def test_a_later_write_leaves_the_foreign_link_on_the_old_generation(self) -> None:
+        """The reason the link is harmless, asserted rather than assumed."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            path = self._written(project)
+            linked = path.parent / "hard-link.json"
+            os.link(path, linked)
+
+            write_continuation_packet(project, packet(run_id=RUN_ID, generation=2))
+
+            self.assertNotEqual(path.stat().st_ino, linked.stat().st_ino)
+            self.assertEqual(1, path.stat().st_nlink)
 
     def test_an_insecure_mode_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

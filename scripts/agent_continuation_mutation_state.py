@@ -268,7 +268,15 @@ class _MutationStorageState:
 
     @classmethod
     def _read(cls, project: Path, run_id: str) -> dict[str, Any]:
-        """Read the closed, owner-only sidecar without following its symlink."""
+        """Read the closed, owner-only sidecar without following its symlink.
+
+        Link count is not a rule here for the same reason it is not one in the
+        packet store: the sidecar is rewritten by rename, so an extra link only
+        holds an orphaned older copy, and backup or sync daemons legitimately
+        keep such a link. Treating that as a violation discarded a valid
+        baseline silently, which turned a foreign daemon into missing
+        mutation state rather than a visible refusal.
+        """
 
         path = cls.path(project, run_id)
         if not cls.is_local(project, path):
@@ -279,7 +287,6 @@ class _MutationStorageState:
             info = os.fstat(descriptor)
             if (
                 not stat.S_ISREG(info.st_mode)
-                or info.st_nlink != 1
                 or stat.S_IMODE(info.st_mode) & 0o077
                 or info.st_size > cls.MAX_BYTES
             ):
