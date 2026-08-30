@@ -414,6 +414,107 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual("ask", decision["permissionDecision"])
                     self.assertIn("worktree", decision["permissionDecisionReason"])
 
+    def test_finished_work_can_reach_the_protected_checkout(self) -> None:
+        """A worktree you cannot land is a one-way street.
+
+        The policy asks that new work be authored in a linked worktree and the
+        original left alone. That is a workflow only if the original can still
+        take the result, and it could not: `merge`, `pull`, `checkout` and
+        `switch` were refused there along with everything else, so work had no
+        way home and the only exit was turning the gate off -- the outcome the
+        policy exists to prevent. It also locked the gate's own repair: main
+        could not be updated without passing the very check the update fixes.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)  # the protected main checkout
+
+            def decision(command: str) -> str:
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "no-evidence",
+                        "tool_input": {"command": command},
+                    }
+                )
+                self.assertEqual(0, code)
+                if not out:
+                    return "silent"
+                return json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+
+            # A fast-forward moves a pointer onto commits already present. It
+            # can neither create nor lose anything, so it needs no question.
+            for command in ("git merge --ff-only topic", "git pull --ff-only"):
+                with self.subTest(command=command):
+                    self.assertEqual("allow", decision(command))
+
+            # The rest move or discard what is there: a real decision, put once
+            # to the person whose checkout it is.
+            for command in (
+                "git merge topic",
+                "git pull",
+                "git checkout main",
+                "git switch main",
+                "git checkout -- .claude/settings.json",
+                "git restore src/app.py",
+                "git stash",
+                "git reset --hard origin/main",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("ask", decision(command))
+
+            # Authoring there is still refused outright.
+            for command in (
+                "git commit -m x",
+                "git cherry-pick abc123",
+                "rm -rf build",
+                "python3 build.py",
+                "git push --force origin main",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual(STOP_DECISION, decision(command))
+
+    def test_landing_needs_a_simple_command_line(self) -> None:
+        # The allowance reads one command. A compound line can carry anything
+        # after the part that was read.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"command": "git merge --ff-only topic && rm -rf /"},
+                }
+            )
+            self.assertEqual(0, code)
+            self.assertEqual(
+                STOP_DECISION,
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
+
+    def test_editing_the_protected_checkout_is_untouched_by_this(self) -> None:
+        # The allowance is for Git integration only; file edits stay refused.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(project / "AGENTS.md")},
+                }
+            )
+            self.assertEqual(0, code)
+            self.assertEqual(
+                STOP_DECISION,
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
+
     def test_a_hazard_aimed_out_of_the_worktree_is_still_asked_about(self) -> None:
         """`-C <elsewhere>` moved the target out of every governed root.
 
