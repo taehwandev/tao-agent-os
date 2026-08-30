@@ -67,7 +67,10 @@
       "Bash(python -m py_compile:*)",
       "Bash(python -m py_compile *)",
       "Edit(**/*.py)",
-      "Write(**/*.py)"
+      "Write(**/*.py)",
+      "Read(.tao/worktrees/**)",
+      "Edit(.tao/worktrees/**)",
+      "Write(.tao/worktrees/**)"
     ]
   }
 }

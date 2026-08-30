@@ -325,6 +325,23 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("doc_surface_matches", route)
         self.assertTrue(any(match["name"] == "workflow_router" for match in route["doc_surface_matches"]))
 
+    def test_agent_room_path_surface_promotes_runtime_integration_docs(self) -> None:
+        route = resolve_docs(
+            "feature",
+            None,
+            [],
+            request_classified=True,
+            surface_paths=["scripts/agent_room.py"],
+        )
+
+        self.assertIn(
+            guidance_area("docs/skills/agent-runtime-integration/SKILL.md"),
+            routed_areas(route),
+        )
+        self.assertTrue(
+            any(match["name"] == "runtime_model_dispatch" for match in route["doc_surface_matches"])
+        )
+
     def test_graphify_request_records_selected_project_readiness(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

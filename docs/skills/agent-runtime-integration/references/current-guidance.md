@@ -122,6 +122,74 @@ repo-local templates should carry only the short invocation, reuse, ownership,
 and fallback contract rather than duplicating the full schema or invalidation
 rules.
 
+## Project-Local Agent Sessions
+
+Use the provider-neutral local session broker when Codex or Claude should
+exchange an opinion, review work, or hand off one bounded task without a
+maintainer copying messages between products. `@codex`, `@claude`, Korean
+provider names, or the matching `--to` value are triggers. The caller should
+send a compact brief containing the current objective, relevant decisions, the
+unresolved question, and the requested response instead of copying a full chat.
+
+The maintainer never selects a room or task id. The broker resolves the exact
+active Tao run already bound to the current runtime session and uses that
+opaque run id as its internal work-item key. It stops when no single active run
+is bound. State remains below that repository's `.tao/agent-rooms/`, and every
+record binds the resolved project fingerprint, evidence fingerprint, provider
+session ids, and bounded transcript. A copied record, another project, or
+another run cannot continue the session.
+
+Required sequence:
+
+1. The parent completes `start`, required-document reading, and task scoping.
+2. Immediately before the provider boundary, the parent runs `<TAO_LAUNCHER>
+   handoff` so the execution capsule reflects the current worktree and ledger.
+3. From the selected project, the parent posts one bounded message through
+   stdin. Normal calls need no `--project`, `--rules`, `--evidence`, task id, or
+   room id. Repeated `--to` flags are an explicit equivalent to names in the
+   message:
+
+   ```text
+   <bounded @claude review brief on stdin> | <TAO_LAUNCHER> agent-room --mode review
+   ```
+
+4. The command revalidates the bound capsule once, creates or resumes the
+   provider session stored for this run, and executes providers sequentially.
+   Each session id and reply is atomically saved before the next turn. One pass
+   over the selected providers is the default; `--turns` enables bounded
+   back-and-forth.
+5. `opinion` and `review` run providers in read-only or plan mode. `task`
+   requires explicit `--allow-write`, gives only one provider process the
+   workspace at a time, and still forbids commit, push, release, external
+   mutation, recursive provider calls, and writes to the parent gate ledger.
+   The parent owns integration, review, verification, and finish.
+
+Provider adapters fail closed on cost identity. Codex opens the official local
+App Server over stdio, checks `account/read` for ChatGPT authentication before
+creating a thread or turn, resumes its stored thread id, and closes the local
+server process after the response. Claude checks
+`claude auth status --json` for a logged-in `claude.ai` subscription before
+creating or resuming its stored session id. Both children remove API-key,
+custom-base-URL, and supported cloud-provider fallback environment variables.
+The installed AGY CLI currently exposes conversation resume but no safe
+subscription-auth attestation, so AGY turns remain disabled in this mode rather
+than guessing. `agent-room --status` reports these readiness decisions without
+making a model turn.
+
+This guarantees that Tao does not deliberately fall back to API-key or
+unverified provider billing. It cannot override a provider account's own
+extra-usage or credit setting; disable that setting in the provider account if
+the requirement is no invoice beyond the subscription. Each requested answer
+still consumes the product's included subscription allowance. Idle state makes
+no model request and keeps no provider process: Codex and Claude retain only
+resumable session state and start their local CLI process on the next mention.
+Tao installs no daemon, LaunchAgent, watcher, polling loop, external service,
+or background queue.
+
+One work session accepts at most 128 KiB per message and transcript window,
+three unique participants, six provider turns, 64 stored messages, and a
+ten-minute per-turn timeout.
+
 ## Setup And Installation
 
 Installing or wiring a runtime is a separate reading:
@@ -508,6 +576,13 @@ After connecting a runtime, verify:
   returns a successful normal-lifecycle fallback decision on mismatch, uses
   worker-specific evidence paths for that fallback, and leaves the parent gate
   ledger unchanged
+- `<TAO_LAUNCHER> agent-room --help` resolves through the installed stable
+  launcher, `agent-room --status` performs no model turn, and focused tests
+  prove exact active-work resolution, project/run isolation, mention triggers,
+  provider-session create/resume, bounded transcript handoff, provider
+  read/write modes, atomic local replies, recursion refusal, usage caps,
+  subscription-auth refusal before a model turn, the real Codex stdio process
+  protocol against a fake provider, and the absence of a daemon or poller
 - VibeGuard evidence was summarized through VibeGuard docs when an evidence
   adapter was configured
 - the route gate ledger was completed for every multi-step task

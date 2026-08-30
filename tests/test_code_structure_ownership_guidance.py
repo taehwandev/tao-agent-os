@@ -46,6 +46,18 @@ class CodeStructureOwnershipGuidanceTests(unittest.TestCase):
 
         self.assertEqual(1, len(homes), homes)
 
+    def test_pre_code_budget_counts_the_whole_class_block(self) -> None:
+        guidance = (REFERENCES / "current-guidance.md").read_text(encoding="utf-8")
+
+        for anchor in (
+            "default executable function/block budget is 120 lines",
+            "whole class body",
+            "extract",
+            "before implementation",
+        ):
+            with self.subTest(anchor=anchor):
+                self.assertIn(anchor, guidance)
+
 
 if __name__ == "__main__":
     unittest.main()
