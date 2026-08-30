@@ -48,7 +48,7 @@ def claude_permission_entries(scripts_dir: Path, *, spill_available: bool = True
     if spill_available:
         for command in _spill_helper_permission_commands("claude"):
             _add_permission_command_entries(entries, "Bash", command)
-    for command in _common_tao_tool_commands():
+    for command in _claude_tao_tool_commands():
         _add_permission_command_entries(entries, "Bash", command)
     return entries
 
@@ -62,6 +62,7 @@ def claude_legacy_permission_entries(scripts_dir: Path) -> list[str]:
     for script in _legacy_tao_python_scripts(scripts_dir):
         for command in _python_entrypoint_commands(script, "claude", scripts_dir.parent, include_legacy=True):
             _add_permission_command_entries(entries, "Bash", command)
+    entries.extend(_legacy_claude_git_permission_entries())
     return entries
 
 
@@ -69,11 +70,79 @@ def claude_project_permission_entries(scripts_dir: Path, *, spill_available: boo
     # The stable launcher is a user-level machine path. Project settings stay
     # portable and rely on the user-level Claude permission installed above.
     entries: list[str] = []
-    for subcommand in ("log", "status", "diff", "show", "branch"):
-        entries.append(f"Bash(git -C * {subcommand} *)")
-    for command in _common_tao_tool_commands():
+    entries.extend(_worktree_permission_entries())
+    for command in _claude_tao_tool_commands():
         _add_permission_command_entries(entries, "Bash", command)
     return entries
+
+
+def _legacy_claude_git_permission_entries() -> list[str]:
+    """Every former Git allow rule that setup must remove.
+
+    Claude already handles read-only Git without prompting, and the PreToolUse
+    gate now explicitly approves ordinary simple Git inside a compliant linked
+    worktree. Keeping a second Bash-prefix policy is both redundant and unsafe:
+    its wildcard can absorb flags such as ``--output`` or bundled ``-vD``.
+
+    This function is cleanup-only. It names the broad original rules, the later
+    branch-listing rules, and the generated user-level Git variants so an
+    installer refresh removes every earlier spelling instead of merely ceasing
+    to add it.
+    """
+
+    from claude_bash_git import BRANCH_READ_ONLY_OPTIONS
+
+    entries = [
+        "Bash(git -C * branch *)",
+        "Bash(git -C * branch)",
+        *(f"Bash(git -C * {subcommand} *)" for subcommand in ("log", "status", "diff", "show")),
+    ]
+    entries.extend(
+        f"Bash(git -C * branch {option}*)"
+        for option in sorted(BRANCH_READ_ONLY_OPTIONS)
+    )
+    for command in _common_tao_tool_commands():
+        if command == "git" or command.startswith("git "):
+            _add_permission_command_entries(entries, "Bash", command)
+    return entries
+
+
+def _worktree_permission_entries() -> list[str]:
+    """Cover the whole worktree root, because each worktree name is new.
+
+    A task runs in its own linked worktree under `.tao/worktrees/<16-hex>`, and
+    that directory name is generated fresh every time. A permission approved for
+    one worktree therefore never matches the next, so the prompts never stop and
+    the honest response is to switch permissions off -- which discards the
+    protection along with the noise.
+
+    The directory name comes from `agent_worktree_identity`, which is what the
+    dispatcher uses; spelling it again here would be a second definition, and
+    the copy nobody edits is the one that stops matching.
+
+    The leading slash anchors the pattern at the directory holding the settings
+    file -- the project root -- while a bare `.tao/...` is read relative to the
+    working directory. The two agree only while the agent sits at the root, and
+    the whole point of these rules is the moment it does not: from inside
+    `<project>/.tao/worktrees/<hex>` the unanchored form asks for a second
+    `.tao/worktrees` nested under the first, matches nothing, and every path
+    prompts again -- the failure these entries exist to end.
+
+    Reading, writing and entering only. Removing a worktree deletes work and
+    stays a decision rather than a default.
+    """
+
+    from agent_worktree_identity import WORKTREE_DIRNAME
+
+    root = f"/.tao/{WORKTREE_DIRNAME}"
+    return [
+        f"Read({root}/**)",
+        f"Edit({root}/**)",
+        f"Write({root}/**)",
+        # A Bash rule matches command text, not a path, so it keeps the
+        # spelling an agent actually types -- no leading slash to anchor.
+        f"Bash(cd {root[1:]}/*)",
+    ]
 
 
 def agy_permission_entries(scripts_dir: Path, *, spill_available: bool = True) -> list[str]:
@@ -318,4 +387,14 @@ def _common_tao_tool_commands() -> list[str]:
         "python -m unittest discover -s tests",
         "python3 -m py_compile",
         "python -m py_compile",
+    ]
+
+
+def _claude_tao_tool_commands() -> list[str]:
+    """Common commands excluding Git, whose policy belongs to the hook."""
+
+    return [
+        command
+        for command in _common_tao_tool_commands()
+        if command != "git" and not command.startswith("git ")
     ]

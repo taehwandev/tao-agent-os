@@ -154,6 +154,31 @@ Tao Agent OS remain outside this gate. Tune the freshness window with
 deterministic denial instead of an operator confirmation, so Claude repairs the
 workflow or worktree boundary without asking for every Edit, Write, or Bash call.
 
+For a repository that requires linked worktrees, isolation governs writes, not
+visibility. The protected checkout remains readable through Claude's `Read`
+tool and through Bash commands the classifier proves read-only. An Edit, Write,
+or mutating Bash target in that checkout is denied. The generated project
+permissions anchor `Read`, `Edit`, and `Write` at `/.tao/worktrees/**`, so a
+compliant linked worktree remains readable and writable even while the runtime
+is already inside its generated directory. A session launched from the
+protected checkout may operate on that worktree through a recognised
+`cd <worktree> && ...` prefix or Git's global `-C <worktree>` option; the launch
+directory is context, not a second write target. Any explicit path back into
+the protected checkout is still denied.
+
+Do not generate Claude `Bash(git ...)` allow-prefix rules. Claude handles its
+built-in read-only Git forms without a prompt, while wildcard Bash rules can
+absorb a later writing or executable option: for example, a listing prefix can
+also match bundled `branch -vD`, and `git log *` can match `--output`. For a
+simple Git invocation inside a compliant linked worktree, the PreToolUse gate
+instead emits an explicit `allow` for ordinary work such as add, commit,
+checkout, merge, rebase, fetch, and non-forced push. A compound shell line is
+never covered by that approval. Operations that discard work, overwrite shared
+state, force or delete remote refs, change executable/config paths, prune
+recovery data, or use output/execution-capable Git options emit `ask`. This
+keeps the common development path prompt-free while preserving a meaningful
+operator decision for the rare dangerous path.
+
 The Bash allowance is command- and option-aware. A compound line is read-only
 only when every command it executes is read-only; loop and branch keywords are
 syntax, but their conditions and bodies are still classified. `find`, `sort`,

@@ -56,6 +56,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         is_project_state_dir,
         prefer_git_root,
     )
+    from claude_bash_git import git_subcommand, names_unsafe_git_option
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -70,6 +71,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         path_arguments,
         raw_path_arguments,
         worktree_denial,
+        worktree_policy,
     )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
@@ -129,8 +131,23 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
         return "mutating"
 
+    def worktree_policy(root: Path) -> dict | None:
+        return None
+
     def worktree_denial(root: Path) -> str | None:
         return None
+
+    def git_subcommand(tokens: list[str]) -> tuple[str | None, list[str]]:
+        # A broken install is not a policy violation, and the stubs around this
+        # one all answer "nothing to report" for that reason. Returning "cannot
+        # tell" here instead would make every Git command prompt on an install
+        # that is already failing, which is the shape of gate the operator
+        # switches off.
+        return "", []
+
+    def names_unsafe_git_option(argument: str) -> bool:
+        return False
+
 
 def __getattr__(name: str):
     """Load the continuation adapter the first time anything asks for it.
@@ -200,6 +217,37 @@ MAX_ROOT_WALK = 40
 # files count, so doc/content work (e.g. a writing workspace full of .md drafts)
 # is never blocked.
 DEFAULT_NEW_FILE_BUDGET = 5
+ORDINARY_GIT_SUBCOMMANDS = frozenset(
+    {
+        "add",
+        "am",
+        "apply",
+        "branch",
+        "checkout",
+        "cherry-pick",
+        "clean",
+        "commit",
+        "config",
+        "fetch",
+        "gc",
+        "merge",
+        "mv",
+        "pull",
+        "push",
+        "rebase",
+        "reflog",
+        "remote",
+        "reset",
+        "restore",
+        "revert",
+        "rm",
+        "stash",
+        "submodule",
+        "switch",
+        "tag",
+        "worktree",
+    }
+)
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cjs", ".dart", ".go", ".h", ".hpp",
     ".java", ".js", ".jsx", ".kt", ".kts", ".m", ".mjs", ".mm", ".php", ".py",
@@ -219,7 +267,32 @@ def gate_enabled() -> bool:
 
 
 def allow() -> int:
-    """Fail-open: no output means Claude proceeds with the tool call."""
+    """Defer to Claude's normal permission flow without changing it."""
+    return 0
+
+
+def _approve(reason: str) -> int:
+    """Skip a prompt for a command the worktree policy explicitly permits.
+
+    A successful hook with no output is only a deferral. Claude may still ask
+    about the Bash command, which turned the worktree policy into an Enter-only
+    machine even after the gate itself stopped denying ordinary work. Emit the
+    actual ``allow`` decision only for a simple Git invocation whose remaining
+    effects have been classified below; arbitrary Bash keeps Claude's normal
+    permission flow.
+    """
+
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
     return 0
 
 
@@ -240,6 +313,34 @@ def deny(reason: str) -> int:
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": f"{reason} {GATE_DISABLE_HINT}",
+                }
+            }
+        )
+    )
+    return 0
+
+
+def ask(reason: str) -> int:
+    """Put one decision to the operator, for the rare kind that is a decision.
+
+    ``deny`` is right wherever the remedy is deterministic: the agent enters the
+    workflow, moves to a permitted worktree, or reduces the edit, and no human
+    needs to watch it happen. A destructive command that is *sometimes exactly
+    what was meant* has no such remedy -- denying it hides a real choice, and
+    asking about everything buries that choice among the ordinary calls until
+    the prompt stops carrying information.
+
+    So this is reserved for the short hazard list, where Claude's prompt also
+    offers "don't ask again": an operator who force-pushes daily answers once.
+    """
+
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "ask",
+                    "permissionDecisionReason": reason,
                 }
             }
         )
@@ -612,9 +713,10 @@ def bash_governed_roots(
     reached. A command is governed by all of them, so each is returned and the
     caller denies if any one denies.
 
-    The session's own directory is included alongside the effective one because
-    a `cd` prefix moves where the rest runs without releasing the checkout the
-    session was launched from.
+    Callers supply the directory where the command actually executes. A
+    recognised `cd <worktree> && ...` prefix must not keep the launch checkout
+    as a fictitious write target; explicit paths back into that checkout are
+    still discovered below and remain denied.
     """
 
     roots: list[Path] = []
@@ -651,6 +753,54 @@ def bash_governed_roots(
             if root not in roots:
                 roots.append(root)
     return roots
+
+
+def _git_effective_cwd(tokens: list[str], cwd: Path) -> Path:
+    """Resolve Git's global ``-C`` options without running Git.
+
+    Claude commonly stays launched in the protected checkout and runs
+    ``git -C <linked-worktree> ...``. Judging that command by the launch cwd
+    denies the isolated work it names. Multiple ``-C`` options are relative to
+    the result of the previous one, matching Git's own command-line contract.
+    Unknown global syntax stays at the conservative cwd and is already turned
+    into a hazard by ``git_subcommand``.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return cwd
+    subcommand, arguments = git_subcommand(tokens)
+    if subcommand is None:
+        return cwd
+    subcommand_index = len(tokens) - len(arguments) - 1
+    resolved = cwd
+    index = 1
+    while index < subcommand_index:
+        token = tokens[index]
+        raw = ""
+        if token == "-C" and index + 1 < subcommand_index:
+            raw = tokens[index + 1]
+            index += 2
+        elif token.startswith("-C="):
+            raw = token.split("=", 1)[1]
+            index += 1
+        else:
+            index += 1
+            continue
+        if not raw:
+            continue
+        target = Path(raw).expanduser()
+        if not target.is_absolute():
+            target = resolved / target
+        try:
+            resolved = target.resolve()
+        except OSError:
+            resolved = target
+    return resolved
+
+
+def _ordinary_git_invocation(tokens: list[str]) -> bool:
+    subcommand, _arguments = git_subcommand(tokens)
+    return subcommand in ORDINARY_GIT_SUBCOMMANDS
 
 
 def _declared_project_root() -> Path | None:
@@ -778,6 +928,133 @@ def _owning_project(path: Path) -> Path | None:
     return find_project_root(candidate)
 
 
+
+def worktree_policy_satisfied(root: Path) -> bool:
+    """Whether this checkout has already proved its isolation.
+
+    A repository declares that every task runs in its own linked worktree so
+    two tasks cannot collide in one checkout. Where that policy is declared and
+    this root is a compliant worktree, the isolation the gate exists to protect
+    is already in place, and the run-evidence check below has nothing left to
+    add.
+
+    Requiring both made the policy unusable: a compliant worktree still could
+    not be written to until preflight evidence existed, so the cheapest way to
+    get work done was to turn the whole gate off -- taking the protection with
+    it. The waiver is earned by the declared policy, never by its absence: a
+    repository that declares nothing has proved nothing, and still needs the
+    run.
+    """
+
+    return worktree_policy(root) is not None and worktree_denial(root) is None
+
+
+def shared_repository_hazard(tokens: list[str]) -> str:
+    """Why this Git command deserves one question, or "" for the ordinary kind.
+
+    A linked worktree isolates the working tree and nothing else. Refs,
+    remotes, tags, config, the object store and the reflog live in the common
+    Git directory every worktree shares, so a handful of commands reach exactly
+    what they would reach from the protected checkout.
+
+    That is a reason to name those commands, not to distrust Git. Committing,
+    branching, merging, stashing and pushing inside your own worktree is the
+    work, and stopping it stops everything for the sake of the rare case. So
+    this returns a reason only for the short list below, where losing
+    work or escaping through an output/execution option is the command's actual
+    effect -- and the answer there is `ask`, not `deny`, because each of these
+    is sometimes precisely what was meant.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return ""
+    subcommand, arguments = git_subcommand(tokens)
+    if subcommand is None:
+        return "uses a Git option this gate cannot read, so what it does is unknown"
+    if subcommand:
+        subcommand_index = len(tokens) - len(arguments) - 1
+        global_names = {
+            token.split("=", 1)[0] for token in tokens[1:subcommand_index]
+        }
+        if global_names & {"-c", "--config-env", "--exec-path"}:
+            return "changes configuration or executable lookup for this Git invocation"
+    if any(names_unsafe_git_option(argument) for argument in arguments):
+        return "names an option that can write output or execute another program"
+    flags = {argument.split("=", 1)[0] for argument in arguments}
+    words = [argument for argument in arguments if not argument.startswith("-")]
+    first = words[0] if words else ""
+    short_flags = {
+        letter
+        for argument in arguments
+        if argument.startswith("-") and not argument.startswith("--")
+        for letter in argument[1:]
+    }
+
+    if subcommand == "branch":
+        # `-d` refuses to drop unmerged work; `-D`, `-M`, and `-f` do not.
+        # Git accepts bundled short flags, so `-vD` must be read as containing
+        # `-D`, not mistaken for an unrelated listing option.
+        forced_long = "--force" in flags and flags & {"--delete", "--move"}
+        if short_flags & {"D", "M", "f"} or forced_long:
+            return "deletes or overwrites a branch every worktree shares"
+    if subcommand == "push":
+        force_flags = {"--delete", "--force", "--force-with-lease", "--mirror"}
+        if "f" in short_flags or flags & force_flags:
+            return "rewrites or deletes a published branch"
+        if any(word.startswith("+") for word in words):
+            return "force-pushes: a leading + in a refspec rewrites the remote"
+    if subcommand == "reset" and "--hard" in flags:
+        return "discards committed work reachable only from here"
+    dry_run = short_flags & {"n"} or "--dry-run" in flags
+    if subcommand == "clean" and not dry_run:
+        return "deletes untracked work from this worktree"
+    if subcommand == "restore":
+        staged_only = "--staged" in flags and "--worktree" not in flags
+        if not staged_only:
+            return "discards uncommitted work from this worktree"
+    if subcommand == "checkout":
+        if short_flags & {"B", "f"} or flags & {"--force"} or "--" in arguments:
+            return "discards work or overwrites a branch"
+    if subcommand == "switch":
+        force_flags = {"--discard-changes", "--force", "--force-create"}
+        if short_flags & {"C", "f"} or flags & force_flags:
+            return "discards work or overwrites a branch"
+    if subcommand == "tag" and (
+        short_flags & {"d", "f"} or flags & {"--delete", "--force"}
+    ):
+        return "deletes or overwrites a tag every worktree shares"
+    update_ref_help = flags in ({"-h"}, {"--help"})
+    if subcommand == "update-ref" and arguments and not update_ref_help:
+        return "writes a shared ref directly, past the commands that check it"
+    if subcommand in {"filter-branch", "filter-repo"}:
+        return "rewrites the entire shared history"
+    if subcommand == "reflog" and first in {"expire", "delete"}:
+        return "removes the reflog, which is how the rest of this list is undone"
+    if subcommand == "gc" and "--prune" in flags:
+        return "prunes objects the reflog would otherwise recover"
+    if subcommand == "prune":
+        return "deletes unreachable objects from the shared object store"
+    if subcommand == "replace" and flags & {"-d", "--delete"}:
+        return "deletes a replacement ref every worktree shares"
+    if subcommand == "remote" and first in {"remove", "rm", "set-url"}:
+        return "changes a remote every worktree shares"
+    if subcommand == "stash" and first in {"drop", "clear"}:
+        return "drops stashed work every worktree shares"
+    if subcommand == "worktree" and first in {"remove", "prune"}:
+        return "removes another worktree, which may hold unfinished work"
+    if subcommand == "submodule" and first in {"deinit", "foreach", "set-url"}:
+        return "removes files, changes shared config, or executes a nested command"
+    if subcommand == "config":
+        getters = {"--get", "--get-all", "--get-regexp", "--list"}
+        if flags & getters:
+            return ""
+        if flags & {"-f", "--file", "--global", "--system"}:
+            return "changes Git configuration outside this repository"
+        if "core.hooksPath" in words:
+            return "changes the executable hooks path every worktree shares"
+    return ""
+
+
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
@@ -790,11 +1067,16 @@ def decide(payload: dict) -> int:
     except OSError:
         return allow()
     bash_kind = ""
+    # An Edit or Write has no command line, and the hazard check below runs for
+    # every tool. Leaving this unbound made that check raise for exactly the
+    # calls the waiver exists to allow.
+    tokens: list[str] = []
     if tool in BASH_TOOLS:
         effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
         bash_kind = bash_command_kind(tokens, syntax_is_simple)
+        command_cwd = _git_effective_cwd(tokens, effective_cwd)
         roots = bash_governed_roots(
-            tokens, effective_cwd, cwd, command=bash_command(payload)
+            tokens, command_cwd, command=bash_command(payload)
         )
         root = roots[0] if roots else None
     else:
@@ -803,7 +1085,19 @@ def decide(payload: dict) -> int:
     if root is None:
         # Not an Tao Agent OS project; never block ordinary editing.
         return allow()
-    if tool in BASH_TOOLS and bash_kind in {"read_only", "bootstrap"}:
+    if tool in BASH_TOOLS and bash_kind == "read_only":
+        return allow()
+    if tool in BASH_TOOLS and bash_kind == "bootstrap":
+        if (
+            syntax_is_simple
+            and tokens
+            and Path(tokens[0]).name == "git"
+            and worktree_policy_satisfied(root)
+            and _ordinary_git_invocation(tokens)
+        ):
+            return _approve(
+                "This is an ordinary Git command inside the isolated linked worktree."
+            )
         return allow()
     # Every governed project, not just the first: a session inside a linked
     # worktree satisfies its own policy while naming the protected checkout it
@@ -824,6 +1118,24 @@ def decide(payload: dict) -> int:
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
         return deny(worktree_reason)
+    if worktree_policy_satisfied(root):
+        hazard = shared_repository_hazard(tokens)
+        if hazard:
+            return ask(
+                "This worktree isolates ordinary file edits, but this Git command "
+                f"{hazard}. Allow it only if that is what you meant."
+            )
+        if (
+            tool in BASH_TOOLS
+            and syntax_is_simple
+            and tokens
+            and Path(tokens[0]).name == "git"
+            and _ordinary_git_invocation(tokens)
+        ):
+            return _approve(
+                "This is an ordinary Git command inside the isolated linked worktree."
+            )
+        return allow()
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
         return deny(deny_reason(root, session_id, tool))

@@ -299,7 +299,7 @@ def configure_external_project(
 ) -> list[dict]:
     """Install Tao Agent OS + project-type-specific permissions for an external project.
 
-    Combines portable project-level git and verification entries with entries
+    Combines portable project-level worktree and verification entries with entries
     detected from the project's build toolchain (Swift,
     Node.js, Gradle, Rust, Go, Python) so that any parameter combination is
     covered after a single install run.

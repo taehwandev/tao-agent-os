@@ -535,6 +535,45 @@ class ShellKeywordSegmentTests(unittest.TestCase):
     def test_a_terminator_carrying_more_words_is_not_understood(self) -> None:
         self.assertEqual(self._kind('ls; done rm -rf build'), "mutating")
 
+class ReviewOnTheCurrentBranchTests(unittest.TestCase):
+    """A review reads history, and reading history is not a mutation.
+
+    Reviewing work on the branch it is already on is something a person asks
+    for directly. `blame`, `describe`, `shortlog` and `whatchanged` were absent
+    from the read set rather than excluded from it, so they failed closed and
+    the reviewer could not answer the question a review is for.
+    """
+
+    @staticmethod
+    def _kind(command: str) -> str:
+        payload = {"tool_input": {"command": command}}
+        _, tokens, simple = worktree_gate.bash_invocation(payload, Path("/tmp"))
+        return worktree_gate.bash_command_kind(tokens, simple)
+
+    def test_history_reading_subcommands_are_read_only(self) -> None:
+        for command in (
+            "git blame README.md",
+            "git describe --tags",
+            "git shortlog -sn",
+            "git whatchanged -3",
+            "git ls-tree HEAD",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", self._kind(command))
+
+    def test_history_writing_subcommands_are_still_mutating(self) -> None:
+        # The widening must not reach anything that changes history.
+        for command in (
+            "git commit -m x",
+            "git rebase main",
+            "git reset --hard",
+            "git checkout -b x",
+            "git blame --help; rm -rf .",
+        ):
+            with self.subTest(command=command):
+                self.assertNotEqual("read_only", self._kind(command))
+
+
 
 if __name__ == "__main__":
     unittest.main()

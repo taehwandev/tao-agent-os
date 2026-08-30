@@ -194,15 +194,39 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
         if tokens[1] == WORKFLOW_START_HOOK:
             return "workflow_start"
         return "bootstrap" if tokens[1] in RUNTIME_CONTROL_HOOKS else None
-    if not _current_python_interpreter(tokens[0]) or len(tokens) <= 2:
+    # Two tokens is enough for the installer, which takes no subcommand. The
+    # hook below needs a third, and says so itself.
+    if not _current_python_interpreter(tokens[0]) or len(tokens) < 2:
         return None
     script = Path(tokens[1]).expanduser()
     try:
         script = script.resolve()
     except (OSError, ValueError):
         return None
-    expected = Path(__file__).resolve().with_name("agent-hook.py")
-    if script != expected:
+    here = Path(__file__).resolve()
+    # The installer is how a runtime is set up, repaired, and re-pointed at its
+    # root. Classified as an ordinary mutation it could not run against a
+    # protected checkout from anywhere, because any command naming a path under
+    # that checkout resolves to it -- so a bridge written to the wrong root
+    # could only be repaired by a hand-run TAO_ALLOW_MAIN_CHECKOUT_EDIT=1. A
+    # guard that removes its own undo is worse than the state it guards.
+    #
+    # Matched by position inside a checkout -- `<root>/scripts/` -- never by
+    # name, so a script an agent drops in /tmp cannot claim the allowance.
+    #
+    # Beside *this* module was too narrow, and the case it excluded is the one
+    # that matters: a session running the worktree's gate needs to repair the
+    # bridge by running the *main checkout's* installer, and those are two
+    # different paths. Anchoring only to this file left that command classified
+    # as an ordinary mutation and denied -- the recovery path closed again, by
+    # the fix meant to open it.
+    if script.name == "setup-agent-hooks.py" and all(
+        (script.parent / sibling).is_file()
+        for sibling in ("agent-hook.py", "claude_pretool_gate.py")
+    ):
+        return "bootstrap"
+    expected = here.with_name("agent-hook.py")
+    if script != expected or len(tokens) <= 2:
         return None
     if tokens[2] == WORKFLOW_START_HOOK:
         return "workflow_start"

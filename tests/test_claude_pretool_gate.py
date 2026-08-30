@@ -185,20 +185,313 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
-    def test_read_only_bash_in_required_main_checkout_is_allowed(self) -> None:
+    def test_the_waiver_predicate_answers_for_itself(self) -> None:
+        """Tested directly, because `decide` cannot tell these two apart.
+
+        `decide` refuses the main checkout on the worktree rule before it ever
+        reaches this predicate, so a mutant that made the predicate say "yes"
+        for the main checkout survived every route through `decide`. The
+        predicate still has to be right on its own: it answers whether this
+        checkout proved its isolation, not whether some caller happened to
+        check first.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp))
+            _require_linked_worktree(main)
+            linked = _opt_in_project(Path(tmp) / "wt")
+            _require_linked_worktree(linked, linked=True)
+            bare = _opt_in_project(Path(tmp) / "bare")
+
+            self.assertFalse(gate.worktree_policy_satisfied(main))
+            self.assertTrue(gate.worktree_policy_satisfied(linked))
+            self.assertFalse(gate.worktree_policy_satisfied(bare))
+
+    def test_a_linked_worktree_may_edit_without_workflow_evidence(self) -> None:
+        """The worktree is the isolation, so it is the thing worth requiring.
+
+        Separating a task into its own linked worktree is what stops two tasks
+        colliding in one checkout. Requiring a started run on top of that
+        blocked the very move the policy asks for: a compliant worktree could
+        not be written to until the agent had also produced preflight evidence,
+        so the cheapest path was to turn the gate off and lose the protection
+        with it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(project / "AGENTS.md")},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_a_linked_worktree_may_run_a_mutating_command(self) -> None:
+        # Editing and running a build or a copy are the same work.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"command": "cp ../main/AGENTS.md ."},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_a_linked_worktree_may_run_ordinary_git(self) -> None:
+        """Committing on your own branch is the reason to have a worktree.
+
+        The first cut of the shared-state rule excluded Git from the waiver
+        wholesale, which denied `git commit` inside the agent's own worktree.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            for command in (
+                "git commit -m x",
+                "git checkout -b topic",
+                "git stash",
+                "git fetch origin",
+                "git worktree add ../topic",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    decision = json.loads(out)["hookSpecificOutput"]
+                    self.assertEqual("allow", decision["permissionDecision"])
+                    self.assertIn("ordinary Git", decision["permissionDecisionReason"])
+
+    def test_unclassified_git_keeps_claudes_normal_permission_flow(self) -> None:
+        """A missing hazard entry must not become an unconditional approval."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            for command in ("git fsck --full", "git fast-import"):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out)
+
+    def test_main_launched_session_may_target_the_linked_worktree(self) -> None:
+        """The launch checkout is context, not a second mutation target."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp) / "main")
+            _require_linked_worktree(main)
+            worktree = _opt_in_project(Path(tmp) / "worktree")
+            _require_linked_worktree(worktree, linked=True)
+
+            for command in (
+                f"cd {worktree} && git commit -m x",
+                f"git -C {worktree} commit -m x",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(main),
+                            "session_id": "main-launched",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        "allow",
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                    )
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "main-launched",
+                    "tool_input": {"command": f"cd {worktree} && python3 build.py"},
+                }
+            )
+            self.assertEqual((0, ""), (code, out))
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "main-launched",
+                    "tool_input": {
+                        "command": f"cd {worktree} && python3 {main / 'mutate.py'}"
+                    },
+                }
+            )
+            self.assertEqual(0, code)
+            self.assertIn("worktree gate", _reason(out))
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "main-launched",
+                    "tool_input": {"command": f"git -C {main} commit -m x"},
+                }
+            )
+            self.assertEqual(0, code)
+            self.assertIn("worktree gate", _reason(out))
+
+    def test_compound_git_is_not_explicitly_approved(self) -> None:
+        """An allow for Git must not absorb a second shell command."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"command": "git status && rm -rf ../other"},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_a_shared_state_hazard_reaches_the_operator_as_a_question(self) -> None:
+        """`ask`, not `deny`: force-pushing is a decision, not a mistake.
+
+        Every worktree shares one Git directory, so these commands leave the
+        isolation the waiver is granted for. They are also sometimes exactly
+        what was meant, and only `ask` renders a prompt the operator can settle
+        once with "don't ask again" -- a `deny` here would have no remedy the
+        agent could apply, which is what `deny` is for.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            for command in (
+                "git push --force origin main",
+                "git branch -D main",
+                "git branch -vD main",
+                "git show --output=/tmp/leak HEAD",
+                "git config --local core.hooksPath /tmp/hooks",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    decision = json.loads(out)["hookSpecificOutput"]
+                    self.assertEqual("ask", decision["permissionDecision"])
+                    self.assertIn("worktree", decision["permissionDecisionReason"])
+
+    def test_the_main_checkout_is_still_refused_by_the_worktree_gate(self) -> None:
+        # Waiving evidence inside a worktree must not waive the policy itself.
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project)
             code, out = _decide(
                 {
-                    "tool_name": "Bash",
+                    "tool_name": "Edit",
                     "cwd": str(project),
-                    "session_id": "s",
-                    "tool_input": {"command": "git status -sb"},
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(project / "AGENTS.md")},
                 }
             )
+
+        self.assertEqual(0, code)
+        self.assertIn("worktree gate", _reason(out))
+
+    def test_the_main_checkout_remains_readable(self) -> None:
+        """Isolation protects mutations; it must not hide source context."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Read",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(project / "AGENTS.md")},
+                }
+            )
+
         self.assertEqual(0, code)
         self.assertEqual("", out)
+
+    def test_without_a_policy_a_checkout_still_needs_evidence(self) -> None:
+        """The waiver is earned by the policy, not granted by its absence.
+
+        A repository that declares no worktree policy has proved no isolation,
+        so nothing here loosens it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(project / "AGENTS.md")},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual(STOP_DECISION, json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+        self.assertIn("workflow start hook", _reason(out))
+
+    def test_read_only_bash_in_required_main_checkout_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            for command in (
+                "git status -sb",
+                "git branch --contains HEAD",
+                "git branch --list 'topic-*'",
+                "git config --global --get user.email",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "s",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out)
 
     def test_print_only_sed_is_allowed_in_required_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -527,27 +820,30 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("protected branch", _reason(out))
 
-    def test_mutating_bash_in_linked_worktree_requires_its_own_start(self) -> None:
+    def test_a_linked_worktree_does_not_also_need_its_own_start(self) -> None:
+        """Asserted the opposite until the policy was actually switched on.
+
+        Separating a task into its own worktree is the isolation this gate
+        exists to protect. Requiring a started run on top of it meant a
+        compliant worktree still could not be written to, so the cheapest way
+        to get work done was to disable the gate -- losing the protection with
+        it. The worktree is the proof; the run is not asked for twice.
+        """
+
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project, linked=True)
-            payload = {
-                "tool_name": "Bash",
-                "cwd": str(project),
-                "session_id": "bash-linked",
-                "tool_input": {"command": "python3 mutate.py"},
-            }
-            code, out = _decide(payload)
-            self.assertIn("start hook", _reason(out))
-            with (
-                patch.object(gate, "workflow_entry_allows", return_value=True),
-                patch.object(gate, "session_evidence", return_value=project / "preflight.json"),
-                patch.object(gate, "is_run_local_continuation_evidence", return_value=False),
-            ):
-                code_after_start, out_after_start = _decide(payload)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "bash-linked",
+                    "tool_input": {"command": "python3 mutate.py"},
+                }
+            )
+
         self.assertEqual(0, code)
-        self.assertEqual(0, code_after_start)
-        self.assertEqual("", out_after_start)
+        self.assertEqual("", out)
 
     def test_main_checkout_override_requires_the_explicit_environment_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
