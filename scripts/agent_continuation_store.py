@@ -125,13 +125,16 @@ def read_continuation_packet(project: Path, path: Path) -> dict[str, Any]:
     boundary = boundary_failures(project, path)
     if boundary:
         return _refused(result, "local_boundary_failed", boundary)
-    file_failures = _file_failures(path)
+    file_failures, encoded = _guarded_read(path)
     if file_failures:
-        missing = file_failures[0]["rule"] == "missing_packet"
-        return _refused(result, "not_found" if missing else "local_boundary_failed", file_failures)
+        status = {
+            "missing_packet": "not_found",
+            "unreadable_packet": "invalid_packet",
+        }.get(file_failures[0]["rule"], "local_boundary_failed")
+        return _refused(result, status, file_failures)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        payload = json.loads(encoded.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return _refused(result, "invalid_packet", [failure("unreadable_packet", "")])
     schema_failures = validate_continuation_packet(payload)
     if schema_failures:
@@ -155,20 +158,49 @@ def _refused(result: dict[str, Any], status: str, failures: list[dict[str, str]]
     return result
 
 
-def _file_failures(path: Path) -> list[dict[str, str]]:
+def _guarded_read(path: Path) -> tuple[list[dict[str, str]], bytes]:
+    """Check and read one open file, so the bytes returned are the bytes checked.
+
+    Validating a path and then reading it again by name leaves a window where
+    the two can be different files. Everything here is decided from a single
+    descriptor opened without following a symlink, so the inode that passed
+    the mode and size rules is necessarily the inode whose bytes are parsed.
+
+    Link count is deliberately not a rule. A second hard link cannot subvert
+    this store: every write creates a fresh inode under ``O_EXCL`` and renames
+    it over the name, so an extra link holds an orphaned older generation and
+    never receives a write. It also cannot widen access, because the run
+    directory is owner-only and the packet is ``0600`` -- anyone able to make
+    the link could already open the canonical path. Meanwhile ordinary backup,
+    sync, and indexing daemons do hold a durable second link to files in a
+    user's home, which made the old rule refuse valid packets for as long as
+    that link lived.
+    """
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
-        info = path.lstat()
+        descriptor = os.open(path, flags)
     except OSError:
-        return [failure("missing_packet", "")]
-    if not stat.S_ISREG(info.st_mode):
-        return [failure("not_a_regular_file", "")]
-    if info.st_nlink != 1:
-        return [failure("unexpected_link_count", "")]
-    if os.name == "posix" and stat.S_IMODE(info.st_mode) & 0o077:
-        return [failure("insecure_mode", "")]
-    if info.st_size > MAX_PACKET_BYTES:
-        return [failure("packet_too_large", "")]
-    return []
+        return [failure("missing_packet", "")], b""
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            return [failure("not_a_regular_file", "")], b""
+        if os.name == "posix" and stat.S_IMODE(info.st_mode) & 0o077:
+            return [failure("insecure_mode", "")], b""
+        if info.st_size > MAX_PACKET_BYTES:
+            return [failure("packet_too_large", "")], b""
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            encoded = stream.read(MAX_PACKET_BYTES + 1)
+    except OSError:
+        return [failure("unreadable_packet", "")], b""
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(encoded) > MAX_PACKET_BYTES:
+        return [failure("packet_too_large", "")], b""
+    return [], encoded
 
 
 def _open_private_run_directory(project: Path, run_id: str) -> Optional[int]:
