@@ -638,6 +638,109 @@ class ExecutionCapsuleTests(unittest.TestCase):
             failures,
         )
 
+    def test_a_concurrent_session_s_edit_is_cleared_without_claiming_the_edit(self) -> None:
+        """The shared rules root drifts under a run that never touched it.
+
+        Every project and worktree reads the same rules root, so another
+        session can rewrite a required document mid-run. Before this, the only
+        recovery was `decision=updated`, which asserts an edit this run did not
+        make, so the honest run had no way to finish at all.
+        """
+
+        self.route = {**self.route, "gates": ["documentation", "verify"]}
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        preflight["route"] = self.route
+        self.evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+        self._write_ledger()
+        capsule = refresh_execution_capsule(
+            self.project, self.rules, self.evidence_path, self.route
+        )
+        (self.rules / "guide.md").write_text(
+            "# Rewritten by another session\n", encoding="utf-8"
+        )
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+
+        entry = record_gate_evidence(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            gate="documentation",
+            fields={
+                "decision": "unchanged",
+                "target": "guide.md",
+                "reason": (
+                    "re-read guide.md after another session changed it; the rule it "
+                    "states did not move, so this work still conforms"
+                ),
+            },
+        )
+
+        self.assertEqual("1", entry["fields"]["artifact_receipt_version"])
+        self.assertEqual(
+            capsule["required_docs"][0]["sha256"], entry["fields"]["baseline_sha256"]
+        )
+        self.assertEqual(
+            self._sha256(self.rules / "guide.md"), entry["fields"]["final_sha256"]
+        )
+
+        documented_updates = documented_required_doc_updates(
+            evidence_path=self.evidence_path,
+            route=self.route,
+        )
+
+        self.assertEqual(
+            [],
+            validate_source_docs_binding(
+                capsule,
+                self.project,
+                self.rules,
+                self.evidence_path,
+                self.route,
+                documented_updates=documented_updates,
+            ),
+        )
+
+    def test_an_acknowledged_document_still_fails_when_it_drifts_again(self) -> None:
+        """Acknowledging one version does not waive the next drift."""
+
+        self.route = {**self.route, "gates": ["documentation", "verify"]}
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        preflight["route"] = self.route
+        self.evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+        self._write_ledger()
+        capsule = refresh_execution_capsule(
+            self.project, self.rules, self.evidence_path, self.route
+        )
+        (self.rules / "guide.md").write_text("# First rewrite\n", encoding="utf-8")
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        record_gate_evidence(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            gate="documentation",
+            fields={
+                "decision": "unchanged",
+                "target": "guide.md",
+                "reason": "re-read guide.md; the rule it states did not move",
+            },
+        )
+        (self.rules / "guide.md").write_text("# Second rewrite\n", encoding="utf-8")
+
+        failures = validate_source_docs_binding(
+            capsule,
+            self.project,
+            self.rules,
+            self.evidence_path,
+            self.route,
+            documented_updates=documented_required_doc_updates(
+                evidence_path=self.evidence_path,
+                route=self.route,
+            ),
+        )
+
+        self.assertIn(
+            "execution capsule required doc changed after documentation evidence: guide.md",
+            failures,
+        )
+
     def test_off_route_documentation_cannot_bind_without_verified_repair(self) -> None:
         self.route = {
             **self.route,

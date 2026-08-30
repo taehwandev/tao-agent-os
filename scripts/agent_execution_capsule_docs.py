@@ -46,18 +46,31 @@ def bind_required_doc_update_receipt(
     status: str,
     fields: dict[str, str],
 ) -> dict[str, str]:
-    """Bind an intentional required-doc update to its pre- and post-edit bytes.
+    """Bind a documented required-doc decision to its pre- and post-edit bytes.
 
     The gate writer, rather than the caller, owns these hashes.  That keeps the
     pre-edit snapshot immutable while allowing finish to recognize one exact
     documented final artifact without turning the documentation decision into
     a blanket hash-check bypass.
+
+    ``unchanged`` earns a receipt for the same reason ``updated`` does. The
+    shared rules root is read by every project and worktree at once, so a
+    concurrent session can rewrite a required document while this run is still
+    working. That run did not touch the document and cannot honestly claim it
+    did, yet the only recovery used to be ``decision=updated`` -- so the honest
+    answer was the one the gate refused, and finish became unsatisfiable
+    through no fault of the run. ``unchanged`` says the true thing instead: the
+    run did not change the document, re-read it at the bytes recorded here, and
+    found the work still conforms. The evidence validator already makes that
+    decision name the document and say why it still covers the change, and the
+    hashes below still come from the writer, so this records a claim rather
+    than skipping the comparison.
     """
 
     if (
         gate != "documentation"
         or status != "SUCCESS"
-        or fields.get("decision", "").strip().lower() != "updated"
+        or fields.get("decision", "").strip().lower() not in {"updated", "unchanged"}
     ):
         return fields
 

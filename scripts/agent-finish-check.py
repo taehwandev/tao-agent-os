@@ -335,15 +335,18 @@ def _required_doc_drift_recovery(rules: Path, failures: list[str]) -> str:
         }
     )
     lines = [
-        "required-doc drift recovery: when the run intentionally changed that document, "
-        "record one documentation SUCCESS entry per required doc with decision=updated "
-        "and the exact route-relative required doc target. A document this route already "
-        "lists as required needs the receipt fields artifact_receipt_version=1, "
-        "baseline_sha256 (the snapshot hash this failure compared against), final_sha256 "
-        "and final_size_bytes (the current bytes reported below). A document outside this "
-        "route's required_docs instead needs repair_evidence and resume_checkpoint: run "
-        "repair-verify for the actual failed checkpoint first. Either way this binds the "
-        "verified final document without bypassing the snapshot check"
+        "required-doc drift recovery: record one documentation SUCCESS entry per required "
+        "doc with the exact route-relative required doc target. Use decision=updated when "
+        "this run intentionally changed the document. Use decision=unchanged when another "
+        "session changed it while this run was working: re-read the document at its current "
+        "bytes first, and say why the work still conforms. Do not claim decision=updated for "
+        "a change this run did not make. A document this route already lists as required "
+        "needs the receipt fields artifact_receipt_version=1, baseline_sha256 (the snapshot "
+        "hash this failure compared against), final_sha256 and final_size_bytes (the current "
+        "bytes reported below). A document outside this route's required_docs instead needs "
+        "repair_evidence and resume_checkpoint: run repair-verify for the actual failed "
+        "checkpoint first. Either way this binds the verified final document without "
+        "bypassing the snapshot check"
     ]
     for relative in drifted:
         current = _current_doc_record(rules, relative)
