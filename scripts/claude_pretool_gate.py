@@ -816,7 +816,9 @@ AUTHORING_GIT_SUBCOMMANDS = frozenset(
 # uncommitted work there. Neither is authoring in the sense the refusal covers,
 # but both are a decision worth one question. `switch` is absent on purpose:
 # git refuses to change branches over uncommitted changes, so it cannot lose
-# them, and it is how you move around a checkout at all.
+# them, and it is how you move around a checkout at all. Two members of this
+# set have a spelling that only unstages; `unstages_only` names it, because
+# the question is about losing work and unstaging loses none.
 COMMITTING_OR_DISCARDING_SUBCOMMANDS = frozenset(
     {"checkout", "clean", "merge", "pull", "reset", "restore", "stash"}
 )
@@ -827,6 +829,35 @@ COMMITTING_OR_DISCARDING_SUBCOMMANDS = frozenset(
 ROUTINE_PROTECTED_SUBCOMMANDS = frozenset(
     {"branch", "config", "fetch", "gc", "push", "remote", "switch", "tag", "worktree"}
 )
+
+
+def unstages_only(subcommand: str, arguments: list[str]) -> bool:
+    """True for the two spellings of "take these paths back out of the index".
+
+    Unstaging is the one member of `COMMITTING_OR_DISCARDING_SUBCOMMANDS` that
+    cannot lose anything: the files keep their contents on disk, no ref moves,
+    and in the protected checkout it cannot even lead anywhere, because `git
+    commit` is refused there. Reading it as a discard put a prompt in front of
+    tidying a single stray index entry.
+
+    Only the long option spellings are read. `-S` is `--staged`, but a short
+    flag that this function does not recognise falls through to the question,
+    which is the direction a misreading should fail in.
+    """
+
+    flags = {argument.split("=", 1)[0] for argument in arguments}
+    if subcommand == "reset":
+        # The pathspec is what makes a reset index-only. Given one, Git refuses
+        # `--hard` and leaves HEAD where it is whatever commit is named, so the
+        # separator -- not the absence of a commit -- is the thing to look for.
+        # Requiring it explicitly also keeps a branch name from being read as a
+        # path.
+        if "--" not in arguments or arguments[-1] == "--":
+            return False
+        return not flags & {"--hard", "--merge", "--keep"}
+    if subcommand == "restore":
+        return "--staged" in flags and "--worktree" not in flags
+    return False
 
 
 def protected_checkout_verdict(
@@ -919,7 +950,7 @@ def protected_checkout_verdict(
     if subcommand in {"merge", "pull"} and "--ff-only" in flags:
         return "allow"
     if subcommand in COMMITTING_OR_DISCARDING_SUBCOMMANDS:
-        return "ask"
+        return "allow" if unstages_only(subcommand, arguments) else "ask"
     if shared_repository_hazard(tokens, protected):
         return "ask"
     # Approve only what has been read and found routine. Defaulting the other
