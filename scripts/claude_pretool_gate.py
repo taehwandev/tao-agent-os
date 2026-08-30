@@ -838,7 +838,15 @@ def protected_checkout_verdict(tokens: list[str]) -> str:
     `""` keeps the refusal, and covers anything that is not Git at all.
     """
 
-    if not tokens or Path(tokens[0]).name != "git":
+    if not tokens:
+        return ""
+    if Path(tokens[0]).name == "gh":
+        # `gh` talks to GitHub. Opening or merging a pull request writes
+        # nothing into this working tree, so refusing it outright made shipping
+        # from the protected checkout a dead end with no prompt to answer. The
+        # reporting subcommands are allowed earlier and never reach here.
+        return "ask"
+    if Path(tokens[0]).name != "git":
         return ""
     subcommand, arguments = git_subcommand(tokens)
     if subcommand is None:
