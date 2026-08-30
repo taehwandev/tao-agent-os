@@ -612,6 +612,85 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 json.loads(out)["hookSpecificOutput"]["permissionDecision"],
             )
 
+    def test_a_file_outside_every_project_is_not_the_gate_s_business(self) -> None:
+        """Standing near a protected checkout is not being in one.
+
+        A named target that belonged to no project fell through to the working
+        directory, so with the shell in a protected checkout, writing a scratch
+        note under `/tmp` was refused for being *near* that repository. Once a
+        session's last worktree is removed the shell returns there, and the
+        session could then write nowhere at all -- including the scratch files
+        it needs to diagnose the refusal.
+
+        An Edit or Write names exactly the one path it changes, so when that
+        path is outside every governed project there is nothing here to protect.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)  # the protected checkout
+            outside = Path(tmp) / "elsewhere"
+            outside.mkdir()
+
+            for tool in ("Edit", "Write"):
+                with self.subTest(tool=tool):
+                    code, out = _decide(
+                        {
+                            "tool_name": tool,
+                            "cwd": str(project),  # the shell stands in it
+                            "session_id": "no-evidence",
+                            "tool_input": {"file_path": str(outside / "note.txt")},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out)
+
+    def test_a_named_target_inside_the_checkout_is_still_refused(self) -> None:
+        # The target answers for itself in both directions: naming a file in
+        # the protected checkout is refused even from a compliant worktree.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            worktree = _opt_in_project(Path(tmp) / "wt")
+            _require_linked_worktree(worktree, linked=True)
+
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(worktree),
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(project / "AGENTS.md")},
+                }
+            )
+
+            self.assertEqual(0, code)
+            self.assertEqual(
+                STOP_DECISION,
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
+
+    def test_a_tool_that_names_no_path_still_answers_to_the_cwd(self) -> None:
+        # The cwd fallback is what covers Bash, whose effects are not bounded
+        # by its arguments. Removing it would unprotect the checkout entirely.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"command": "npm install"},
+                }
+            )
+
+            self.assertEqual(0, code)
+            self.assertEqual(
+                STOP_DECISION,
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
+
     def test_editing_the_protected_checkout_is_untouched_by_this(self) -> None:
         # The allowance is for Git integration only; file edits stay refused.
         with tempfile.TemporaryDirectory() as tmp:
