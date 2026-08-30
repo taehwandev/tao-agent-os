@@ -6,7 +6,9 @@ type: ai-generated
 
 # Human-Authored Writing
 
-Use when routed to `common/skills/human-authored-writing/SKILL.md` or when work needs this Tao Agent OS guidance area.
+Use when routed to `common/skills/human-authored-writing/SKILL.md`, when prose
+needs voice or AI-writing-signal cleanup, or when an intended reader cannot
+reconstruct a technical explanation from the text.
 
 ## Read
 
