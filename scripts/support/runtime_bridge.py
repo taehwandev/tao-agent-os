@@ -45,6 +45,16 @@ AUTO_DELEGATION_BRIDGE_PHRASE = (
     "delegate automatically without waiting for explicit user multi-agent wording; otherwise record "
     "the concrete serial reason."
 )
+LOCAL_AGENT_ROOM_BRIDGE_PHRASE = (
+    "When cross-provider dialogue would replace manual copy-paste, run agent-hook.py handoff and then "
+    "post one bounded project-scoped brief through stdin to tao-hook agent-room. Do not ask the user for a "
+    "room or task id: the command must resolve the exact active Tao run bound to this runtime session and "
+    "stop if none is bound. @codex and @claude mentions create or resume that work item's subscription "
+    "session; API-key or unverified auth is refused before a model turn, and AGY stays blocked until its "
+    "CLI can attest subscription auth. Opinion and review turns are read-only; task turns require explicit "
+    "--allow-write and remain sequential. Keep the participant, turn, context, and timeout caps; never "
+    "create a Tao daemon, polling loop, external API service, cross-project session, or recursive room."
+)
 RUNTIME_START_BRIDGE_PHRASE = (
     "For multi-step work, run Tao Agent OS agent-hook.py start once; do not separately repeat "
     "workflow list, classify, route, or preflight. Always pass --request with the real user request. "
@@ -126,6 +136,7 @@ RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES = [
     RUNTIME_FINISH_BRIDGE_PHRASE,
     RUNTIME_CONTINUATION_BRIDGE_PHRASE,
     AUTO_DELEGATION_BRIDGE_PHRASE,
+    LOCAL_AGENT_ROOM_BRIDGE_PHRASE,
     "Do not mention Tao Agent OS setup, hook, permission, helper, or label commands in normal conversation.",
     "Do not report whether background labels, hooks, or metering ran unless the user explicitly asks about that subsystem.",
 ]
@@ -173,6 +184,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         f"- {RUNTIME_FINISH_BRIDGE_PHRASE}",
         f"- {RUNTIME_CONTINUATION_BRIDGE_PHRASE}",
         f"- {AUTO_DELEGATION_BRIDGE_PHRASE}",
+        f"- {LOCAL_AGENT_ROOM_BRIDGE_PHRASE}",
         *native_delegation_phrase,
         *dispatch_phrase,
         f"- If this bridge or the project-root {instruction_file} cannot be confirmed before project work, stop before routing, editing, testing, committing, or reporting completion and ask for bridge repair.",

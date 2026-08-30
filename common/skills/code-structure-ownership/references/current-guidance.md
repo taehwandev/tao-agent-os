@@ -55,6 +55,13 @@ Use this order:
    review. Split the implementation plan before writing code when its planned
    unit already exceeds a configured budget.
 
+The default executable function/block budget is 120 lines unless a reviewed
+repository-specific value replaces it. A class, component, or other named owner
+is one block for this limit even when each individual method is short. Before planning one
+public class as a file's owner, budget the whole class body; extract
+purpose-named protocol, persistence, parsing, or transport collaborators before
+implementation when the planned owner would cross 120 lines.
+
 Before coding, enumerate every planned top-level export per runtime file exactly
 as the review hook will count it. Exported type aliases, interfaces, option or
 handle contracts, constants, classes, components, and functions are all public

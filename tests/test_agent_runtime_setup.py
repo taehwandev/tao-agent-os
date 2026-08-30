@@ -71,6 +71,7 @@ from support.project_type_detection import detect_project_permissions
 from support.spill_permissions import spill_helper_path_variants
 from support.runtime_bridge import (
     CODEX_DISPATCH_BRIDGE_PHRASE,
+    LOCAL_AGENT_ROOM_BRIDGE_PHRASE,
     RUNTIME_BRIDGE_GRAPH_PHRASES,
     RUNTIME_START_BRIDGE_PHRASE,
     runtime_bridge_block,
@@ -277,7 +278,7 @@ class RuntimeSetupTests(unittest.TestCase):
         entry_list = codex_prefix_rule_entries(ROOT / "scripts")
         entries = "\n".join(entry_list)
 
-        self.assertEqual(19, len(EXECUTABLE_ENTRYPOINTS))
+        self.assertEqual(20, len(EXECUTABLE_ENTRYPOINTS))
         self.assertTrue(all((ROOT / "scripts" / name).is_file() for name in EXECUTABLE_ENTRYPOINTS))
         for name in EXECUTABLE_ENTRYPOINTS:
             self.assertIn(str(ROOT / "scripts" / name), entries)
@@ -293,7 +294,7 @@ class RuntimeSetupTests(unittest.TestCase):
             f'prefix_rule(pattern=["{stable_launcher_path()}"], decision="allow")',
             entries,
         )
-        self.assertEqual(58, len(entry_list))
+        self.assertEqual(61, len(entry_list))
         self.assertNotIn("$HOME", entries)
         self.assertNotIn("${HOME}", entries)
         self.assertNotIn("$TAO_HOME", entries)
@@ -434,6 +435,25 @@ class RuntimeSetupTests(unittest.TestCase):
         ):
             self.assertIn(required, RUNTIME_START_BRIDGE_PHRASE)
         self.assertNotIn("let the classifier decide", RUNTIME_START_BRIDGE_PHRASE)
+
+    def test_every_runtime_bridge_exposes_the_project_local_agent_room(self) -> None:
+        surfaces = (
+            _agy_runtime_bridge_block(ROOT),
+            runtime_bridge_block(ROOT, "Codex", "AGENTS.md"),
+            runtime_bridge_block(ROOT, "Claude", "CLAUDE.md"),
+            runtime_bridge_required_phrases("Codex", "AGENTS.md"),
+            runtime_bridge_required_phrases("Claude", "CLAUDE.md"),
+            AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES,
+            PREFLIGHT_AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES,
+        )
+
+        for surface in surfaces:
+            self.assertIn(LOCAL_AGENT_ROOM_BRIDGE_PHRASE, surface)
+        self.assertIn("Do not ask the user for a room or task id", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
+        self.assertIn("exact active Tao run bound to this runtime session", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
+        self.assertIn("API-key or unverified auth is refused", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
+        self.assertIn("never create a Tao daemon, polling loop", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
+        self.assertIn("task turns require explicit --allow-write", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
 
     def test_setup_hook_runtime_selection_is_scoped(self) -> None:
         from support.setup_agent_hooks_impl import _runtime_selected
