@@ -19,10 +19,62 @@ def stable_root_pointer_path() -> Path:
     return Path.home() / STATE_DIR_NAME / ROOT_POINTER_NAME
 
 
+def is_disposable_root(root: Path) -> bool:
+    """Whether this checkout is a task worktree, which outlives its task."""
+
+    parts = Path(root).resolve(strict=False).parts
+    return any(
+        parts[index] == STATE_DIR_NAME and parts[index + 1] == "worktrees"
+        for index in range(len(parts) - 1)
+    )
+
+
+def downgrades_the_shared_root(root: Path, pointer_path: Path) -> bool:
+    """Whether this would repoint a durable shared root at a disposable one.
+
+    Every runtime on the machine reads this pointer, so aiming it at a task
+    worktree leaves the bridge dangling the moment that task is cleaned up --
+    and the repair then needs the tooling the pointer no longer finds. It
+    happens by accident: running the installer from a worktree is how you test
+    it, and the side effect is machine-wide and silent.
+
+    Installing *from* a worktree is not itself the problem, which is why the
+    first attempt at this guard was wrong: it refused outright and broke
+    developing Tao in a worktree against a throwaway home. The loss is specific
+    -- replacing a durable root that still exists with a disposable one -- so
+    that is what this asks. A first install, a repeat of the same target, and a
+    pointer that is already a worktree all lose nothing and are left alone.
+    """
+
+    if not is_disposable_root(root):
+        return False
+    current = _read_text(pointer_path).strip()
+    if not current:
+        return False
+    if Path(current) == Path(root).resolve(strict=False):
+        return False
+    if is_disposable_root(Path(current)):
+        return False
+    return Path(current).is_dir()
+
+
 def ensure_stable_launcher(root: Path, dry_run: bool) -> list[dict]:
     """Install or verify the home-stable launcher and root pointer."""
     launcher_path = stable_launcher_path()
     pointer_path = stable_root_pointer_path()
+    if downgrades_the_shared_root(root, pointer_path):
+        blocked = {
+            "status": "blocked",
+            "detail": (
+                f"refusing to repoint the shared root from {_read_text(pointer_path).strip()} "
+                f"to the task worktree {Path(root).resolve(strict=False)}; run the "
+                "installer from the main checkout"
+            ),
+        }
+        return [
+            {"tool": "tao", "hook": "stable_launcher", "path": str(launcher_path), **blocked},
+            {"tool": "tao", "hook": "root_pointer", "path": str(pointer_path), **blocked},
+        ]
     root_text = f"{root.resolve()}\n"
     launcher_text = _launcher_script_text()
 
