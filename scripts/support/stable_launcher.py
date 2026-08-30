@@ -117,6 +117,7 @@ SCRIPT_ALIASES = {
     "agent-os-status": "agent-os-status.py",
     "agent-os-watchdog": "agent-os-watchdog.py",
     "agent-os-maintenance": "agent-os-maintenance.py",
+    "agent-room": "agent-room.py",
     "workflow-dispatch": "workflow_dispatch.py",
     "workflow-dispatch-launch": "workflow_dispatch_launch.py",
     "claude-pretool-gate": "claude_pretool_gate.py",

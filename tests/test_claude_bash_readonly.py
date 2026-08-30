@@ -575,5 +575,86 @@ class ReviewOnTheCurrentBranchTests(unittest.TestCase):
 
 
 
+class InspectionIsNotMutationTests(unittest.TestCase):
+    """Reading a repository should not need permission to change it.
+
+    The read-only subcommand list covered the commands people type by hand and
+    stopped there, so `git merge-base`, `git show-ref`, `git cat-file`,
+    `git rev-list`, `git for-each-ref`, `git grep` and `git tag --list` -- none
+    of which can write anything -- were classified as mutations. Inside a
+    protected checkout that left an agent unable to read the repository it was
+    asked about: tight in the one place tightness buys nothing, which is how a
+    guard becomes the thing people switch off.
+
+    The other half still has to hold. Several of these subcommands take a flag
+    that writes a file or runs a program, and widening the list is exactly what
+    brings those flags into reach.
+    """
+
+    def test_pure_inspection_is_read_only(self) -> None:
+        from claude_bash_git import git_command_kind
+
+        for command in (
+            "git merge-base --is-ancestor a b",
+            "git cat-file -p HEAD",
+            "git rev-list --count HEAD",
+            "git for-each-ref",
+            "git show-ref",
+            "git ls-remote origin",
+            "git diff-tree HEAD",
+            "git name-rev HEAD",
+            "git cherry main",
+            "git count-objects -v",
+            "git verify-commit HEAD",
+            "git grep needle",
+            "git tag",
+            "git tag --list",
+            "git tag -l v1*",
+            "git stash list",
+            "git stash show",
+            "git submodule status",
+            "git symbolic-ref HEAD",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", git_command_kind(command.split()))
+
+    def test_the_writing_forms_of_the_same_subcommands_are_not(self) -> None:
+        from claude_bash_git import git_command_kind
+
+        for command in (
+            "git tag v1",
+            "git tag -d v1",
+            "git tag -a v1 -m x",
+            "git tag -f v1 HEAD",
+            "git stash",
+            "git stash drop",
+            "git stash pop",
+            "git submodule update",
+            "git symbolic-ref HEAD refs/heads/x",
+            "git symbolic-ref -d HEAD",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", git_command_kind(command.split()))
+
+    def test_a_pager_flag_still_counts_as_running_a_program(self) -> None:
+        """`git grep -O<cmd>` opens matches in <cmd>.
+
+        Both spellings arrive with the subcommands widened above, so both are
+        named. The long form is caught by prefix, which covers abbreviations;
+        the short form carries its command attached and needs its own check.
+        """
+
+        from claude_bash_git import git_command_kind
+
+        for command in (
+            "git grep --open-files-in-pager=vi needle",
+            "git grep --open-files needle",
+            "git grep -Oless needle",
+            "git grep -O needle",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", git_command_kind(command.split()))
+
+
 if __name__ == "__main__":
     unittest.main()

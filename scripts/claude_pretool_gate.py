@@ -798,6 +798,43 @@ def _git_effective_cwd(tokens: list[str], cwd: Path) -> Path:
     return resolved
 
 
+INTEGRATION_GIT_SUBCOMMANDS = frozenset(
+    {"checkout", "merge", "pull", "reset", "restore", "stash", "switch"}
+)
+
+
+def protected_checkout_integration(tokens: list[str]) -> str:
+    """Whether this lands finished work rather than authoring new work.
+
+    The policy is that new work is authored in a linked worktree and the
+    original is left alone. That is a workflow only if the original can still
+    take the result, and it could not: `merge`, `pull`, `checkout` and `switch`
+    were refused there along with everything else, so work done in a worktree
+    had no way home and the only exit was turning the gate off -- the outcome
+    the policy exists to avoid.
+
+    Integration is not authoring. These commands move commits and files that
+    already exist; none of them writes something new into the protected
+    checkout, which is what the refusal is for.
+
+    Returns `allow` only for a fast-forward, which moves a branch pointer onto
+    commits that are already in the repository and can neither create nor lose
+    anything. Everything else here can move or discard what is in the working
+    tree, so it returns `ask`: a real decision, put once to the person whose
+    checkout it is. `""` means this is not integration and the refusal stands.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return ""
+    subcommand, arguments = git_subcommand(tokens)
+    if subcommand not in INTEGRATION_GIT_SUBCOMMANDS:
+        return ""
+    flags = {argument.split("=", 1)[0] for argument in arguments}
+    if subcommand in {"merge", "pull"} and "--ff-only" in flags:
+        return "allow"
+    return "ask"
+
+
 def _ordinary_git_invocation(tokens: list[str]) -> bool:
     subcommand, _arguments = git_subcommand(tokens)
     return subcommand in ORDINARY_GIT_SUBCOMMANDS
@@ -1084,16 +1121,41 @@ def decide(payload: dict) -> int:
         roots = [root] if root is not None else []
     if root is None:
         # Not an Tao Agent OS project; never block ordinary editing.
+        #
+        # `-C <elsewhere>` moves the command's target out of every governed
+        # root and landed here, so `git -C /tmp/other branch -D main` from a
+        # governed session was silent while the same deletion spelled
+        # `--git-dir=/tmp/other/.git` was asked about -- the same act, decided
+        # two ways by which flag named the repository. Destroying another
+        # repository is not "ordinary editing", so a session working inside a
+        # compliant worktree is still asked. Only hazards, and only `ask`: a
+        # session that is not in a governed project keeps this gate out of its
+        # way entirely.
+        session_root = find_project_root(cwd)
+        if session_root is not None and worktree_policy_satisfied(session_root):
+            hazard = shared_repository_hazard(tokens)
+            if hazard:
+                return ask(
+                    "This command leaves the worktree to reach another "
+                    f"repository, and there it {hazard}. Allow it only if that "
+                    "is what you meant."
+                )
         return allow()
     if tool in BASH_TOOLS and bash_kind == "read_only":
         return allow()
     if tool in BASH_TOOLS and bash_kind == "bootstrap":
+        # The hazard list is consulted here too. Nothing Git classifies as
+        # bootstrap is destructive today -- `fetch` and `worktree add` are the
+        # whole set -- so this changes no verdict now. It is the ordering that
+        # matters: approving first and checking second means the day one more
+        # subcommand becomes bootstrap, it is approved without ever being read.
         if (
             syntax_is_simple
             and tokens
             and Path(tokens[0]).name == "git"
             and worktree_policy_satisfied(root)
             and _ordinary_git_invocation(tokens)
+            and not shared_repository_hazard(tokens)
         ):
             return _approve(
                 "This is an ordinary Git command inside the isolated linked worktree."
@@ -1117,6 +1179,22 @@ def decide(payload: dict) -> int:
             return deny(reason) if reason else allow()
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
+        landing = (
+            protected_checkout_integration(tokens)
+            if tool in BASH_TOOLS and syntax_is_simple
+            else ""
+        )
+        if landing == "allow":
+            return _approve(
+                "This lands existing commits in the protected checkout without "
+                "authoring anything there."
+            )
+        if landing == "ask":
+            return ask(
+                "This is an integration command, not new work, so the protected "
+                "checkout does not refuse it outright -- but it can move or "
+                "discard what is there. Allow it only if that is what you meant."
+            )
         return deny(worktree_reason)
     if worktree_policy_satisfied(root):
         hazard = shared_repository_hazard(tokens)

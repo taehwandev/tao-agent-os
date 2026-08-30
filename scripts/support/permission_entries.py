@@ -22,6 +22,7 @@ EXECUTABLE_ENTRYPOINTS = (
     "agent-os-status.py",
     "agent-os-watchdog.py",
     "agent-preflight.py",
+    "agent-room.py",
     "agent_execution_capsule.py",
     "check_android_external_skill_manifest.py",
     "check_react_rn_external_skill_manifest.py",
@@ -63,6 +64,7 @@ def claude_legacy_permission_entries(scripts_dir: Path) -> list[str]:
         for command in _python_entrypoint_commands(script, "claude", scripts_dir.parent, include_legacy=True):
             _add_permission_command_entries(entries, "Bash", command)
     entries.extend(_legacy_claude_git_permission_entries())
+    entries.extend(_legacy_worktree_permission_entries())
     return entries
 
 
@@ -74,6 +76,25 @@ def claude_project_permission_entries(scripts_dir: Path, *, spill_available: boo
     for command in _claude_tao_tool_commands():
         _add_permission_command_entries(entries, "Bash", command)
     return entries
+
+
+def _legacy_worktree_permission_entries() -> list[str]:
+    """The worktree rules written before they were anchored to the project root.
+
+    An earlier installer emitted these without the leading slash, which Claude
+    reads from the working directory instead of from the directory holding the
+    settings file. Ceasing to write them left them in place: a refresh added the
+    anchored rules beside the old ones rather than replacing them, so the
+    settings still carry a pattern that resolves to a `.tao/worktrees` nested
+    inside a worktree and matches nothing.
+
+    Cleanup-only, and never returned as an entry to add.
+    """
+
+    from agent_worktree_identity import WORKTREE_DIRNAME
+
+    root = f".tao/{WORKTREE_DIRNAME}"
+    return [f"{tool}({root}/**)" for tool in ("Read", "Edit", "Write")]
 
 
 def _legacy_claude_git_permission_entries() -> list[str]:

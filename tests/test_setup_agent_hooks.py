@@ -890,6 +890,7 @@ class SetupAgentHooksTests(unittest.TestCase):
                 self.assertIn('"agent-os-status": "agent-os-status.py"', launcher.read_text())
                 self.assertIn('"agent-os-watchdog": "agent-os-watchdog.py"', launcher.read_text())
                 self.assertIn('"agent-os-maintenance": "agent-os-maintenance.py"', launcher.read_text())
+                self.assertIn('"agent-room": "agent-room.py"', launcher.read_text())
                 self.assertIn('"workflow-dispatch": "workflow_dispatch.py"', launcher.read_text())
                 self.assertIn('"handoff"', launcher.read_text())
                 self.assertTrue(all(result["status"] == "installed" for result in results))
@@ -987,6 +988,25 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertEqual(0, result.returncode)
         self.assertNotIn("unsupported Tao Agent OS script alias: start", result.stderr)
         self.assertIn("--request-classified", result.stdout)
+
+    def test_stable_launcher_supports_agent_room_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_home:
+            with patch.dict(os.environ, {"HOME": temp_home}):
+                ensure_stable_launcher(ROOT, dry_run=False)
+                launcher = stable_launcher_path()
+
+                result = subprocess.run(
+                    [str(launcher), "agent-room", "--help"],
+                    cwd=str(ROOT),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+
+        self.assertEqual(0, result.returncode)
+        self.assertIn("--to", result.stdout)
+        self.assertNotIn("unsupported Tao Agent OS script alias", result.stderr)
 
     def test_stable_launcher_supports_gate_batch_alias(self) -> None:
         with tempfile.TemporaryDirectory() as temp_home:

@@ -101,6 +101,82 @@ class CreateWorkerWorktreeTests(_TempGitRepoTestCase):
         self.assertTrue(second.is_dir())
 
 
+class ContinuingInTheSameWorktreeTests(_TempGitRepoTestCase):
+    """A task should be able to carry on where it left off.
+
+    `git worktree add` refuses a path that already exists, so asking for the
+    worktree a task already has raised and the caller got a new one: a fresh
+    checkout, and the work in progress left behind. Separating tasks by
+    worktree is right, but it stopped being something you could continue
+    inside, which turns every follow-up turn into a new working copy.
+    """
+
+    def test_the_same_worktree_can_be_asked_for_twice(self) -> None:
+        base_ref = resolve_base_ref(self.project)
+        worktree_path = new_worktree_path(self.project)
+        first = create_worker_worktree(self.project, base_ref, worktree_path)
+
+        second = create_worker_worktree(self.project, base_ref, worktree_path)
+
+        self.assertEqual(first.fingerprint, second.fingerprint)
+        # And it is still one registered worktree, not a second registration.
+        listing = self._git("worktree", "list").stdout.decode("utf-8")
+        self.assertEqual(1, listing.count(str(worktree_path.resolve())))
+
+    def test_work_in_progress_survives_the_continuation(self) -> None:
+        # The point of continuing: an unfinished edit is still there.
+        base_ref = resolve_base_ref(self.project)
+        worktree_path = new_worktree_path(self.project)
+        create_worker_worktree(self.project, base_ref, worktree_path)
+        (worktree_path / "in-progress.py").write_text("half\n", encoding="utf-8")
+
+        create_worker_worktree(self.project, base_ref, worktree_path)
+
+        self.assertEqual(
+            "half\n", (worktree_path / "in-progress.py").read_text(encoding="utf-8")
+        )
+
+    def test_an_existing_directory_that_is_not_a_worktree_is_refused(self) -> None:
+        """Reuse rests on the proof, not on the path existing.
+
+        Otherwise any directory dropped at a canonical-looking name would be
+        adopted as an isolated worktree and handed the trust that goes with it.
+        """
+
+        base_ref = resolve_base_ref(self.project)
+        impostor = new_worktree_path(self.project)
+        impostor.mkdir(parents=True)
+        (impostor / "decoy.txt").write_text("not a worktree\n", encoding="utf-8")
+
+        with self.assertRaises(WorktreeSessionError):
+            create_worker_worktree(self.project, base_ref, impostor)
+
+    def test_a_worktree_of_another_repository_is_refused(self) -> None:
+        # Sharing Git's common directory is part of the proof: a worktree of a
+        # different repository at the right path is still not this project's.
+        other = Path(self.temporary_directory.name) / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=other, check=True)
+        subprocess.run(["git", "config", "user.email", "t@e.invalid"], cwd=other, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=other, check=True)
+        (other / "f.txt").write_text("x\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=other, check=True)
+        subprocess.run(["git", "commit", "-qm", "i"], cwd=other, check=True)
+
+        foreign = new_worktree_path(self.project)
+        foreign.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(foreign), "HEAD"],
+            cwd=other,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        with self.assertRaises(WorktreeSessionError):
+            create_worker_worktree(self.project, resolve_base_ref(self.project), foreign)
+
+
 class FailClosedTests(_TempGitRepoTestCase):
     def test_invalid_base_ref_raises_and_does_not_touch_main_tree(self) -> None:
         worktree_path = new_worktree_path(self.project)

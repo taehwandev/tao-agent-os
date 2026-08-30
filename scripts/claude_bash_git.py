@@ -15,11 +15,78 @@ UNSAFE_GIT_OPTIONS = frozenset(
     {
         "--exec",
         "--ext-diff",
+        # `git grep --open-files-in-pager=<cmd>` runs <cmd>. It arrives with
+        # the subcommands just added, so it is named before it can be used.
+        "--open-files-in-pager",
         "--output",
         "--receive-pack",
         "--textconv",
         "--unsafe-paths",
         "--upload-pack",
+    }
+)
+# Subcommands that inspect and cannot write through any argument.
+#
+# The short list this grew from covered the commands people type by hand and
+# stopped there, so `git merge-base`, `git show-ref`, `git cat-file`,
+# `git rev-list`, `git for-each-ref` and `git grep` -- none of which can change
+# anything -- were classified as mutations. Inside a protected checkout that
+# meant an agent could not read the repository it was asked about: a guard
+# tight in the one place tightness buys nothing, which is how a guard becomes
+# the thing people switch off.
+READ_ONLY_GIT_SUBCOMMANDS = frozenset(
+    {
+        "annotate",
+        "blame",
+        "cat-file",
+        "check-ignore",
+        "cherry",
+        "count-objects",
+        "describe",
+        "diff",
+        "diff-files",
+        "diff-index",
+        "diff-tree",
+        "for-each-ref",
+        "grep",
+        "help",
+        "log",
+        "ls-files",
+        "ls-remote",
+        "ls-tree",
+        "merge-base",
+        "name-rev",
+        "rev-list",
+        "rev-parse",
+        "shortlog",
+        "show",
+        "show-ref",
+        "status",
+        "var",
+        "verify-commit",
+        "verify-tag",
+        "whatchanged",
+    }
+)
+# `git tag` flags that create, delete, or open an editor.
+TAG_WRITE_OPTIONS = frozenset(
+    {
+        "-a",
+        "-d",
+        "-e",
+        "-f",
+        "-m",
+        "-s",
+        "-u",
+        "--annotate",
+        "--delete",
+        "--edit",
+        "--file",
+        "--force",
+        "--local-user",
+        "--message",
+        "--sign",
+        "-F",
     }
 )
 GIT_SAFE_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
@@ -186,28 +253,39 @@ def git_command_kind(tokens: list[str]) -> str:
         return "read_only"
     command = tokens[index]
     args = tokens[index + 1 :]
+    names = {argument.split("=", 1)[0] for argument in args}
+    words = [argument for argument in args if not argument.startswith("-")]
     if any(names_unsafe_git_option(arg) for arg in args):
+        return "mutating"
+    # The short spelling of `--open-files-in-pager`, which takes its command
+    # attached (`-Oless`) rather than as a separate token.
+    if any(arg.startswith("-O") for arg in args):
         return "mutating"
     # `blame`, `describe`, `shortlog` and `whatchanged` read history the same
     # way `log` and `show` do. They were absent rather than excluded, and a
     # review of the current branch is where that shows: reading who last
     # touched a line is inspection, and denying it left the reviewer unable to
     # answer the question a review is for.
-    if command in {
-        "blame",
-        "check-ignore",
-        "describe",
-        "diff",
-        "log",
-        "ls-files",
-        "ls-tree",
-        "rev-parse",
-        "shortlog",
-        "show",
-        "status",
-        "whatchanged",
-    }:
+    if command in READ_ONLY_GIT_SUBCOMMANDS:
         return "read_only"
+    if command == "tag":
+        # `git tag` with no name lists; a name creates one. `-l` takes a
+        # pattern, so a positional is only a write when nothing asked to list.
+        listing = bool(
+            names & {"-l", "--list", "--contains", "--points-at", "--merged", "--no-merged"}
+        )
+        if names & TAG_WRITE_OPTIONS:
+            return "mutating"
+        return "read_only" if listing or not words else "mutating"
+    if command == "stash":
+        return "read_only" if args and args[0] in {"list", "show"} else "mutating"
+    if command == "submodule":
+        return "read_only" if args and args[0] in {"status", "summary"} else "mutating"
+    if command == "symbolic-ref":
+        # One name reads it; two set it.
+        if names & {"-d", "--delete"}:
+            return "mutating"
+        return "read_only" if len(words) <= 1 else "mutating"
     if command == "branch":
         return "read_only" if _branch_arguments_are_read_only(args) else "mutating"
     if command == "remote":
