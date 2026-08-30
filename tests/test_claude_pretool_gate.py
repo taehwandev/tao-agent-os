@@ -570,11 +570,13 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual("allow", decision(command), command)
 
     def test_authoring_there_is_what_stays_refused(self) -> None:
-        """The boundary is named by what it refuses, so it covers the unlisted.
+        """Authoring with Git here is refused; its remedy is deterministic.
 
-        Writing new content into the protected working tree is the one thing
-        the policy is for, and its remedy is deterministic -- do it in a
-        worktree -- which is what `deny` is for.
+        Writing new content into the protected working tree through Git is the
+        one thing the policy is for, and the remedy is to do it in a worktree,
+        which is what `deny` is for. Other programs are asked about instead --
+        a session standing here has nowhere else to run them -- and a command
+        line the gate cannot read as one thing stays refused.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -591,11 +593,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "git am patch",
                 "git mv a b",
                 "git rm old.py",
-                "rm -rf build",
-                "npm install",
                 # A compound line is read as one command and carries anything
                 # after the part that was read.
                 "git branch -D x && rm -rf build",
+                "npm install && rm -rf build",
             ):
                 with self.subTest(command=command):
                     code, out = _decide(
@@ -736,19 +737,21 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertEqual("ask", decision(command))
 
-            # Authoring there is still refused outright. `push --force` used to
-            # be listed here and is now asked about instead: it writes nothing
-            # into the working tree, so it is a decision about shared refs
-            # rather than work authored in the protected checkout.
+            # Authoring with Git is still refused outright. Two entries left
+            # this list as the tiers were drawn: `push --force` writes nothing
+            # into the working tree, so it is a decision about shared refs, and
+            # a program that is not Git is asked about because a session
+            # standing here has nowhere else to run it.
+            for command in ("git commit -m x", "git cherry-pick abc123"):
+                with self.subTest(command=command):
+                    self.assertEqual(STOP_DECISION, decision(command))
             for command in (
-                "git commit -m x",
-                "git cherry-pick abc123",
+                "git push --force origin main",
                 "rm -rf build",
                 "python3 build.py",
             ):
                 with self.subTest(command=command):
-                    self.assertEqual(STOP_DECISION, decision(command))
-            self.assertEqual("ask", decision("git push --force origin main"))
+                    self.assertEqual("ask", decision(command))
 
     def test_landing_needs_a_simple_command_line(self) -> None:
         # The allowance reads one command. A compound line can carry anything
@@ -828,8 +831,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
             )
 
     def test_a_tool_that_names_no_path_still_answers_to_the_cwd(self) -> None:
-        # The cwd fallback is what covers Bash, whose effects are not bounded
-        # by its arguments. Removing it would unprotect the checkout entirely.
+        # The cwd fallback is what covers Bash, whose effects are not bounded by
+        # its arguments. Removing it would leave the checkout unprotected; what
+        # it produces is a question rather than a refusal, because a session
+        # standing here has nowhere else to run the command.
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project)
@@ -845,9 +850,117 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
             self.assertEqual(0, code)
             self.assertEqual(
-                STOP_DECISION,
-                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                "ask", json.loads(out)["hookSpecificOutput"]["permissionDecision"]
             )
+
+    def test_running_a_command_here_is_a_question_not_a_wall(self) -> None:
+        """A refusal with no remedy is what makes people switch a gate off.
+
+        Refusing every non-Git command read as "authoring", and for a build or
+        a test that is fair -- the remedy is deterministic, do it in a worktree.
+        The same wall stood in front of commands with no such remedy: `vibeguard
+        update` writes per-checkout state a worktree run cannot refresh here, so
+        there was no route at all, only a hand-run command.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            for command in (
+                "python3 -m pytest tests -q",
+                "npm test",
+                "make build",
+                "python3 scripts/agent-os-status.py",
+                "vibeguard update .",
+                "vibeguard audit . --fix",
+                "npm install",
+                "rm -rf build",
+                "sed -i '' s/a/b/ AGENTS.md",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        "ask",
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        command,
+                    )
+
+    def test_a_command_the_gate_cannot_read_keeps_its_refusal(self) -> None:
+        """A prompt cannot describe what computed text will do.
+
+        `eval $(echo rm -rf build)` parses as one simple command line and says
+        nothing about the command that actually runs, so asking about it offers
+        the operator a decision they have no way to make. This is the same
+        fail-closed reading the rest of the gate uses for what it cannot read.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            for command in (
+                "eval $(echo rm -rf build)",
+                "npm install && rm -rf build",
+                "python3 build.py; rm -rf /",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        STOP_DECISION,
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        command,
+                    )
+
+    def test_reaching_into_the_protected_checkout_keeps_its_refusal(self) -> None:
+        """Standing in it and reaching into it are different acts.
+
+        A session with a worktree that names the protected checkout has another
+        place to work, and the remedy is to work there -- which is what `deny`
+        is for. Opening the first case must not open this one.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            worktree = _opt_in_project(Path(tmp) / "wt")
+            _require_linked_worktree(worktree, linked=True)
+
+            for command in (
+                f"touch {project}/should-not-write",
+                f"sed -i '' s/a/b/ {project}/AGENTS.md",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(worktree),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        STOP_DECISION,
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        command,
+                    )
 
     def test_editing_the_protected_checkout_is_untouched_by_this(self) -> None:
         # The allowance is for Git integration only; file edits stay refused.
@@ -1079,8 +1192,13 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     "tool_input": {"command": "sed -n '1w output.txt' AGENTS.md"},
                 }
             )
+        # The `w` program writes, so this is not the read `sed -n` looks like.
+        # It reaches the operator rather than being refused, and what matters
+        # here is that it is not mistaken for inspection and waved through.
         self.assertEqual(0, code)
-        self.assertIn("worktree gate", _reason(out))
+        self.assertEqual(
+            "ask", json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+        )
 
     def test_vibeguard_audit_is_allowed_but_fix_is_denied_in_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1102,10 +1220,16 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     "tool_input": {"command": "vibeguard audit . --fix"},
                 }
             )
+        # Reading stays out of the way; writing is a question. `--fix` edits
+        # files in the protected checkout, so it is exactly what the operator
+        # should see before it runs -- but refusing it left no route at all,
+        # which is what the question replaces.
         self.assertEqual(0, read_code)
         self.assertEqual("", read_out)
         self.assertEqual(0, write_code)
-        self.assertIn("worktree gate", _reason(write_out))
+        self.assertEqual(
+            "ask", json.loads(write_out)["hookSpecificOutput"]["permissionDecision"]
+        )
 
     def test_npx_vibeguard_audit_is_allowed_but_fix_is_denied_in_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1131,10 +1255,16 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     },
                 }
             )
+        # Reading stays out of the way; writing is a question. `--fix` edits
+        # files in the protected checkout, so it is exactly what the operator
+        # should see before it runs -- but refusing it left no route at all,
+        # which is what the question replaces.
         self.assertEqual(0, read_code)
         self.assertEqual("", read_out)
         self.assertEqual(0, write_code)
-        self.assertIn("worktree gate", _reason(write_out))
+        self.assertEqual(
+            "ask", json.loads(write_out)["hookSpecificOutput"]["permissionDecision"]
+        )
 
     def test_worktree_bootstrap_bash_is_allowed_in_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1276,7 +1406,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 }
             )
         self.assertEqual(0, code)
-        self.assertIn("worktree gate", _reason(out))
+        self.assertEqual(
+            "ask",
+            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+        )
 
     def test_local_environment_can_bridge_policy_until_the_tracked_marker_arrives(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1298,7 +1431,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     }
                 )
         self.assertEqual(0, code)
-        self.assertIn("worktree gate", _reason(out))
+        self.assertEqual(
+            "ask",
+            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+        )
 
     def test_read_command_cannot_hide_mutation_in_a_shell_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1343,7 +1479,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 }
             )
         self.assertEqual(0, code)
-        self.assertIn("worktree gate", _reason(out))
+        self.assertEqual(
+            "ask",
+            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+        )
 
     def test_malformed_tracked_policy_still_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1361,7 +1500,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 }
             )
         self.assertEqual(0, code)
-        self.assertIn("worktree gate", _reason(out))
+        self.assertEqual(
+            "ask",
+            json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+        )
 
     def test_protected_branch_is_denied_even_in_a_linked_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

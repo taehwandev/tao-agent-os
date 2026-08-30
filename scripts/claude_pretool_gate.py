@@ -873,7 +873,27 @@ def protected_checkout_verdict(
         # inside a worktree.
         return "defer"
     if Path(tokens[0]).name != "git":
-        return ""
+        # A test runner, a build, a package manager, the project's own
+        # maintenance tooling: a question rather than a refusal.
+        #
+        # Refusing them read as "authoring", and for a build or a test that is
+        # fair -- the remedy is deterministic, do it in a worktree. But the same
+        # wall stood in front of commands with no such remedy. `vibeguard
+        # update` writes per-checkout state a worktree run cannot refresh here,
+        # so there was no route at all, only a hand-run command, and seven
+        # ordinary runners sat behind it too.
+        #
+        # This is deliberately wider than a list of known-safe programs. Such a
+        # list is never complete -- the protected checkout was written that way
+        # once and missed `merge`, then `branch -D` -- and the operator seeing
+        # the command is a better filter than a name this gate happens to
+        # recognise.
+        #
+        # The caller keeps two refusals in front of this: a command whose text
+        # cannot be read stays denied, because a prompt cannot describe what it
+        # would do, and an Edit or Write naming a path here never reaches this
+        # function at all.
+        return "ask"
     subcommand, arguments = git_subcommand(tokens)
     if subcommand is None:
         # An option this gate cannot read hides which subcommand runs. That is
@@ -1319,9 +1339,41 @@ def decide(payload: dict) -> int:
             return deny(reason) if reason else allow()
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
+        # Reaching a protected checkout from outside it is a different act from
+        # standing in one. A session with a worktree that names the protected
+        # checkout has somewhere else to be, and the remedy is deterministic --
+        # work there -- which is what `deny` is for. A session whose shell is
+        # simply in the protected checkout has nowhere else to run, so a refusal
+        # leaves no route and the operator is asked instead.
+        cwd_root = find_project_root(command_cwd) if tool in BASH_TOOLS else None
+        denying = [candidate for candidate in roots if worktree_denial(candidate)]
+        # Standing in the protected checkout, and only there. Two other shapes
+        # keep their refusal because each has a deterministic remedy, which is
+        # what `deny` is for:
+        #
+        #   - reaching in from somewhere else. A session with a worktree that
+        #     names the protected checkout has another place to work, and the
+        #     remedy is to work there.
+        #   - a linked worktree sitting on a protected branch. The remedy is to
+        #     leave the branch, and the checkout is not the problem.
+        standing_in_the_protected_checkout = (
+            bool(denying)
+            and all(candidate == cwd_root for candidate in denying)
+            and (cwd_root / ".git").is_dir()
+        )
+        # Text the shell computes is text this gate cannot read, and a prompt
+        # cannot describe what it would do. `eval $(echo rm -rf build)` parses
+        # as a simple command line and says nothing about the command that
+        # actually runs, so it keeps the refusal rather than becoming a question
+        # the operator has no way to answer.
+        readable = tool in BASH_TOOLS and not has_unresolvable_expansion(
+            bash_command(payload)
+        )
         landing = (
             protected_checkout_verdict(tokens, protected_branch_names(root))
-            if tool in BASH_TOOLS and syntax_is_simple
+            if readable
+            and syntax_is_simple
+            and standing_in_the_protected_checkout
             else ""
         )
         if landing == "allow":
