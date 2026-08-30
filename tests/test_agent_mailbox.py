@@ -70,14 +70,15 @@ class AgentMailboxTests(unittest.TestCase):
                     sender="codex",
                 )
 
-        with self.assertRaisesRegex(ValueError, "byte limit"):
-            mailbox.send(
-                recipient="claude",
-                kind="review",
-                body="x" * (32 * 1024 + 1),
-                evidence_path=self.evidence,
-                sender="codex",
-            )
+        with patch("agent_mailbox.validate_execution_capsule", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "byte limit"):
+                mailbox.send(
+                    recipient="claude",
+                    kind="review",
+                    body="x" * (32 * 1024 + 1),
+                    evidence_path=self.evidence,
+                    sender="codex",
+                )
 
     def test_mailbox_runtime_files_have_no_provider_or_network_process_adapter(self) -> None:
         forbidden_imports = {"http", "requests", "socket", "subprocess", "urllib"}

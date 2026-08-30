@@ -71,7 +71,7 @@ from support.project_type_detection import detect_project_permissions
 from support.spill_permissions import spill_helper_path_variants
 from support.runtime_bridge import (
     CODEX_DISPATCH_BRIDGE_PHRASE,
-    LOCAL_AGENT_ROOM_BRIDGE_PHRASE,
+    LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE,
     RUNTIME_BRIDGE_GRAPH_PHRASES,
     RUNTIME_START_BRIDGE_PHRASE,
     runtime_bridge_block,
@@ -436,7 +436,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertIn(required, RUNTIME_START_BRIDGE_PHRASE)
         self.assertNotIn("let the classifier decide", RUNTIME_START_BRIDGE_PHRASE)
 
-    def test_every_runtime_bridge_exposes_the_project_local_agent_room(self) -> None:
+    def test_every_runtime_bridge_exposes_the_project_local_agent_mailbox(self) -> None:
         surfaces = (
             _agy_runtime_bridge_block(ROOT),
             runtime_bridge_block(ROOT, "Codex", "AGENTS.md"),
@@ -448,12 +448,13 @@ class RuntimeSetupTests(unittest.TestCase):
         )
 
         for surface in surfaces:
-            self.assertIn(LOCAL_AGENT_ROOM_BRIDGE_PHRASE, surface)
-        self.assertIn("Do not ask the user for a room or task id", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
-        self.assertIn("exact active Tao run bound to this runtime session", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
-        self.assertIn("API-key or unverified auth is refused", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
-        self.assertIn("never create a Tao daemon, polling loop", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
-        self.assertIn("task turns require explicit --allow-write", LOCAL_AGENT_ROOM_BRIDGE_PHRASE)
+            self.assertIn(LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE, surface)
+        self.assertIn("Do not ask the user for a room or task id", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("exact active Tao run", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("consumed once", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("never invokes a provider CLI or API", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("never creates a daemon, watcher, polling loop", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("next normal prompt", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
 
     def test_setup_hook_runtime_selection_is_scoped(self) -> None:
         from support.setup_agent_hooks_impl import _runtime_selected
