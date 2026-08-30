@@ -883,17 +883,23 @@ def protected_checkout_verdict(
         # so there was no route at all, only a hand-run command, and seven
         # ordinary runners sat behind it too.
         #
-        # This is deliberately wider than a list of known-safe programs. Such a
-        # list is never complete -- the protected checkout was written that way
-        # once and missed `merge`, then `branch -D` -- and the operator seeing
-        # the command is a better filter than a name this gate happens to
-        # recognise.
+        # And a question this gate does not answer, because Claude already
+        # answers it. A hook's `ask` overrides the permission rules, so asking
+        # here re-asked about commands the operator had already allowed once and
+        # for all: `vibeguard`, `npm test` and `pytest` all had standing allow
+        # rules and started prompting every time. Turning a dead end into a
+        # prompt is only an improvement when there was no prompt before.
+        #
+        # Deferring keeps both halves. A command with a standing rule runs
+        # silently again; one without still reaches the operator, through the
+        # layer whose answers persist. This gate keeps only what it alone
+        # knows -- authoring here, and the shared refs below.
         #
         # The caller keeps two refusals in front of this: a command whose text
-        # cannot be read stays denied, because a prompt cannot describe what it
-        # would do, and an Edit or Write naming a path here never reaches this
+        # cannot be read stays denied, because nothing downstream can describe
+        # it either, and an Edit or Write naming a path here never reaches this
         # function at all.
-        return "ask"
+        return "defer"
     subcommand, arguments = git_subcommand(tokens)
     if subcommand is None:
         # An option this gate cannot read hides which subcommand runs. That is
