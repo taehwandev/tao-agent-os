@@ -81,7 +81,17 @@ def bind_required_doc_update_receipt(
     target = fields.get("target", "").strip()
     if target not in set(required_docs_for_route(route)):
         return fields
-    if "documentation" not in {str(item) for item in (route.get("gates") or [])}:
+    # The repair proof answers "why is this run editing a document its route
+    # does not own", so it is owed by an edit and only by an edit. A run that
+    # reports `unchanged` is not editing anything: it is saying a concurrent
+    # session changed the document, that it re-read the result, and that the
+    # work still conforms. Demanding a repair receipt there asked the run to
+    # produce proof of a failure it never had -- and the finish message that
+    # sends it here says in the same breath not to run repair-verify, so the
+    # honest run on a route without a documentation gate had no exit at all.
+    if fields.get("decision", "").strip().lower() == "updated" and "documentation" not in {
+        str(item) for item in (route.get("gates") or [])
+    }:
         _validate_off_route_required_doc_repair(
             evidence_path=evidence_path,
             preflight=preflight,

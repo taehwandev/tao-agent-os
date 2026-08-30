@@ -741,6 +741,61 @@ class ExecutionCapsuleTests(unittest.TestCase):
             failures,
         )
 
+    def test_a_route_without_a_documentation_gate_can_still_report_no_edit(self) -> None:
+        """The off-route repair proof is owed by an edit, not by a report.
+
+        A run whose route has no documentation gate still snapshots required
+        docs, so a concurrent session's edit fails it at finish. Routing that
+        through the off-route repair path asked for proof of a failure the run
+        never had, which left it with no exit at all.
+        """
+
+        self.route = {**self.route, "gates": ["source docs", "verify"]}
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        preflight["route"] = self.route
+        self.evidence_path.write_text(json.dumps(preflight), encoding="utf-8")
+        self._write_ledger()
+        capsule = refresh_execution_capsule(
+            self.project, self.rules, self.evidence_path, self.route
+        )
+        (self.rules / "guide.md").write_text(
+            "# Rewritten by another session\n", encoding="utf-8"
+        )
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+
+        entry = record_gate_evidence(
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            gate="documentation",
+            fields={
+                "decision": "unchanged",
+                "target": "guide.md",
+                "reason": (
+                    "re-read guide.md after another session changed it; it already "
+                    "covers this work because the rule it states did not move"
+                ),
+            },
+        )
+
+        self.assertEqual("1", entry["fields"]["artifact_receipt_version"])
+        self.assertEqual(
+            capsule["required_docs"][0]["sha256"], entry["fields"]["baseline_sha256"]
+        )
+        self.assertEqual(
+            [],
+            validate_source_docs_binding(
+                capsule,
+                self.project,
+                self.rules,
+                self.evidence_path,
+                self.route,
+                documented_updates=documented_required_doc_updates(
+                    evidence_path=self.evidence_path,
+                    route=self.route,
+                ),
+            ),
+        )
+
     def test_off_route_documentation_cannot_bind_without_verified_repair(self) -> None:
         self.route = {
             **self.route,
