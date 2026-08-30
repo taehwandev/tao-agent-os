@@ -55,6 +55,11 @@ ORDINARY = [
     "git pull",
     "git submodule update --init",
     "git worktree add ../x",
+    # Git refuses to remove a worktree holding modified or untracked files, so
+    # the plain removal cannot lose work. Asking about it put a prompt on the
+    # step that closes every task, on top of a check git was already making.
+    "git worktree remove ../other",
+    "git worktree prune",
     "git tag v1",
     "git remote add upstream git@example.com:x.git",
     "git config user.email a@b.c",
@@ -111,8 +116,7 @@ HAZARDS = [
     "git remote set-url origin git@evil.example:x.git",
     "git stash clear",
     "git stash drop",
-    "git worktree remove ../other",
-    "git worktree prune",
+    "git worktree remove --force ../other",
     "git apply --unsafe-paths change.patch",
     "git submodule foreach rm -rf build",
     "git submodule deinit --all",

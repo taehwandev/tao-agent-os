@@ -1111,8 +1111,12 @@ def shared_repository_hazard(tokens: list[str]) -> str:
         return "changes a remote every worktree shares"
     if subcommand == "stash" and first in {"drop", "clear"}:
         return "drops stashed work every worktree shares"
-    if subcommand == "worktree" and first in {"remove", "prune"}:
-        return "removes another worktree, which may hold unfinished work"
+    if subcommand == "worktree" and first == "remove" and flags & {"-f", "--force"}:
+        # Only the forced form. Git itself refuses to remove a worktree holding
+        # modified or untracked files, so the plain removal cannot lose work --
+        # asking about it put a prompt on the step that closes every task, on
+        # top of a check git was already making.
+        return "discards a worktree that still holds uncommitted work"
     if subcommand == "submodule" and first in {"deinit", "foreach", "set-url"}:
         return "removes files, changes shared config, or executes a nested command"
     if subcommand == "config":

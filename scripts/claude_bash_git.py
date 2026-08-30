@@ -297,7 +297,21 @@ def git_command_kind(tokens: list[str]) -> str:
     if command == "worktree":
         if args and args[0] == "list":
             return "read_only"
-        if args and args[0] == "add":
-            return "bootstrap"
+        # Creating and removing a worktree are the same lifecycle, and the
+        # workflow runs it constantly: branch a worktree, work, remove it.
+        # Only `add` was recognised, so the removal that closes every task
+        # asked for confirmation -- one more Enter on the most routine step
+        # there is.
+        #
+        # Git already refuses to remove a worktree holding modified or
+        # untracked files and says to use `--force`, so the plain form cannot
+        # lose work; `prune` only clears records for directories that are
+        # already gone. `--force` is what overrides that, and it stays a
+        # mutation.
+        if args and args[0] in {"add", "remove", "prune"}:
+            forcing = any(
+                argument in {"-f", "--force"} for argument in args[1:]
+            )
+            return "mutating" if forcing else "bootstrap"
         return "mutating"
     return "bootstrap" if command == "fetch" else "mutating"
