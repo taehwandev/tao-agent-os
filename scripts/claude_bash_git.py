@@ -18,13 +18,13 @@ UNSAFE_GIT_OPTIONS = frozenset(
         "--output",
         "--receive-pack",
         "--textconv",
+        "--unsafe-paths",
         "--upload-pack",
     }
 )
 GIT_SAFE_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
-# The `git branch` options that only list. Named here rather than inline
-# because the installer's permission rules are built from the same set: a
-# second hand-written copy is the one that drifts toward approving `-D`.
+# The `git branch` options that only list. Kept as one classifier vocabulary so
+# read-only inspection of the protected checkout is not mistaken for a write.
 BRANCH_READ_ONLY_OPTIONS = frozenset(
     {
         "-a",
@@ -135,6 +135,39 @@ def names_unsafe_git_option(argument: str) -> bool:
     return any(unsafe.startswith(name) for unsafe in UNSAFE_GIT_OPTIONS)
 
 
+def _branch_arguments_are_read_only(arguments: list[str]) -> bool:
+    """Recognise branch inspection without treating a branch name as creation."""
+
+    if not arguments:
+        return True
+    value_options = {"--contains", "--merged", "--no-merged"}
+    listing_mode = False
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        name = argument.split("=", 1)[0]
+        if name == "--list":
+            listing_mode = True
+            index += 1
+            continue
+        if name in value_options:
+            listing_mode = True
+            index += 1
+            if "=" not in argument and index < len(arguments):
+                if not arguments[index].startswith("-"):
+                    index += 1
+            continue
+        if argument in BRANCH_READ_ONLY_OPTIONS:
+            listing_mode = True
+            index += 1
+            continue
+        if listing_mode and not argument.startswith("-"):
+            index += 1
+            continue
+        return False
+    return listing_mode
+
+
 def git_command_kind(tokens: list[str]) -> str:
     index = 1
     while index < len(tokens) and tokens[index].startswith("-"):
@@ -176,16 +209,13 @@ def git_command_kind(tokens: list[str]) -> str:
     }:
         return "read_only"
     if command == "branch":
-        return (
-            "read_only"
-            if not args or all(arg in BRANCH_READ_ONLY_OPTIONS for arg in args)
-            else "mutating"
-        )
+        return "read_only" if _branch_arguments_are_read_only(args) else "mutating"
     if command == "remote":
         return "read_only" if not args or args[0] in {"-v", "get-url"} else "mutating"
     if command == "config":
         getters = {"--get", "--get-all", "--get-regexp", "--list"}
-        return "read_only" if args and args[0] in getters else "mutating"
+        names = {argument.split("=", 1)[0] for argument in args}
+        return "read_only" if names & getters else "mutating"
     if command == "worktree":
         if args and args[0] == "list":
             return "read_only"

@@ -8,10 +8,11 @@ from the protected checkout.
 
 The first attempt at this excluded Git entirely from the waiver, which denied
 `git commit` inside the agent's own worktree: the whole point of having one.
-So the boundary is drawn around the commands whose actual effect is losing
-shared work, and the verdict there is `ask`, not `deny` -- each of them is
-sometimes exactly what was meant, and Claude's prompt carries "don't ask
-again" for the operator who means it routinely.
+So the boundary is drawn around commands whose actual effect is losing work or
+escaping the worktree through an output/execution option, and the verdict there
+is `ask`, not `deny` -- each of them is sometimes exactly what was meant, and
+Claude's prompt carries "don't ask again" for the operator who means it
+routinely.
 
 Both halves are load-bearing. A hazard list that grows to cover ordinary Git
 rebuilds the machine that only takes Enter; one that misses a member hands
@@ -41,6 +42,7 @@ ORDINARY = [
     "git add -A",
     "git commit -m 'x'",
     "git checkout -b topic",
+    "git switch -c topic",
     "git switch main",
     "git merge topic",
     "git rebase main",
@@ -51,12 +53,18 @@ ORDINARY = [
     "git push origin topic",
     "git fetch origin",
     "git pull",
+    "git submodule update --init",
     "git worktree add ../x",
     "git tag v1",
     "git remote add upstream git@example.com:x.git",
     "git config user.email a@b.c",
+    "git config --get core.hooksPath",
+    "git config --global --get user.email",
+    "git config --system --list",
     "git reset --soft HEAD~1",
     "git reset HEAD~1",
+    "git restore --staged file.py",
+    "git clean -n",
     "git branch -d merged-topic",
     "git branch --list",
     "git gc",
@@ -65,23 +73,39 @@ ORDINARY = [
 
 HAZARDS = [
     "git branch -D main",
+    "git branch -vD main",
+    "git branch -vvD main",
+    "git branch -f main HEAD",
     "git branch -M main",
     "git branch --delete --force main",
     "git push --force origin main",
     "git push -f",
+    "git push -nf origin main",
     "git push --force-with-lease origin main",
     "git push --delete origin topic",
     "git push --mirror",
     "git push origin +main",
     "git reset --hard origin/main",
+    "git clean -fdx",
+    "git restore file.py",
+    "git restore --staged --worktree file.py",
+    "git checkout -- file.py",
+    "git checkout -B main origin/main",
+    "git checkout -f main",
+    "git switch -C main origin/main",
+    "git switch --discard-changes main",
     "git tag -d v1.0.0",
     "git tag --delete v1.0.0",
+    "git tag -f v1.0.0 HEAD",
     "git update-ref -d refs/heads/x",
+    "git update-ref refs/heads/main deadbeef",
     "git filter-branch --all",
     "git filter-repo --path x",
     "git reflog expire --all",
     "git reflog delete HEAD@{0}",
     "git gc --prune=now",
+    "git prune",
+    "git replace -d deadbeef",
     "git remote remove origin",
     "git remote rm origin",
     "git remote set-url origin git@evil.example:x.git",
@@ -89,8 +113,22 @@ HAZARDS = [
     "git stash drop",
     "git worktree remove ../other",
     "git worktree prune",
+    "git apply --unsafe-paths change.patch",
+    "git submodule foreach rm -rf build",
+    "git submodule deinit --all",
+    "git submodule set-url lib git@evil.example:lib.git",
     "git config --global user.email a@b.c",
     "git config --system core.editor vi",
+    "git config --local core.hooksPath /tmp/hooks",
+    "git config core.hooksPath /tmp/hooks",
+    "git config --file /tmp/config user.email a@b.c",
+    "git show --output=/tmp/leak HEAD",
+    "git diff --output=/tmp/leak HEAD~1",
+    "git log --output=/tmp/leak -1",
+    "git show --ext-diff HEAD",
+    "git --exec-path=/tmp status",
+    "git -c alias.inspect=!evil inspect",
+    "git --config-env=alias.inspect=EVIL inspect",
 ]
 
 
@@ -207,14 +245,14 @@ class TheVerdictIsAskNotDenyTests(unittest.TestCase):
         import json
 
         decisions = []
-        for emit in (gate.deny, gate.ask):
+        for emit in (gate.deny, gate.ask, gate._approve):
             buffer = io.StringIO()
             with contextlib.redirect_stdout(buffer):
                 emit("reason")
             decisions.append(
                 json.loads(buffer.getvalue())["hookSpecificOutput"]["permissionDecision"]
             )
-        self.assertEqual(["deny", "ask"], decisions)
+        self.assertEqual(["deny", "ask", "allow"], decisions)
 
 
 if __name__ == "__main__":

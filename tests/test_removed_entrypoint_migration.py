@@ -77,6 +77,33 @@ class RemovedEntrypointMigrationTests(unittest.TestCase):
                 self.assertEqual("installed", status)
                 self.assertEqual(["command(custom-tool)"], allow)
 
+    def test_claude_cleanup_removes_former_git_wildcards(self) -> None:
+        scripts = ROOT / "scripts"
+        cleanup = claude_legacy_permission_entries(scripts)
+        stale = [
+            "Bash(git -C * show *)",
+            "Bash(git -C * branch -v*)",
+            "Bash(git status *)",
+        ]
+        self.assertTrue(all(entry in cleanup for entry in stale))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "settings.json"
+            target.write_text(
+                json.dumps({"permissions": {"allow": [*stale, "Bash(custom-tool)"]}}),
+                encoding="utf-8",
+            )
+
+            merge_permissions_allow(
+                target,
+                [],
+                dry_run=False,
+                cleanup_entries=cleanup,
+            )
+            allow = json.loads(target.read_text(encoding="utf-8"))["permissions"]["allow"]
+
+        self.assertEqual(["Bash(custom-tool)"], allow)
+
     def test_document_receipt_entrypoints_are_physically_removed(self) -> None:
         for script in STALE_PERMISSION_ENTRYPOINTS:
             with self.subTest(script=script):

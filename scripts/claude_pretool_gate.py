@@ -56,7 +56,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         is_project_state_dir,
         prefer_git_root,
     )
-    from claude_bash_git import git_subcommand
+    from claude_bash_git import git_subcommand, names_unsafe_git_option
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -145,6 +145,9 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
         # switches off.
         return "", []
 
+    def names_unsafe_git_option(argument: str) -> bool:
+        return False
+
 
 def __getattr__(name: str):
     """Load the continuation adapter the first time anything asks for it.
@@ -214,6 +217,37 @@ MAX_ROOT_WALK = 40
 # files count, so doc/content work (e.g. a writing workspace full of .md drafts)
 # is never blocked.
 DEFAULT_NEW_FILE_BUDGET = 5
+ORDINARY_GIT_SUBCOMMANDS = frozenset(
+    {
+        "add",
+        "am",
+        "apply",
+        "branch",
+        "checkout",
+        "cherry-pick",
+        "clean",
+        "commit",
+        "config",
+        "fetch",
+        "gc",
+        "merge",
+        "mv",
+        "pull",
+        "push",
+        "rebase",
+        "reflog",
+        "remote",
+        "reset",
+        "restore",
+        "revert",
+        "rm",
+        "stash",
+        "submodule",
+        "switch",
+        "tag",
+        "worktree",
+    }
+)
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cjs", ".dart", ".go", ".h", ".hpp",
     ".java", ".js", ".jsx", ".kt", ".kts", ".m", ".mjs", ".mm", ".php", ".py",
@@ -233,7 +267,32 @@ def gate_enabled() -> bool:
 
 
 def allow() -> int:
-    """Fail-open: no output means Claude proceeds with the tool call."""
+    """Defer to Claude's normal permission flow without changing it."""
+    return 0
+
+
+def _approve(reason: str) -> int:
+    """Skip a prompt for a command the worktree policy explicitly permits.
+
+    A successful hook with no output is only a deferral. Claude may still ask
+    about the Bash command, which turned the worktree policy into an Enter-only
+    machine even after the gate itself stopped denying ordinary work. Emit the
+    actual ``allow`` decision only for a simple Git invocation whose remaining
+    effects have been classified below; arbitrary Bash keeps Claude's normal
+    permission flow.
+    """
+
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
     return 0
 
 
@@ -654,9 +713,10 @@ def bash_governed_roots(
     reached. A command is governed by all of them, so each is returned and the
     caller denies if any one denies.
 
-    The session's own directory is included alongside the effective one because
-    a `cd` prefix moves where the rest runs without releasing the checkout the
-    session was launched from.
+    Callers supply the directory where the command actually executes. A
+    recognised `cd <worktree> && ...` prefix must not keep the launch checkout
+    as a fictitious write target; explicit paths back into that checkout are
+    still discovered below and remain denied.
     """
 
     roots: list[Path] = []
@@ -693,6 +753,54 @@ def bash_governed_roots(
             if root not in roots:
                 roots.append(root)
     return roots
+
+
+def _git_effective_cwd(tokens: list[str], cwd: Path) -> Path:
+    """Resolve Git's global ``-C`` options without running Git.
+
+    Claude commonly stays launched in the protected checkout and runs
+    ``git -C <linked-worktree> ...``. Judging that command by the launch cwd
+    denies the isolated work it names. Multiple ``-C`` options are relative to
+    the result of the previous one, matching Git's own command-line contract.
+    Unknown global syntax stays at the conservative cwd and is already turned
+    into a hazard by ``git_subcommand``.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return cwd
+    subcommand, arguments = git_subcommand(tokens)
+    if subcommand is None:
+        return cwd
+    subcommand_index = len(tokens) - len(arguments) - 1
+    resolved = cwd
+    index = 1
+    while index < subcommand_index:
+        token = tokens[index]
+        raw = ""
+        if token == "-C" and index + 1 < subcommand_index:
+            raw = tokens[index + 1]
+            index += 2
+        elif token.startswith("-C="):
+            raw = token.split("=", 1)[1]
+            index += 1
+        else:
+            index += 1
+            continue
+        if not raw:
+            continue
+        target = Path(raw).expanduser()
+        if not target.is_absolute():
+            target = resolved / target
+        try:
+            resolved = target.resolve()
+        except OSError:
+            resolved = target
+    return resolved
+
+
+def _ordinary_git_invocation(tokens: list[str]) -> bool:
+    subcommand, _arguments = git_subcommand(tokens)
+    return subcommand in ORDINARY_GIT_SUBCOMMANDS
 
 
 def _declared_project_root() -> Path | None:
@@ -852,9 +960,10 @@ def shared_repository_hazard(tokens: list[str]) -> str:
     That is a reason to name those commands, not to distrust Git. Committing,
     branching, merging, stashing and pushing inside your own worktree is the
     work, and stopping it stops everything for the sake of the rare case. So
-    this returns a reason only for the short list below, where losing shared
-    work is the command's actual effect -- and the answer there is `ask`, not
-    `deny`, because each of these is sometimes precisely what was meant.
+    this returns a reason only for the short list below, where losing
+    work or escaping through an output/execution option is the command's actual
+    effect -- and the answer there is `ask`, not `deny`, because each of these
+    is sometimes precisely what was meant.
     """
 
     if not tokens or Path(tokens[0]).name != "git":
@@ -862,24 +971,60 @@ def shared_repository_hazard(tokens: list[str]) -> str:
     subcommand, arguments = git_subcommand(tokens)
     if subcommand is None:
         return "uses a Git option this gate cannot read, so what it does is unknown"
+    if subcommand:
+        subcommand_index = len(tokens) - len(arguments) - 1
+        global_names = {
+            token.split("=", 1)[0] for token in tokens[1:subcommand_index]
+        }
+        if global_names & {"-c", "--config-env", "--exec-path"}:
+            return "changes configuration or executable lookup for this Git invocation"
+    if any(names_unsafe_git_option(argument) for argument in arguments):
+        return "names an option that can write output or execute another program"
     flags = {argument.split("=", 1)[0] for argument in arguments}
     words = [argument for argument in arguments if not argument.startswith("-")]
     first = words[0] if words else ""
+    short_flags = {
+        letter
+        for argument in arguments
+        if argument.startswith("-") and not argument.startswith("--")
+        for letter in argument[1:]
+    }
 
     if subcommand == "branch":
-        # `-d` refuses to drop unmerged work; `-D` and `-M` do not.
-        if flags & {"-D", "-M"} or ("--delete" in flags and flags & {"-f", "--force"}):
+        # `-d` refuses to drop unmerged work; `-D`, `-M`, and `-f` do not.
+        # Git accepts bundled short flags, so `-vD` must be read as containing
+        # `-D`, not mistaken for an unrelated listing option.
+        forced_long = "--force" in flags and flags & {"--delete", "--move"}
+        if short_flags & {"D", "M", "f"} or forced_long:
             return "deletes or overwrites a branch every worktree shares"
     if subcommand == "push":
-        if flags & {"-f", "--force", "--force-with-lease", "--delete", "--mirror"}:
+        force_flags = {"--delete", "--force", "--force-with-lease", "--mirror"}
+        if "f" in short_flags or flags & force_flags:
             return "rewrites or deletes a published branch"
         if any(word.startswith("+") for word in words):
             return "force-pushes: a leading + in a refspec rewrites the remote"
     if subcommand == "reset" and "--hard" in flags:
         return "discards committed work reachable only from here"
-    if subcommand == "tag" and flags & {"-d", "--delete"}:
-        return "deletes a tag every worktree shares"
-    if subcommand == "update-ref" and flags & {"-d", "--stdin"}:
+    dry_run = short_flags & {"n"} or "--dry-run" in flags
+    if subcommand == "clean" and not dry_run:
+        return "deletes untracked work from this worktree"
+    if subcommand == "restore":
+        staged_only = "--staged" in flags and "--worktree" not in flags
+        if not staged_only:
+            return "discards uncommitted work from this worktree"
+    if subcommand == "checkout":
+        if short_flags & {"B", "f"} or flags & {"--force"} or "--" in arguments:
+            return "discards work or overwrites a branch"
+    if subcommand == "switch":
+        force_flags = {"--discard-changes", "--force", "--force-create"}
+        if short_flags & {"C", "f"} or flags & force_flags:
+            return "discards work or overwrites a branch"
+    if subcommand == "tag" and (
+        short_flags & {"d", "f"} or flags & {"--delete", "--force"}
+    ):
+        return "deletes or overwrites a tag every worktree shares"
+    update_ref_help = flags in ({"-h"}, {"--help"})
+    if subcommand == "update-ref" and arguments and not update_ref_help:
         return "writes a shared ref directly, past the commands that check it"
     if subcommand in {"filter-branch", "filter-repo"}:
         return "rewrites the entire shared history"
@@ -887,14 +1032,26 @@ def shared_repository_hazard(tokens: list[str]) -> str:
         return "removes the reflog, which is how the rest of this list is undone"
     if subcommand == "gc" and "--prune" in flags:
         return "prunes objects the reflog would otherwise recover"
+    if subcommand == "prune":
+        return "deletes unreachable objects from the shared object store"
+    if subcommand == "replace" and flags & {"-d", "--delete"}:
+        return "deletes a replacement ref every worktree shares"
     if subcommand == "remote" and first in {"remove", "rm", "set-url"}:
         return "changes a remote every worktree shares"
     if subcommand == "stash" and first in {"drop", "clear"}:
         return "drops stashed work every worktree shares"
     if subcommand == "worktree" and first in {"remove", "prune"}:
         return "removes another worktree, which may hold unfinished work"
-    if subcommand == "config" and flags & {"--global", "--system"}:
-        return "changes Git configuration outside this repository"
+    if subcommand == "submodule" and first in {"deinit", "foreach", "set-url"}:
+        return "removes files, changes shared config, or executes a nested command"
+    if subcommand == "config":
+        getters = {"--get", "--get-all", "--get-regexp", "--list"}
+        if flags & getters:
+            return ""
+        if flags & {"-f", "--file", "--global", "--system"}:
+            return "changes Git configuration outside this repository"
+        if "core.hooksPath" in words:
+            return "changes the executable hooks path every worktree shares"
     return ""
 
 
@@ -917,8 +1074,9 @@ def decide(payload: dict) -> int:
     if tool in BASH_TOOLS:
         effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
         bash_kind = bash_command_kind(tokens, syntax_is_simple)
+        command_cwd = _git_effective_cwd(tokens, effective_cwd)
         roots = bash_governed_roots(
-            tokens, effective_cwd, cwd, command=bash_command(payload)
+            tokens, command_cwd, command=bash_command(payload)
         )
         root = roots[0] if roots else None
     else:
@@ -927,7 +1085,19 @@ def decide(payload: dict) -> int:
     if root is None:
         # Not an Tao Agent OS project; never block ordinary editing.
         return allow()
-    if tool in BASH_TOOLS and bash_kind in {"read_only", "bootstrap"}:
+    if tool in BASH_TOOLS and bash_kind == "read_only":
+        return allow()
+    if tool in BASH_TOOLS and bash_kind == "bootstrap":
+        if (
+            syntax_is_simple
+            and tokens
+            and Path(tokens[0]).name == "git"
+            and worktree_policy_satisfied(root)
+            and _ordinary_git_invocation(tokens)
+        ):
+            return _approve(
+                "This is an ordinary Git command inside the isolated linked worktree."
+            )
         return allow()
     # Every governed project, not just the first: a session inside a linked
     # worktree satisfies its own policy while naming the protected checkout it
@@ -950,13 +1120,22 @@ def decide(payload: dict) -> int:
         return deny(worktree_reason)
     if worktree_policy_satisfied(root):
         hazard = shared_repository_hazard(tokens)
-        if not hazard:
-            return allow()
-        return ask(
-            "This worktree isolates its files, but every worktree shares one "
-            f"Git directory and this command {hazard}. Allow it only if that "
-            "is what you meant."
-        )
+        if hazard:
+            return ask(
+                "This worktree isolates ordinary file edits, but this Git command "
+                f"{hazard}. Allow it only if that is what you meant."
+            )
+        if (
+            tool in BASH_TOOLS
+            and syntax_is_simple
+            and tokens
+            and Path(tokens[0]).name == "git"
+            and _ordinary_git_invocation(tokens)
+        ):
+            return _approve(
+                "This is an ordinary Git command inside the isolated linked worktree."
+            )
+        return allow()
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
         return deny(deny_reason(root, session_id, tool))

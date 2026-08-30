@@ -48,7 +48,7 @@ def claude_permission_entries(scripts_dir: Path, *, spill_available: bool = True
     if spill_available:
         for command in _spill_helper_permission_commands("claude"):
             _add_permission_command_entries(entries, "Bash", command)
-    for command in _common_tao_tool_commands():
+    for command in _claude_tao_tool_commands():
         _add_permission_command_entries(entries, "Bash", command)
     return entries
 
@@ -62,6 +62,7 @@ def claude_legacy_permission_entries(scripts_dir: Path) -> list[str]:
     for script in _legacy_tao_python_scripts(scripts_dir):
         for command in _python_entrypoint_commands(script, "claude", scripts_dir.parent, include_legacy=True):
             _add_permission_command_entries(entries, "Bash", command)
+    entries.extend(_legacy_claude_git_permission_entries())
     return entries
 
 
@@ -69,36 +70,40 @@ def claude_project_permission_entries(scripts_dir: Path, *, spill_available: boo
     # The stable launcher is a user-level machine path. Project settings stay
     # portable and rely on the user-level Claude permission installed above.
     entries: list[str] = []
-    for subcommand in ("log", "status", "diff", "show"):
-        entries.append(f"Bash(git -C * {subcommand} *)")
-    entries.extend(_branch_listing_permission_entries())
     entries.extend(_worktree_permission_entries())
-    for command in _common_tao_tool_commands():
+    for command in _claude_tao_tool_commands():
         _add_permission_command_entries(entries, "Bash", command)
     return entries
 
 
-def _branch_listing_permission_entries() -> list[str]:
-    """Auto-approve reading branches, never deleting or renaming one.
+def _legacy_claude_git_permission_entries() -> list[str]:
+    """Every former Git allow rule that setup must remove.
 
-    `Bash(git -C * branch *)` reads as "inspecting branches", but the matcher's
-    `*` is any remainder, so it approved `git branch -D main` and `-M` with it.
-    Refs live in the one Git directory every worktree shares, so that is the
-    protected checkout's history, deleted without a prompt.
+    Claude already handles read-only Git without prompting, and the PreToolUse
+    gate now explicitly approves ordinary simple Git inside a compliant linked
+    worktree. Keeping a second Bash-prefix policy is both redundant and unsafe:
+    its wildcard can absorb flags such as ``--output`` or bundled ``-vD``.
 
-    A Bash rule matches a prefix and cannot express "except these flags", so the
-    listing flags are named instead. They come from the gate's own read-only
-    classifier: a second hand-written list here would be the copy that drifts,
-    and the direction it drifts is toward approving more than the gate reads.
+    This function is cleanup-only. It names the broad original rules, the later
+    branch-listing rules, and the generated user-level Git variants so an
+    installer refresh removes every earlier spelling instead of merely ceasing
+    to add it.
     """
 
     from claude_bash_git import BRANCH_READ_ONLY_OPTIONS
 
-    entries = ["Bash(git -C * branch)"]
+    entries = [
+        "Bash(git -C * branch *)",
+        "Bash(git -C * branch)",
+        *(f"Bash(git -C * {subcommand} *)" for subcommand in ("log", "status", "diff", "show")),
+    ]
     entries.extend(
         f"Bash(git -C * branch {option}*)"
         for option in sorted(BRANCH_READ_ONLY_OPTIONS)
     )
+    for command in _common_tao_tool_commands():
+        if command == "git" or command.startswith("git "):
+            _add_permission_command_entries(entries, "Bash", command)
     return entries
 
 
@@ -382,4 +387,14 @@ def _common_tao_tool_commands() -> list[str]:
         "python -m unittest discover -s tests",
         "python3 -m py_compile",
         "python -m py_compile",
+    ]
+
+
+def _claude_tao_tool_commands() -> list[str]:
+    """Common commands excluding Git, whose policy belongs to the hook."""
+
+    return [
+        command
+        for command in _common_tao_tool_commands()
+        if command != "git" and not command.startswith("git ")
     ]

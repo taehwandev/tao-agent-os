@@ -313,7 +313,12 @@ class RuntimeSetupTests(unittest.TestCase):
         self.assertNotIn("$HOME", entries)
         self.assertNotIn("${HOME}", entries)
         self.assertNotIn("~/", entries)
-        self.assertEqual(78, len(entry_list))
+        self.assertEqual(57, len(entry_list))
+
+    def test_claude_user_permissions_do_not_duplicate_git_policy(self) -> None:
+        entries = claude_permission_entries(ROOT / "scripts", spill_available=False)
+
+        self.assertFalse(any(entry.startswith("Bash(git") for entry in entries))
 
     def test_setup_permissions_cover_python_verification_commands(self) -> None:
         # These are the verification kinds the repair hook accepts, so setup must

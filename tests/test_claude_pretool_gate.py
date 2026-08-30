@@ -260,7 +260,34 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project, linked=True)
-            for command in ("git commit -m x", "git checkout -b topic", "git stash"):
+            for command in (
+                "git commit -m x",
+                "git checkout -b topic",
+                "git stash",
+                "git fetch origin",
+                "git worktree add ../topic",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    decision = json.loads(out)["hookSpecificOutput"]
+                    self.assertEqual("allow", decision["permissionDecision"])
+                    self.assertIn("ordinary Git", decision["permissionDecisionReason"])
+
+    def test_unclassified_git_keeps_claudes_normal_permission_flow(self) -> None:
+        """A missing hazard entry must not become an unconditional approval."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            for command in ("git fsck --full", "git fast-import"):
                 with self.subTest(command=command):
                     code, out = _decide(
                         {
@@ -272,6 +299,86 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     )
                     self.assertEqual(0, code)
                     self.assertEqual("", out)
+
+    def test_main_launched_session_may_target_the_linked_worktree(self) -> None:
+        """The launch checkout is context, not a second mutation target."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp) / "main")
+            _require_linked_worktree(main)
+            worktree = _opt_in_project(Path(tmp) / "worktree")
+            _require_linked_worktree(worktree, linked=True)
+
+            for command in (
+                f"cd {worktree} && git commit -m x",
+                f"git -C {worktree} commit -m x",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(main),
+                            "session_id": "main-launched",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        "allow",
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                    )
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "main-launched",
+                    "tool_input": {"command": f"cd {worktree} && python3 build.py"},
+                }
+            )
+            self.assertEqual((0, ""), (code, out))
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "main-launched",
+                    "tool_input": {
+                        "command": f"cd {worktree} && python3 {main / 'mutate.py'}"
+                    },
+                }
+            )
+            self.assertEqual(0, code)
+            self.assertIn("worktree gate", _reason(out))
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "main-launched",
+                    "tool_input": {"command": f"git -C {main} commit -m x"},
+                }
+            )
+            self.assertEqual(0, code)
+            self.assertIn("worktree gate", _reason(out))
+
+    def test_compound_git_is_not_explicitly_approved(self) -> None:
+        """An allow for Git must not absorb a second shell command."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"command": "git status && rm -rf ../other"},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
 
     def test_a_shared_state_hazard_reaches_the_operator_as_a_question(self) -> None:
         """`ask`, not `deny`: force-pushing is a decision, not a mistake.
@@ -286,7 +393,13 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project, linked=True)
-            for command in ("git push --force origin main", "git branch -D main"):
+            for command in (
+                "git push --force origin main",
+                "git branch -D main",
+                "git branch -vD main",
+                "git show --output=/tmp/leak HEAD",
+                "git config --local core.hooksPath /tmp/hooks",
+            ):
                 with self.subTest(command=command):
                     code, out = _decide(
                         {
@@ -318,6 +431,24 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("worktree gate", _reason(out))
 
+    def test_the_main_checkout_remains_readable(self) -> None:
+        """Isolation protects mutations; it must not hide source context."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Read",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(project / "AGENTS.md")},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
     def test_without_a_policy_a_checkout_still_needs_evidence(self) -> None:
         """The waiver is earned by the policy, not granted by its absence.
 
@@ -344,16 +475,23 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project)
-            code, out = _decide(
-                {
-                    "tool_name": "Bash",
-                    "cwd": str(project),
-                    "session_id": "s",
-                    "tool_input": {"command": "git status -sb"},
-                }
-            )
-        self.assertEqual(0, code)
-        self.assertEqual("", out)
+            for command in (
+                "git status -sb",
+                "git branch --contains HEAD",
+                "git branch --list 'topic-*'",
+                "git config --global --get user.email",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "s",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out)
 
     def test_print_only_sed_is_allowed_in_required_main_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

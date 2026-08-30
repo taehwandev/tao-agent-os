@@ -118,47 +118,20 @@ class WorktreePermissionEntryTests(unittest.TestCase):
 
         self.assertEqual([], offenders)
 
-    def test_no_branch_rule_reaches_a_deletion_or_a_rename(self) -> None:
-        """`Bash(git -C * branch *)` approved `git branch -D main` too.
+    def test_git_is_not_approved_by_a_bash_prefix_rule(self) -> None:
+        """Git permissions belong to Claude and the PreToolUse classifier.
 
-        The matcher's `*` is any remainder and cannot be given an exception, so
-        a rule that ends there covers the destructive flags along with the
-        listing ones -- and refs are shared by every worktree, so that is the
-        protected checkout's history going without a prompt.
+        A Bash wildcard cannot express "read this, except when a later flag
+        writes or executes". Even a branch-listing prefix such as ``-v*`` also
+        matches the destructive bundle ``-vD``. Read-only Git is built in, and
+        ordinary linked-worktree Git receives an explicit hook allow, so no
+        generated Git prefix is needed here.
         """
 
-        destructive = ("-D", "-M", "--delete", "-m", "--move")
-        for entry in _entries():
-            if " branch" not in entry:
-                continue
-            remainder = _path_rule(entry).split("branch", 1)[1].lstrip()
-            if not remainder.endswith("*"):
-                # No trailing wildcard: the rule is the whole command, and a
-                # flag cannot follow it.
-                continue
-            literal = remainder[:-1]
-            for flag in destructive:
-                with self.subTest(entry=entry, flag=flag):
-                    self.assertFalse(
-                        flag.startswith(literal),
-                        f"{entry} reaches `git branch {flag}`",
-                    )
-
-    def test_the_branch_rules_come_from_the_gate_classifier(self) -> None:
-        """One list, so the rules cannot grant more than the gate reads."""
-
-        from claude_bash_git import BRANCH_READ_ONLY_OPTIONS, git_command_kind
-
-        granted = {
-            _path_rule(entry).split("branch", 1)[1].strip().rstrip("*")
-            for entry in _entries()
-            if " branch" in entry
-        } - {""}
-
-        self.assertEqual(set(BRANCH_READ_ONLY_OPTIONS), granted)
-        for option in granted:
-            with self.subTest(option=option):
-                self.assertEqual("read_only", git_command_kind(["git", "branch", option]))
+        self.assertFalse(
+            any(entry.startswith("Bash(git") for entry in _entries()),
+            _entries(),
+        )
 
     def test_nothing_destructive_is_granted(self) -> None:
         # Removing a worktree deletes work. It stays a decision, not a default.
