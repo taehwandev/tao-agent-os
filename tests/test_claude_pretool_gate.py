@@ -424,22 +424,46 @@ class ClaudePreToolGateTests(unittest.TestCase):
         merged branches meant creating a throwaway worktree to delete them
         from -- ceremony standing in for a decision already made.
 
-        None of these authors anything in the working tree. They are decisions,
-        so they are put as decisions, and Claude's prompt carries "don't ask
-        again" for whoever does them routinely.
+        None of these authors anything in the working tree, so none is refused.
+        They were then all asked about, on the belief that Claude's prompt
+        carries "don't ask again". It does not -- a hook's `ask` offers yes or
+        no, every time -- so cleaning up a merged branch asked on the last step
+        of every task, forever. The asking tier is now the same one a worktree
+        uses, and ordinary reference work is approved outright.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project)
 
+            def decision(command: str) -> str:
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "no-evidence",
+                        "tool_input": {"command": command},
+                    }
+                )
+                self.assertEqual(0, code)
+                if not out:
+                    return "silent"
+                return json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+
             for command in (
                 "git branch -D merged-topic",
                 "git branch -d merged-topic",
                 "git branch newtopic",
-                "git tag -d v1.0.0",
                 "git push origin --delete topic",
+            ):
+                with self.subTest(command=command, tier="routine"):
+                    self.assertEqual("allow", decision(command), command)
+
+            for command in (
+                "git branch -D main",
+                "git push origin --delete main",
                 "git push --force origin main",
+                "git tag -d v1.0.0",
                 "git remote remove origin",
                 "git worktree remove --force ../old",
                 "git update-ref -d refs/heads/x",
@@ -447,21 +471,8 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "git gc --prune=now",
                 "git stash drop",
             ):
-                with self.subTest(command=command):
-                    code, out = _decide(
-                        {
-                            "tool_name": "Bash",
-                            "cwd": str(project),
-                            "session_id": "no-evidence",
-                            "tool_input": {"command": command},
-                        }
-                    )
-                    self.assertEqual(0, code)
-                    self.assertEqual(
-                        "ask",
-                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-                        command,
-                    )
+                with self.subTest(command=command, tier="asks"):
+                    self.assertEqual("ask", decision(command), command)
 
     def test_the_worktree_cycle_does_not_stop_to_ask(self) -> None:
         """Branch a worktree, work, remove it -- the loop this gate encourages.
@@ -542,8 +553,9 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
         Opening or merging a pull request talks to GitHub. Refusing it outright
         left the protected checkout unable to ship at all, with no prompt to
-        answer -- while `git push`, which does the same job at a lower level,
-        was already asked about.
+        answer. It is not this gate's business either way, so it gets the same
+        answer here as inside a worktree: nothing, and Claude's own permission
+        flow decides.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -562,11 +574,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                         }
                     )
                     self.assertEqual(0, code)
-                    self.assertEqual(
-                        "ask",
-                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-                        command,
-                    )
+                    self.assertEqual("", out, command)
 
     def test_reading_from_github_needs_no_decision_at_all(self) -> None:
         # Classified read-only, so it is allowed before the protected-checkout
@@ -643,13 +651,18 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertEqual("allow", decision(command))
 
-            # The rest move or discard what is there: a real decision, put once
-            # to the person whose checkout it is.
+            # `switch` joins them: git refuses to change branches over
+            # uncommitted changes, so it cannot lose any, and it is how you
+            # move around a checkout at all.
+            with self.subTest(command="git switch main"):
+                self.assertEqual("allow", decision("git switch main"))
+
+            # The rest write a commit or discard uncommitted work here, which
+            # is a decision even though it authors nothing new.
             for command in (
                 "git merge topic",
                 "git pull",
                 "git checkout main",
-                "git switch main",
                 "git checkout -- .claude/settings.json",
                 "git restore src/app.py",
                 "git stash",

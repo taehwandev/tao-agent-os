@@ -812,7 +812,19 @@ AUTHORING_GIT_SUBCOMMANDS = frozenset(
 )
 
 
-def protected_checkout_verdict(tokens: list[str]) -> str:
+# In the protected checkout these either write a new commit or throw away
+# uncommitted work there. Neither is authoring in the sense the refusal covers,
+# but both are a decision worth one question. `switch` is absent on purpose:
+# git refuses to change branches over uncommitted changes, so it cannot lose
+# them, and it is how you move around a checkout at all.
+COMMITTING_OR_DISCARDING_SUBCOMMANDS = frozenset(
+    {"checkout", "clean", "merge", "pull", "reset", "restore", "stash"}
+)
+
+
+def protected_checkout_verdict(
+    tokens: list[str], protected: frozenset[str] | None = None
+) -> str:
     """`allow`, `ask`, or `""` for a Git command aimed at the protected checkout.
 
     The policy is that new work is authored in a linked worktree and the
@@ -826,26 +838,33 @@ def protected_checkout_verdict(tokens: list[str]) -> str:
 
     Naming what is refused instead makes the boundary answer for cases nobody
     listed. Authoring is refused outright, because the remedy is deterministic:
-    do it in a worktree. Everything else Git does here -- integrating, deleting
-    a merged branch, removing a tag, tidying a remote -- is a decision, so it
-    is put to the operator as one, and Claude's prompt carries "don't ask
-    again" so an operator who does it routinely answers once.
+    do it in a worktree.
 
-    A fast-forward is the exception that needs no question: it moves a branch
-    pointer onto commits already in the repository and can neither create nor
-    lose anything.
+    Everything else was then put to the operator as a decision, on the belief
+    that Claude's prompt carries "don't ask again" so a routine one would cost
+    a single answer. It does not: a hook's `ask` offers yes or no, every time.
+    So tidying up a merged branch here asked on the last step of every task,
+    forever -- which is the machine that only takes Enter, rebuilt one tier
+    down.
 
-    `""` keeps the refusal, and covers anything that is not Git at all.
+    The asking tier is therefore the same one a worktree uses: a shared-state
+    hazard, plus the commands that create a commit or throw away uncommitted
+    work in this checkout. Ordinary reference maintenance -- deleting a merged
+    branch, removing a tag, tidying a remote, pruning a worktree -- is approved
+    outright, exactly as it is inside a worktree.
+
+    Returns `defer` for what belongs to Claude's own permission flow rather
+    than to this gate, `""` for a refusal, and covers anything that is not Git
+    at all.
     """
 
     if not tokens:
         return ""
     if Path(tokens[0]).name == "gh":
-        # `gh` talks to GitHub. Opening or merging a pull request writes
-        # nothing into this working tree, so refusing it outright made shipping
-        # from the protected checkout a dead end with no prompt to answer. The
-        # reporting subcommands are allowed earlier and never reach here.
-        return "ask"
+        # `gh` talks to GitHub and writes nothing into this working tree, so it
+        # is not this gate's business either way -- the same answer it gets
+        # inside a worktree.
+        return "defer"
     if Path(tokens[0]).name != "git":
         return ""
     subcommand, arguments = git_subcommand(tokens)
@@ -866,7 +885,11 @@ def protected_checkout_verdict(tokens: list[str]) -> str:
     flags = {argument.split("=", 1)[0] for argument in arguments}
     if subcommand in {"merge", "pull"} and "--ff-only" in flags:
         return "allow"
-    return "ask"
+    if subcommand in COMMITTING_OR_DISCARDING_SUBCOMMANDS:
+        return "ask"
+    if shared_repository_hazard(tokens, protected):
+        return "ask"
+    return "allow"
 
 
 def _ordinary_git_invocation(tokens: list[str]) -> bool:
@@ -1276,20 +1299,22 @@ def decide(payload: dict) -> int:
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
         landing = (
-            protected_checkout_verdict(tokens)
+            protected_checkout_verdict(tokens, protected_branch_names(root))
             if tool in BASH_TOOLS and syntax_is_simple
             else ""
         )
         if landing == "allow":
             return _approve(
-                "This lands existing commits in the protected checkout without "
-                "authoring anything there."
+                "This authors nothing in the protected checkout: it moves or "
+                "removes references that already exist."
             )
+        if landing == "defer":
+            return allow()
         if landing == "ask":
             return ask(
-                "This authors nothing in the protected checkout, so it is not "
-                "refused outright -- but it can move or remove what is there. "
-                "Allow it only if that is what you meant."
+                "This writes a commit into the protected checkout, discards "
+                "uncommitted work there, or reaches shared state. Allow it only "
+                "if that is what you meant."
             )
         return deny(worktree_reason)
     if worktree_policy_satisfied(root):
