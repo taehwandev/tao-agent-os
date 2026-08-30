@@ -414,6 +414,119 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual("ask", decision["permissionDecision"])
                     self.assertIn("worktree", decision["permissionDecisionReason"])
 
+    def test_ref_maintenance_is_a_question_not_a_dead_end(self) -> None:
+        """Deleting a merged branch there had no route at all.
+
+        The protected checkout was written as a short list of permitted
+        commands, refusing everything else, and the list was never going to be
+        complete. First it missed `merge` and `pull`, so work done in a
+        worktree had no way home. Then it missed `branch -D`, so deleting two
+        merged branches meant creating a throwaway worktree to delete them
+        from -- ceremony standing in for a decision already made.
+
+        None of these authors anything in the working tree. They are decisions,
+        so they are put as decisions, and Claude's prompt carries "don't ask
+        again" for whoever does them routinely.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            for command in (
+                "git branch -D merged-topic",
+                "git branch -d merged-topic",
+                "git branch newtopic",
+                "git tag -d v1.0.0",
+                "git push origin --delete topic",
+                "git push --force origin main",
+                "git remote remove origin",
+                "git worktree remove ../old",
+                "git worktree prune",
+                "git update-ref -d refs/heads/x",
+                "git reflog expire --all",
+                "git gc --prune=now",
+                "git stash drop",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        "ask",
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        command,
+                    )
+
+    def test_authoring_there_is_what_stays_refused(self) -> None:
+        """The boundary is named by what it refuses, so it covers the unlisted.
+
+        Writing new content into the protected working tree is the one thing
+        the policy is for, and its remedy is deterministic -- do it in a
+        worktree -- which is what `deny` is for.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            for command in (
+                "git commit -m x",
+                "git add -A",
+                "git cherry-pick abc123",
+                "git revert abc123",
+                "git rebase main",
+                "git apply patch.diff",
+                "git am patch",
+                "git mv a b",
+                "git rm old.py",
+                "rm -rf build",
+                "npm install",
+                # A compound line is read as one command and carries anything
+                # after the part that was read.
+                "git branch -D x && rm -rf build",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        STOP_DECISION,
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        command,
+                    )
+
+    def test_an_unreadable_git_option_asks_rather_than_passing(self) -> None:
+        # The same fail-closed reading the hazard check uses: an option that
+        # hides which subcommand runs is the dangerous case.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "no-evidence",
+                    "tool_input": {"command": "git --unknown-global branch -D main"},
+                }
+            )
+            self.assertEqual(0, code)
+            self.assertEqual(
+                "ask", json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+            )
+
     def test_finished_work_can_reach_the_protected_checkout(self) -> None:
         """A worktree you cannot land is a one-way street.
 
@@ -465,16 +578,19 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertEqual("ask", decision(command))
 
-            # Authoring there is still refused outright.
+            # Authoring there is still refused outright. `push --force` used to
+            # be listed here and is now asked about instead: it writes nothing
+            # into the working tree, so it is a decision about shared refs
+            # rather than work authored in the protected checkout.
             for command in (
                 "git commit -m x",
                 "git cherry-pick abc123",
                 "rm -rf build",
                 "python3 build.py",
-                "git push --force origin main",
             ):
                 with self.subTest(command=command):
                     self.assertEqual(STOP_DECISION, decision(command))
+            self.assertEqual("ask", decision("git push --force origin main"))
 
     def test_landing_needs_a_simple_command_line(self) -> None:
         # The allowance reads one command. A compound line can carry anything
