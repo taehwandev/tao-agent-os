@@ -414,6 +414,111 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual("ask", decision["permissionDecision"])
                     self.assertIn("worktree", decision["permissionDecisionReason"])
 
+    def test_a_hazard_aimed_out_of_the_worktree_is_still_asked_about(self) -> None:
+        """`-C <elsewhere>` moved the target out of every governed root.
+
+        The command then met the "not a Tao project, never block ordinary
+        editing" rule and passed in silence, while the same deletion spelled
+        `--git-dir=<elsewhere>/.git` was asked about -- one act decided two ways
+        by which flag named the repository. Destroying another repository is not
+        ordinary editing.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            elsewhere = Path(tmp) / "unrelated"
+            elsewhere.mkdir()
+            for command in (
+                f"git -C {elsewhere} branch -D main",
+                f"git -C {elsewhere} push --force origin main",
+                f"git --git-dir={elsewhere}/.git branch -D main",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual(
+                        "ask",
+                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        command,
+                    )
+
+    def test_ordinary_work_aimed_elsewhere_stays_out_of_the_way(self) -> None:
+        # Only hazards. Reaching another directory is not itself suspicious,
+        # and a gate that questioned every outward command would be back to
+        # asking about everything.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            elsewhere = Path(tmp) / "unrelated"
+            elsewhere.mkdir()
+            for command in (
+                f"git -C {elsewhere} commit -m x",
+                f"git -C {elsewhere} status",
+                f"cp {elsewhere}/a .",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertNotIn('"ask"', out)
+                    self.assertNotIn('"deny"', out)
+
+    def test_a_session_outside_any_project_is_not_gated_at_all(self) -> None:
+        # The outward-hazard check keys on the session's own root, so a session
+        # that is not in a governed project keeps the gate out of its way.
+        code, out = _decide(
+            {
+                "tool_name": "Bash",
+                "cwd": "/tmp",
+                "session_id": "s",
+                "tool_input": {"command": "git push --force origin main"},
+            }
+        )
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_a_bootstrap_git_command_is_read_before_it_is_approved(self) -> None:
+        """Nothing bootstrap is destructive today; the ordering is the point.
+
+        `fetch` and `worktree add` are the whole bootstrap set, so this changes
+        no verdict now. Approving first and checking second means the day one
+        more subcommand joins that set, it is approved without being read.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+
+            with patch.object(gate, "shared_repository_hazard", return_value="eats refs"):
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "no-evidence",
+                        "tool_input": {"command": "git fetch origin"},
+                    }
+                )
+
+            # It falls through to Claude's normal permission flow instead of
+            # carrying an explicit approval past it. Deferring is fine; it is
+            # the bypass that must not be handed to an unread command.
+            self.assertEqual(0, code)
+            self.assertNotIn('"allow"', out)
+
     def test_the_main_checkout_is_still_refused_by_the_worktree_gate(self) -> None:
         # Waiving evidence inside a worktree must not waive the policy itself.
         with tempfile.TemporaryDirectory() as tmp:

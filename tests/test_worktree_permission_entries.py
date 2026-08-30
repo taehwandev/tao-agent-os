@@ -118,6 +118,30 @@ class WorktreePermissionEntryTests(unittest.TestCase):
 
         self.assertEqual([], offenders)
 
+    def test_the_unanchored_spelling_is_removed_not_merely_dropped(self) -> None:
+        """Ceasing to write a rule does not remove the one already written.
+
+        An earlier installer emitted these without the leading slash. A refresh
+        adds the anchored rules, and without naming the old spelling as cleanup
+        it leaves both: settings that still carry a pattern resolving to a
+        `.tao/worktrees` nested inside a worktree, matching nothing.
+        """
+
+        from support.permission_entries import claude_legacy_permission_entries
+
+        cleanup = claude_legacy_permission_entries(SCRIPTS)
+        for tool in ("Read", "Edit", "Write"):
+            with self.subTest(tool=tool):
+                self.assertIn(f"{tool}(.tao/{WORKTREE_DIRNAME}/**)", cleanup)
+
+    def test_cleanup_never_removes_a_rule_the_installer_adds(self) -> None:
+        # The two lists meet in one merge, so an entry in both would be added
+        # and removed in the same run -- a rule that silently never lands.
+        from support.permission_entries import claude_legacy_permission_entries
+
+        cleanup = set(claude_legacy_permission_entries(SCRIPTS))
+        self.assertEqual(set(), cleanup & set(_entries()))
+
     def test_git_is_not_approved_by_a_bash_prefix_rule(self) -> None:
         """Git permissions belong to Claude and the PreToolUse classifier.
 

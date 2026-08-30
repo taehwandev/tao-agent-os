@@ -1084,16 +1084,41 @@ def decide(payload: dict) -> int:
         roots = [root] if root is not None else []
     if root is None:
         # Not an Tao Agent OS project; never block ordinary editing.
+        #
+        # `-C <elsewhere>` moves the command's target out of every governed
+        # root and landed here, so `git -C /tmp/other branch -D main` from a
+        # governed session was silent while the same deletion spelled
+        # `--git-dir=/tmp/other/.git` was asked about -- the same act, decided
+        # two ways by which flag named the repository. Destroying another
+        # repository is not "ordinary editing", so a session working inside a
+        # compliant worktree is still asked. Only hazards, and only `ask`: a
+        # session that is not in a governed project keeps this gate out of its
+        # way entirely.
+        session_root = find_project_root(cwd)
+        if session_root is not None and worktree_policy_satisfied(session_root):
+            hazard = shared_repository_hazard(tokens)
+            if hazard:
+                return ask(
+                    "This command leaves the worktree to reach another "
+                    f"repository, and there it {hazard}. Allow it only if that "
+                    "is what you meant."
+                )
         return allow()
     if tool in BASH_TOOLS and bash_kind == "read_only":
         return allow()
     if tool in BASH_TOOLS and bash_kind == "bootstrap":
+        # The hazard list is consulted here too. Nothing Git classifies as
+        # bootstrap is destructive today -- `fetch` and `worktree add` are the
+        # whole set -- so this changes no verdict now. It is the ordering that
+        # matters: approving first and checking second means the day one more
+        # subcommand becomes bootstrap, it is approved without ever being read.
         if (
             syntax_is_simple
             and tokens
             and Path(tokens[0]).name == "git"
             and worktree_policy_satisfied(root)
             and _ordinary_git_invocation(tokens)
+            and not shared_repository_hazard(tokens)
         ):
             return _approve(
                 "This is an ordinary Git command inside the isolated linked worktree."
