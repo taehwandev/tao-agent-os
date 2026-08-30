@@ -17,7 +17,7 @@ Use when creating, reviewing, or restructuring docs, guides, specs, READMEs, age
   Tao Agent OS guidance card
 - `common/skills/project-naming/SKILL.md` when names, slugs, or product identifiers appear
 - `common/skills/verification-policy/SKILL.md` when links, examples, or commands can be checked
-- `common/skills/human-authored-writing/SKILL.md` when the task changes prose voice, tone, or AI-writing signals without changing facts
+- `common/skills/human-authored-writing/SKILL.md` when the task changes prose voice, tone, or AI-writing signals, or repairs a reader-comprehension failure without changing facts
 - task-specific architecture, product-pattern, security, or release cards when the docs describe those surfaces
 
 ## Steps

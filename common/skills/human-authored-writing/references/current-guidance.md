@@ -61,6 +61,46 @@ Concision removes words the reader does not need. Over-compression removes the c
 
 For example, "Keep shared rules at the root and module rules close to the code" is compact but assumes the reader already knows which root, which rules, and why location matters. A usable explanation would say: "Put rules that apply to every task in the repository's root instruction file. Put rules used only by one module in that module's own documentation so someone changing that module can find and update its guidance with the code."
 
+### Evidence Ladder For Technical Explanations
+
+Do not keep rephrasing abstract technical prose when the reader still cannot
+reconstruct the interaction. Add the smallest evidence form that answers the
+missing question:
+
+- Use direct prose for one actor and one action. Name what performs the action,
+  what it reads, calls, imports, or changes, and the result.
+- Use a compact text diagram, sequence, or table when the claim depends on
+  three or more participants, dependency direction, lifecycle order, or a
+  point where one component passes control or data to another.
+- Use the smallest code, configuration, API-signature, or data-shape example
+  when the claim depends on exact syntax, visibility, compile-time exposure,
+  runtime behavior, or a normal rule with a narrow exception.
+
+Escalate beyond prose when the author or an intended reader says the section is
+not understandable, or when removing the surrounding article leaves no way to
+answer who calls or imports what, where the implementation lives, which
+direction the relationship runs, and what cost or constraint follows. The
+presence of technical nouns alone does not require a diagram or code sample.
+
+For an escalated explanation:
+
+1. Start with one concrete situation that names the caller, the thing called or
+   imported, and the desired result.
+2. Show a labeled diagram, sequence, or table when several parts interact.
+   State whether the arrows represent a call, dependency, data flow, or
+   lifecycle sequence.
+3. Add code or configuration only when the reader needs an exact signature,
+   declaration, or before/after shape to verify the claim. Mark a framework or
+   technology choice as illustrative when the source does not require it.
+4. Follow the example with the rule it demonstrates, the cost it introduces,
+   and the condition under which the reader should not use it.
+
+Use only source-backed facts, names, relationships, and constraints. If the
+draft does not provide enough information for an exact example, keep the gap
+visible instead of inventing a plausible implementation. Stop as soon as the
+reader can reconstruct the interaction; do not decorate a simple claim with
+unnecessary diagrams or sample code.
+
 ## Author Paraphrase And Thesis Reset
 
 When the author asks what a sentence means, says the wording is not something
@@ -95,12 +135,13 @@ the subject, action, and result without first translating the abstraction.
  6. Audit the draft for specific signals. Note the span, category, severity, and intended edit before rewriting broad sections.
  7. For Korean prose, run a phrase-level voice pass. Check not only honorific endings, but also plausible phrases that the author would not naturally use, such as abstract metaphors, stock AI transitions, or wording the user already flagged as unnatural.
  8. When the author or a reader flags one unclear phrase, scan the whole artifact for analogous shorthand, unexplained terms, omitted actors, and missing causal links before rewriting. Do not repair only the quoted sentence.
- 9. If the author questions the article's core or supplies a clearer statement of intent, run the thesis-reset process before continuing span-level edits.
-10. Rewrite only the flagged spans or the smallest paragraph needed for flow. Prefer complete meaning over compression: keep the actors, referents, conditions, and causal links that the reader needs, even when the shorter phrasing sounds smoother.
-11. Run a fidelity check against the original: facts, claims, numbers, names, quotes, citations, ordering, tone, and required format.
-12. Read the result aloud or scan for rhythm: sentence lengths should vary, but the prose should not become choppy, cute, or performatively casual.
-13. Run an "obviously generated" second pass for residual tells: formulaic framing, repetitive transitions, fake balance, unsupported grand claims, chatbot closers, and tidy-but-empty summaries.
-14. Report the categories changed and any places intentionally left unchanged.
+ 9. For a technical section that remains unclear after a direct rewrite, apply the evidence ladder. Use a labeled diagram, sequence, or table for multi-part interactions and an exact example only when syntax, visibility, configuration, or runtime behavior carries the claim.
+10. If the author questions the article's core or supplies a clearer statement of intent, run the thesis-reset process before continuing span-level edits.
+11. Rewrite only the flagged spans or the smallest paragraph needed for flow. Prefer complete meaning over compression: keep the actors, referents, conditions, and causal links that the reader needs, even when the shorter phrasing sounds smoother.
+12. Run a fidelity check against the original: facts, claims, numbers, names, quotes, citations, ordering, tone, and required format.
+13. Read the result aloud or scan for rhythm: sentence lengths should vary, but the prose should not become choppy, cute, or performatively casual.
+14. Run an "obviously generated" second pass for residual tells: formulaic framing, repetitive transitions, fake balance, unsupported grand claims, chatbot closers, and tidy-but-empty summaries.
+15. Report the categories changed and any places intentionally left unchanged.
 
 ## Audit Passes
 
@@ -115,6 +156,7 @@ Use these passes when the writing task is more than a one-line copy edit.
 7. **Fidelity pass**: Confirm the revised text did not invent experience, sources, anecdotes, numbers, product claims, citations, or author opinions.
 8. **Reader-comprehension pass**: Read from the intended reader's position. Define unfamiliar terms at first use. Make subjects, actors, locations, referents, conditions, sequence, examples, and cause-and-effect explicit when the reader would otherwise have to infer them from private or project context.
 9. **Semantic-over-compression pass**: Keep the original relationship between ideas when tightening prose. Do not remove a qualifier, actor, transition, or explanation merely to make a sentence shorter or more elegant. If one phrase failed this pass, search the rest of the artifact for the same pattern.
+10. **Technical-evidence pass**: When a claim depends on multiple interacting parts, dependency direction, lifecycle order, or an exact public signature or configuration, verify that the reader can reconstruct it from the prose. Add the smallest source-backed scenario, labeled diagram or table, or exact example when they cannot.
 
 ## Common Signals
 
@@ -149,6 +191,7 @@ Use these passes when the writing task is more than a one-line copy edit.
 | "The term is accurate, so readers will understand it." | Define unfamiliar or project-specific terms at first use and add the smallest concrete explanation the intended audience needs. Accuracy does not replace context. |
 | "The user flagged only this sentence, so only this sentence needs review." | Repair the sentence, then scan the whole artifact for analogous shorthand and omitted context. Treat the report as evidence of a pattern until the scan shows otherwise. |
 | "The author supplied a clearer paraphrase, so I only need to replace that sentence." | Treat the paraphrase as thesis and voice evidence. Check the title, opening, headings, and conclusion before returning to local edits. |
+| "The architecture rule is technically correct, so another paragraph of prose is enough." | If the intended reader still cannot reconstruct the caller, relationship direction, implementation location, and consequence, stop rephrasing. Add the smallest labeled diagram, table, code, or configuration example that proves the interaction. |
 | "Detector score is the goal." | Refuse detector-bypass promises; improve clarity, fidelity, voice, and responsible use. |
 | "Every AI tell must be banned everywhere." | Apply genre and channel judgment. Technical docs, legal text, and formal reports can be restrained without sounding robotic. |
 
@@ -165,6 +208,7 @@ Use these passes when the writing task is more than a one-line copy edit.
 - A "humanized" version is longer but no more specific.
 - A rewrite becomes terser but leaves an unclear subject, referent, condition, or causal relationship for the intended reader to reconstruct.
 - A sentence is understandable only to someone who already knows the project's terminology, file layout, actors, or prior decisions.
+- A technical exception names several roles or components but shows neither the relationship direction nor the exact signature or configuration that makes the exception real.
 - One unclear compressed phrase is repaired without checking the rest of the artifact for the same pattern.
 - The output claims or implies it will bypass AI detectors.
 
@@ -206,6 +250,7 @@ Use these passes when the writing task is more than a one-line copy edit.
 - If the author or a reader flagged one unclear phrase, did the review cover analogous shorthand across the whole artifact?
 - If the author rejected a word or explanatory frame, did the review scan both the exact wording and the same abstraction pattern across the artifact?
 - Can the article's point be stated in one sentence from the author's wording, and do the title, opening, headings, and conclusion all support that same point?
+- For a technical section that failed comprehension, can the reader now identify the normal rule, concrete interaction, exception condition, and cost from direct prose, a labeled diagram or table, or an exact example, whichever is smallest?
 - Did the second pass catch remaining formulaic structure, fake balance, vague authorities, chatbot artifacts, or unsupported confidence?
 - For UI text, forms, localized copy, or accessibility-sensitive text, also load `common/skills/accessibility-i18n/SKILL.md`.
 
@@ -218,6 +263,7 @@ When this card governs the work, report:
 - the main signal categories changed
 - protected content intentionally preserved
 - any places left unchanged because fidelity, compliance, or source limits mattered more than style
+- for a technical section that failed comprehension, which evidence form was added or why verified prose alone was sufficient
 
 ## External References
 
