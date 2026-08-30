@@ -798,36 +798,56 @@ def _git_effective_cwd(tokens: list[str], cwd: Path) -> Path:
     return resolved
 
 
-INTEGRATION_GIT_SUBCOMMANDS = frozenset(
-    {"checkout", "merge", "pull", "reset", "restore", "stash", "switch"}
+# Writing new content into the working tree is the one thing the protected
+# checkout is protected from. These author it; everything else Git does there
+# moves or removes what already exists.
+AUTHORING_GIT_SUBCOMMANDS = frozenset(
+    {"add", "am", "apply", "cherry-pick", "commit", "mv", "rebase", "revert", "rm"}
 )
 
 
-def protected_checkout_integration(tokens: list[str]) -> str:
-    """Whether this lands finished work rather than authoring new work.
+def protected_checkout_verdict(tokens: list[str]) -> str:
+    """`allow`, `ask`, or `""` for a Git command aimed at the protected checkout.
 
     The policy is that new work is authored in a linked worktree and the
-    original is left alone. That is a workflow only if the original can still
-    take the result, and it could not: `merge`, `pull`, `checkout` and `switch`
-    were refused there along with everything else, so work done in a worktree
-    had no way home and the only exit was turning the gate off -- the outcome
-    the policy exists to avoid.
+    original is left alone, so authoring is what the refusal is for. It was
+    written the other way round -- a short list of permitted commands, refusing
+    everything else -- and the list was never going to be complete. First it
+    missed `merge` and `pull`, so work done in a worktree had no way home. Then
+    it missed `branch -D`, so deleting two merged branches meant creating a
+    throwaway worktree to delete them from, which is ceremony standing in for a
+    decision the operator had already made.
 
-    Integration is not authoring. These commands move commits and files that
-    already exist; none of them writes something new into the protected
-    checkout, which is what the refusal is for.
+    Naming what is refused instead makes the boundary answer for cases nobody
+    listed. Authoring is refused outright, because the remedy is deterministic:
+    do it in a worktree. Everything else Git does here -- integrating, deleting
+    a merged branch, removing a tag, tidying a remote -- is a decision, so it
+    is put to the operator as one, and Claude's prompt carries "don't ask
+    again" so an operator who does it routinely answers once.
 
-    Returns `allow` only for a fast-forward, which moves a branch pointer onto
-    commits that are already in the repository and can neither create nor lose
-    anything. Everything else here can move or discard what is in the working
-    tree, so it returns `ask`: a real decision, put once to the person whose
-    checkout it is. `""` means this is not integration and the refusal stands.
+    A fast-forward is the exception that needs no question: it moves a branch
+    pointer onto commits already in the repository and can neither create nor
+    lose anything.
+
+    `""` keeps the refusal, and covers anything that is not Git at all.
     """
 
     if not tokens or Path(tokens[0]).name != "git":
         return ""
     subcommand, arguments = git_subcommand(tokens)
-    if subcommand not in INTEGRATION_GIT_SUBCOMMANDS:
+    if subcommand is None:
+        # An option this gate cannot read hides which subcommand runs. That is
+        # the dangerous case, and a question is the safe answer to it -- the
+        # same fail-closed reading the hazard check uses.
+        return "ask"
+    if not subcommand or subcommand in AUTHORING_GIT_SUBCOMMANDS:
+        return ""
+    if any(names_unsafe_git_option(argument) for argument in arguments):
+        # A subcommand that only reads still writes when handed `--output`, and
+        # runs a program when handed `--ext-diff` or `--textconv`. Naming the
+        # refusal by subcommand alone missed that: `git diff --output=<a path
+        # in the protected checkout>` authors a file there under a verb that
+        # looks like inspection.
         return ""
     flags = {argument.split("=", 1)[0] for argument in arguments}
     if subcommand in {"merge", "pull"} and "--ff-only" in flags:
@@ -1180,7 +1200,7 @@ def decide(payload: dict) -> int:
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
         landing = (
-            protected_checkout_integration(tokens)
+            protected_checkout_verdict(tokens)
             if tool in BASH_TOOLS and syntax_is_simple
             else ""
         )
@@ -1191,9 +1211,9 @@ def decide(payload: dict) -> int:
             )
         if landing == "ask":
             return ask(
-                "This is an integration command, not new work, so the protected "
-                "checkout does not refuse it outright -- but it can move or "
-                "discard what is there. Allow it only if that is what you meant."
+                "This authors nothing in the protected checkout, so it is not "
+                "refused outright -- but it can move or remove what is there. "
+                "Allow it only if that is what you meant."
             )
         return deny(worktree_reason)
     if worktree_policy_satisfied(root):
