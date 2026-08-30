@@ -70,6 +70,20 @@ class MailboxStoreTests(unittest.TestCase):
         self.assertEqual([], self._store().consume("claude"))
         self.assertEqual(0, self._store().status("claude")["pending"])
 
+    def test_body_free_acknowledgements_are_bounded(self) -> None:
+        for index in range(70):
+            self._store(evidence=self.evidence).enqueue(
+                sender="codex",
+                recipient="claude",
+                kind="review",
+                body=f"Message {index}",
+                ttl_seconds=60,
+            )
+            self._store().consume("claude")
+
+        receipts = list((self.project / ".tao" / "agent-mailbox").rglob("acked/claude/*.json"))
+        self.assertEqual(64, len(receipts))
+
     def test_copied_packet_is_rejected_in_another_project(self) -> None:
         packet = self._store(evidence=self.evidence).enqueue(
             sender="codex",
@@ -101,6 +115,22 @@ class MailboxStoreTests(unittest.TestCase):
         source.replace(target)
 
         with self.assertRaisesRegex(ValueError, "different Tao run"):
+            self._store().consume("claude")
+
+    def test_tampered_packet_cannot_extend_the_maximum_ttl(self) -> None:
+        packet = self._store(evidence=self.evidence).enqueue(
+            sender="codex",
+            recipient="claude",
+            kind="review",
+            body="TTL-bound question",
+            ttl_seconds=60,
+        )
+        path = next((self.project / ".tao" / "agent-mailbox").rglob(f"{packet['message_id']}.json"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["expires_at"] = (self.now + timedelta(days=8)).isoformat()
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "invalid TTL"):
             self._store().consume("claude")
 
     def test_symlinked_mailbox_is_rejected_without_external_write(self) -> None:

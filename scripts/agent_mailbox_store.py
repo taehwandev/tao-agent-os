@@ -15,6 +15,7 @@ from agent_state_lock import state_lock
 
 
 _MAX_BODY_BYTES = 32 * 1024
+_MAX_ACKS = 64
 _MAX_PENDING = 32
 _MAX_SCAN_FILES = 128
 _MAX_SCAN_RUNS = 64
@@ -108,6 +109,8 @@ class MailboxStore:
                     continue
                 atomic_write_json(receipt, _acknowledgement(packet, self._clock()))
                 path.unlink()
+                for stale_receipt in _json_files(receipt.parent)[:-_MAX_ACKS]:
+                    stale_receipt.unlink()
                 consumed.append(packet)
                 if len(consumed) == limit:
                     break
@@ -156,18 +159,8 @@ def _validate_content(kind: str, body: str, ttl_seconds: int) -> None:
 
 
 def _pending_paths(project: Path, root: Path, recipient: str) -> list[tuple[Path, str]]:
-    runs = root / "runs"
-    if not runs.exists():
-        return []
-    _require_local_path(project, runs)
-    run_dirs = sorted(path for path in runs.iterdir() if path.is_dir() or path.is_symlink())
-    if len(run_dirs) > _MAX_SCAN_RUNS:
-        raise RuntimeError(f"local agent mailbox run scan limit is {_MAX_SCAN_RUNS}")
     selected: list[tuple[Path, str]] = []
-    for run_dir in run_dirs:
-        _require_local_path(project, run_dir)
-        if not _RUN_ID.fullmatch(run_dir.name):
-            raise ValueError("local agent mailbox contains an invalid Tao run directory")
+    for run_dir in _run_directories(project, root):
         inbox = run_dir / "inbox" / recipient
         if not inbox.exists():
             continue
@@ -180,12 +173,29 @@ def _pending_paths(project: Path, root: Path, recipient: str) -> list[tuple[Path
 
 def _ack_paths(project: Path, root: Path, recipient: str) -> list[Path]:
     paths: list[Path] = []
-    for run_dir in (root / "runs").iterdir() if (root / "runs").exists() else ():
+    for run_dir in _run_directories(project, root):
         acked = run_dir / "acked" / recipient
         if acked.exists():
             _require_local_path(project, acked)
             paths.extend(_json_files(acked))
+            if len(paths) > _MAX_SCAN_FILES:
+                raise RuntimeError(f"local agent mailbox acknowledgement scan limit is {_MAX_SCAN_FILES}")
     return paths
+
+
+def _run_directories(project: Path, root: Path) -> list[Path]:
+    runs = root / "runs"
+    if not runs.exists():
+        return []
+    _require_local_path(project, runs)
+    selected = sorted(runs.iterdir())
+    if len(selected) > _MAX_SCAN_RUNS:
+        raise RuntimeError(f"local agent mailbox run scan limit is {_MAX_SCAN_RUNS}")
+    for run_dir in selected:
+        _require_local_path(project, run_dir)
+        if not run_dir.is_dir() or not _RUN_ID.fullmatch(run_dir.name):
+            raise ValueError("local agent mailbox contains an invalid Tao run directory")
+    return selected
 
 
 def _read_packet(path: Path, project: Path, run_id: str, recipient: str) -> dict[str, object]:
@@ -214,7 +224,9 @@ def _validate_packet(packet: object, project: Path, run_id: str, recipient: str,
     if not is_sha256(packet.get("evidence_fingerprint")):
         raise ValueError("local agent mailbox packet has an invalid evidence binding")
     _validate_content(str(packet.get("kind") or ""), str(packet.get("body") or ""), 1)
-    if _parse_time(packet.get("expires_at")) <= _parse_time(packet.get("created_at")):
+    created = _parse_time(packet.get("created_at"))
+    lifetime = (_parse_time(packet.get("expires_at")) - created).total_seconds()
+    if lifetime <= 0 or lifetime > _MAX_TTL_SECONDS:
         raise ValueError("local agent mailbox packet has an invalid TTL")
 
 
@@ -237,6 +249,8 @@ def _require_local_path(project: Path, path: Path) -> None:
 
 def _json_files(directory: Path) -> list[Path]:
     paths = sorted(path for path in directory.iterdir() if path.suffix == ".json")
+    if len(paths) > _MAX_SCAN_FILES:
+        raise RuntimeError(f"local agent mailbox file scan limit is {_MAX_SCAN_FILES}")
     if any(path.is_symlink() for path in paths):
         raise OSError("local agent mailbox must not use symbolic links")
     return paths

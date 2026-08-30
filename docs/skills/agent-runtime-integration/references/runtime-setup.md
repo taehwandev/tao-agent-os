@@ -120,24 +120,21 @@ For Claude, `setup-agent-hooks.py` installs a stable user-level launcher at
 Tao Agent OS so the pointer is refreshed without changing the Claude hook
 command.
 
-The same stable launcher exposes `agent-room` for all configured runtimes.
+The same stable launcher exposes `agent-mailbox` for all configured runtimes.
 Setup adds that entrypoint to the managed narrow permission surface and
-refreshes each runtime bridge with the automatic project/run-bound session
-rule. It does not install a Tao daemon, LaunchAgent, watcher, polling process,
-external API service, or background queue. A bounded provider mention is the
-only turn trigger. The command derives its internal work id from the exact Tao
-run bound to the caller's runtime session, so users do not choose room or task
-ids. Provider session ids and bounded transcripts remain below the selected
-project's `.tao/agent-rooms/` and are bound to that project and run.
+refreshes each runtime bridge with two rules: check the current project's local
+mailbox once at the start of a normal user-visible task, and use `handoff` plus
+`agent-mailbox send` when another runtime needs the bounded context. The
+sender's exact active Tao run is the internal source key, so users never choose
+room or task ids.
 
-Codex opens its official App Server over stdio only for a requested turn,
-resumes one stored thread per work item, and closes the process after the
-response. Claude persists one session id per work item and resumes it on
-demand. Neither provider needs a resident process or poller while idle. Before
-any model turn, the adapters remove paid fallback environment variables and
-require ChatGPT subscription or
-`claude.ai` subscription authentication. AGY remains unavailable in this
-subscription-only path until its CLI exposes an auth-source attestation.
+Mailbox state stays below the selected project's `.tao/agent-mailbox/`. Setup
+does not install a provider adapter, daemon, LaunchAgent, watcher, polling
+process, external API service, or background queue for it. Sending writes a
+local packet only. An idle target remains idle and incurs no model use until
+the user gives that product its next normal prompt; the runtime then consumes
+the addressed local brief once and continues under its own current request and
+normal lifecycle.
 
 Claude's runtime bridge is otherwise advisory: unlike the Codex prefix rule,
 prose alone does not stop a file edit when the agent skipped `start`. To make

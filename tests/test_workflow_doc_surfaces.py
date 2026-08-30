@@ -325,13 +325,13 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("doc_surface_matches", route)
         self.assertTrue(any(match["name"] == "workflow_router" for match in route["doc_surface_matches"]))
 
-    def test_agent_room_path_surface_promotes_runtime_integration_docs(self) -> None:
+    def test_agent_mailbox_path_surface_promotes_runtime_integration_docs(self) -> None:
         route = resolve_docs(
             "feature",
             None,
             [],
             request_classified=True,
-            surface_paths=["scripts/agent_room.py"],
+            surface_paths=["scripts/agent_mailbox.py"],
         )
 
         self.assertIn(

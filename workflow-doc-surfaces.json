@@ -897,8 +897,8 @@
     {
       "name": "runtime_model_dispatch",
       "patterns": [
-        "scripts/agent-room.py",
-        "scripts/agent_room*.py",
+        "scripts/agent-mailbox.py",
+        "scripts/agent_mailbox*.py",
         "scripts/workflow_dispatch.py",
         "scripts/workflow_dispatch_profiles.py",
         "scripts/workflow_spill.py",

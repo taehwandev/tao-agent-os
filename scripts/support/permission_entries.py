@@ -22,7 +22,7 @@ EXECUTABLE_ENTRYPOINTS = (
     "agent-os-status.py",
     "agent-os-watchdog.py",
     "agent-preflight.py",
-    "agent-room.py",
+    "agent-mailbox.py",
     "agent_execution_capsule.py",
     "check_android_external_skill_manifest.py",
     "check_react_rn_external_skill_manifest.py",
