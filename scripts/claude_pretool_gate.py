@@ -591,13 +591,19 @@ def find_edit_project_root(payload: dict, cwd: Path) -> Path | None:
     stop that left the edited project unverified.
 
     The target path decides. cwd stays as the fallback for tools that report no
-    file path.
+    file path -- and only for those. A named target that belongs to no project
+    used to fall through to the working directory as well, which judged a file
+    by a checkout it is not in: with the shell standing in a protected checkout,
+    writing a scratch note under `/tmp` was refused for being *near* that
+    repository. Once the last worktree of a session is removed the shell returns
+    there, so the session could no longer write anywhere at all.
+
+    An Edit or Write names exactly the one path it changes, so when that path is
+    outside every governed project there is nothing here to protect.
     """
     target = write_target_path(payload, cwd)
     if target is not None:
-        root = find_project_root(target.parent)
-        if root is not None:
-            return root
+        return find_project_root(target.parent)
     return find_project_root(cwd)
 
 
