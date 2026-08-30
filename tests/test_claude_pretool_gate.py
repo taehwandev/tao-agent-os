@@ -484,7 +484,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             _require_linked_worktree(project)
             code, out = _decide(
                 {
-                    "tool_name": "Bash",
+                    "tool_name": "Edit",
                     "cwd": str(project),
                     "session_id": "no-evidence",
                     "tool_input": {"command": "git merge --ff-only topic && rm -rf /"},
