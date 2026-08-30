@@ -441,8 +441,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "git push origin --delete topic",
                 "git push --force origin main",
                 "git remote remove origin",
-                "git worktree remove ../old",
-                "git worktree prune",
+                "git worktree remove --force ../old",
                 "git update-ref -d refs/heads/x",
                 "git reflog expire --all",
                 "git gc --prune=now",
@@ -463,6 +462,36 @@ class ClaudePreToolGateTests(unittest.TestCase):
                         json.loads(out)["hookSpecificOutput"]["permissionDecision"],
                         command,
                     )
+
+    def test_the_worktree_cycle_does_not_stop_to_ask(self) -> None:
+        """Branch a worktree, work, remove it -- the loop this gate encourages.
+
+        Git refuses to remove a worktree holding modified or untracked files,
+        so the plain removal cannot lose work. Asking about it put a prompt on
+        the step that closes every task, on top of a check git already makes.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+
+            for command in (
+                "git worktree add --detach /tmp/w main",
+                "git worktree remove /tmp/w",
+                "git worktree prune",
+                "git worktree list",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(project),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out, command)
 
     def test_authoring_there_is_what_stays_refused(self) -> None:
         """The boundary is named by what it refuses, so it covers the unlisted.

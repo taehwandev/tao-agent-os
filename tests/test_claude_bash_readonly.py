@@ -656,6 +656,56 @@ class InspectionIsNotMutationTests(unittest.TestCase):
                 self.assertEqual("mutating", git_command_kind(command.split()))
 
 
+class TheWorktreeLifecycleIsOneThingTests(unittest.TestCase):
+    """Making a worktree and removing it are the same routine step.
+
+    Only `add` was recognised as setup, so the removal that closes every task
+    stopped to ask -- one more Enter on the most repeated step in the workflow
+    this gate exists to encourage.
+
+    Git already refuses to remove a worktree holding modified or untracked
+    files and tells you to use `--force`, so the plain form cannot lose work,
+    and `prune` only clears records for directories that are already gone.
+    `--force` is what overrides that, and it stays a mutation.
+    """
+
+    def test_the_routine_cycle_is_setup(self) -> None:
+        from claude_bash_git import git_command_kind
+
+        for command in (
+            "git worktree add --detach /tmp/w main",
+            "git worktree remove /tmp/w",
+            "git worktree prune",
+            "git -C /tmp/repo worktree remove /tmp/w",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("bootstrap", git_command_kind(command.split()))
+
+    def test_listing_is_still_a_read(self) -> None:
+        from claude_bash_git import git_command_kind
+
+        self.assertEqual("read_only", git_command_kind("git worktree list".split()))
+
+    def test_forcing_is_what_discards_work(self) -> None:
+        from claude_bash_git import git_command_kind
+
+        for command in (
+            "git worktree remove --force /tmp/w",
+            "git worktree remove -f /tmp/w",
+            "git worktree add --force /tmp/w main",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", git_command_kind(command.split()))
+
+    def test_an_unknown_worktree_verb_is_not_assumed_safe(self) -> None:
+        from claude_bash_git import git_command_kind
+
+        for command in ("git worktree", "git worktree lock /tmp/w",
+                        "git worktree move /tmp/w /tmp/x"):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", git_command_kind(command.split()))
+
+
 class AskingGitHubIsInspectionTests(unittest.TestCase):
     """`gh` was unclassified, so every use of it counted as a mutation.
 
