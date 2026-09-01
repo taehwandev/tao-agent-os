@@ -104,6 +104,13 @@ Use after implementation, before handing off or committing.
      `git_write` or `external_write`; boundary-plan and side-effect-audit evidence
      must still name the protected checkout and the created state. The implementation
      worktree starts and closes its own review lifecycle. Do not manufacture a diff.
+   - **The task restores a tracked path that was already dirty at route start.**
+     Use `--review-scope pathspec` with every exact existing path restored to
+     committed bytes. The hook accepts this clean scope only when the same
+     preflight recorded every path in `surface_candidates.dirty_paths`, the run
+     has write authority, and it is not read-only. This proves a bounded cleanup
+     outcome without admitting an arbitrary clean checkout; paths that were not
+     dirty at start, globs, and removed or missing paths remain rejected.
    - **Another task changes no files at all** (repo hygiene: removing merged
      worktrees, branches or stashes without a task-setup preflight). Use
      `--review-scope repo-hygiene` without `--review-path`. The hook accepts this

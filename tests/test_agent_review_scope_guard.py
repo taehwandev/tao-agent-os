@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_review_hook import (
     clean_repo_hygiene_review,
+    clean_restored_pathspec_review,
     clean_task_setup_pathspec_review,
     resolve_commit_range_subject,
     review_hook,
@@ -66,6 +67,163 @@ def commit(project: Path, message: str) -> str:
 
 
 class ReviewScopeGuardTests(unittest.TestCase):
+    def test_clean_restored_pathspec_accepts_preflight_dirty_path_for_writing_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            subject = project / "subject.py"
+            subject.write_text("value = 1\n", encoding="utf-8")
+            evidence = project / "preflight.json"
+            evidence.write_text(
+                '{"route":{"surface_candidates":{"dirty_paths":["subject.py"]},'
+                '"request_classification":{"intent_envelope":'
+                '{"effective_effect":"local_write"}}},'
+                '"execution_mode":{"read_only":false}}\n',
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                project=project,
+                evidence=evidence,
+                review_scope="pathspec",
+            )
+
+            self.assertTrue(
+                clean_restored_pathspec_review(
+                    args,
+                    {"kind": "working-tree"},
+                    ["subject.py"],
+                )
+            )
+
+    def test_clean_restored_pathspec_rejects_unbound_or_non_writing_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            subject = project / "subject.py"
+            subject.write_text("value = 1\n", encoding="utf-8")
+            evidence = project / "preflight.json"
+            args = SimpleNamespace(
+                project=project,
+                evidence=evidence,
+                review_scope="pathspec",
+            )
+            payloads = (
+                '{"route":{"surface_candidates":{"dirty_paths":["other.py"]},'
+                '"request_classification":{"intent_envelope":'
+                '{"effective_effect":"local_write"}}}}',
+                '{"route":{"surface_candidates":{"dirty_paths":["subject.py"]},'
+                '"request_classification":{"intent_envelope":'
+                '{"effective_effect":"read"}}}}',
+                '{"route":{"surface_candidates":{"dirty_paths":["subject.py"]},'
+                '"request_classification":{"intent_envelope":'
+                '{"effective_effect":"local_write"}}},'
+                '"execution_mode":{"read_only":true}}',
+            )
+
+            for payload in payloads:
+                with self.subTest(payload=payload):
+                    evidence.write_text(payload, encoding="utf-8")
+                    self.assertFalse(
+                        clean_restored_pathspec_review(
+                            args,
+                            {"kind": "working-tree"},
+                            ["subject.py"],
+                        )
+                    )
+
+    def test_clean_restored_pathspec_runs_review_without_a_current_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+            subject = project / "subject.py"
+            subject.write_text("value = 1\n", encoding="utf-8")
+            commit(project, "base")
+            evidence = project / "preflight.json"
+            evidence.write_text(
+                '{"route":{"surface_candidates":{"dirty_paths":["subject.py"]},'
+                '"request_classification":{"intent_envelope":'
+                '{"effective_effect":"local_write"}}},'
+                '"execution_mode":{"read_only":false}}\n',
+                encoding="utf-8",
+            )
+            output: dict[str, object] = {}
+            args = SimpleNamespace(
+                project=project,
+                rules=ROOT,
+                evidence=evidence,
+                review_path=["subject.py"],
+                review_scope="pathspec",
+                review_base="",
+                review_head="",
+                review_outcome="pass",
+                code_review_evidence="reviewed the exact restored path",
+                docs_freshness_evidence="review guidance covers the restored path scope",
+                structure_review_evidence="",
+                boundary_plan_evidence="owned only the restored subject.py path",
+                side_effect_audit_evidence="confirmed the restored path and checkout are clean",
+                allow_vibeguard_review="",
+                max_changed_paths=25,
+                max_source_file_lines=500,
+                max_function_lines=120,
+                max_added_lines=300,
+                output=None,
+                repair_cycle=0,
+            )
+
+            def clean_status(_project: Path) -> tuple[dict[str, object], list[str]]:
+                return {"returncode": 0, "stdout": "", "stderr": ""}, []
+
+            def finish_with_result(
+                _name: str,
+                success: bool,
+                _details: list[str],
+                _output: Path | None,
+                payload: dict[str, object],
+                _repair_cycle: int,
+                **_kwargs: object,
+            ) -> int:
+                output.update(success=success, payload=payload)
+                return 0 if success else 1
+
+            structure = {
+                "checked_path_count": 0,
+                "scope": "pathspec",
+                "warnings": [],
+                "failures": [],
+                "boundary_note_requirements": [],
+                "net_deletions": [],
+            }
+
+            with (
+                patch("agent_review_hook.record_review_prerequisite_readiness"),
+                patch("agent_review_hook.record_review_input_evidence"),
+                patch("agent_review_hook.structure_review", return_value=structure),
+                patch("agent_review_hook.record_review_base_drift"),
+                patch("agent_review_hook.record_review_worktree_stability"),
+                patch("agent_review_hook.record_review_workflow_validation") as validation,
+                patch("agent_review_hook.record_review_vibeguard") as vibeguard,
+                patch("agent_review_hook.record_successful_review_workflow_validation"),
+                patch("agent_review_hook.record_review_gate"),
+            ):
+                validation.side_effect = lambda _args, checks, _failures: checks.update(
+                    workflow_validate={"returncode": 0}
+                )
+                vibeguard.side_effect = lambda _args, _runner, _command, _parser, _paths, checks, _failures, **_kwargs: checks.update(
+                    vibeguard={"returncode": 0, "overall": "Ready"}
+                )
+                result = review_hook(
+                    args,
+                    lambda _command, _cwd: {"returncode": 0, "stdout": "", "stderr": ""},
+                    clean_status,
+                    lambda _project, _rules: ["vibeguard", "audit", "."],
+                    lambda output: "Ready" if "Ready" in output else "unknown",
+                    finish_with_result,
+                )
+
+        self.assertEqual(0, result)
+        self.assertTrue(output["success"])
+        payload = output["payload"]
+        self.assertEqual(0, payload["changed_path_count"])
+        self.assertTrue(payload["clean_restoration_scope"]["accepted"])
+
     def test_repo_hygiene_scope_accepts_destructive_branch_or_worktree_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

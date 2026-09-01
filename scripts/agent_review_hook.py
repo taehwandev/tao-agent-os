@@ -25,6 +25,7 @@ from agent_review_subjects import (  # noqa: F401
     SETTLED_RUN_STATES,
     clean_read_only_pathspec_review,
     clean_repo_hygiene_review,
+    clean_restored_pathspec_review,
     clean_task_setup_pathspec_review,
     empty_review_scope_invocation_failure_details,
     explicit_existing_review_paths,
@@ -171,6 +172,7 @@ def review_hook(
     )
     checks["changed_path_limit"] = args.max_changed_paths
     clean_read_only_scope = clean_read_only_pathspec_review(args, review_subject, review_paths)
+    clean_restored_scope = clean_restored_pathspec_review(args, review_subject, review_paths)
     clean_task_setup_scope = clean_task_setup_pathspec_review(args, review_subject, review_paths)
     clean_repo_hygiene_scope = clean_repo_hygiene_review(args, review_subject, review_paths)
     if status_before["returncode"] != 0 and not status_before.get("review_only"):
@@ -181,6 +183,7 @@ def review_hook(
         not status_before_lines
         and not status_before.get("review_only")
         and not clean_read_only_scope
+        and not clean_restored_scope
         and not clean_task_setup_scope
         and not clean_repo_hygiene_scope
         and not local_config_scope
@@ -204,7 +207,9 @@ def review_hook(
     elif not status_before_lines and not status_before.get("review_only"):
         clean_scope_key = "local_config_scope" if local_config_scope else (
             "repo_hygiene_clean_scope" if clean_repo_hygiene_scope else (
-                "task_setup_clean_scope" if clean_task_setup_scope else "read_only_clean_scope"
+                "clean_restoration_scope" if clean_restored_scope else (
+                    "task_setup_clean_scope" if clean_task_setup_scope else "read_only_clean_scope"
+                )
             )
         )
         checks[clean_scope_key] = {
@@ -216,9 +221,13 @@ def review_hook(
                     "destructive branch/worktree cleanup was reviewed from a clean checkout"
                     if clean_repo_hygiene_scope
                     else (
-                        "task setup inspected its explicit workflow policy on a clean protected checkout"
-                        if clean_task_setup_scope
-                        else "read-only run inspected explicit existing pathspecs on a clean checkout"
+                        "explicit preflight-dirty paths were restored to committed bytes"
+                        if clean_restored_scope
+                        else (
+                            "task setup inspected its explicit workflow policy on a clean protected checkout"
+                            if clean_task_setup_scope
+                            else "read-only run inspected explicit existing pathspecs on a clean checkout"
+                        )
                     )
                 )
             ),

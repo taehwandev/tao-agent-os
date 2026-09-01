@@ -17,6 +17,7 @@ from agent_run_registry import registered_run
 # outcome the work can produce, which is a rule that stops honest work rather
 # than unsafe work.
 REPO_HYGIENE_CONCERNS = frozenset({"branch", "state", "worktree"})
+WRITING_EFFECTS = frozenset({"local_write", "git_write", "external_write", "destructive"})
 
 SETTLED_RUN_STATES = frozenset({"completed", "cancelled"})
 
@@ -42,6 +43,43 @@ def clean_read_only_pathspec_review(
         return False
 
     return explicit_existing_review_paths(args.project, review_paths)
+
+def clean_restored_pathspec_review(
+    args: Any,
+    review_subject: dict[str, Any],
+    review_paths: list[str],
+) -> bool:
+    """Allow a write-authorized run to attest paths restored to committed bytes."""
+
+    if (
+        review_subject.get("kind") == "commit-range"
+        or getattr(args, "review_scope", "") != "pathspec"
+        or not review_paths
+        or not getattr(args, "evidence", None)
+    ):
+        return False
+    try:
+        payload = json.loads(Path(args.evidence).read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    route = payload.get("route") or {}
+    effective_effect = (
+        ((route.get("request_classification") or {}).get("intent_envelope") or {}).get(
+            "effective_effect"
+        )
+    )
+    dirty_paths = {
+        Path(path).as_posix()
+        for path in ((route.get("surface_candidates") or {}).get("dirty_paths") or [])
+        if isinstance(path, str) and path.strip()
+    }
+    requested_paths = {Path(path).as_posix() for path in review_paths}
+    return (
+        effective_effect in WRITING_EFFECTS
+        and not bool((payload.get("execution_mode") or {}).get("read_only"))
+        and requested_paths.issubset(dirty_paths)
+        and explicit_existing_review_paths(args.project, review_paths)
+    )
 
 def clean_task_setup_pathspec_review(
     args: Any,
