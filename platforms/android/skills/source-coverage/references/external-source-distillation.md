@@ -111,8 +111,11 @@ maps are current. A matching file count alone is insufficient.
 ### Edge-To-Edge, Testing, Wear, And XR
 
 - Edge-to-edge work starts by locating Activities, lists, FABs, and text inputs.
-  Add `enableEdgeToEdge`, `adjustResize`, and exactly one inset strategy per
-  container. Avoid double padding across Scaffold, IME, and safe drawing insets.
+  Add `enableEdgeToEdge` and exactly one inset strategy per container. Avoid
+  double padding across Scaffold, IME, and safe drawing insets. Diverge from the
+  upstream `adjustResize` manifest step: a Compose screen uses
+  `Modifier.imePadding()` and `android:windowSoftInputMode="adjustResize"` stays
+  XML-layout-only.
 - Android test setup begins with stack discovery: DI, unit framework, mocking,
   Robolectric, UI framework, screenshot framework, and E2E framework. Prefer
   repo-local frameworks; create fakes before mocks when platform dependencies

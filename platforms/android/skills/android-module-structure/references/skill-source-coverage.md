@@ -45,9 +45,11 @@ source document list lives in `android-external-skill-source-coverage.md`.
   strategies for list-detail/supporting panes, and add screenshot coverage for
   phone, foldable, tablet, and desktop-sized layouts when the repo supports it.
 - Edge-to-edge and IME: make each Activity explicit with `enableEdgeToEdge()`
-  before `setContent`, use `adjustResize` for soft keyboard owners, pass
-  `Scaffold` insets to scrollable `contentPadding`, avoid double insets, and
-  verify text fields, FABs, lists, dialogs, and system bar icon contrast.
+  before `setContent`, handle the soft keyboard with `Modifier.imePadding()` on
+  Compose screens and keep `android:windowSoftInputMode="adjustResize"`
+  XML-layout-only, pass `Scaffold` insets to scrollable `contentPadding`, keep
+  one IME owner per screen, and verify text fields, FABs, lists, dialogs, and
+  system bar icon contrast.
 - Compose Styles: treat the Styles API as experimental, require the documented
   compileSdk/Foundation or BOM version and opt-in, use it only for custom
   components/themes, and validate with screenshot or preview parity before

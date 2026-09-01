@@ -45,12 +45,35 @@ or migrates legacy window system-bar configuration.
 
 ## IME And Inset Handling
 
-- Configure the Activity with `android:windowSoftInputMode="adjustResize"` when
-  the screen needs IME insets so Compose can resize or pad content as the
-  software keyboard appears and disappears.
+- Treat `android:windowSoftInputMode="adjustResize"` as XML-layout-only
+  configuration. The resize soft-input mode is deprecated, and its documented
+  replacement is exactly the Compose path: a window that does not fit system
+  windows plus an IME inset consumer.
+- Do not add `adjustResize` for a Compose screen, and do not carry it forward
+  when copying an existing Activity or manifest entry. Handle the software
+  keyboard with `Modifier.imePadding()` instead.
+- Keep `adjustResize` only on an Activity whose screens are XML layouts.
+- When Compose hosts XML through `AndroidView` or another interop seam, the
+  Compose tree still owns the layout, so use `Modifier.imePadding()` on the
+  Compose container instead of adding `adjustResize` to that Activity.
+- This is a deliberate Tao Agent OS divergence from the upstream
+  `android/skills` `system/edge-to-edge/SKILL.md` step that adds the manifest
+  attribute for every soft-keyboard Activity. Do not revert these rules by
+  citing that upstream step.
+- Target SDK 35 or higher makes edge-to-edge the platform default, so
+  `enableEdgeToEdge()` plus `Modifier.imePadding()` is the baseline keyboard
+  path. No manifest soft-input mode is needed to make it work, and an older
+  runtime API level is not a reason to reintroduce one.
 - Use `Modifier.imePadding()` on the screen container, scroll container, or
   bottom action area that must move above the software keyboard. Do not rely on
-  fixed `Dp` keyboard spacers or legacy `adjustResize` behavior alone.
+  fixed `Dp` keyboard spacers or a manifest soft-input mode alone.
+- Place `Modifier.imePadding()` before `Modifier.verticalScroll()` in the
+  modifier chain. After the scroll modifier it pads inside the scrolling
+  content instead of moving the container above the keyboard.
+- Give each screen exactly one IME owner. Do not add `Modifier.imePadding()`
+  under a parent that already accounts for the IME through `Scaffold`
+  `contentWindowInsets` or another inset consumer; two owners double the
+  keyboard padding.
 - Prefer Compose inset modifiers such as `safeDrawingPadding`,
   `windowInsetsPadding`, `windowInsetsBottomHeight`, and `imePadding` over
   hand-rolled system bar or keyboard measurements. Avoid double-applying insets

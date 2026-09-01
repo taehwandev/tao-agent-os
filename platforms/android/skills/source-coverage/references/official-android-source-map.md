@@ -290,9 +290,11 @@ input inset behavior.
 
 Reference groups: the skill body carries the implementation sequence.
 
-Local rule: locate all inset consumers first. Add `enableEdgeToEdge`,
-`adjustResize`, and exactly one inset strategy per container; avoid double
-padding between Scaffold, IME, and safe drawing insets.
+Local rule: locate all inset consumers first. Add `enableEdgeToEdge` and
+exactly one inset strategy per container; avoid double padding between
+Scaffold, IME, and safe drawing insets. Diverge from the upstream
+`adjustResize` manifest step: a Compose screen uses `Modifier.imePadding()`
+and `android:windowSoftInputMode="adjustResize"` stays XML-layout-only.
 
 ### `testing/testing-setup/SKILL.md`
 
