@@ -246,6 +246,16 @@ Codex:
   Tao Agent OS itself or editing shared runtime bridge files.
 - Do not expect `AGENTS.md` or `.codex/rules` to change sandbox roots; they
   control behavior and permission matching, not the runtime's workspace root.
+- When target setup is requested for Codex, register only the resolved
+  `<TARGET_REPO>/.tao/worktrees` directory in the Tao-owned `tao-workspace`
+  permission profile. Extend `:workspace` so Codex keeps its normal protected
+  path controls while generated linked worktrees become writable without a
+  repeated approval prompt.
+- Preserve unrelated `~/.codex/config.toml` settings and existing workspace
+  roots. If a different default permission profile or legacy
+  `approval_policy`/`sandbox_mode` owns the config, stop instead of overwriting
+  that policy. A Codex-scoped target setup must not create or alter Claude
+  project settings.
 - Use `<TAO_LAUNCHER> start` once for multi-step work; do not run a second
   classify, route, or preflight sequence after it succeeds.
 - Keep the managed Codex `Stop` closeout hook enabled when the optional

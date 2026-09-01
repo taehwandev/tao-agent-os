@@ -51,7 +51,7 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
     """
 
     def _args(self, project: Path, evidence: Path) -> Namespace:
-        return Namespace(project=project, evidence=evidence)
+        return Namespace(project=project, rules=ROOT, evidence=evidence)
 
     def test_a_run_with_a_packet_is_told_how_to_fill_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -224,11 +224,14 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
         Checking that the text names the fields proved nothing about whether
         it works: the first attempt at following it failed on a missing
         required flag, the second on `non_goals` being an array rather than a
-        line. This test takes the command out of a real start's own output,
-        substitutes only the paths, and runs it.
+        line. This test takes the command out of a real start's own output and
+        runs the whole line unchanged. A placeholder or an explanatory word
+        inside that line must therefore break the test in the same way it
+        breaks copy/paste recovery.
         """
 
         import os
+        import shlex
         import subprocess
 
         def git(project: Path, *arguments: str) -> None:
@@ -252,8 +255,12 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             "blockers": [],
         }
 
-        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as state:
-            project = Path(directory) / "proj"
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            tempfile.TemporaryDirectory() as state,
+            tempfile.TemporaryDirectory() as home,
+        ):
+            project = Path(directory) / "project with spaces"
             project.mkdir()
             git(project, "init", "-q", ".")
             git(project, "config", "user.email", "probe@example.invalid")
@@ -261,7 +268,22 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
             git(project, "add", "AGENTS.md")
             git(project, "commit", "-q", "-m", "first", "--no-verify")
-            environment = {**os.environ, "TAO_STATE_HOME": state}
+            launcher = Path(home) / ".tao" / "bin" / "tao-hook"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text(
+                "#!/bin/sh\nexec "
+                + shlex.quote(sys.executable)
+                + " "
+                + shlex.quote(str(SCRIPTS / "agent-hook.py"))
+                + ' "$@"\n',
+                encoding="utf-8",
+            )
+            launcher.chmod(0o755)
+            environment = {
+                **os.environ,
+                "HOME": home,
+                "TAO_STATE_HOME": state,
+            }
 
             started = subprocess.run(
                 [
@@ -274,35 +296,29 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             )
             printed = next(
                 line for line in started.stdout.splitlines()
-                if "tao-hook checkpoint" in line
+                if line.startswith(f"{launcher} checkpoint ")
             )
             evidence = next((project / ".tao" / "runs").glob("*/preflight.json"))
-
-            # Only the paths are substituted; every flag is the hook's own.
-            argv: list[str] = []
-            for token in printed.split():
-                if token in ("-", "tao-hook"):
-                    continue
-                if token == "<project>":
-                    token = str(project)
-                elif token == "<rules>":
-                    token = str(ROOT)
-                elif token == "<this-run>/preflight.json":
-                    token = str(evidence)
-                elif token in ("<", "work.json"):
-                    continue  # the shell redirect; stdin is piped instead
-                argv.append(token)
-
+            (project / "work.json").write_text(json.dumps(work), encoding="utf-8")
             recorded = subprocess.run(
-                [sys.executable, str(SCRIPTS / "agent-hook.py"), *argv],
-                cwd=project, input=json.dumps(work), capture_output=True,
-                text=True, env=environment,
+                printed,
+                cwd=project,
+                shell=True,
+                executable="/bin/sh",
+                capture_output=True,
+                text=True,
+                env=environment,
             )
             packet = json.loads(
                 (evidence.parent / "continuation.json").read_text(encoding="utf-8")
             )
 
-        self.assertIn("checkpoint", argv)
+        self.assertNotIn("<project>", printed)
+        self.assertNotIn("<rules>", printed)
+        self.assertNotIn("<this-run>", printed)
+        self.assertNotIn("continuation work state", printed)
+        self.assertIn(shlex.quote(str(project.resolve())), printed)
+        self.assertIn(shlex.quote(str(evidence.resolve())), printed)
         self.assertEqual(0, recorded.returncode, recorded.stdout + recorded.stderr)
         self.assertEqual("prove the printed command runs", packet["work"]["objective"])
         self.assertEqual(["changing the packet schema"], packet["work"]["non_goals"])

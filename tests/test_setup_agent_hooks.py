@@ -44,12 +44,45 @@ from support import setup_agent_hooks_impl
 from support.setup_agent_hooks_impl import (
     _should_configure_global_graphify,
     configure_external_project,
+    configure_target_projects,
     ensure_local_claude_excluded,
 )
 from support.stable_launcher import ensure_stable_launcher, stable_launcher_path, stable_root_pointer_path
 
 
 class SetupAgentHooksTests(unittest.TestCase):
+    def test_codex_only_target_setup_adds_worktree_root_without_touching_claude(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            home = root / "home"
+            project = root / "project"
+            (home / ".codex").mkdir(parents=True)
+            project.mkdir()
+            args = setup_agent_hooks_impl.argparse.Namespace(
+                target=str(project),
+                github_projects=False,
+                graphify=False,
+                skip_graphify=True,
+            )
+
+            with patch("support.setup_agent_hooks_impl.Path.home", return_value=home):
+                results = configure_target_projects(
+                    args,
+                    selected_runtimes={"codex"},
+                    dry_run=False,
+                    launcher_configured=True,
+                    spill_available=False,
+                )
+
+            config = (home / ".codex" / "config.toml").read_text()
+
+        self.assertIn(
+            f'"{(project / ".tao" / "worktrees").resolve()}" = true',
+            config,
+        )
+        self.assertFalse((project / ".claude" / "settings.json").exists())
+        self.assertEqual(["codex"], [result["tool"] for result in results])
+
     def test_default_setup_configures_all_detected_agent_runtimes(self) -> None:
         with (
             patch.object(sys, "argv", ["setup-agent-hooks.py", "--check"]),

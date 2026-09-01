@@ -11,6 +11,7 @@ from pathlib import Path
 
 from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
+from support.codex_permissions import merge_codex_worktree_roots
 from support.codex_setup import merge_codex_stop_gate
 from support.graphify_setup import (
     CANONICAL_SKILL_PATH,
@@ -39,6 +40,7 @@ from support.setup_config_files import (
 )
 from support.stable_launcher import ensure_stable_launcher, stable_launcher_path
 from support.bounded_git import run_git
+from agent_worktree_identity import worktree_root
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = ROOT / "scripts"
@@ -175,15 +177,32 @@ def configure_target_projects(
     if target_paths and not launcher_configured:
         results += ensure_stable_launcher(ROOT, dry_run)
 
-    # Project checks are agent-agnostic, but runtime skills remain user-level.
+    configure_claude_target = _runtime_selected("claude", selected_runtimes) and _has_claude()
+    configure_codex_target = _runtime_selected("codex", selected_runtimes) and _has_codex()
     # Never create Graphify skill copies or discovery links in target repos.
     graphify_platforms = graphify_platforms_for_runtimes(
         selected_runtimes or {"agy", "claude", "codex"}
     )
     for project_path in target_paths:
-        results += configure_external_project(
-            project_path, SCRIPTS_DIR, dry_run, spill_available=spill_available
-        )
+        if configure_claude_target:
+            results += configure_external_project(
+                project_path, SCRIPTS_DIR, dry_run, spill_available=spill_available
+            )
+        if configure_codex_target:
+            config_target = Path.home() / ".codex" / "config.toml"
+            status = merge_codex_worktree_roots(
+                config_target,
+                [worktree_root(project_path)],
+                dry_run,
+            )
+            results.append(
+                {
+                    "tool": "codex",
+                    "hook": f"permissions.worktrees.{project_path.name}",
+                    "status": status,
+                    "path": str(config_target),
+                }
+            )
         graphify_enabled = not args.skip_graphify and bool(
             args.graphify or (explicit_target and project_path == explicit_target)
         )
@@ -268,6 +287,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         "codex-stop-gate"
     )
     stop_status = merge_codex_stop_gate(hooks_target, stop_command, dry_run)
+    config_target = Path.home() / ".codex" / "config.toml"
+    permissions_status = merge_codex_worktree_roots(
+        config_target,
+        [worktree_root(root)],
+        dry_run,
+    )
     return [
         {
             "tool": "codex",
@@ -286,6 +311,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
             "hook": "Stop_finish_gate",
             "status": stop_status,
             "path": str(hooks_target),
+        },
+        {
+            "tool": "codex",
+            "hook": "permissions.TaoWorkspace",
+            "status": permissions_status,
+            "path": str(config_target),
         },
     ]
 

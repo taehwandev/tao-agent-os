@@ -17,6 +17,7 @@ packet bound to a record it cannot prove.
 from __future__ import annotations
 
 import argparse
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_continuation_store import continuation_path, read_continuation_packet
 from agent_continuation_fields import CHECKPOINT_RE, RUN_ID_RE
 from agent_hook_gate_records import preflight_evidence_path
+from support.stable_launcher import stable_launcher_path
 
 
 RUNS_DIR = "runs"
@@ -49,11 +51,7 @@ WORK_CHECKPOINT_LEAD = (
     "work, and the reuse summary reports no accepted decision and no "
     "successful verification to skip. Fill it with:"
 )
-WORK_CHECKPOINT_COMMAND = (
-    "  tao-hook checkpoint --project <project> --rules <rules> "
-    "--evidence <this-run>/preflight.json --checkpoint-kind decision "
-    "--phase acting --work-stdin < work.json"
-)
+WORK_CHECKPOINT_COMMAND_LEAD = "copyable checkpoint command:"
 WORK_CHECKPOINT_CLOSING = (
     "  every key of an object must be present, null when unknown; record one "
     "after reading the required docs and scoping the task, and refresh it at "
@@ -107,11 +105,29 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
     bound correctly, and useless to resume.
     """
 
-    if run_binding_path(args) is None:
+    binding_path = run_binding_path(args)
+    if binding_path is None:
         return []
+    command = shlex.join(
+        [
+            str(stable_launcher_path()),
+            "checkpoint",
+            "--project",
+            str(args.project.resolve()),
+            "--rules",
+            str(args.rules.resolve()),
+            "--evidence",
+            str(binding_path),
+            "--checkpoint-kind",
+            "decision",
+            "--phase",
+            "acting",
+            "--work-stdin",
+        ]
+    )
     return [
         WORK_CHECKPOINT_LEAD,
-        WORK_CHECKPOINT_COMMAND,
+        f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command} < work.json",
         *_work_shape_lines(),
         WORK_CHECKPOINT_CLOSING,
     ]

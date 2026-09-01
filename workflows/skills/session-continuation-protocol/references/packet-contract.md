@@ -273,11 +273,16 @@ bound correctly, and useless to resume.
 
 What it prints is the whole command, including `--checkpoint-kind`, and the
 work object's shape read from the validator: which fields are arrays, how many
-entries each takes, and what an entry looks like. Naming the fields was not
-enough, and neither was naming their enums -- following the earlier wording
-still failed twice, once on the missing required flag and once on `non_goals`
-being an array rather than a line. A test now takes the command out of a real
-start's output, substitutes only the paths, and runs it.
+entries each takes, and what an entry looks like. The command occupies its own
+line, uses the installed launcher's absolute path, and shell-quotes the concrete
+project, rules, and run-evidence paths. `work.json` is the only caller-provided
+input, through the visible stdin redirection. Explanatory words and path
+placeholders never appear inside the command line, so it can be copied without
+editing. Naming the fields was not enough, and neither was naming their enums --
+following the earlier wording still failed twice, once on the missing required
+flag and once on `non_goals` being an array rather than a line. A test now takes
+the command out of a real start's output and executes that complete line
+unchanged.
 
 `--work-stdin` accepts one partial closed `work` object on stdin. It never
 accepts work prose as command-line arguments, so semantic state does not move
@@ -441,4 +446,3 @@ therefore call the common `pre_mutation` checkpoint explicitly with its bounded
 paths before execution and the common `post_mutation` checkpoint afterward.
 The adapter must not guess paths from command text or claim automatic coverage
 it cannot enforce.
-

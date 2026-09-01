@@ -104,6 +104,14 @@ Tao Agent OS-managed entrypoints and suffix-aware runtime matchers. Do not
 broadly allow `python3`.
 For Codex, the same setup also merges one Tao Agent OS-owned `Stop` hook into
 `~/.codex/hooks.json` without replacing unrelated hooks such as local metering.
+It also maintains a Tao-owned `tao-workspace` permission profile in
+`~/.codex/config.toml`. The profile extends Codex's built-in `:workspace`
+profile and adds only exact generated worktree roots. A scoped target repair,
+for example `setup-agent-hooks --runtime codex --target <TARGET_REPO>`, adds
+`<TARGET_REPO>/.tao/worktrees` and does not write `.claude/settings.json`.
+Existing user roots and unrelated settings are preserved. A foreign default
+profile or legacy `approval_policy`/`sandbox_mode` is an ownership conflict and
+must be reported rather than replaced.
 `start` binds evidence to Codex's exact `CODEX_THREAD_ID`; the Stop gate acts
 only when that same session still owns an active run. It continues the turn
 once with the remaining `finish` and same-closeout skill-maintenance work, then
@@ -181,6 +189,11 @@ protected checkout may operate on that worktree through a recognised
 `cd <worktree> && ...` prefix or Git's global `-C <worktree>` option; the launch
 directory is context, not a second write target. Any explicit path back into
 the protected checkout is still denied.
+
+Codex uses the equivalent filesystem boundary through the `tao-workspace`
+profile's exact `<TARGET_REPO>/.tao/worktrees` root. Because that profile
+extends `:workspace`, adding the generated root does not make the protected
+checkout or Codex's own configuration writable.
 
 Do not generate Claude `Bash(git ...)` allow-prefix rules. Claude handles its
 built-in read-only Git forms without a prompt, while wildcard Bash rules can
