@@ -82,6 +82,17 @@ class QuotaTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("5h ██▊░░░░░  35%  │  7d ███████▌  94%", out)
 
+    def test_a_weekly_only_limit_is_drawn_as_a_gauge(self) -> None:
+        # A runtime may expose only its weekly budget. That must stay a visual
+        # gauge rather than disappear merely because no five-hour window exists.
+        code, out = _render({
+            "cwd": "/nowhere",
+            "rate_limits": {"weekly": {"used_percentage": 25}},
+        })
+
+        self.assertEqual(0, code)
+        self.assertEqual("7d ██████░░  75%", out)
+
     def test_a_window_running_out_is_marked(self) -> None:
         # A number among other numbers is read as a number. The mark is what
         # makes the one window worth acting on look different from the rest.
