@@ -89,6 +89,13 @@ class QuotaTests(unittest.TestCase):
 
         self.assertEqual("5h ██▊░░░░░  35%  │  7d ███████▌  94%", line)
 
+    def test_a_weekly_only_limit_is_drawn_as_a_gauge(self) -> None:
+        # A runtime may expose only its weekly budget. That must stay a visual
+        # gauge rather than disappear merely because no five-hour window exists.
+        line = _line({"rate_limits": {"weekly": {"used_percentage": 25}}})
+
+        self.assertEqual("7d ██████░░  75%", line)
+
     def test_a_window_running_out_is_marked(self) -> None:
         line = _line({"rate_limits": {"five_hour": {"used_percentage": 93.4}}})
 
