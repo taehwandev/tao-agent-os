@@ -19,7 +19,11 @@ from support.permission_entries import (
     codex_legacy_prefix_rule_entries,
     codex_prefix_rule_entries,
 )
-from support.setup_config_files import merge_codex_prefix_rules, merge_permissions_allow
+from support.setup_config_files import (
+    _status_marker,
+    merge_codex_prefix_rules,
+    merge_permissions_allow,
+)
 from support.graphify_setup import (
     GLOBAL_PLATFORM_SKILL_DIRS,
     _normalize_runtime_integrations,
@@ -952,9 +956,32 @@ class SetupAgentHooksTests(unittest.TestCase):
                     if path.is_file()
                 }
 
-        self.assertTrue(all(result["status"] in {"installed", "ok"} for result in first))
-        self.assertTrue(all(result["status"] == "ok" for result in second))
+        # `ok` may carry its reason after the word, which is how a row that has
+        # nothing to install explains itself; the report marks a status by the
+        # same prefix rather than by an exact match.
+        self.assertTrue(
+            all(result["status"].startswith(("installed", "ok")) for result in first),
+            [result["status"] for result in first],
+        )
+        self.assertTrue(
+            all(result["status"].startswith("ok") for result in second),
+            [result["status"] for result in second],
+        )
         self.assertEqual(first_snapshot, second_snapshot)
+
+    def test_every_runtime_reports_where_its_status_line_stands(self) -> None:
+        # Two of the three can run a command in that slot and one cannot. The
+        # row for the one that cannot is what turns an absence into an answer:
+        # without it, Codex simply had no status-line line in the report, which
+        # reads as an oversight.
+        with tempfile.TemporaryDirectory() as temp_home:
+            with patch.dict(os.environ, {"HOME": temp_home}):
+                results = setup_agent_hooks_impl.configure_codex(True, root=ROOT)
+
+        rows = [result for result in results if result["hook"] == "statusLine"]
+        self.assertEqual(1, len(rows), [result["hook"] for result in results])
+        self.assertEqual("OK", _status_marker(rows[0]["status"]))
+        self.assertIn("no custom command", rows[0]["status"])
 
     def test_stable_launcher_soft_fails_when_root_pointer_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_home:

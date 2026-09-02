@@ -116,13 +116,17 @@ def _merge_agy_statusline(target: Path, command: str, dry_run: bool) -> str:
     if chained.strip():
         desired = f"{command} --chain {quote(chained)}"
 
+    # The installer's report reads these words literally and prints anything it
+    # does not recognise as MISSING, so an entry that is already correct has to
+    # say "ok". This copy inherited "unchanged" from the Claude installer along
+    # with the rest of the shape.
     if existing_command == desired:
-        return "unchanged"
+        return "ok"
     if dry_run:
-        return "would-update"
+        return "would_update"
     config["statusLine"] = {"type": "command", "command": desired, "enabled": True}
     write_json(target, config)
-    return "updated"
+    return "installed"
 
 
 def _chained_command(command: str) -> str:

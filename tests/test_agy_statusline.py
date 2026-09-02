@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import agy_statusline
 from support.agy_setup import _STATUSLINE_MARKER, _merge_agy_statusline
 from support.runtime_quota import gauge, remaining_summary
-from support.setup_config_files import read_json
+from support.setup_config_files import _status_marker, read_json
 
 RENDERER = ROOT / "scripts" / "agy_statusline.py"
 
@@ -398,7 +398,7 @@ class InstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = self._settings(Path(tmp), None)
 
-            self.assertEqual("updated", _merge_agy_statusline(target, "tao statusline", False))
+            self.assertEqual("installed", _merge_agy_statusline(target, "tao statusline", False))
 
             config = read_json(target)
             self.assertEqual(
@@ -414,7 +414,7 @@ class InstallTests(unittest.TestCase):
                 Path(tmp), {"type": "command", "command": "node spill.mjs --chain 'orca.sh'"}
             )
 
-            self.assertEqual("updated", _merge_agy_statusline(target, "tao statusline", False))
+            self.assertEqual("installed", _merge_agy_statusline(target, "tao statusline", False))
 
             self.assertEqual(
                 "tao statusline --chain 'node spill.mjs --chain '\\''orca.sh'\\'''",
@@ -442,7 +442,7 @@ class InstallTests(unittest.TestCase):
             _merge_agy_statusline(target, self.MANAGED, False)
             first = read_json(target)["statusLine"]["command"]
 
-            self.assertEqual("unchanged", _merge_agy_statusline(target, self.MANAGED, False))
+            self.assertEqual("ok", _merge_agy_statusline(target, self.MANAGED, False))
             self.assertEqual(first, read_json(target)["statusLine"]["command"])
             self.assertEqual(1, first.count("--chain"))
 
@@ -457,7 +457,7 @@ class InstallTests(unittest.TestCase):
                 },
             )
 
-            self.assertEqual("updated", _merge_agy_statusline(target, self.MANAGED, False))
+            self.assertEqual("installed", _merge_agy_statusline(target, self.MANAGED, False))
 
             self.assertEqual(
                 f"{self.MANAGED} --chain 'node spill.mjs'",
@@ -494,9 +494,26 @@ class InstallTests(unittest.TestCase):
             target = self._settings(Path(tmp), None)
 
             self.assertEqual(
-                "would-update", _merge_agy_statusline(target, "tao statusline", True)
+                "would_update", _merge_agy_statusline(target, "tao statusline", True)
             )
             self.assertNotIn("statusLine", read_json(target))
+
+    def test_every_status_this_merger_returns_is_one_the_report_knows(self) -> None:
+        # The report prints anything it does not recognise as MISSING. This
+        # merger was written from the Claude one and inherited a word outside
+        # that vocabulary, so a correctly installed status line reported as
+        # missing on every check.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._settings(Path(tmp), None)
+            statuses = {
+                _merge_agy_statusline(target, self.MANAGED, True),
+                _merge_agy_statusline(target, self.MANAGED, False),
+                _merge_agy_statusline(target, self.MANAGED, False),
+            }
+
+            for status in statuses:
+                with self.subTest(status=status):
+                    self.assertNotEqual("MISSING", _status_marker(status))
 
 
 class LauncherTests(unittest.TestCase):

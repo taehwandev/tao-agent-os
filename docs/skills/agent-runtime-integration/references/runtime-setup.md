@@ -184,13 +184,27 @@ because a chained third-party script may itself be named for the status line.
 Reinstalling rewrites the launcher path and preserves the existing chain instead
 of nesting a second copy.
 
-Codex has no equivalent surface: it does not expose a persistent status-line
-command, so this renderer is installed for Claude and Antigravity. AGY executes
-a managed `statusLine` command configured in `~/.gemini/antigravity-cli/settings.json`.
-When rate limits or quota information are provided on stdin as JSON, the renderer
-draws what is left using runtime_quota; when rate limits are absent, it silently
-renders the active Tao run progress (`task X/Y`). It reads the window shapes both
-Claude and Codex emit, so a later Codex surface needs no third renderer.
+AGY executes a managed `statusLine` command configured in
+`~/.gemini/antigravity-cli/settings.json`. When rate limits or quota information
+are provided on stdin as JSON, the renderer draws what is left using
+runtime_quota; when rate limits are absent, it silently renders the active Tao
+run progress (`task X/Y`). It reads the window shapes both Claude and Codex
+emit, so a later Codex surface needs no third renderer.
+
+Codex does have a status line -- `/statusline` configures it and `status_line`
+stores it -- but it selects from a fixed list of built-in items (project name,
+hostname, open pull request, approval mode, context window size, and so on) and
+offers no slot for a command of one's own. There is nothing for the installer to
+write there, and no remaining-quota item in that list to choose either. Setup
+still emits a `codex / statusLine` row saying exactly that, because a runtime
+missing from the report reads as an oversight rather than as an answer. If Codex
+ever accepts a custom command, only that row and `configure_codex` change.
+
+A row's status word is the report's vocabulary, not prose: `print_results` marks
+anything it does not recognise as MISSING, so a merger that has nothing to do
+must return `ok` (optionally followed by its reason in parentheses), a dry run
+that would act must return `would_update`, and a completed write must return
+`installed`.
 
 The start hook allocates `.tao/runs/<opaque-run-id>/preflight.json` whenever no
 explicit evidence path was supplied, including runtimes without a session id.

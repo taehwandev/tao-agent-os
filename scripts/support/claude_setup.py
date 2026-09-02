@@ -158,13 +158,17 @@ def _merge_claude_statusline(target: Path, command: str, dry_run: bool) -> str:
     if chained.strip():
         desired = f"{command} --chain {quote(chained)}"
 
+    # These three words are the installer's vocabulary, and the report reads
+    # them literally: anything it does not recognise prints as MISSING. Saying
+    # "unchanged" for an entry that is already correct therefore told the
+    # operator to reinstall something that was in place, on every check.
     if existing_command == desired:
-        return "unchanged"
+        return "ok"
     if dry_run:
-        return "would-update"
+        return "would_update"
     config["statusLine"] = {"type": "command", "command": desired}
     write_json(target, config)
-    return "updated"
+    return "installed"
 
 
 def _chained_command(command: str) -> str:
