@@ -19,6 +19,25 @@ from typing import Any
 # Below this, the window is worth looking at rather than glancing past.
 LOW_REMAINING_PERCENT = 15
 
+# Between the two, the window is worth noticing but not acting on.
+CAUTION_REMAINING_PERCENT = 40
+
+# Colour is written as the terminal's own palette indices rather than as exact
+# values. That matters more than it sounds: a terminal set to a
+# colour-vision-adjusted theme has already chosen what index 1 and index 3
+# should look like, so naming the index lets that adjustment apply, while a
+# hardcoded hex would override the very setting it needs to respect.
+#
+# Colour is also never the only signal. The gauge length carries the same
+# reading, and a window running out keeps its `!`, so the line still says
+# everything it says with colour switched off entirely.
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+CYAN = "\033[36m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+
 # The windows both runtimes report, shortest first. A window this map does not
 # name is skipped rather than guessed at: an unlabelled percentage is worse than
 # no percentage, because the reader cannot tell which budget it is about.
@@ -38,7 +57,7 @@ GAUGE_PARTIALS = " ▏▎▍▌▋▊▉"
 SEPARATOR = "  │  "
 
 
-def remaining_summary(rate_limits: Any) -> str:
+def remaining_summary(rate_limits: Any, *, color: bool = False) -> str:
     """`5h ██▊░░░░░  35%  │  7d ███████▌  94%` -- what is left, not what is spent.
 
     Runtimes report a window as the fraction it has consumed, which answers
@@ -54,8 +73,30 @@ def remaining_summary(rate_limits: Any) -> str:
         label = WINDOW_LABELS[minutes]
         # The percentage is padded so the tail stops jittering between 7%, 35%
         # and 100% on a line that is redrawn constantly.
-        parts.append(f"{mark}{label} {gauge(remaining)} {remaining:>3}%")
+        segment = f"{mark}{label} {gauge(remaining)} {remaining:>3}%"
+        parts.append(paint(segment, level_color(remaining)) if color else segment)
     return SEPARATOR.join(parts)
+
+
+def level_color(remaining: int) -> str:
+    """The palette entry for how much is left.
+
+    Cyan, yellow and red rather than the usual green-to-red ramp: green and red
+    are the pair most often indistinguishable, and these three differ in
+    brightness as well as hue, so the ordering survives when the hue does not.
+    """
+
+    if remaining <= LOW_REMAINING_PERCENT:
+        return f"{BOLD}{RED}"
+    if remaining <= CAUTION_REMAINING_PERCENT:
+        return YELLOW
+    return CYAN
+
+
+def paint(text: str, color: str) -> str:
+    """Wrap text in a palette entry, or leave it alone when there is none."""
+
+    return f"{color}{text}{RESET}" if color and text else text
 
 
 def gauge(percent: int) -> str:

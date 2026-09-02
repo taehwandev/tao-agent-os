@@ -154,17 +154,36 @@ workflow entry and continuation enforceable, `setup-agent-hooks.py` installs:
 - matching `PostToolUse` and `PostToolUseFailure` continuation hooks; and
 - the existing `Stop` finish gate.
 
-Setup also installs a managed `statusLine` entry, so the runtime's own remaining
-quota and the run currently open in this project stay on screen without a
-wrapper launcher. Claude Code hands the status-line command the session as JSON,
-and that JSON already carries `rate_limits`, so the renderer subtracts what each
-window has used and draws what is left, as a block gauge beside the number; the
-open run is read from the project's run registry and its bound gate ledger.
-Neither number is asked for over the network and nothing is written.
+Setup also installs a managed `statusLine` entry, so where this session lives,
+the runtime's own remaining quota, and the run currently open stay on screen
+without a wrapper launcher. The runtime hands the status-line command the
+session as JSON, and that JSON already carries `rate_limits`, so the renderer
+subtracts what each window has used and draws what is left, as a block gauge
+beside the number; the open run is read from the project's run registry and its
+bound gate ledger. Neither number is asked for over the network and nothing is
+written.
 
 ```
-5h █████▎░░  65%  │  7d ███████▌  94%  │  task 14/20
+5h █████▎░░  65%  │  7d ███████▌  94%  │  ~/git/tao-agent-os/…/gauge  │  task 14/20
 ```
+
+Both runtimes render this from `scripts/support/statusline.py`, which composes
+the line, and `scripts/support/tao_run_state.py`, which reads whether a run is
+open; each runtime keeps only an entry point saying how it is invoked. They were copies once, and the copy is
+how a defect travelled -- a status word outside the installer's vocabulary was
+written in one and inherited by the other -- so a segment added twice is a
+mistake the shape now prevents.
+
+The path names the directory the session **started** in, not the one it is
+currently in. The runtime reports both (`workspace.project_dir` and
+`workspace.current_dir`), and the difference is what makes the segment worth
+reading: a label that moved under you answers a question nobody asked, while a
+fixed one lets you recognise at a glance which checkout this window belongs to.
+The open run is still found from the current directory, because that is where
+the run lives. Home folds to `~`, and past `PATH_LIMIT` the middle segments give
+way to `…` -- every task worktree sits under the same `.tao/worktrees`, so that
+is the part carrying no information. The leaf is never truncated; a half-written
+worktree name is worse than a long one.
 
 The gauge fills to what remains, so it empties as the budget does. It is drawn
 at eighth-block resolution because whole blocks round both 3% and 12% to no
@@ -172,9 +191,18 @@ cells at all, and an exhausted window and one with a sliver left are the two
 states most worth telling apart -- eight cells of eight give 64 steps, so 1%
 still draws. Its width is fixed and the percentage is padded, because the line
 is redrawn constantly and a segment that changes width moves everything after
-it. A window at or below `LOW_REMAINING_PERCENT` is marked `!`, which is the
-only emphasis used: no colour is emitted, so the line cannot fight a terminal
-theme or a colour-vision-adjusted palette.
+it.
+
+Colour marks the quota by how much is left -- cyan, then yellow below
+`CAUTION_REMAINING_PERCENT`, then bold red below `LOW_REMAINING_PERCENT` -- and
+dims the path and the run so the number that says when to stop is the one seen
+first. Three rules keep it honest. It is written as the terminal's own palette
+indices rather than exact values, so a theme adjusted for colour vision applies
+its adjustment instead of being overridden. The ramp avoids green, because green
+and red are the pair most often collapsed, and its three entries differ in
+brightness as well as hue. And colour is never the only signal: the gauge length
+carries the same reading and a window running out keeps its `!`, so `NO_COLOR=1`
+loses emphasis and nothing else.
 
 That slot holds one command and other tools install into it, so the managed
 entry never replaces what it finds: it puts Tao in front and passes the untouched

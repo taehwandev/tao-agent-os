@@ -1,26 +1,31 @@
+"""Claude Code's own end of the status line: how it is installed and invoked.
+
+What the line is made of is shared with Antigravity and tested once, in
+`test_statusline.py`. What is tested here is the part that is Claude's alone.
+"""
+
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import tempfile
 import unittest
-import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import claude_statusline
 from support.claude_setup import _STATUSLINE_MARKER, _merge_claude_statusline
-from support.runtime_quota import gauge, remaining_summary
 from support.setup_config_files import _status_marker, read_json
 
 RENDERER = ROOT / "scripts" / "claude_statusline.py"
+ALIAS = "claude-statusline"
+SCRIPT = "claude_statusline.py"
+MERGE = staticmethod(_merge_claude_statusline)
 
 
-def _render(payload: object, *arguments: str, env: dict[str, str] | None = None) -> tuple[int, str]:
+def _render(payload: object, *arguments: str) -> tuple[int, str]:
     text = payload if isinstance(payload, str) else json.dumps(payload)
     done = subprocess.run(
         [sys.executable, str(RENDERER), *arguments],
@@ -28,404 +33,46 @@ def _render(payload: object, *arguments: str, env: dict[str, str] | None = None)
         capture_output=True,
         text=True,
         timeout=30,
-        env=env,
+        env={"PATH": "/usr/bin:/bin", "NO_COLOR": "1"},
     )
     return done.returncode, done.stdout
 
 
-def _project(root: Path) -> Path:
-    (root / ".tao" / "evidence").mkdir(parents=True)
-    return root
-
-
-def _open_run(project: Path, *, command: str, evidence_name: str) -> None:
-    (project / ".tao" / "run-registry.json").write_text(
-        json.dumps({
-            "schema_version": 1,
-            "runs": [{
-                "run_id": "a" * 32,
-                "command": command,
-                "evidence_name": evidence_name,
-                "state": "running",
-                "started_at": "2026-09-02T09:00:00+00:00",
-            }],
-        }),
-        encoding="utf-8",
-    )
-
-
-def _ledger(project: Path, *, evidence_name: str, gates: list[str], recorded: list[str]) -> None:
-    evidence = project / ".tao" / "evidence" / evidence_name
-    evidence.write_text(json.dumps({"route": {"gates": gates}}), encoding="utf-8")
-    ledger = project / ".tao" / "evidence" / f"{Path(evidence_name).stem}-gate-evidence.json"
-    ledger.write_text(
-        json.dumps({
-            "preflight_evidence": str(evidence),
-            "entries": [{"gate": gate, "status": "SUCCESS"} for gate in recorded],
-        }),
-        encoding="utf-8",
-    )
-
-
-class QuotaTests(unittest.TestCase):
-    def test_the_line_reports_what_is_left_not_what_is_spent(self) -> None:
-        # The payload states the fraction used, which answers "how much have I
-        # burned". The question the status line exists for is the other one.
+class EntryPointTests(unittest.TestCase):
+    def test_the_script_draws_the_line_for_a_payload_on_stdin(self) -> None:
+        # The renderer is reached as a program, not as an import, so the wiring
+        # from stdin through to stdout is its own thing to check.
         code, out = _render({
             "cwd": "/nowhere",
-            "rate_limits": {
-                "five_hour": {"used_percentage": 65},
-                "seven_day": {"used_percentage": 6},
-            },
+            "rate_limits": {"five_hour": {"used_percentage": 65}},
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("5h ██▊░░░░░  35%  │  7d ███████▌  94%", out)
+        self.assertEqual("5h \u2588\u2588\u258a\u2591\u2591\u2591\u2591\u2591  35%  \u2502  /nowhere", out)
 
-    def test_a_weekly_only_limit_is_drawn_as_a_gauge(self) -> None:
-        # A runtime may expose only its weekly budget. That must stay a visual
-        # gauge rather than disappear merely because no five-hour window exists.
-        code, out = _render({
-            "cwd": "/nowhere",
-            "rate_limits": {"weekly": {"used_percentage": 25}},
-        })
-
-        self.assertEqual(0, code)
-        self.assertEqual("7d ██████░░  75%", out)
-
-    def test_a_window_running_out_is_marked(self) -> None:
-        # A number among other numbers is read as a number. The mark is what
-        # makes the one window worth acting on look different from the rest.
-        code, out = _render({
-            "cwd": "/nowhere",
-            "rate_limits": {
-                "five_hour": {"used_percentage": 93.4},
-                "seven_day": {"used_percentage": 6},
-            },
-        })
-
-        self.assertEqual(0, code)
-        self.assertEqual("!5h ▌░░░░░░░   7%  │  7d ███████▌  94%", out)
-
-    def test_the_other_runtimes_spelling_of_the_same_windows_is_read(self) -> None:
-        # Codex states the same two windows as primary and secondary with an
-        # explicit length. Reading a window by the fields it must have, rather
-        # than by one layout, is what lets this renderer serve both.
-        code, out = _render({
-            "cwd": "/nowhere",
-            "rate_limits": {
-                "primary": {"used_percent": 11.0, "window_minutes": 300},
-                "secondary": {"used_percent": 35.0, "window_minutes": 10080},
-            },
-        })
-
-        self.assertEqual(0, code)
-        self.assertEqual("5h ███████▏  89%  │  7d █████▎░░  65%", out)
-
-    def test_a_list_of_windows_is_read_too(self) -> None:
-        code, out = _render({
-            "cwd": "/nowhere",
-            "rate_limits": [
-                {"kind": "five_hour", "used_percentage": 20},
-                {"kind": "seven_day", "used_percentage": 40},
-            ],
-        })
-
-        self.assertEqual(0, code)
-        self.assertEqual("5h ██████▍░  80%  │  7d ████▊░░░  60%", out)
-
-    def test_a_window_this_renderer_cannot_name_is_left_out(self) -> None:
-        # An unlabelled percentage is worse than no percentage: the reader
-        # cannot tell which budget it is about.
-        code, out = _render({
-            "cwd": "/nowhere",
-            "rate_limits": {
-                "five_hour": {"used_percentage": 20},
-                "some_new_window": {"used_percentage": 90},
-            },
-        })
-
-        self.assertEqual(0, code)
-        self.assertEqual("5h ██████▍░  80%", out)
-
-    def test_a_window_that_states_a_length_nobody_labels_is_left_out(self) -> None:
-        # A stated length is believed over the name, so a runtime that adds an
-        # hourly window arrives here as a real number with no label to draw it
-        # under. Skipping on the label rather than on the length is what keeps
-        # that from becoming a crash on every redraw.
-        code, out = _render({
-            "cwd": "/nowhere",
-            "rate_limits": {
-                "five_hour": {"used_percentage": 20},
-                "hourly": {"used_percent": 50, "window_minutes": 60},
-            },
-        })
-
-        self.assertEqual(0, code)
-        self.assertEqual("5h ██████▍░  80%", out)
-
-    def test_nothing_is_drawn_when_the_payload_carries_no_limits(self) -> None:
-        for payload in ({}, {"cwd": "/nowhere"}, {"rate_limits": None}, "not json", ""):
+    def test_it_never_fails_on_input_it_cannot_read(self) -> None:
+        for payload in ("not json", "", "[]"):
             with self.subTest(payload=payload):
                 code, out = _render(payload)
                 self.assertEqual(0, code)
                 self.assertEqual("", out)
 
-
-class GaugeTests(unittest.TestCase):
-    def test_the_bar_fills_to_what_is_left(self) -> None:
-        self.assertEqual("████████", gauge(100))
-        self.assertEqual("████░░░░", gauge(50))
-        self.assertEqual("░░░░░░░░", gauge(0))
-
-    def test_a_window_with_anything_left_never_draws_as_empty(self) -> None:
-        # An exhausted window and one with a little left are the two states it
-        # matters most to tell apart, and rounding would draw them the same.
-        for percent in (1, 2, 3):
-            with self.subTest(percent=percent):
-                self.assertNotEqual("░" * 8, gauge(percent))
-        self.assertEqual("░" * 8, gauge(0))
-
-    def test_partial_cells_keep_nearby_levels_distinguishable(self) -> None:
-        # Whole blocks round 3% and 12% to the same picture. The eighth-block
-        # cell is what carries the difference at the end that matters.
-        self.assertNotEqual(gauge(3), gauge(12))
-        self.assertNotEqual(gauge(21), gauge(35))
-
-    def test_every_bar_is_the_same_width(self) -> None:
-        # A gauge that changed width would move the number beside it on every
-        # redraw.
-        for percent in range(0, 101):
-            with self.subTest(percent=percent):
-                self.assertEqual(8, len(gauge(percent)), gauge(percent))
-
-    def test_the_bar_never_shrinks_as_more_is_left(self) -> None:
-        filled = [
-            sum(1 for cell in gauge(percent) if cell != "░") for percent in range(101)
-        ]
-        self.assertEqual(sorted(filled), filled)
-
-    def test_the_number_is_padded_so_the_tail_stops_jittering(self) -> None:
-        for percent, expected in ((7, "  7%"), (35, " 35%"), (100, "100%")):
-            with self.subTest(percent=percent):
-                summary = remaining_summary({"five_hour": {"used_percentage": 100 - percent}})
-                self.assertTrue(summary.endswith(expected), summary)
-
-
-def _loc(path: Path) -> str:
-    home = Path.home().resolve()
-    try:
-        rel = path.resolve().relative_to(home)
-        return f"~/{rel}" if str(rel) != "." else "~"
-    except ValueError:
-        return str(path.resolve())
-
-
-class LocationTests(unittest.TestCase):
-    def test_location_under_home_uses_tilde(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp).resolve()
-            work = home / "git" / "project"
-            work.mkdir(parents=True)
-            code, out = _render({"cwd": str(work)}, env={**os.environ, "HOME": str(home)})
-            self.assertEqual(0, code)
-            self.assertEqual("~/git/project", out)
-
-    def test_location_at_home_uses_tilde(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp).resolve()
-            code, out = _render({"cwd": str(home)}, env={**os.environ, "HOME": str(home)})
-            self.assertEqual(0, code)
-            self.assertEqual("~", out)
-
-    def test_nonexistent_location_is_ignored(self) -> None:
-        code, out = _render({"cwd": "/nowhere/does/not/exist"})
-        self.assertEqual(0, code)
-        self.assertEqual("", out)
-
-
-class CurrentWorkTests(unittest.TestCase):
-    def test_the_open_run_is_named_with_how_far_it_has_to_go(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            _open_run(project, command="task", evidence_name="statusline.json")
-            _ledger(
-                project,
-                evidence_name="statusline.json",
-                gates=["a", "b", "c", "d"],
-                recorded=["a", "b"],
-            )
-
-            code, out = _render({"cwd": str(project)})
-
-            self.assertEqual(0, code)
-            self.assertEqual(f"{_loc(project)}  │  task 2/4", out)
-
-    def test_a_project_with_no_open_run_shows_location_only(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            (project / ".tao" / "run-registry.json").write_text(
-                json.dumps({"runs": [{"command": "task", "state": "completed"}]}),
-                encoding="utf-8",
-            )
-
-            code, out = _render({"cwd": str(project)})
-
-            self.assertEqual(0, code)
-            self.assertEqual(_loc(project), out)
-
-    def test_a_ledger_belonging_to_another_run_is_not_counted(self) -> None:
-        # `.tao/gate-evidence.json` is tracked, so a fresh worktree starts life
-        # holding a finished run's ledger. Without the binding check a new run
-        # would report that run's progress as its own.
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            _open_run(project, command="task", evidence_name="mine.json")
-            stale = project / ".tao" / "evidence" / "mine-gate-evidence.json"
-            stale.write_text(
-                json.dumps({
-                    "preflight_evidence": str(project / ".tao" / "evidence" / "someone-else.json"),
-                    "entries": [{"gate": g, "status": "SUCCESS"} for g in "abcdefg"],
-                }),
-                encoding="utf-8",
-            )
-
-            code, out = _render({"cwd": str(project)})
-
-            self.assertEqual(0, code)
-            self.assertEqual(f"{_loc(project)}  │  task", out)
-
-    def test_only_recorded_gates_count_toward_the_route(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            _open_run(project, command="task", evidence_name="statusline.json")
-            evidence = project / ".tao" / "evidence" / "statusline.json"
-            evidence.write_text(json.dumps({"route": {"gates": ["a", "b"]}}), encoding="utf-8")
-            (project / ".tao" / "evidence" / "statusline-gate-evidence.json").write_text(
-                json.dumps({
-                    "preflight_evidence": str(evidence),
-                    "entries": [
-                        {"gate": "a", "status": "SUCCESS"},
-                        {"gate": "b", "status": "FAIL"},
-                        {"gate": "not on this route", "status": "SUCCESS"},
-                    ],
-                }),
-                encoding="utf-8",
-            )
-
-            code, out = _render({"cwd": str(project)})
-
-            self.assertEqual(0, code)
-            self.assertEqual(f"{_loc(project)}  │  task 1/2", out)
-
-    def test_the_workspace_directory_wins_over_the_process_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            _open_run(project, command="review", evidence_name="statusline.json")
-            _ledger(project, evidence_name="statusline.json", gates=["a"], recorded=[])
-
-            code, out = _render({
-                "cwd": "/nowhere",
-                "workspace": {"current_dir": str(project)},
-            })
-
-            self.assertEqual(0, code)
-            self.assertEqual(f"{_loc(project)}  │  review 0/1", out)
-
-    def test_a_directory_inside_the_project_still_finds_it(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            _open_run(project, command="task", evidence_name="statusline.json")
-            _ledger(project, evidence_name="statusline.json", gates=["a"], recorded=["a"])
-            inside = project / "src" / "deep"
-            inside.mkdir(parents=True)
-
-            code, out = _render({"cwd": str(inside)})
-
-            self.assertEqual(0, code)
-            self.assertEqual(f"{_loc(inside)}  │  task 1/1", out)
-
-
-class WholeLineTests(unittest.TestCase):
-    def test_taos_own_segments_are_divided_the_same_way_throughout(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            _open_run(project, command="task", evidence_name="statusline.json")
-            _ledger(
-                project,
-                evidence_name="statusline.json",
-                gates=list("abcdefgh"),
-                recorded=list("abcde"),
-            )
-
-            code, out = _render({
-                "cwd": str(project),
-                "rate_limits": {
-                    "five_hour": {"used_percentage": 65},
-                    "seven_day": {"used_percentage": 6},
-                },
-            })
-
-            self.assertEqual(0, code)
-            self.assertEqual(
-                f"5h ██▊░░░░░  35%  │  7d ███████▌  94%  │  {_loc(project)}  │  task 5/8",
-                out,
-            )
-
-    def test_someone_elses_text_is_not_claimed_by_this_layout(self) -> None:
-        # A divider in front of the chain's output would present it as another
-        # field of this line. It is a separate tool's text.
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            _open_run(project, command="task", evidence_name="statusline.json")
-            _ledger(project, evidence_name="statusline.json", gates=["a"], recorded=["a"])
-
-            code, out = _render({"cwd": str(project)}, "--chain", "echo theirs")
-
-            self.assertEqual(0, code)
-            self.assertEqual(f"{_loc(project)}  │  task 1/1  theirs", out)
-
-
-class ChainTests(unittest.TestCase):
-    def test_what_already_held_the_slot_keeps_its_output(self) -> None:
-        code, out = _render(
-            {"cwd": "/nowhere", "rate_limits": {"five_hour": {"used_percentage": 20}}},
-            "--chain",
-            "echo held-this-before",
-        )
+    def test_the_chain_argument_reaches_the_renderer(self) -> None:
+        code, out = _render({"cwd": "/nowhere"}, "--chain", "echo theirs")
 
         self.assertEqual(0, code)
-        self.assertEqual("5h ██████▍░  80%  held-this-before", out)
+        self.assertEqual("/nowhere  theirs", out)
 
-    def test_the_chain_is_handed_the_untouched_payload(self) -> None:
-        # The other tool reads the same JSON this renderer does; passing it
-        # anything else would break the meter that was already working.
-        code, out = _render({"cwd": "/nowhere", "marker": "verbatim"}, "--chain", "cat")
 
-        self.assertEqual(0, code)
-        self.assertIn('"marker": "verbatim"', out)
+class LauncherTests(unittest.TestCase):
+    def test_the_renderer_is_reachable_through_the_stable_launcher(self) -> None:
+        # The installed status-line entry names the alias, not a path, so the
+        # launcher it is written into has to know that alias or every draw is a
+        # soft failure.
+        from support.stable_launcher import _launcher_script_text
 
-    def test_a_chain_that_hangs_cannot_hold_the_frame(self) -> None:
-        # The status line is redrawn constantly. One slow draw is invisible; a
-        # hung one takes the terminal with it.
-        code, out = _render(
-            {"cwd": "/nowhere", "rate_limits": {"five_hour": {"used_percentage": 20}}},
-            "--chain",
-            "sleep 30",
-        )
-
-        self.assertEqual(0, code)
-        self.assertEqual("5h ██████▍░  80%", out)
-
-    def test_a_chain_that_fails_is_not_an_error_here(self) -> None:
-        code, out = _render(
-            {"cwd": "/nowhere", "rate_limits": {"five_hour": {"used_percentage": 20}}},
-            "--chain",
-            "exit 3",
-        )
-
-        self.assertEqual(0, code)
-        self.assertEqual("5h ██████▍░  80%", out)
+        self.assertIn(f'"{ALIAS}": "{SCRIPT}"', _launcher_script_text())
+        self.assertTrue(RENDERER.exists())
 
 
 class InstallTests(unittest.TestCase):
@@ -543,26 +190,6 @@ class InstallTests(unittest.TestCase):
             for status in statuses:
                 with self.subTest(status=status):
                     self.assertNotEqual("MISSING", _status_marker(status))
-
-
-class LauncherTests(unittest.TestCase):
-    def test_the_renderer_is_reachable_through_the_stable_launcher(self) -> None:
-        # The installed status-line entry names the alias, not a path, so the
-        # launcher it is written into has to know that alias or every draw is a
-        # soft failure.
-        from support.stable_launcher import _launcher_script_text
-
-        self.assertIn('"claude-statusline": "claude_statusline.py"', _launcher_script_text())
-        self.assertTrue(RENDERER.exists())
-
-
-class ModuleTests(unittest.TestCase):
-    def test_an_unreadable_registry_leaves_the_line_short(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = _project(Path(tmp))
-            (project / ".tao" / "run-registry.json").write_text("{ not json", encoding="utf-8")
-
-            self.assertIsNone(claude_statusline.open_run(project))
 
 
 if __name__ == "__main__":
