@@ -33,6 +33,13 @@ _EDIT_TOOL_MATCHER = "Edit|Write|MultiEdit|NotebookEdit"
 _PRETOOL_GATE_MATCHER = f"{_EDIT_TOOL_MATCHER}|Bash"
 _PRETOOL_GATE_ALIAS = "claude-pretool-gate"
 _STOP_GATE_ALIAS = "claude-stop-gate"
+_STATUSLINE_ALIAS = "claude-statusline"
+# Identify the managed status line by a token nothing else would open with.
+# The alias alone is not that token: the terminal integration that already held
+# this slot chains a script named `claude-statusline.sh`, so searching for the
+# alias matched a command Tao does not own and replaced it -- which is exactly
+# the eviction the chain exists to prevent.
+_STATUSLINE_MARKER = "TAO_STATUSLINE=1"
 
 
 def configure_claude(
@@ -98,6 +105,12 @@ def configure_claude(
     status = _merge_claude_stop_gate(target, stop_cmd, dry_run)
     results.append({"tool": "claude", "hook": "Stop_finish_gate", "status": status, "path": str(target)})
 
+    statusline_cmd = (
+        f"{_STATUSLINE_MARKER} {quote(str(launcher_path))} {_STATUSLINE_ALIAS}"
+    )
+    status = _merge_claude_statusline(target, statusline_cmd, dry_run)
+    results.append({"tool": "claude", "hook": "statusLine", "status": status, "path": str(target)})
+
     cleanup_entries = claude_legacy_permission_entries(scripts_dir)
     if not spill_available:
         cleanup_entries += claude_permission_entries(scripts_dir, spill_available=True)
@@ -112,6 +125,64 @@ def configure_claude(
     status = _set_claude_env(target, dry_run) if spill_available else _remove_claude_env(target, dry_run)
     results.append({"tool": "claude", "hook": "env.SPILL_AI_TOOL", "status": status, "path": str(target)})
     return results
+
+
+def _merge_claude_statusline(target: Path, command: str, dry_run: bool) -> str:
+    """Put Tao in the status line without evicting whoever already holds it.
+
+    Claude Code has one status-line slot, and other tools install into it -- a
+    token meter, a terminal integration. Taking it would silently switch those
+    off, so Tao inserts itself in front of what is there and hands the same
+    payload on through `--chain`, keeping that output beside its own.
+
+    Reinstalling must not nest a second copy of the chain, so an existing
+    managed entry is replaced whole and the chain it already carried is what
+    gets preserved.
+    """
+
+    config = read_json(target)
+    existing = config.get("statusLine")
+    existing_command = ""
+    if isinstance(existing, dict) and str(existing.get("type") or "") == "command":
+        existing_command = str(existing.get("command") or "")
+
+    if existing_command.startswith(f"{_STATUSLINE_MARKER} "):
+        # Already managed: keep whatever it was chaining to rather than reading
+        # the whole command back out, and rewrite it from the current launcher
+        # path so a moved installation is repaired.
+        chained = _chained_command(existing_command)
+    else:
+        chained = existing_command
+
+    desired = command
+    if chained.strip():
+        desired = f"{command} --chain {quote(chained)}"
+
+    if existing_command == desired:
+        return "unchanged"
+    if dry_run:
+        return "would-update"
+    config["statusLine"] = {"type": "command", "command": desired}
+    write_json(target, config)
+    return "updated"
+
+
+def _chained_command(command: str) -> str:
+    """The command a managed status-line entry was already chaining to."""
+
+    marker = " --chain "
+    index = command.find(marker)
+    if index < 0:
+        return ""
+    return _unquote(command[index + len(marker):].strip())
+
+
+def _unquote(value: str) -> str:
+    """Undo one layer of the shell quoting `quote` applies."""
+
+    if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+        return value[1:-1].replace("'\\''", "'")
+    return value
 
 
 def _merge_claude_user_prompt_submit(target: Path, command: str, dry_run: bool) -> str:

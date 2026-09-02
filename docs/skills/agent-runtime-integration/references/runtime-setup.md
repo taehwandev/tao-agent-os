@@ -154,6 +154,27 @@ workflow entry and continuation enforceable, `setup-agent-hooks.py` installs:
 - matching `PostToolUse` and `PostToolUseFailure` continuation hooks; and
 - the existing `Stop` finish gate.
 
+Setup also installs a managed `statusLine` entry, so the runtime's own remaining
+quota and the run currently open in this project stay on screen without a
+wrapper launcher. Claude Code hands the status-line command the session as JSON,
+and that JSON already carries `rate_limits`, so the renderer subtracts what each
+window has used and draws what is left; the open run is read from the project's
+run registry and its bound gate ledger. Neither number is asked for over the
+network and nothing is written.
+
+That slot holds one command and other tools install into it, so the managed
+entry never replaces what it finds: it puts Tao in front and passes the untouched
+payload on through `--chain`, keeping that output beside its own. A managed entry
+is recognised by the `TAO_STATUSLINE=1` prefix rather than by the script name,
+because a chained third-party script may itself be named for the status line.
+Reinstalling rewrites the launcher path and preserves the existing chain instead
+of nesting a second copy.
+
+Codex and Antigravity have no equivalent surface: neither exposes a persistent
+status-line command, so this renderer is installed for Claude alone. It reads
+the window shapes both Claude and Codex emit, so a later Codex surface needs no
+second renderer.
+
 The start hook allocates `.tao/runs/<opaque-run-id>/preflight.json` whenever no
 explicit evidence path was supplied, including runtimes without a session id.
 When Claude supplies a runtime session id, every later hook uses the common
