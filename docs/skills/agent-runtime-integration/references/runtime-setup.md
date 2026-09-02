@@ -184,10 +184,13 @@ because a chained third-party script may itself be named for the status line.
 Reinstalling rewrites the launcher path and preserves the existing chain instead
 of nesting a second copy.
 
-Codex and Antigravity have no equivalent surface: neither exposes a persistent
-status-line command, so this renderer is installed for Claude alone. It reads
-the window shapes both Claude and Codex emit, so a later Codex surface needs no
-second renderer.
+Codex has no equivalent surface: it does not expose a persistent status-line
+command, so this renderer is installed for Claude and Antigravity. AGY executes
+a managed `statusLine` command configured in `~/.gemini/antigravity-cli/settings.json`.
+When rate limits or quota information are provided on stdin as JSON, the renderer
+draws what is left using runtime_quota; when rate limits are absent, it silently
+renders the active Tao run progress (`task X/Y`). It reads the window shapes both
+Claude and Codex emit, so a later Codex surface needs no third renderer.
 
 The start hook allocates `.tao/runs/<opaque-run-id>/preflight.json` whenever no
 explicit evidence path was supplied, including runtimes without a session id.

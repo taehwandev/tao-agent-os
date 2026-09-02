@@ -128,6 +128,7 @@ def main() -> None:
             dry_run,
             root=ROOT,
             scripts_dir=SCRIPTS_DIR,
+            launcher_path=stable_launcher_path(),
             spill_available=spill_available,
         )
 

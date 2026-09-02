@@ -12,12 +12,15 @@ from support.runtime_bridge import (
     runtime_bridge_block,
     runtime_bridge_required_phrases,
 )
-from support.setup_config_files import merge_permissions_allow
+from support.setup_config_files import merge_permissions_allow, quote, read_json, write_json
+from support.stable_launcher import stable_launcher_path
 
 AGY_RUNTIME_BRIDGE_PATH = Path.home() / ".antigravity" / "AGENTS.md"
 AGY_RUNTIME_BRIDGE_BEGIN = RUNTIME_BRIDGE_BEGIN
 AGY_RUNTIME_BRIDGE_END = RUNTIME_BRIDGE_END
 AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES = runtime_bridge_required_phrases("Antigravity", "AGENTS.md")
+_STATUSLINE_ALIAS = "agy-statusline"
+_STATUSLINE_MARKER = "TAO_STATUSLINE=1"
 
 
 def configure_agy(
@@ -25,6 +28,7 @@ def configure_agy(
     *,
     root: Path,
     scripts_dir: Path,
+    launcher_path: Path | None = None,
     spill_available: bool = True,
 ) -> list[dict]:
     results = []
@@ -36,12 +40,27 @@ def configure_agy(
         "path": str(AGY_RUNTIME_BRIDGE_PATH),
     })
 
+    if launcher_path is None:
+        launcher_path = stable_launcher_path()
+
+    cli_settings = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
+    statusline_cmd = (
+        f"{_STATUSLINE_MARKER} {quote(str(launcher_path))} {_STATUSLINE_ALIAS}"
+    )
+    status = _merge_agy_statusline(cli_settings, statusline_cmd, dry_run)
+    results.append({
+        "tool": "agy",
+        "hook": "statusLine",
+        "status": status,
+        "path": str(cli_settings),
+    })
+
     entries = agy_permission_entries(scripts_dir, spill_available=spill_available)
     cleanup_entries = agy_legacy_permission_entries(scripts_dir)
     if not spill_available:
         cleanup_entries += agy_permission_entries(scripts_dir, spill_available=True)
     targets = [
-        Path.home() / ".gemini" / "antigravity-cli" / "settings.json",
+        cli_settings,
         Path.home() / ".gemini" / "config" / "config.json",
     ]
 
@@ -68,6 +87,60 @@ def configure_agy(
         "path": str(hooks_path),
     })
     return results
+
+
+def _merge_agy_statusline(target: Path, command: str, dry_run: bool) -> str:
+    """Put Tao in the status line without evicting whoever already holds it.
+
+    Antigravity CLI settings have one statusLine slot. Taking it would silently
+    switch other tools off, so Tao inserts itself in front of what is there and
+    hands the same payload on through `--chain`, keeping that output beside its own.
+
+    Reinstalling must not nest a second copy of the chain, so an existing
+    managed entry is replaced whole and the chain it already carried is what
+    gets preserved.
+    """
+
+    config = read_json(target)
+    existing = config.get("statusLine")
+    existing_command = ""
+    if isinstance(existing, dict) and str(existing.get("type") or "") == "command":
+        existing_command = str(existing.get("command") or "")
+
+    if existing_command.startswith(f"{_STATUSLINE_MARKER} "):
+        chained = _chained_command(existing_command)
+    else:
+        chained = existing_command
+
+    desired = command
+    if chained.strip():
+        desired = f"{command} --chain {quote(chained)}"
+
+    if existing_command == desired:
+        return "unchanged"
+    if dry_run:
+        return "would-update"
+    config["statusLine"] = {"type": "command", "command": desired, "enabled": True}
+    write_json(target, config)
+    return "updated"
+
+
+def _chained_command(command: str) -> str:
+    """The command a managed status-line entry was already chaining to."""
+
+    marker = " --chain "
+    index = command.find(marker)
+    if index < 0:
+        return ""
+    return _unquote(command[index + len(marker):].strip())
+
+
+def _unquote(value: str) -> str:
+    """Undo one layer of the shell quoting `quote` applies."""
+
+    if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+        return value[1:-1].replace("'\\''", "'")
+    return value
 
 
 def _merge_agy_runtime_bridge(target: Path, dry_run: bool, *, root: Path) -> str:

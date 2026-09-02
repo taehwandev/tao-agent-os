@@ -177,6 +177,7 @@ SCRIPT_ALIASES = {
     "claude-continuation-hook": "claude_continuation_hook.py",
     "claude-stop-gate": "claude_stop_gate.py",
     "codex-stop-gate": "codex_stop_gate.py",
+    "agy-statusline": "agy_statusline.py",
 }
 HOOK_ALIASES = {
     "start",
