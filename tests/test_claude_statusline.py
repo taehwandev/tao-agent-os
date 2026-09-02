@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import claude_statusline
 from support.claude_setup import _STATUSLINE_MARKER, _merge_claude_statusline
+from support.runtime_quota import gauge, remaining_summary
 from support.setup_config_files import read_json
 
 RENDERER = ROOT / "scripts" / "claude_statusline.py"
@@ -76,7 +77,7 @@ class QuotaTests(unittest.TestCase):
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 35% 7d 94%", out)
+        self.assertEqual("5h ██▊░░░░░  35%  │  7d ███████▌  94%", out)
 
     def test_a_window_running_out_is_marked(self) -> None:
         # A number among other numbers is read as a number. The mark is what
@@ -90,7 +91,7 @@ class QuotaTests(unittest.TestCase):
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("!5h 7% 7d 94%", out)
+        self.assertEqual("!5h ▌░░░░░░░   7%  │  7d ███████▌  94%", out)
 
     def test_the_other_runtimes_spelling_of_the_same_windows_is_read(self) -> None:
         # Codex states the same two windows as primary and secondary with an
@@ -105,7 +106,7 @@ class QuotaTests(unittest.TestCase):
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 89% 7d 65%", out)
+        self.assertEqual("5h ███████▏  89%  │  7d █████▎░░  65%", out)
 
     def test_a_list_of_windows_is_read_too(self) -> None:
         code, out = _render({
@@ -117,7 +118,7 @@ class QuotaTests(unittest.TestCase):
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 80% 7d 60%", out)
+        self.assertEqual("5h ██████▍░  80%  │  7d ████▊░░░  60%", out)
 
     def test_a_window_this_renderer_cannot_name_is_left_out(self) -> None:
         # An unlabelled percentage is worse than no percentage: the reader
@@ -131,7 +132,7 @@ class QuotaTests(unittest.TestCase):
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 80%", out)
+        self.assertEqual("5h ██████▍░  80%", out)
 
     def test_a_window_that_states_a_length_nobody_labels_is_left_out(self) -> None:
         # A stated length is believed over the name, so a runtime that adds an
@@ -147,7 +148,7 @@ class QuotaTests(unittest.TestCase):
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 80%", out)
+        self.assertEqual("5h ██████▍░  80%", out)
 
     def test_nothing_is_drawn_when_the_payload_carries_no_limits(self) -> None:
         for payload in ({}, {"cwd": "/nowhere"}, {"rate_limits": None}, "not json", ""):
@@ -155,6 +156,46 @@ class QuotaTests(unittest.TestCase):
                 code, out = _render(payload)
                 self.assertEqual(0, code)
                 self.assertEqual("", out)
+
+
+class GaugeTests(unittest.TestCase):
+    def test_the_bar_fills_to_what_is_left(self) -> None:
+        self.assertEqual("████████", gauge(100))
+        self.assertEqual("████░░░░", gauge(50))
+        self.assertEqual("░░░░░░░░", gauge(0))
+
+    def test_a_window_with_anything_left_never_draws_as_empty(self) -> None:
+        # An exhausted window and one with a little left are the two states it
+        # matters most to tell apart, and rounding would draw them the same.
+        for percent in (1, 2, 3):
+            with self.subTest(percent=percent):
+                self.assertNotEqual("░" * 8, gauge(percent))
+        self.assertEqual("░" * 8, gauge(0))
+
+    def test_partial_cells_keep_nearby_levels_distinguishable(self) -> None:
+        # Whole blocks round 3% and 12% to the same picture. The eighth-block
+        # cell is what carries the difference at the end that matters.
+        self.assertNotEqual(gauge(3), gauge(12))
+        self.assertNotEqual(gauge(21), gauge(35))
+
+    def test_every_bar_is_the_same_width(self) -> None:
+        # A gauge that changed width would move the number beside it on every
+        # redraw.
+        for percent in range(0, 101):
+            with self.subTest(percent=percent):
+                self.assertEqual(8, len(gauge(percent)), gauge(percent))
+
+    def test_the_bar_never_shrinks_as_more_is_left(self) -> None:
+        filled = [
+            sum(1 for cell in gauge(percent) if cell != "░") for percent in range(101)
+        ]
+        self.assertEqual(sorted(filled), filled)
+
+    def test_the_number_is_padded_so_the_tail_stops_jittering(self) -> None:
+        for percent, expected in ((7, "  7%"), (35, " 35%"), (100, "100%")):
+            with self.subTest(percent=percent):
+                summary = remaining_summary({"five_hour": {"used_percentage": 100 - percent}})
+                self.assertTrue(summary.endswith(expected), summary)
 
 
 class CurrentWorkTests(unittest.TestCase):
@@ -261,6 +302,45 @@ class CurrentWorkTests(unittest.TestCase):
             self.assertEqual("task 1/1", out)
 
 
+class WholeLineTests(unittest.TestCase):
+    def test_taos_own_segments_are_divided_the_same_way_throughout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _project(Path(tmp))
+            _open_run(project, command="task", evidence_name="statusline.json")
+            _ledger(
+                project,
+                evidence_name="statusline.json",
+                gates=list("abcdefgh"),
+                recorded=list("abcde"),
+            )
+
+            code, out = _render({
+                "cwd": str(project),
+                "rate_limits": {
+                    "five_hour": {"used_percentage": 65},
+                    "seven_day": {"used_percentage": 6},
+                },
+            })
+
+            self.assertEqual(0, code)
+            self.assertEqual(
+                "5h ██▊░░░░░  35%  │  7d ███████▌  94%  │  task 5/8", out
+            )
+
+    def test_someone_elses_text_is_not_claimed_by_this_layout(self) -> None:
+        # A divider in front of the chain's output would present it as another
+        # field of this line. It is a separate tool's text.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _project(Path(tmp))
+            _open_run(project, command="task", evidence_name="statusline.json")
+            _ledger(project, evidence_name="statusline.json", gates=["a"], recorded=["a"])
+
+            code, out = _render({"cwd": str(project)}, "--chain", "echo theirs")
+
+            self.assertEqual(0, code)
+            self.assertEqual("task 1/1  theirs", out)
+
+
 class ChainTests(unittest.TestCase):
     def test_what_already_held_the_slot_keeps_its_output(self) -> None:
         code, out = _render(
@@ -270,7 +350,7 @@ class ChainTests(unittest.TestCase):
         )
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 80%  held-this-before", out)
+        self.assertEqual("5h ██████▍░  80%  held-this-before", out)
 
     def test_the_chain_is_handed_the_untouched_payload(self) -> None:
         # The other tool reads the same JSON this renderer does; passing it
@@ -290,7 +370,7 @@ class ChainTests(unittest.TestCase):
         )
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 80%", out)
+        self.assertEqual("5h ██████▍░  80%", out)
 
     def test_a_chain_that_fails_is_not_an_error_here(self) -> None:
         code, out = _render(
@@ -300,7 +380,7 @@ class ChainTests(unittest.TestCase):
         )
 
         self.assertEqual(0, code)
-        self.assertEqual("5h 80%", out)
+        self.assertEqual("5h ██████▍░  80%", out)
 
 
 class InstallTests(unittest.TestCase):

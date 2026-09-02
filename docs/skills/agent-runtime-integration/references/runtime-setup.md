@@ -158,9 +158,23 @@ Setup also installs a managed `statusLine` entry, so the runtime's own remaining
 quota and the run currently open in this project stay on screen without a
 wrapper launcher. Claude Code hands the status-line command the session as JSON,
 and that JSON already carries `rate_limits`, so the renderer subtracts what each
-window has used and draws what is left; the open run is read from the project's
-run registry and its bound gate ledger. Neither number is asked for over the
-network and nothing is written.
+window has used and draws what is left, as a block gauge beside the number; the
+open run is read from the project's run registry and its bound gate ledger.
+Neither number is asked for over the network and nothing is written.
+
+```
+5h █████▎░░  65%  │  7d ███████▌  94%  │  task 14/20
+```
+
+The gauge fills to what remains, so it empties as the budget does. It is drawn
+at eighth-block resolution because whole blocks round both 3% and 12% to no
+cells at all, and an exhausted window and one with a sliver left are the two
+states most worth telling apart -- eight cells of eight give 64 steps, so 1%
+still draws. Its width is fixed and the percentage is padded, because the line
+is redrawn constantly and a segment that changes width moves everything after
+it. A window at or below `LOW_REMAINING_PERCENT` is marked `!`, which is the
+only emphasis used: no colour is emitted, so the line cannot fight a terminal
+theme or a colour-vision-adjusted palette.
 
 That slot holds one command and other tools install into it, so the managed
 entry never replaces what it finds: it puts Tao in front and passes the untouched

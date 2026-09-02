@@ -24,21 +24,57 @@ LOW_REMAINING_PERCENT = 15
 # no percentage, because the reader cannot tell which budget it is about.
 WINDOW_LABELS = {300: "5h", 10080: "7d"}
 
+# A gauge is read before its number is, which is the point: the shape says
+# "plenty" or "nearly gone" without being parsed. Eight cells at eighth-block
+# resolution is what makes 3% and 12% look different -- whole blocks round both
+# to nothing, and nothing is exactly the state worth seeing.
+GAUGE_WIDTH = 8
+GAUGE_FULL = "█"
+GAUGE_EMPTY = "░"
+GAUGE_PARTIALS = " ▏▎▍▌▋▊▉"
+
+# Between windows. Two spaces alone let a gauge and the next label read as one
+# run of blocks.
+SEPARATOR = "  │  "
+
 
 def remaining_summary(rate_limits: Any) -> str:
-    """`5h 35% 7d 94%` -- what is left, not what is spent.
+    """`5h ██▊░░░░░  35%  │  7d ███████▌  94%` -- what is left, not what is spent.
 
-    Runtimes report a window as the fraction used, which answers "how much have
-    I burned". The question a status line exists for is the other one, so the
-    subtraction happens here rather than in the reader's head.
+    Runtimes report a window as the fraction it has consumed, which answers
+    "how much have I burned". The question a status line exists for is the
+    other one, so the subtraction happens here rather than in the reader's
+    head, and the gauge draws the answer rather than restating it.
     """
 
     parts = []
     for minutes, used in read_windows(rate_limits):
         remaining = max(0, min(100, round(100 - used)))
         mark = "!" if remaining <= LOW_REMAINING_PERCENT else ""
-        parts.append(f"{mark}{WINDOW_LABELS[minutes]} {remaining}%")
-    return " ".join(parts)
+        label = WINDOW_LABELS[minutes]
+        # The percentage is padded so the tail stops jittering between 7%, 35%
+        # and 100% on a line that is redrawn constantly.
+        parts.append(f"{mark}{label} {gauge(remaining)} {remaining:>3}%")
+    return SEPARATOR.join(parts)
+
+
+def gauge(percent: int) -> str:
+    """A fixed-width bar for a percentage, filled to what is left.
+
+    A window with anything left never draws as empty, which matters because an
+    exhausted window and one with a sliver remaining are the two states it is
+    most important to tell apart. That holds by arithmetic at this width rather
+    than by a special case: eight cells of eight give 64 steps, so 1% already
+    rounds to one. A narrower gauge would lose it, and the test that pins the
+    property is what would say so.
+    """
+
+    eighths = round(percent / 100 * GAUGE_WIDTH * 8)
+    full, remainder = divmod(eighths, 8)
+    cells = GAUGE_FULL * full
+    if remainder and full < GAUGE_WIDTH:
+        cells += GAUGE_PARTIALS[remainder]
+    return cells.ljust(GAUGE_WIDTH, GAUGE_EMPTY)
 
 
 def read_windows(rate_limits: Any) -> list[tuple[int, float]]:

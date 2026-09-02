@@ -23,7 +23,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from support.runtime_quota import remaining_summary  # noqa: E402
+from support.runtime_quota import SEPARATOR, remaining_summary  # noqa: E402
 
 
 # Long enough for a local file read behind a cold page cache, short enough that
@@ -47,17 +47,21 @@ def main(argv: list[str] | None = None) -> int:
     payload_text = _read_stdin()
     payload = _parse(payload_text)
 
-    segments = [
+    # Tao's own segments are divided the same way the windows inside the quota
+    # summary are, so the line reads as one thing. What the chain returns is
+    # someone else's text and gets plain space instead: a divider would claim
+    # it as part of this layout.
+    mine = SEPARATOR.join(
         segment
         for segment in (
             remaining_summary(payload.get("rate_limits")),
             work_segment(payload),
-            run_chained(arguments.chain, payload_text),
         )
         if segment
-    ]
+    )
+    chained = run_chained(arguments.chain, payload_text)
 
-    line = "  ".join(segments)
+    line = "  ".join(segment for segment in (mine, chained) if segment)
     if line:
         sys.stdout.write(line)
     return 0
