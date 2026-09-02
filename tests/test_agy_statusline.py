@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +20,7 @@ from support.setup_config_files import _status_marker, read_json
 RENDERER = ROOT / "scripts" / "agy_statusline.py"
 
 
-def _render(payload: object, *arguments: str) -> tuple[int, str]:
+def _render(payload: object, *arguments: str, env: dict[str, str] | None = None) -> tuple[int, str]:
     text = payload if isinstance(payload, str) else json.dumps(payload)
     done = subprocess.run(
         [sys.executable, str(RENDERER), *arguments],
@@ -26,6 +28,7 @@ def _render(payload: object, *arguments: str) -> tuple[int, str]:
         capture_output=True,
         text=True,
         timeout=30,
+        env=env,
     )
     return done.returncode, done.stdout
 
@@ -198,6 +201,38 @@ class GaugeTests(unittest.TestCase):
                 self.assertTrue(summary.endswith(expected), summary)
 
 
+def _loc(path: Path) -> str:
+    home = Path.home().resolve()
+    try:
+        rel = path.resolve().relative_to(home)
+        return f"~/{rel}" if str(rel) != "." else "~"
+    except ValueError:
+        return str(path.resolve())
+
+
+class LocationTests(unittest.TestCase):
+    def test_location_under_home_uses_tilde(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
+            work = home / "git" / "project"
+            work.mkdir(parents=True)
+            code, out = _render({"cwd": str(work)}, env={**os.environ, "HOME": str(home)})
+            self.assertEqual(0, code)
+            self.assertEqual("~/git/project", out)
+
+    def test_location_at_home_uses_tilde(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
+            code, out = _render({"cwd": str(home)}, env={**os.environ, "HOME": str(home)})
+            self.assertEqual(0, code)
+            self.assertEqual("~", out)
+
+    def test_nonexistent_location_is_ignored(self) -> None:
+        code, out = _render({"cwd": "/nowhere/does/not/exist"})
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+
 class CurrentWorkTests(unittest.TestCase):
     def test_the_open_run_is_named_with_how_far_it_has_to_go(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -213,11 +248,9 @@ class CurrentWorkTests(unittest.TestCase):
             code, out = _render({"cwd": str(project)})
 
             self.assertEqual(0, code)
-            self.assertEqual("task 2/4", out)
+            self.assertEqual(f"{_loc(project)}  │  task 2/4", out)
 
-    def test_a_project_with_no_open_run_says_nothing(self) -> None:
-        # A line that names something on every draw stops being read for the
-        # draws where it names something real.
+    def test_a_project_with_no_open_run_shows_location_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _project(Path(tmp))
             (project / ".tao" / "run-registry.json").write_text(
@@ -228,7 +261,7 @@ class CurrentWorkTests(unittest.TestCase):
             code, out = _render({"cwd": str(project)})
 
             self.assertEqual(0, code)
-            self.assertEqual("", out)
+            self.assertEqual(_loc(project), out)
 
     def test_a_ledger_belonging_to_another_run_is_not_counted(self) -> None:
         # `.tao/gate-evidence.json` is tracked, so a fresh worktree starts life
@@ -249,7 +282,7 @@ class CurrentWorkTests(unittest.TestCase):
             code, out = _render({"cwd": str(project)})
 
             self.assertEqual(0, code)
-            self.assertEqual("task", out)
+            self.assertEqual(f"{_loc(project)}  │  task", out)
 
     def test_only_recorded_gates_count_toward_the_route(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -272,7 +305,7 @@ class CurrentWorkTests(unittest.TestCase):
             code, out = _render({"cwd": str(project)})
 
             self.assertEqual(0, code)
-            self.assertEqual("task 1/2", out)
+            self.assertEqual(f"{_loc(project)}  │  task 1/2", out)
 
     def test_the_workspace_directory_wins_over_the_process_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -286,7 +319,7 @@ class CurrentWorkTests(unittest.TestCase):
             })
 
             self.assertEqual(0, code)
-            self.assertEqual("review 0/1", out)
+            self.assertEqual(f"{_loc(project)}  │  review 0/1", out)
 
     def test_a_directory_inside_the_project_still_finds_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -299,7 +332,7 @@ class CurrentWorkTests(unittest.TestCase):
             code, out = _render({"cwd": str(inside)})
 
             self.assertEqual(0, code)
-            self.assertEqual("task 1/1", out)
+            self.assertEqual(f"{_loc(inside)}  │  task 1/1", out)
 
 
 class WholeLineTests(unittest.TestCase):
@@ -324,7 +357,8 @@ class WholeLineTests(unittest.TestCase):
 
             self.assertEqual(0, code)
             self.assertEqual(
-                "5h ██▊░░░░░  35%  │  7d ███████▌  94%  │  task 5/8", out
+                f"5h ██▊░░░░░  35%  │  7d ███████▌  94%  │  {_loc(project)}  │  task 5/8",
+                out,
             )
 
     def test_someone_elses_text_is_not_claimed_by_this_layout(self) -> None:
@@ -338,7 +372,7 @@ class WholeLineTests(unittest.TestCase):
             code, out = _render({"cwd": str(project)}, "--chain", "echo theirs")
 
             self.assertEqual(0, code)
-            self.assertEqual("task 1/1  theirs", out)
+            self.assertEqual(f"{_loc(project)}  │  task 1/1  theirs", out)
 
 
 class ChainTests(unittest.TestCase):

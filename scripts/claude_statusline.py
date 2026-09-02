@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         segment
         for segment in (
             remaining_summary(payload.get("rate_limits")),
+            location_segment(payload),
             work_segment(payload),
         )
         if segment
@@ -80,6 +81,31 @@ def _parse(text: str) -> dict[str, Any]:
     except ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def location_segment(payload: dict[str, Any]) -> str:
+    """`~/git/tao-agent-os` -- where the session is standing, relative to ~ when inside it."""
+
+    workspace = payload.get("workspace")
+    named = ""
+    if isinstance(workspace, dict):
+        named = str(workspace.get("current_dir") or workspace.get("project_dir") or "")
+    if not named:
+        named = str(payload.get("cwd") or "")
+    if not named:
+        return ""
+    try:
+        current = Path(named).expanduser().resolve()
+        if not current.exists():
+            return ""
+        home = Path.home().resolve()
+        try:
+            rel = current.relative_to(home)
+            return f"~/{rel}" if str(rel) != "." else "~"
+        except ValueError:
+            return str(current)
+    except OSError:
+        return ""
 
 
 def work_segment(payload: dict[str, Any]) -> str:
