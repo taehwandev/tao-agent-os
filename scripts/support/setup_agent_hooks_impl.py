@@ -50,6 +50,18 @@ DEFAULT_SPILL_SETUP_HELPER = (
 )
 DEFAULT_GITHUB_DIR = Path.home() / "GitHub"
 
+# Claude and Antigravity both let a status line run a command, which is how Tao
+# draws the remaining quota there. Codex has a status line too -- `/statusline`
+# configures it, and `status_line` stores it -- but it chooses from a fixed list
+# of built-in items and offers no slot for a command of one's own, so there is
+# nothing here for the installer to write. Saying so out loud is the point: the
+# row was absent before, and an absent row reads as an oversight rather than as
+# an answer.
+CODEX_STATUS_LINE_STATUS = (
+    "ok (codex has a status line, but /statusline selects from built-in items "
+    "and takes no custom command; nothing to install)"
+)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -317,6 +329,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
             "tool": "codex",
             "hook": "permissions.TaoWorkspace",
             "status": permissions_status,
+            "path": str(config_target),
+        },
+        {
+            "tool": "codex",
+            "hook": "statusLine",
+            "status": CODEX_STATUS_LINE_STATUS,
             "path": str(config_target),
         },
     ]

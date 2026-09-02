@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import claude_statusline
 from support.claude_setup import _STATUSLINE_MARKER, _merge_claude_statusline
 from support.runtime_quota import gauge, remaining_summary
-from support.setup_config_files import read_json
+from support.setup_config_files import _status_marker, read_json
 
 RENDERER = ROOT / "scripts" / "claude_statusline.py"
 
@@ -398,7 +398,7 @@ class InstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = self._settings(Path(tmp), None)
 
-            self.assertEqual("updated", _merge_claude_statusline(target, "tao statusline", False))
+            self.assertEqual("installed", _merge_claude_statusline(target, "tao statusline", False))
 
             config = read_json(target)
             self.assertEqual(
@@ -414,7 +414,7 @@ class InstallTests(unittest.TestCase):
                 Path(tmp), {"type": "command", "command": "node spill.mjs --chain 'orca.sh'"}
             )
 
-            self.assertEqual("updated", _merge_claude_statusline(target, "tao statusline", False))
+            self.assertEqual("installed", _merge_claude_statusline(target, "tao statusline", False))
 
             self.assertEqual(
                 "tao statusline --chain 'node spill.mjs --chain '\\''orca.sh'\\'''",
@@ -442,7 +442,7 @@ class InstallTests(unittest.TestCase):
             _merge_claude_statusline(target, self.MANAGED, False)
             first = read_json(target)["statusLine"]["command"]
 
-            self.assertEqual("unchanged", _merge_claude_statusline(target, self.MANAGED, False))
+            self.assertEqual("ok", _merge_claude_statusline(target, self.MANAGED, False))
             self.assertEqual(first, read_json(target)["statusLine"]["command"])
             self.assertEqual(1, first.count("--chain"))
 
@@ -457,7 +457,7 @@ class InstallTests(unittest.TestCase):
                 },
             )
 
-            self.assertEqual("updated", _merge_claude_statusline(target, self.MANAGED, False))
+            self.assertEqual("installed", _merge_claude_statusline(target, self.MANAGED, False))
 
             self.assertEqual(
                 f"{self.MANAGED} --chain 'node spill.mjs'",
@@ -469,9 +469,35 @@ class InstallTests(unittest.TestCase):
             target = self._settings(Path(tmp), None)
 
             self.assertEqual(
-                "would-update", _merge_claude_statusline(target, "tao statusline", True)
+                "would_update", _merge_claude_statusline(target, "tao statusline", True)
             )
             self.assertNotIn("statusLine", read_json(target))
+
+    def test_an_entry_already_in_place_does_not_report_as_missing(self) -> None:
+        # The report reads these words literally and prints anything it does
+        # not recognise as MISSING. Returning "unchanged" for a correct entry
+        # therefore told the operator to reinstall it, on every check.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._settings(Path(tmp), None)
+            _merge_claude_statusline(target, self.MANAGED, False)
+
+            for dry_run in (False, True):
+                with self.subTest(dry_run=dry_run):
+                    status = _merge_claude_statusline(target, self.MANAGED, dry_run)
+                    self.assertEqual("OK", _status_marker(status), status)
+
+    def test_every_status_this_merger_returns_is_one_the_report_knows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._settings(Path(tmp), None)
+            statuses = {
+                _merge_claude_statusline(target, self.MANAGED, True),
+                _merge_claude_statusline(target, self.MANAGED, False),
+                _merge_claude_statusline(target, self.MANAGED, False),
+            }
+
+            for status in statuses:
+                with self.subTest(status=status):
+                    self.assertNotEqual("MISSING", _status_marker(status))
 
 
 class LauncherTests(unittest.TestCase):
