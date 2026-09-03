@@ -523,6 +523,14 @@ def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
         )
         for line in failure_lines
     )
+    intrinsic_analysis_drift = any(
+        line.startswith("FAIL: read-only execution was declared but the ")
+        and " root changed after start; " in line
+        and "the analysis route is intrinsically read-only; wait for concurrent writers "
+        "to settle, then rerun start and finish with refreshed workspace fingerprints"
+        in line
+        for line in failure_lines
+    )
     required_doc_refresh_lines = (
         "FAIL: execution capsule required doc size changed: ",
         "FAIL: execution capsule required doc hash changed: ",
@@ -531,13 +539,21 @@ def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
         "FAIL: retrospective repair is required before final report, commit, release, or handoff; ",
     )
     only_refreshable_drift = all(
-        line in refreshable_failures or line.startswith(required_doc_refresh_lines)
+        line in refreshable_failures
+        or line.startswith(required_doc_refresh_lines)
+        or (
+            line.startswith("FAIL: read-only execution was declared but the ")
+            and " root changed after start; " in line
+            and "the analysis route is intrinsically read-only; wait for concurrent writers "
+            "to settle, then rerun start and finish with refreshed workspace fingerprints"
+            in line
+        )
         for line in failure_lines
     )
     return (
         result.get("returncode") == 1
         and bool(failure_lines)
-        and (stale_review or stale_required_docs)
+        and (stale_review or stale_required_docs or intrinsic_analysis_drift)
         and only_refreshable_drift
     )
 

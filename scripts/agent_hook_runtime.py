@@ -199,18 +199,18 @@ def hook_failure_policy(
             "steps, then retry finish. This is expected closeout work, not a Tao Agent OS repair cycle; "
             "do not run repair-verify",
         ]
-    if refreshable_failure and repair_cycle == 0:
+    if refreshable_failure:
         return {
             "repair_cycle": repair_cycle,
             "repair_cycle_limit": REPAIR_CYCLE_LIMIT,
-            "next_action": "refresh_review_and_retry_finish",
-            "recovery_required": "fresh_worktree_review",
-            "resume_scope": "review hook",
+            "next_action": "refresh_lifecycle_and_retry_finish",
+            "recovery_required": "fresh_lifecycle",
+            "resume_scope": "failed hook",
         }, [
-            "refresh request: the worktree or rules changed after a successful review. "
-            "Reconcile the intended change in its owning worktree, rerun the review hook, "
-            "then retry finish. This is stale review evidence, not a Tao Agent OS "
-            "repair; do not run repair-verify",
+            "refresh request: the worktree or rules changed after start or a successful review. "
+            "Wait for concurrent writers to settle, reconcile the intended change, start a fresh "
+            "lifecycle, and rerun the affected analysis or review before finish. This is stale "
+            "workspace evidence, not a Tao Agent OS repair; do not run repair-verify",
         ]
     if repair_cycle < REPAIR_CYCLE_LIMIT:
         return {
