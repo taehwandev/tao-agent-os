@@ -136,6 +136,64 @@ class GateRecordInvocationTests(unittest.TestCase):
                 payload["policy"]["next_action"],
             )
 
+    def test_permission_denial_is_an_invocation_error_for_each_gate_hook(self) -> None:
+        """An environment denial before ledger mutation has no checkpoint to repair."""
+
+        hooks = (
+            ("gate", gate_hook, "agent_hook_gate_records.record_hook_gate"),
+            (
+                "gate-batch",
+                gate_batch_hook,
+                "agent_hook_gate_records.record_hook_gate_batch",
+            ),
+        )
+        for hook_name, hook, record_target in hooks:
+            with self.subTest(hook=hook_name), tempfile.TemporaryDirectory() as temp_dir:
+                project = Path(temp_dir)
+                evidence_path = project / ".tao" / "preflight.json"
+                output_path = evidence_path.with_name(f"{hook_name}-result.json")
+                evidence_path.parent.mkdir(parents=True)
+                record = {
+                    "gate": "risk review",
+                    "evidence": "environment denied ledger write",
+                    "source": "manual",
+                    "status": "SUCCESS",
+                }
+                args = SimpleNamespace(
+                    evidence=evidence_path,
+                    project=project,
+                    rules=ROOT,
+                    hook=hook_name,
+                    field=[],
+                    gate_name="risk review",
+                    gate_evidence="environment denied ledger write",
+                    source="manual",
+                    status="SUCCESS",
+                    gate_record=[json.dumps(record)],
+                    gate_json=None,
+                    output=output_path,
+                    repair_cycle=0,
+                )
+                stdout = io.StringIO()
+                with (
+                    patch(
+                        record_target,
+                        side_effect=PermissionError("sandbox denied state lock"),
+                    ),
+                    redirect_stdout(stdout),
+                ):
+                    result = hook(args)
+
+                payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(1, result)
+            self.assertIn("invocation request:", stdout.getvalue())
+            self.assertNotIn("recovery request:", stdout.getvalue())
+            self.assertEqual(
+                "fix_invocation_and_rerun",
+                payload["policy"]["next_action"],
+            )
+
     def test_review_hook_gate_is_hook_owned_for_each_generic_gate_hook(self) -> None:
         """A caller-supplied source label is not proof that review executed."""
 

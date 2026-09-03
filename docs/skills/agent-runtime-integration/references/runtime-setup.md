@@ -221,12 +221,14 @@ emit, so a later Codex surface needs no third renderer.
 
 Codex does have a status line -- `/statusline` configures it and `status_line`
 stores it -- but it selects from a fixed list of built-in items (project name,
-hostname, open pull request, approval mode, context window size, and so on) and
-offers no slot for a command of one's own. There is nothing for the installer to
-write there, and no remaining-quota item in that list to choose either. Setup
-still emits a `codex / statusLine` row saying exactly that, because a runtime
-missing from the report reads as an oversight rather than as an answer. If Codex
-ever accepts a custom command, only that row and `configure_codex` change.
+hostname, open pull request, approval mode, context window size, rate-limit
+windows, and so on) and offers no slot for a command of one's own. The
+interactive picker persists compatible selections to `tui.status_line`, so
+operators can enable Codex's built-in quota indicators without a Tao renderer.
+Setup still emits a `codex / statusLine` row explaining that there is no Tao
+command to install, because a runtime missing from the report reads as an
+oversight rather than as an answer. If Codex ever accepts a custom command,
+only that row and `configure_codex` change.
 
 A row's status word is the report's vocabulary, not prose: `print_results` marks
 anything it does not recognise as MISSING, so a merger that has nothing to do

@@ -439,6 +439,8 @@ Before multi-step edits, run one lifecycle entry that performs routing and prefl
 
 Read every route `required_docs` entry directly after start and before work. Run the review hook after meaningful edits. Before recording the final `report` gate, record the exact gate slug `retrospective check` (including the space, not `retrospective-check`) with the exact fields `skills_checked`, `outcome`, and `observation` (`no_reusable_gap`/`no_skill_used` pairs with `not_needed`; `reusable_gap` pairs with `recorded`). Record `report` only after the final report is prepared. Then run the read-only finish hook before final report, commit, release, or handoff:
 
+Leave `--max-added-lines` at its default for ordinary source changes. Raise it only for one named, indivisible standalone artifact, and name that exact file plus the reason it cannot be split in `--structure-review-evidence`.
+
 ```bash
 <TAO_LAUNCHER> gate-batch \
   --project . \
