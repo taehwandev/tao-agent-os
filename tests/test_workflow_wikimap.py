@@ -19,6 +19,7 @@ from workflow_wikimap import (
     WIKIMAP_SCRIPT,
     WIKIMAP_SHA256,
     WIKIMAP_VERSION,
+    _WIKIMAP_INDEX_EXTENSIONS,
     _ensure_index,
     clear_wikimap_cache,
     search_wikimap,
@@ -38,6 +39,12 @@ class WorkflowWikimapTests(unittest.TestCase):
         self.assertEqual(WIKIMAP_SHA256, digest)
         self.assertIn("MIT License", license_text)
         self.assertIn("Copyright (c) 2026 Donghyun Ha", license_text)
+        self.assertEqual(
+            frozenset(
+                ".adoc .gif .htm .html .jpeg .jpg .md .org .pdf .png .rst .svg .txt .webp".split()
+            ),
+            _WIKIMAP_INDEX_EXTENSIONS,
+        )
 
     def test_adapter_invokes_only_update_and_search_commands(self) -> None:
         payload = {
@@ -148,6 +155,40 @@ class IndexRefreshIsSkippedOnlyWhenNothingChangedTests(unittest.TestCase):
         (self.root / "docs" / "two.md").write_text("# two\n", encoding="utf-8")
         self._refresh()
         (self.root / "docs" / "two.md").unlink()
+
+        self.assertTrue(self._refresh())
+
+    def test_a_changed_non_indexable_file_does_not_refresh(self) -> None:
+        source = self.root / "module.py"
+        source.write_text("VALUE = 1\n", encoding="utf-8")
+        self._refresh()
+
+        source.write_text("VALUE = 2\n", encoding="utf-8")
+
+        self.assertFalse(self._refresh())
+
+    def test_a_generated_map_does_not_refresh(self) -> None:
+        self._refresh()
+
+        (self.root / "MAP.md").write_text("# Generated map\n", encoding="utf-8")
+
+        self.assertFalse(self._refresh())
+
+    def test_a_document_in_a_vendor_ignored_directory_does_not_refresh(self) -> None:
+        self._refresh()
+        ignored = self.root / "node_modules" / "package"
+        ignored.mkdir(parents=True)
+
+        (ignored / "README.md").write_text("# Dependency docs\n", encoding="utf-8")
+
+        self.assertFalse(self._refresh())
+
+    def test_a_changed_ignore_control_refreshes(self) -> None:
+        ignore_control = self.root / ".wikimapignore"
+        ignore_control.write_text("drafts\n", encoding="utf-8")
+        self._refresh()
+
+        ignore_control.write_text("archive\n", encoding="utf-8")
 
         self.assertTrue(self._refresh())
 
