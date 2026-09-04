@@ -255,8 +255,8 @@ class ClaudePreToolGateTests(unittest.TestCase):
             _require_linked_worktree(linked, linked=True)
 
             cases = {
-                "chain, a pipeline": (main, "python3 -m pytest tests | tail -4"),
-                "the shell computes part of this line": (main, "python3 -m pytest $(ls tests)"),
+                "chain, a pipeline": (main, "npm test | tail -4"),
+                "the shell computes part of this line": (main, "npm test $(ls tests)"),
                 "what this Git command does here": (main, "git commit -m wip"),
                 "a path this line names": (linked, f"python3 tool.py --project {main}"),
             }
@@ -286,7 +286,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     "tool_name": "Bash",
                     "cwd": str(main),
                     "session_id": "no-evidence",
-                    "tool_input": {"command": "python3 -m pytest tests | tail -4"},
+                    "tool_input": {"command": "npm test | tail -4"},
                 }
             )
 
