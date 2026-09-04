@@ -10,7 +10,6 @@ splitter together is what lets that vocabulary be audited on its own.
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 from pathlib import Path

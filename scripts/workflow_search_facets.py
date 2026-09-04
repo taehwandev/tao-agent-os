@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable, Sequence
+from typing import Iterable
 
 
 FACET_BOOST = 30

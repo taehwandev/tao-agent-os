@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json, read_json_object
 from agent_ipc import events_path

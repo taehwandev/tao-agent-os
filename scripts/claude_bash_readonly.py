@@ -14,7 +14,6 @@ from pathlib import Path
 from claude_bash_git import git_command_kind
 from claude_bash_syntax import (
     ENV_ASSIGNMENT_RE,
-    SHELL_PUNCTUATION,
     bash_command,
     bash_invocation as _tokenise,
     command_segments,
