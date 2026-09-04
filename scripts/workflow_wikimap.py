@@ -34,11 +34,31 @@ WIKIMAP_IGNORES = (
     "scripts/.tao",
     "scripts/third_party",
 )
-# What the signature walks has to match what the index reads: the same ignores
-# the update is given, plus `.git` and `.wikimap`, whose own churn is not a
-# change to the corpus. Walking more than the index reads would refresh for
-# nothing; walking less would skip a refresh that was needed.
-_PRUNED_FOR_INDEX = frozenset({*PRUNED_DIRECTORIES, ".wikimap", *WIKIMAP_IGNORES})
+# These sets mirror the pinned vendor's ``INDEX_EXTS``, ``IGNORE_DIRS`` and
+# generated ``MAP.md`` exclusion. They are part of the adapter's versioned
+# contract: changing the pinned source already requires updating its checksum,
+# and a changed parser input boundary must update these sets at the same time.
+_WIKIMAP_INDEX_EXTENSIONS = frozenset(
+    ".adoc .gif .htm .html .jpeg .jpg .md .org .pdf .png .rst .svg .txt .webp".split()
+)
+_WIKIMAP_BUILTIN_IGNORED_DIRECTORIES = frozenset(
+    ".claude .github .obsidian .trash __pycache__ .venv graphify-out node_modules venv".split()
+)
+
+# What the signature walks has to match what the index can read: the same CLI
+# ignores the update is given, the vendor's built-in directory ignores, and
+# `.git`/`.wikimap`, whose own churn is not a corpus change. The walk may still
+# encounter other files, but `_corpus_signature` hashes only indexable types.
+# Before that suffix check existed, editing Python or merely creating a `.pyc`
+# invalidated the receipt and paid for an unnecessary update subprocess.
+_PRUNED_FOR_INDEX = frozenset(
+    {
+        *PRUNED_DIRECTORIES,
+        *_WIKIMAP_BUILTIN_IGNORED_DIRECTORIES,
+        *WIKIMAP_IGNORES,
+        ".wikimap",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -182,7 +202,20 @@ def _corpus_signature(root: Path) -> str:
     if not (root / ".wikimap" / "index.db").exists():
         return ""
     try:
+        ignore_control = root / ".wikimapignore"
+        if ignore_control.exists():
+            stat = ignore_control.stat()
+            digest.update(
+                f"\0.wikimapignore:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")
+            )
+        else:
+            digest.update(b"\0.wikimapignore:absent")
         for path in sorted(iter_project_files(root, pruned=_PRUNED_FOR_INDEX)):
+            if (
+                path.name == "MAP.md"
+                or path.suffix.lower() not in _WIKIMAP_INDEX_EXTENSIONS
+            ):
+                continue
             stat = path.stat()
             relative = path.relative_to(root).as_posix()
             digest.update(f"\0{relative}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8"))
