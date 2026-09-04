@@ -138,7 +138,11 @@ def process_failure_learning(
     failures: list[str],
     rules: Path | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    repair_required_failures = list(failures)
+    repair_required_failures = [
+        failure
+        for failure in failures
+        if not _is_intrinsic_analysis_workspace_drift(failure)
+    ]
     retrospective_required = requires_retrospective(
         missed_gates,
         gate_policy_failures,
@@ -172,6 +176,18 @@ def process_failure_learning(
         }
     )
     return retrospective_required, lesson
+
+
+def _is_intrinsic_analysis_workspace_drift(failure: str) -> bool:
+    """Separate stale analysis evidence from a runtime defect or write bypass."""
+
+    return (
+        failure.startswith("read-only execution was declared but the ")
+        and " root changed after start; " in failure
+        and "the analysis route is intrinsically read-only; wait for concurrent writers "
+        "to settle, then rerun start and finish with refreshed workspace fingerprints"
+        in failure
+    )
 
 
 def _report_finish_failures(

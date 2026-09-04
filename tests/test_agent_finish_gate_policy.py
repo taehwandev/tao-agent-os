@@ -351,6 +351,28 @@ class FinishGatePolicyTests(unittest.TestCase):
             self.assertTrue(lesson["created"])
             self.assertIn("retrospective repair is required", " ".join(failures))
 
+    def test_intrinsic_analysis_revision_drift_requires_fresh_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ["TAO_STATE_HOME"] = temp_dir
+            failures = [
+                "read-only execution was declared but the project root changed after start; "
+                "a clean worktree cannot attribute the revision change to an external actor, so "
+                "the analysis route is intrinsically read-only; wait for concurrent writers "
+                "to settle, then rerun start and finish with refreshed workspace fingerprints"
+            ]
+
+            retrospective_required, lesson = agent_finish_check.process_failure_learning(
+                preflight={"agent_run_id": "intrinsic-analysis-revision-drift"},
+                missed_gates=[],
+                gate_policy_failures=[],
+                gate_signals=[],
+                failures=failures,
+            )
+
+            self.assertFalse(retrospective_required)
+            self.assertFalse(lesson["created"])
+            self.assertNotIn("retrospective repair is required", " ".join(failures))
+
     def test_required_doc_drift_failure_names_exact_documentation_receipt_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             os.environ["TAO_STATE_HOME"] = temp_dir

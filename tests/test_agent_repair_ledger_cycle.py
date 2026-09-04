@@ -217,20 +217,31 @@ class RepairLedgerCycleTests(unittest.TestCase):
         self.assertIn("do not run repair-verify", joined_details)
         self.assertNotIn("actionable retrospective", joined_details)
 
-    def test_refreshable_review_drift_retries_review_without_runtime_repair(self) -> None:
+    def test_refreshable_workspace_drift_starts_fresh_without_runtime_repair(self) -> None:
         policy, details = hook_failure_policy(
             success=False,
             repair_cycle=0,
             refreshable_failure=True,
         )
 
-        self.assertEqual("refresh_review_and_retry_finish", policy["next_action"])
-        self.assertEqual("fresh_worktree_review", policy["recovery_required"])
-        self.assertEqual("review hook", policy["resume_scope"])
+        self.assertEqual("refresh_lifecycle_and_retry_finish", policy["next_action"])
+        self.assertEqual("fresh_lifecycle", policy["recovery_required"])
+        self.assertEqual("failed hook", policy["resume_scope"])
         joined_details = " ".join(details)
-        self.assertIn("rerun the review hook", joined_details)
+        self.assertIn("start a fresh lifecycle", joined_details)
         self.assertIn("do not run repair-verify", joined_details)
         self.assertNotIn("actionable retrospective", joined_details)
+
+    def test_refreshable_workspace_drift_stays_refreshable_after_repair_cycle(self) -> None:
+        policy, details = hook_failure_policy(
+            success=False,
+            repair_cycle=1,
+            refreshable_failure=True,
+        )
+
+        self.assertEqual("refresh_lifecycle_and_retry_finish", policy["next_action"])
+        self.assertEqual("fresh_lifecycle", policy["recovery_required"])
+        self.assertIn("do not run repair-verify", " ".join(details))
 
     def test_settled_review_requests_fresh_lifecycle_without_runtime_repair(self) -> None:
         policy, details = hook_failure_policy(
@@ -282,6 +293,38 @@ class RepairLedgerCycleTests(unittest.TestCase):
                         "Retrospective required: true\n"
                         "FAIL: review hook attestation project worktree binding is stale\n"
                         "FAIL: workflow validate failed\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+
+    def test_finish_wrapper_recognizes_intrinsic_analysis_drift_as_refreshable(self) -> None:
+        self.assertTrue(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "Retrospective required: false\n"
+                        "FAIL: read-only execution was declared but the project root changed "
+                        "after start; a clean worktree cannot attribute the revision change "
+                        "to an external actor, so the analysis route is intrinsically read-only; "
+                        "wait for concurrent writers to settle, then rerun start and finish "
+                        "with refreshed workspace fingerprints\n"
+                    ),
+                    "stderr": "",
+                }
+            )
+        )
+        self.assertFalse(
+            agent_hook._is_refreshable_finish_drift(
+                {
+                    "returncode": 1,
+                    "stdout": (
+                        "Retrospective required: true\n"
+                        "FAIL: read-only execution was declared but the project root changed "
+                        "after start; a clean worktree cannot attribute the revision change "
+                        "to an external actor, so rerun the lifecycle without --read-only\n"
                     ),
                     "stderr": "",
                 }
