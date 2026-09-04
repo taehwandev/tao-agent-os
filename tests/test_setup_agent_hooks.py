@@ -970,18 +970,15 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertEqual(first_snapshot, second_snapshot)
 
     def test_every_runtime_reports_where_its_status_line_stands(self) -> None:
-        # Two of the three can run a command in that slot and one cannot. The
-        # row for the one that cannot is what turns an absence into an answer:
-        # without it, Codex simply had no status-line line in the report, which
-        # reads as an oversight.
+        # Codex uses built-in items rather than a command, but setup still owns
+        # enabling and reporting its remaining-quota items.
         with tempfile.TemporaryDirectory() as temp_home:
             with patch.dict(os.environ, {"HOME": temp_home}):
                 results = setup_agent_hooks_impl.configure_codex(True, root=ROOT)
 
         rows = [result for result in results if result["hook"] == "statusLine"]
         self.assertEqual(1, len(rows), [result["hook"] for result in results])
-        self.assertEqual("OK", _status_marker(rows[0]["status"]))
-        self.assertIn("no custom command", rows[0]["status"])
+        self.assertEqual("WOULD UPDATE", _status_marker(rows[0]["status"]))
 
     def test_stable_launcher_soft_fails_when_root_pointer_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_home:
@@ -1091,10 +1088,15 @@ class SetupAgentHooksTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 check=False,
             )
+            codex_config = (Path(temp_home) / ".codex" / "config.toml").read_text(
+                encoding="utf-8"
+            )
 
         self.assertEqual(0, setup.returncode, setup.stderr)
         self.assertEqual(0, help_result.returncode, help_result.stderr)
         self.assertIn("receive", help_result.stdout)
+        self.assertIn('"five-hour-limit"', codex_config)
+        self.assertIn('"weekly-limit"', codex_config)
 
     def test_stable_launcher_supports_gate_batch_alias(self) -> None:
         with tempfile.TemporaryDirectory() as temp_home:

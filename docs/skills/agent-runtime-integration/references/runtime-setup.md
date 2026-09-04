@@ -85,6 +85,12 @@ user-level runtime config, then run:
 <TAO_LAUNCHER> setup-agent-hooks
 ```
 
+Without a `--runtime` selector, that one command configures every detected
+Claude, Codex, and AGY installation. Each managed merge is idempotent, so the
+same command is also the convenient repair path after updating Tao Agent OS;
+merging or pulling the repository alone never rewrites user-level runtime
+settings.
+
 To repair only one runtime without touching other agent settings, pass its
 runtime selector. For example, Codex-only setup uses:
 
@@ -104,7 +110,17 @@ Tao Agent OS-managed entrypoints and suffix-aware runtime matchers. Do not
 broadly allow `python3`.
 For Codex, the same setup also merges one Tao Agent OS-owned `Stop` hook into
 `~/.codex/hooks.json` without replacing unrelated hooks such as local metering.
-It also maintains a Tao-owned `tao-workspace` permission profile in
+It adds Codex's native `five-hour-limit` and `weekly-limit` items to
+`tui.status_line`, preserving the existing item order and every unrelated
+setting. When no status line was configured, it keeps Codex's default model and
+current-directory items before the two limits. Codex itself supplies and draws
+the remaining percentages, so this does not install a poller, call another API,
+or depend on Agent Cat. The bottom line currently formats those built-ins as
+compact text such as `5h 60% left · weekly 6% left`; the larger `/status` panel
+is the Codex surface that draws block gauges. Codex exposes no custom renderer
+slot for making the bottom line mirror that panel. Start a new Codex session
+after setup to see the line.
+The setup also maintains a Tao-owned `tao-workspace` permission profile in
 `~/.codex/config.toml`. The profile extends Codex's built-in `:workspace`
 profile and adds only exact generated worktree roots. A scoped target repair,
 for example `setup-agent-hooks --runtime codex --target <TARGET_REPO>`, adds
@@ -219,16 +235,14 @@ runtime_quota; when rate limits are absent, it silently renders the active Tao
 run progress (`task X/Y`). It reads the window shapes both Claude and Codex
 emit, so a later Codex surface needs no third renderer.
 
-Codex does have a status line -- `/statusline` configures it and `status_line`
-stores it -- but it selects from a fixed list of built-in items (project name,
-hostname, open pull request, approval mode, context window size, rate-limit
-windows, and so on) and offers no slot for a command of one's own. The
-interactive picker persists compatible selections to `tui.status_line`, so
-operators can enable Codex's built-in quota indicators without a Tao renderer.
-Setup still emits a `codex / statusLine` row explaining that there is no Tao
-command to install, because a runtime missing from the report reads as an
-oversight rather than as an answer. If Codex ever accepts a custom command,
-only that row and `configure_codex` change.
+Codex also has a status line -- `/statusline` configures it and `status_line`
+stores it -- but it selects from a fixed list of built-in items instead of
+running a command. That list includes `five-hour-limit` and `weekly-limit`, so
+setup safely adds those two items to `tui.status_line` and emits a
+`codex / statusLine` row with the actual merge result. Existing picker choices
+and their order are preserved. The quota data and rendering remain Codex-owned;
+Tao does not install a second renderer or read a session transcript for this
+runtime.
 
 A row's status word is the report's vocabulary, not prose: `print_results` marks
 anything it does not recognise as MISSING, so a merger that has nothing to do
