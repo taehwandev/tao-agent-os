@@ -6,9 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
-import shutil
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,8 +44,6 @@ from workflow_route import resolve_docs
 
 
 from agent_command_runtime import (
-    ANSI_RE,
-    clean_output,
     parse_overall_record as parse_overall,
     run_command,
     vibeguard_command,

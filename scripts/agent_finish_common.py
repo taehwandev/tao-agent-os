@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +14,6 @@ SIGNAL_DISPLAY = {
 
 
 from agent_command_runtime import (
-    ANSI_RE,
-    clean_output,
     parse_overall_record as parse_overall,
     run_command,
     vibeguard_command,

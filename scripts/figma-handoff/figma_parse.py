@@ -1,6 +1,6 @@
 """Compatibility facade for style and variable parsing."""
 
-from figma_style_parse import (
+from figma_style_parse import (  # noqa: F401
     StyleParser,
     _parse_effect_entry,
 )

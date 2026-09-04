@@ -24,11 +24,8 @@ from agent_route_state import (
     route_fingerprint,
 )
 from agent_repair_ledger import (
-    checkpoint_failure_signature,
-    checkpoint_has_recorded_failure,
     record_finish_failure_checkpoints,
     register_repair_attempt,
-    repair_checkpoint_path_for_preflight,
 )
 from agent_run_registry import (
     latest_run_id,
