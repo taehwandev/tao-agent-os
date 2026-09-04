@@ -91,6 +91,13 @@ same command is also the convenient repair path after updating Tao Agent OS;
 merging or pulling the repository alone never rewrites user-level runtime
 settings.
 
+On macOS, the same setup also installs and loads one Tao-owned LaunchAgent for
+the selected Tao root. It runs the bounded `agent-os-maintenance.py` pass at
+login and every 24 hours, so completed run evidence is pruned by the existing
+retention policy without a daemon or per-agent polling loop. Active runs and
+unclassified directories remain fail-closed and are not deleted. `--check`
+reports the scheduler missing when either its plist or loaded service is absent.
+
 To repair only one runtime without touching other agent settings, pass its
 runtime selector. For example, Codex-only setup uses:
 

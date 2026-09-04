@@ -21,6 +21,7 @@ from support.graphify_setup import (
     graphify_platforms_for_runtimes,
 )
 from support.graphify_contract import RUNTIME_BUNDLED_SKILL_DIR
+from support.maintenance_scheduler import configure_maintenance_scheduler
 from support.permission_entries import (
     claude_legacy_permission_entries,
     claude_project_permission_entries,
@@ -110,6 +111,8 @@ def main() -> None:
     )
     if launcher_configured:
         results += ensure_stable_launcher(ROOT, dry_run)
+    if launcher_configured and not selected_runtimes:
+        results += configure_maintenance_scheduler(ROOT, dry_run)
 
     if configure_claude_runtime:
         results += configure_claude(
