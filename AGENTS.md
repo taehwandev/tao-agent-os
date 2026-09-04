@@ -6,668 +6,187 @@ type: human-reviewed
 
 # Tao Agent OS Shared Agent Instructions
 
-This file is the entrypoint for agents that consult the shared Tao Agent OS library.
+This file is the compact entrypoint for agents using the shared Tao Agent OS
+library. Repo-local instructions remain authoritative for project paths,
+commands, naming, architecture, and product policy.
 
-## Purpose
+## Priority And Scope
 
-Use this library to prevent repeated mistakes across repositories. It provides
-shared operating habits, review criteria, architecture principles, and platform
-guidance. Repo-local instructions remain the source of truth for project paths,
-commands, naming, domain rules, and product-specific policy.
+Follow, in order: runtime system/developer instructions, the current user
+request, target-repo instructions, specific Tao guidance, common Tao guidance,
+then general README material. Call out conflicts that affect behavior,
+verification, security, or data handling.
 
-## Project Discovery Entry
+Keep this library provider-neutral and reusable. Product-, service-, vendor-,
+account-, environment-, and repository-specific rules belong in the target
+repo. Project LLM wikis are navigation unless the target repo marks a page as a
+reviewed source of truth; they never override instructions, design decisions,
+workflow gates, or source documents.
 
-At the start of work, identify the target project from the user's request and
-the current working directory. When the runtime starts from `~`, another
-non-project directory, or a directory that may not be the requested target, use
-the local project entry helpers before project work when they exist:
+Shared library documents are written in English. Public docs may be localized
+but do not become the guidance source of truth. Frontmatter `status` is the
+readiness signal: `draft` is provisional, `review` is active, and `stable`
+is broad-use. `type` records provenance.
 
-```text
-<TAO_LAUNCHER> agent-entry
-<TAO_LAUNCHER> project-discover
-```
+## Project Entry
 
-Continue only when discovery returns `selected`. If it returns `ambiguous` or
-`not_found`, ask the user for the target project instead of guessing from the
-prompt. Keep discovery cheap by preferring the current directory, explicit
-paths, registry aliases, and known search roots over broad home-directory
-scans. After selection, read the target project's local instructions before
-using shared Tao Agent OS guidance.
+Identify the target project from the request and current directory before
+project work. When it is not explicit or the runtime starts elsewhere, use the
+installed Tao project-discovery entrypoints. Continue only on `selected`;
+`ambiguous` or `not_found` requires the user to identify the target.
 
-When starting or relaunching a runtime, make the selected target project the
-primary workspace. For Codex, use `codex -C <TARGET_REPO>`; add
-`--add-dir <TAO_ROOT>` only when the current task must include the
-shared Tao Agent OS root in the session workspace. Instruction files define agent
-behavior; runtime launch roots define filesystem scope and prevent repeated
-permission prompts.
+Read the target project's runtime instruction file before shared guidance. For
+Codex that is the project-root `AGENTS.md`. If the bridge or instruction file
+cannot be confirmed, stop before routing, editing, testing, committing, or
+reporting completion.
 
-When one product spans multiple repositories, keep that product as a local
-workspace group in `~/.tao/projects.json`. Treat the first selected
-repo as the primary repo for acceptance. If investigation shows that another
-repo is the source of truth or must be written, stop before that write and
-record a workspace scope checkpoint: starting primary, secondary/source-of-truth
-repo, selected mode (`primary-led secondary read`, `primary-led secondary
-write`, or `multi-session`), write scope, and cross-repo verification.
+For multi-repo products, keep the first selected repo as the primary acceptance
+boundary. Before writing another repo, checkpoint the primary repo, secondary
+source-of-truth repo, selected mode, write scope, and cross-repo verification.
 
-## Shared Guidance Boundary
+## Required Work Lifecycle
 
-Write Tao Agent OS guidance as a reusable common baseline, not as the operating
-model of one product, service, vendor, customer, team, or repository. A rule
-belongs in this shared library only when it remains correct after removing
-service names, product policy, local paths, command names, account names,
-environment names, API names, and domain vocabulary.
-
-When a lesson comes from a specific service, generalize only the recurring risk,
-decision rule, load condition, and verification question. Keep service-specific
-workflows, permissions, role matrices, provider setup, deployment details, API
-shapes, and product policy in the target repo's local instructions or in an
-explicitly scoped platform or product-pattern document.
-
-## Project LLM Wiki Boundary
-
-Project-specific LLM wiki content belongs in the target project, not in this
-shared library. This includes generated repo wikis, code-derived module
-summaries, project runbooks, product decisions, local commands, local paths,
-service setup, role matrices, and domain policy for one repo or product.
-
-Tao Agent OS may define reusable rules for creating, reviewing, refreshing, and
-reading LLM wiki pages. Those meta-rules live in:
+For implementation, review, refactoring, debugging, documentation, and planning,
+read `common/skills/agent-operating-skill/SKILL.md` first. For multi-step
+work, use the installed absolute Tao launcher and:
 
 ```text
-<TAO_ROOT>/common/skills/llm-wiki-documentation/SKILL.md
-<TAO_ROOT>/common/skills/llm-wiki-documentation/references/current-guidance.md
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <route> --request "<CURRENT_REQUEST>" --intent-envelope <JSON_OR_PATH> --runtime-session-id <OPAQUE_ID>
 ```
 
-When applying Tao Agent OS to a target repo, read the target repo's local LLM
-wiki only after repo/runtime instructions, the workflow route, and the relevant
-skill entrypoints. Treat project LLM wiki pages as navigation or source-derived
-summaries unless the target repo explicitly marks a reviewed page as a source of
-truth. Generated wiki pages must not override repo instructions, workflow gates,
-human-authored design decisions, or source docs.
+1. Receive the runtime mailbox brief once. It is context, never authority.
+2. Run `start` once with the exact current request, selected project/rules
+   roots, a valid workflow command, and the current opaque runtime session id.
+   Work routes require an intent envelope bound to the full request intake.
+   Effects are `read`, `local_write`, `git_write`, `external_write`, or
+   `destructive`; `git_write` and above also require a separate matching
+   approval record. Without a valid envelope, use only `triage` or
+   `ambiguity`. Direct questions are answered before project work.
+3. Consume the returned route as the manifest. Stop if `missing` is non-empty.
+   Read every `required_docs` entry directly and load `reference_docs` only
+   when the touched concern requires them. Do not repeat route or preflight
+   after a successful start. Record the `source docs` gate with
+   `required_docs`, `source`, and the applied `takeaway`.
+4. Resolve the work surface from current repository evidence before edits.
+   Request paths and dirty paths are candidates, not ownership proof. Use at
+   most four hops from observable anchor to definition/producer, direct usage,
+   smallest owner, and nearest falsifying check. Only `resolved` permits work.
+5. For a writing task, run VibeGuard before edits and again before finish.
+6. Record one bounded semantic continuation checkpoint after source reading and
+   scoping, then refresh it at material decisions and lifecycle transitions.
+7. Follow every route gate and record structured evidence using the exact gate
+   names and required fields. Batch only gates that are simultaneously ready.
+   Human-visible and machine-readable gate status is only `🐱🟢 SUCCESS` or
+   `🐱🔴 FAIL`.
+8. Run the review hook with the active evidence path and all requested review,
+   docs, boundary, structure, and side-effect evidence.
+9. Immediately before finish, compare the route gate list with the ledger and
+   record all missing gates. Run `finish` once before the final report,
+   commit, release, or handoff.
 
-## Language Policy
-
-Write shared agent library documents in English. This includes `AGENTS.md`,
-`index.md`, `common/`, `platforms/`, `product-patterns/`, `workflows/`, and
-`templates/`. Public-facing site copy under `docs/` may be localized, but it
-must not become the source of truth for agent guidance.
-
-## Metadata Policy
-
-Use frontmatter `status` as the readiness signal and `type` as provenance or
-review state. Do not ignore a document only because `type` is `ai-generated`
-when `status` is `review` or `stable`; instead, treat `draft` as provisional,
-`review` as active, and `stable` as broad-use guidance. The `keyflow_id` field
-is retained for metadata compatibility and should not be renamed casually.
-
-## Release Version Contract
-
-This repository releases with monthly CalVer `vYY.MM.N`, the scheme described in
-`common/skills/release-versioning/references/current-guidance.md`. That card
-leaves `N` to each repository, and this is the repository-local definition it
-defers to.
-
-- The tag is the deployment unit. `N` counts tags within that month and restarts
-  at `1` when the month changes, so the release after `v26.07.10` is `v26.08.1`.
-- Release notes are optional here and were adopted partway through. A tag with no
-  GitHub release is still a deployment, and the count of published releases is
-  never the counter.
-- Measure a release range from the previous tag, not from the previous tag that
-  happened to carry notes.
-
-The last rule is written down because getting it wrong is quiet. Notes that skip
-a deployment read as complete while silently absorbing its commits into the next
-release's story, and the tag numbers still look consecutive.
-
-## Priority
-
-When instructions conflict, follow this order:
-
-1. System and developer instructions from the active agent runtime.
-2. The user's current request.
-3. The target repo's local instructions, such as `AGENTS.md`, `CLAUDE.md`,
-   `CODEX.md`, `.agents/README.md`, `CONTRIBUTING.md`, or an explicitly
-   documented local override file.
-4. More specific shared Tao Agent OS documents, such as platform or product-pattern docs.
-5. Shared Tao Agent OS common cards.
-6. General guidance in `README.md`.
-
-If the conflict changes behavior, verification, security, or data handling, call
-it out before or after the work.
-
-## Always Read For Agent Work
-
-For implementation, review, refactoring, debugging, documentation, or planning tasks, first consult:
-
-```text
-<TAO_ROOT>/common/skills/agent-operating-skill/SKILL.md
-```
-
-Then load only the supporting documents relevant to the task.
-
-## Document Output Conventions
-
-When creating PRDs, specs, or ARDs, follow the path and naming rules in:
-
-```text
-<TAO_ROOT>/common/skills/doc-conventions/SKILL.md
-```
-
-Repo-local instructions override this guide. Always state the output path in the
-handoff.
-
-## Required VibeGuard Gate
-
-VibeGuard is mandatory for Tao Agent OS maintenance and for repos that apply
-Tao Agent OS. Before documentation, code, configuration, dependency, data,
-deployment, or credential changes, run the VibeGuard audit for the target repo.
-When applying Tao Agent OS to another repo, do not run VibeGuard `setup` or
-`update` blindly; use the application drill in `docs/skills/agent-bootstrap/SKILL.md` when
-the target already has agent instructions or guardrails. Use `update` only when
-the user explicitly chooses to refresh an existing managed VibeGuard block;
-otherwise run audit with the current guardrails.
-For this repo, use the current VibeGuard command policy documented in
-`VIBEGUARD.md`. During local maintenance, prefer an installed `vibeguard`
-binary when the environment provides one:
-
-```text
-vibeguard audit . --rules .
-```
-
-Use the published package command only when no trusted installed binary is
-available or when a task explicitly needs the latest published package:
-
-```text
-npx --yes @taehwandev/vibeguard audit . --rules .
-```
-
-When actively developing or validating a local VibeGuard checkout, this fallback
-is acceptable:
-
-```text
-node <VIBEGUARD_ROOT>/src/cli.js audit . --rules .
-```
-
-Run it again before finishing. Use `--fix` only for low-risk safety fixes, and
-never print detected secret values. If VibeGuard cannot run, stop and report
-the blocker instead of treating it as optional.
-
-## Required Workflow Script
-
-For every multi-step task, run the shared start hook once before selecting
-documents manually, editing, reviewing, committing, or reporting completion.
-The start hook performs workflow routing and preflight in one lifecycle entry;
-do not separately repeat workflow list, classify, route, or preflight after it
-succeeds:
-
-```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" [--approval-record "<JSON_OR_PATH>"] --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
-```
-
-`--command` accepts a workflow route, not a stage label. For implementation work,
-use the closest route such as `bugfix`, `feature`, `build`, or `task`; `implement`
-is an execution-stage label and is not a valid route command. When uncertain,
-confirm the current route choices with `<TAO_LAUNCHER> workflow list` before
-running the hook.
-
-Use the start output as the route, document, and gate manifest, then execute the
-task with the target repo's local commands. Read every route `required_docs`
-entry directly before work. Direct `<TAO_LAUNCHER> workflow route` and `<TAO_LAUNCHER> agent-preflight`
-invocations are lower-level diagnostic or compatibility fallbacks only when the
-start hook is unavailable; never run them as a second startup sequence. The
-start hook must always receive the current user request. A work route also
-requires `--intent-envelope` and `--runtime-session-id`. The runtime builds the
-envelope from the full conversation, binds it to the exact request fingerprint
-and current opaque session id, and declares intent, bounded target, effects,
-prohibited effects, and ambiguity. Tao validates that contract and applies the
-route effect floor; it never reconstructs work authority from request words.
-`request_fingerprint` is the SHA-256 of the canonical JSON object holding
-`request`, `continuation_scope`, `request_classified`, and
-`classification_evidence`, with absent fields as `""`/`false` — the whole
-request intake, not the request text alone. Hashing only `--request` made an
-envelope minted for a terse follow-up such as `y` stay valid when the
-continuation scope changed, and for a terse follow-up the scope is what carries
-the meaning.
-The only valid effect names are `read`, `local_write`, `git_write`,
-`external_write`, and `destructive`; choose the highest reusable risk class the
-request needs rather than operation names such as `commit`, `push`, `merge`, or
-`release`. Effects from `git_write` upward also require a separate
-`--approval-record` built from the user's explicit approval for this exact
-request. That record is not part of the envelope and must bind
-`request_fingerprint`, the same `target_summary`, the route `command`, and the
-approved effect ceiling. An envelope or `approval_ref` cannot approve itself.
-Without an envelope, use only `triage` or `ambiguity`; direct questions must be
-answered in the conversation. A delegated worker may add
-`--request-classified --classification-evidence "<evidence>"` only when the
-ready and valid parent capsule binds that reuse to the earlier intake. Without
-that capsule the flag proves nothing; even a valid capsule and free-text
-classification evidence never replace the envelope. The flag is not a
-same-session root override. For a terse root-session follow-up, keep `--request`
-equal to the user's current words and pass prior target context separately with
-`--continuation-scope`. That scope is context only: it cannot open a work route,
-turn a question into work, or authorize commit, release, deployment, or another
-mutation. Put the resolved bounded target in the envelope or use `triage` or
-`ambiguity`. Do not use `--request-classified` to bypass
-direct-question, ambiguity, or Grill-Me handling. A caller that only needs the
-document listing and label context and is asserting no request intake uses
-`--advisory`, which satisfies no downstream gate; work must be re-routed with a
-real `--request` before editing, reviewing, or reporting completion.
-Classification evidence that still says `vague-action`,
-`broad-product`, `risky-unclear`, `direct-question`, `answer_first`,
-`clarify_first`, `ambiguous`, `unclear`, `grill_me: true`, or
-`question_drill: true` and their obvious hyphen/space variants must route only
-to `triage` or `ambiguity` until the evidence states clear scope, a separate
-actionable request, or resolved blockers. For finish and capsule state checks, weak evidence such
-as `classified`, `done`, or `handled` is not enough; the evidence must contain
-a positive resolved-scope signal such as `clear-exact`, `clear-scoped`,
-`answered ... separate actionable`, or `blockers resolved`. Evidence that says
-`not clarified`, `unresolved`, `open questions`, or equivalent blocker-open
-language remains blocked even if it also contains a resolution word. Generic
-resolution markers such as `clarified` or `no blockers` are not enough unless
-they name the resolved scope, decision, blocker-question outcome, or remaining
-separate action. If the request is a direct question,
-answer it before editing,
-routing, or running project-specific work. If the script is unavailable, cannot
-run, or the route is missing a clearly relevant concern, stop and report the gap
-before continuing. Use `index.md` as a fallback only for simple answer-only work
-or after the user explicitly accepts the fallback.
-
-The workflow router also promotes required docs from
-`workflow-doc-surfaces.json` when semantic request intent or verified owner
-paths reveal a specific work surface. This is the root-level document routing
-map for common
-agent tasks such as workflow script changes, request classifier work, tests,
-skill cards, agent instruction files, UI-capable platform work, and shared
-Tao Agent OS docs. Request-intent rules may match the route command, selected
-platform, request text, and reusable document sets; for example screen, list,
-favorites, or navigation intent on Android, Application, Flutter, iOS, KMP,
-Swift, and Web surfaces the matching UI, state, structure, review, visual
-verification, and performance guidance. Literal framework-name shortcuts are
-test fixtures, not durable routing policy. `<TAO_LAUNCHER> workflow route`
-extracts path-like references from `--request`, and `<TAO_LAUNCHER> agent-preflight`
-extracts paths from `git status --short --untracked-files=all`, but both remain
-`surface_candidates`. Use `--surface-path <path>` only after bounded read-only
-repository inspection proves that path owns the requested behavior and names
-the nearest check that would fail if the owner claim were wrong. Code routes
-record this through the existing `work surface resolution` gate with one to
-four evidence hops; `ambiguous` and `not_found` stop before task-specific
-reading or edits. Surface promotion may
-move a document from `reference_docs` to `required_docs`; it is best-effort
-under the selection budget below, and it never replaces repo-local instructions
-or the normal route command/profile selection.
-The router also builds a local document graph from Markdown links, canonical
-skill-bundle entrypoints, and `workflow-doc-surfaces.json` document sets. Natural
-language search should find seed docs; the graph then follows nearby relations
-so agents see connected guidance without the user naming every keyword. Loose
-graph relations become `reference_docs`; only explicit required relations such
-as frontmatter `requires_docs` may promote an additional doc to `required_docs`.
-
-`required_docs` names the document that holds a skill's actual rules, not a
-pointer to it. Most `<skill>/SKILL.md` entrypoints are generated stubs whose
-only content is a link to `references/current-guidance.md`; the router replaces
-such an entrypoint with that reference. An entrypoint carrying guidance of its
-own is kept alongside its reference, and an entrypoint with no reference on disk
-is kept unchanged. The operating skill is the progressive-loading exception:
-its concise entrypoint is required on every route, while its broad reference and
-this Tao root `AGENTS.md` stay in `reference_docs`. The active target
-project's root instructions were already loaded before routing, so requiring
-this broad file again would duplicate the operating contract. Open
-`common/skills/agent-operating-skill/references/current-guidance.md` when the
-task turns on operating-skill detail.
-
-Required-document selection is bounded. Beyond the always-required operating
-entrypoint and unbudgeted gate contracts, the router fills a byte budget and a
-document cap in priority order: the command's own skill, then documents matched
-to this request's text and touched paths, then the selected platform card set,
-then the remaining gate documents, then general code-work discipline. Selection
-stops at the budget rather than skipping a document that does not fit, so the
-most specific match is never starved by a smaller, less relevant one. Surface
-and graph promotion are therefore best-effort: a relevant document may
-legitimately remain in `reference_docs`, and it must still be opened when the
-task touches it. Gates that reject work always keep a concise substantive
-contract entrypoint in `required_docs`: review keeps
-`workflows/skills/review-and-commit/SKILL.md`, and the multi-agent split keeps
-`workflows/skills/multi-agent-collaboration/SKILL.md`. Their detailed
-references stay on demand for ordinary code routes and become required only
-when the route's own command is review/commit/docs-review/git_commit or
-multi-agent. Work-surface resolution keeps its detailed source-driven reference
-because its generated entrypoint does not contain the owner-proof procedure.
-
-Natural-language document discovery is a router responsibility, not a hook
-responsibility. The router/search layer uses the repository-pinned Wikimap
-backend to incrementally index Tao Agent OS guidance without a model or network
-call, then overlays explicit workflow facets and the local document graph.
-Wikimap matches are candidate/reference seeds; only route policy or an explicit
-required-doc relation promotes a required document. Hooks do not run search
-logic, read documents for the agent, or mutate the route. The existing `source
-docs` finish evidence records the agent's direct `required_docs` reading and
-applied task-specific takeaway. When recording this gate through structured
-`gate` or `gate-batch` input, include the exact fields `required_docs`, `source`,
-and `takeaway`; prose evidence alone does not satisfy the gate. Target-project
-code, architecture, and relationship analysis remain Graphify responsibilities.
-An empty Wikimap result is a terminal `no_matches` no-source outcome, not a
-reason to poll, re-route, or wait; continue with the deterministic
-`required_docs` and record the no-source decision. A route that names a missing
-required document is instead an `invalid_manifest` failure with concrete repair
-paths and must stop once rather than retry search.
-
-Discover valid commands, platforms, and concerns with:
-
-```text
-<TAO_LAUNCHER> workflow list
-```
-
-When the right document is not obvious from `index.md`, search by keyword:
-
-```text
-<TAO_LAUNCHER> workflow query <keyword> [<keyword> ...]
-```
-
-The query command uses the pinned Wikimap source to return exact sections and
-lines, while preserving the existing `<TAO_LAUNCHER> workflow query` interface. It requires
-no separate install, model call, or network access at query time; its disposable
-SQLite cache stays under ignored `.wikimap/`. Explicit Tao Agent OS facets
-remain a policy overlay for phrases such as code cleanup, change review,
-verification, UI feature work, skill docs, or document routing, and the local
-document graph surfaces connected skill entrypoints and references. If Wikimap
-cannot run or its checksum is invalid, the command falls back to the prior local
-scorer and reports that backend in structured output. Use it instead of reading
-all of `index.md` when the concern is narrow or the document name is unknown.
-Then load only the matched documents relevant to the task.
-
-The route output contains `request_classification`, `docs`, `required_docs`,
-`reference_docs`, `gates`, `gate_ledger`, `skill_feedback`, `repair_cycle_limit`,
-`repair_policy`, `resume_scope`, `stop_condition`, `notes`, and `missing`.
-The recovery contract is `1`, `retrospective_repair_verify_resume`,
-`first_failed_checkpoint`, and
-`same_failure_after_repair_or_unsafe_repair`. Read `required_docs` in order
-before editing or reviewing. Treat `docs` as the full candidate manifest and
-`reference_docs` as lazy, on-demand context; open a reference only when the
-current task touches that concern, platform, gate, or verification path. Follow
-the gates as the task checklist, and stop if `missing` is not empty. Public gate
-and hook signals must use only
-`🐱🟢 SUCCESS` or `🐱🔴 FAIL`. Do not introduce any third state in human-visible
-reports or machine-readable hook status. Completion requires every required
-gate to be `🐱🟢 SUCCESS`. If a
-required gate fails or lacks evidence, report `🐱🔴 FAIL`, follow missed-gate
-recovery, and do not finalize. On a required hook or gate `FAIL`, run the
-actionable retrospective, improve the canonical Tao Agent OS guidance, hook,
-validator, or test, verify that improvement, and then resume the original task
-at `first_failed_checkpoint`. A note or queued candidate alone is not recovery.
-Use one repair cycle only. Stop when the same failure signature recurs after
-repair, the repair is unsafe or ambiguous, canonical source ownership is
-uncertain, or verification fails. See
-`workflows/skills/retrospective-learning/SKILL.md` for the canonical decision
-rules and `workflows/skills/scripted-agent-workflow/SKILL.md` for route
-consumption.
-
-When writing gate evidence, copy each gate name exactly from the active route
-manifest, including spaces. Do not invent hyphenated aliases such as
-`side-effect-audit` or `retrospective-check`; an extra ledger entry does not
-satisfy the route's required gate.
-
-Consume the route's `parallel_execution.delegation_policy` as an execution
-contract, not a suggestion. When the runtime exposes subagents or parallel
-workers and at least two meaningful slices have disjoint owned/forbidden scopes,
-a stable contract, an integration owner, and focused verification, delegate
-automatically without waiting for the user to request multi-agent work. Load
-`workflows/skills/multi-agent-collaboration/SKILL.md` before making that decision.
-If the work stays serial, record the concrete safety or capability reason;
-missing explicit user wording is not a serial reason. A model-profile
-`dispatch --execute` call is one bounded leaf worker and never substitutes for
-the parent agent's split decision or eligible fanout.
-
-Use the lightweight `analysis` route for read-only investigation. It has no
-code-work, test, documentation, or review gate; keep it in the current session
-and do not launch a Codex child unless the caller explicitly requires isolation.
-It retains only the active runtime instruction as a required document.
-
-`analysis` is read-only intrinsically, and `start --read-only` declares the same
-non-mutating mode on any other route. Read-only skips the VibeGuard audit for
-the whole lifecycle, so it is a claim the run must keep: `finish` compares the
-worktree against the state `start` recorded and fails when it moved. Do not
-declare read-only for work that may edit, and do not use it to avoid a
-VibeGuard blocker; rerun the lifecycle without the flag instead.
-The detailed review-only classifier precedence, intrinsic analysis read-only
-mode, worker reservation claim-on-accept, and non-Git rules-root capsule
-contracts are owned by
-`workflows/skills/scripted-agent-workflow/references/current-guidance.md`;
-callers must not duplicate or override those lifecycle decisions.
-For implementation work, keep small tasks serial. Split only when at least two
-independent scopes meet the delegation contract, then use two or three workers
-at most and keep the parent responsible for one integration review and the
-final verification.
-
-Before a parent hands work to any runtime worker, run `<TAO_LAUNCHER> handoff`.
-It lazily creates the provider-neutral, content-free execution capsule against
-the current route, preflight, required docs, gate ledger, request fingerprint,
-and project/rules state immediately before the worker boundary.
-A Codex child launch revalidates that capsule immediately before execution, so
-an inspect-only manifest cannot reuse a stale decision. A worker may reuse the
-parent's route, preflight, required-doc brief, and gate context only when that
-handoff reports a ready and valid capsule; it must not rerun route/preflight,
-reread the parent's required docs, run VibeGuard, or perform a separate review.
-Otherwise the worker follows the normal lifecycle on a newly reserved,
-single-use-token worker evidence path. The parent remains the sole gate-ledger
-owner. For Codex, keep dispatch inline unless isolation is explicitly required;
-record model, reasoning, or sandbox mismatches as a decision input, not as an
-automatic reason to nest a Codex process. The detailed cross-runtime contract is owned by
-`docs/skills/agent-runtime-integration/SKILL.md`.
-
-The fallback worker evidence root is
-`<TARGET_REPO>/.tao/workers/<opaque>/preflight.json`. Handoff reservation,
-worker start, execution-capsule identity checks, and finish validation must use
-that same root.
-
-After `start`, every lifecycle hook must reuse the exact resolved project root,
-rules root, and preflight evidence path recorded by that start. If task setup
-creates or switches to a different Git worktree, run a fresh `start` from that
-worktree before project work; never combine a main-checkout preflight with
-worktree review or finish hooks.
-
-For a non-Git rules root, exclude the root `local/` personal-skill tree from
-the whole-root lifecycle fingerprint. Personal skills are independent owners
-that may be updated by another task, so unrelated local-skill drift must not
-invalidate an active project's review attestation. A task-critical personal
-skill must instead be named in that task's source evidence; required-document
-hashes still bind any local document that the route explicitly promotes.
-
-For local commit creation or commit preparation, including a combined approved
-commit/push/pull-request follow-up, use the lightweight `commit` route, or
-`git_commit` when the runtime labels the task that way. Do not route that
-source-control publication through `review`, `task`, `triage`, `release`, or
-`ship` unless the request actually packages, deploys, tags, migrates, or
-publishes a release artifact. The commit route is intentionally small: read the
-commit workflow entrypoints, run the lightweight review hook first, stop before
-committing when review finds issues, and record commit readiness before
-creating the local commit. Push and PR creation still require their own user
-authority and repo-local checks.
-
-Before editing, include the review hook's default structural budget in the
-boundary plan for every new or substantially expanded development source file.
-Keep each file at no more than 300 added lines, no more than four top-level
-owners, and no more than one public/exported top-level owner unless a repo-owned
-structure rule or an explicit review option sets a stricter limit. Treat a
-language-level module-only declaration such as Kotlin/Swift `internal` or Rust
-`pub(crate)` as non-private but not public/exported; an internal factory may
-remain with its internal owner while the four-owner file budget still applies. Treat a
-screen, page, or component with several independently nameable sections as a
-split candidate during planning; do not wait for the final review hook to
-discover that the file needs purpose-named extraction. Tests retain their
-separate wider file-size budget. File-private helpers and preview-only support
-that share the primary owner's caller and change reason do not count as
-top-level owners. A cohesive Kotlin extension-function family on the same exact
-receiver also counts as one owner cluster when the functions share one caller
-contract and reason to change; different receivers and unrelated free functions
-remain separate owners. Independently importable preview or production support
-still counts separately.
-
-Before invoking the review hook, count the task-owned changed paths in the
-declared review scope. The default budget is 25 paths. A cohesive mechanical
-migration that must update more direct callers may raise `--max-changed-paths`
-to that observed count, but the review pathspec must still include only the
-owned code/resource scope and the evidence must explain why the change cannot
-be reviewed as independent behavioral slices. When the review reports that an
-added runtime file enters an existing multi-role package, or reports a new
-runtime package/folder boundary, write `--structure-review-evidence` as an
-explicit five-part contract: `owner: ...; allowed imports: ...; forbidden
-imports: ...; callers/tests: ...; verification: ...`. Do not substitute a
-general structure summary or a claim that no new package was created for any
-of those named fields.
-
-Treat the changed-path count as a pre-invocation hard check. Do not call the
-review hook with its default limit after observing more than 25 owned paths.
-For one cohesive caller migration, declare the narrow owned pathspec and pass
-the exact observed count through `--max-changed-paths` on the first review
-attempt; otherwise split the behavioral slices before review.
-
-When the target is outside Git, the review hook must treat Git status, diff,
-and structure source discovery as review-only after `git rev-parse` proves that
-no repository owns the path. It must not continue with `git ls-files` commands
-that cannot succeed. Require an explicit review pathspec, concrete code-review
-evidence, focused verification, and an accepted non-Git VibeGuard reason instead.
-A writing finish remains fail-closed unless a current successful review record
-binds that explicit scope and its structurally unavailable diff check.
-
-When reviewing subject-specific unit tests, apply the `Test Subject Ownership`
-rule from `common/skills/code-structure-ownership/SKILL.md`: mirror the
-production owner's logical package or folder and use the subject name, such as
-`<Subject>Test`. A broad feature/category test location is reserved for a real
-cross-owner contract or integration flow, not as a bucket for owner tests.
-
-## Required Executable Evidence Gate
-
-For multi-step tasks, use the executable wrappers. The single start hook creates
-routing and preflight evidence for the current target project and rule source
-before editing, reviewing, committing, or reporting completion:
-
-```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <command> --request "<USER_REQUEST>" --intent-envelope "<JSON_OR_PATH>" [--approval-record "<JSON_OR_PATH>"] --runtime-session-id "<OPAQUE_SESSION_ID>" [--platform <platform>] [--concern <concern>]
-```
-
-Four rules hold without opening anything else:
-
-- Resolve `<TAO_ROOT>` and `<TAO_LAUNCHER>` to absolute paths before running a
-  wrapper. `$HOME`, `${HOME}`, `~`, and relative paths bypass narrow
-  permission-prefix matching and cause the same approval to be asked for again.
-- Register permissions on the parameter-free script path prefix only. A
-  permission saved with arguments stops matching the moment an argument
-  changes, which is the same repeated prompt by another route.
-- The start hook's own output is the manifest for the route in hand: its
-  copyable commands, its required hooks, and the fields each gate wants. Follow
-  it rather than reconstructing the call from memory.
-- Never call `agent-finish-check` directly in place of the wrapped `finish`
-  hook; it skips the repair-cycle checks that hook exists to run.
-
-The mechanics behind these -- every wrapper and what it writes, evidence-path
-rules, the per-runtime permission-entry shapes, and the recovery paths -- are in
+The authoritative mechanics, schemas, recovery rules, and command forms live in
+`workflows/skills/scripted-agent-workflow/references/current-guidance.md` and
 `docs/skills/agent-runtime-integration/references/executable-evidence-gate.md`.
-Open it when a permission prompt repeats, an evidence path is in question, or a
-wrapper has to be installed or wired.
+Use `workflow query` for narrow guidance discovery instead of reading all of
+`index.md`. Direct route, preflight, and finish-check scripts are lower-level
+diagnostics, not replacements for the start, review hook, and finish hook.
 
-## Supporting Documents
+## Request And Continuation Safety
 
-Use `index.md` as the full document map. Do not duplicate the full index in
-repo-local instructions. Start with these direct routes, then load only the
-specific cards selected by `index.md`.
+For terse follow-ups, keep `--request` equal to the user's current words and
+put bounded prior target context in `--continuation-scope`. The fingerprint
+must cover both plus classification flags exactly. Continuation scope never
+opens a work route or authorizes mutation. `--request-classified` is only for
+a delegated worker holding a ready, valid capsule bound to the same intake.
 
-Release, versioning, platform, product-pattern, and other task-specific cards
-are intentionally selected through `index.md` or `<TAO_LAUNCHER> workflow` instead
-of being listed as baseline direct routes here.
+Evidence that still says the request is vague, direct-question-first,
+ambiguous, unresolved, or blocker-open stays on `triage` or `ambiguity`.
+Weak markers such as “classified”, “done”, or generic “clarified” do not prove
+scope resolution.
 
-```text
-<TAO_ROOT>/index.md
-<TAO_ROOT>/common/skills/stack-discovery/SKILL.md
-<TAO_ROOT>/common/skills/llm-coding-discipline/SKILL.md
-<TAO_ROOT>/common/skills/code-conventions/SKILL.md
-<TAO_ROOT>/common/skills/tool-failure-recovery/SKILL.md
-<TAO_ROOT>/common/skills/agent-interaction/SKILL.md
-<TAO_ROOT>/common/skills/agent-editing-safety/SKILL.md
-```
+Read-only `analysis` is intrinsically non-mutating. `start --read-only` on
+another route makes the same whole-run claim; finish rejects any worktree
+movement. Do not use it to bypass VibeGuard.
 
-## Workflow Documents
+## Documents And Search
 
-```text
-<TAO_ROOT>/workflows/skills/agent-task-lifecycle/SKILL.md
-<TAO_ROOT>/workflows/skills/agent-handoff-continuation/SKILL.md
-<TAO_ROOT>/workflows/skills/scripted-agent-workflow/SKILL.md
-<TAO_ROOT>/workflows/skills/ambiguity-gate/SKILL.md
-<TAO_ROOT>/workflows/skills/product-architecture-delivery/SKILL.md
-<TAO_ROOT>/workflows/skills/development-cycle/SKILL.md
-<TAO_ROOT>/workflows/skills/multi-agent-collaboration/SKILL.md
-<TAO_ROOT>/workflows/skills/multi-perspective-review/SKILL.md
-<TAO_ROOT>/workflows/skills/retrospective-learning/SKILL.md
-<TAO_ROOT>/workflows/skills/planning-research/SKILL.md
-<TAO_ROOT>/workflows/skills/documentation-update/SKILL.md
-<TAO_ROOT>/workflows/skills/feature-implementation/SKILL.md
-<TAO_ROOT>/workflows/skills/bugfix-debugging/SKILL.md
-<TAO_ROOT>/workflows/skills/refactor-cleanup/SKILL.md
-<TAO_ROOT>/workflows/skills/release-readiness/SKILL.md
-<TAO_ROOT>/workflows/skills/review-and-commit/SKILL.md
-```
+The route owns natural-language guidance discovery. Wikimap results are
+candidates; only route policy or an explicit required relation promotes a
+required document. Graphify owns target-code architecture and relationship
+analysis. An empty search is a terminal no-match outcome; a missing required
+document is an invalid manifest and stops work.
 
-## Operating Rule
+Generated pointer `SKILL.md` entrypoints normally resolve to
+`references/current-guidance.md`. An entrypoint with substantive rules stays
+alongside its reference. Read `reference_docs` on demand when the task touches
+them even if the required-doc budget did not promote them.
 
-Do not copy this whole library into a repo. Link only the documents relevant to
-that repo. Keep repo-specific paths, commands, role matrices, API names, and
-domain language in the repo-local instructions.
+PRDs, specs, and ARDs follow
+`common/skills/doc-conventions/SKILL.md`; report their output path.
 
-Keep reusable agent knowledge single-owned and provider-neutral. Runtime files
-are thin adapters or pointers unless behavior is genuinely runtime-specific;
-do not maintain parallel Codex, Claude, or Gemini/Antigravity/AGY copies of the
-same operational rule or skill. Follow
-`docs/skills/tao-skill-bundle-migration/references/source-of-truth-ownership.md`
-for the canonical ownership and duplicate-audit rule.
+## Parallel Work And Handoffs
 
-When applying Tao Agent OS to another repo, reuse an existing usable local or
-repo-pinned Tao Agent OS root by default. Do not download, clone, vendor, copy,
-overwrite, or add a second root while one exists unless the user explicitly
-approves after being told the found path.
+Consume `parallel_execution.delegation_policy`. Delegate only when at least two
+meaningful slices have disjoint owned and forbidden scopes, a stable shared
+contract, a named integration owner, and focused verification. Otherwise
+record the concrete serial safety or capability reason. Small bounded tasks
+stay serial; eligible tasks use at most two or three workers.
 
-When adding Tao Agent OS routing to a target repo, keep `AGENTS.md` as the
-canonical instruction file when that runtime reads it. If existing
-runtime-specific files such as `CLAUDE.md`, `CODEX.md`, `.agents/README.md`, or
-Antigravity CLI docs are present, update their Tao Agent OS pointer in the same
-pass or point them back to `AGENTS.md`; do not create extra runtime-specific
-files only for duplication.
+Before any worker boundary, run the handoff hook. Only a ready, valid execution
+capsule permits reuse of the parent's route, preflight, required-doc brief, and
+gate context. The parent alone owns the gate ledger, integration review, and
+finish. A worker handoff does not satisfy the user-facing `handoff` gate.
 
-User-level runtime bridges must be fail-closed. If a bridge cannot confirm the
-current project root, the project-root instruction file for the active runtime,
-or the required Tao Agent OS/VibeGuard evidence gates, the agent must stop
-before routing, editing, testing, committing, or reporting completion and ask
-for bridge repair. Generated or managed runtime bridges must also enforce
-silent background behavior: do not mention setup helpers, hook commands,
-permission allowlists, label commands, or background metering status in normal
-conversation unless the user explicitly asks about that subsystem. Runtime
-bridges must distinguish setup or diagnostic evidence from usage evidence: a
-label command, permission prompt, hook configuration, hook process start, command
-log, or mock payload is not proof that real token usage was recorded. When exact
-runtime usage is unavailable, the compliant action is to skip usage event
-creation or record content-free diagnostics according to the local product
-contract, not to estimate or infer from private content. A bridge that only
-apologizes after exposing those details is non-compliant; it must change the
-next action path or stop.
+## Review Boundaries
 
-`<TAO_LAUNCHER>` means the installed stable launcher, which lives
-outside the checkout at `~/.tao/bin/tao-hook`. It is a
-separate user-global directory, not a path under `<TAO_ROOT>`; the
-`~/.tao/tao-root` pointer file is what links the two.
-Before executing it, resolve the placeholder to that machine's absolute path.
-Do not run it as `~/...`, `$HOME/...`, or `${HOME}/...`: setup installs one
-resolved absolute permission entry per runtime, so a home-relative spelling is
-not in the allowlist and produces an approval prompt. Committed documents keep
-the placeholder rather than a personal absolute path, for the same reason
-`<TAO_ROOT>` is never written out as `/Users/...`.
+Plan new or substantially expanded development files to stay within the default
+review budget: at most 300 added lines, four top-level owners, and one
+public/exported top-level owner unless a stricter repo rule applies. Split
+independently nameable sections before review. Tests keep their separate wider
+budget.
 
-`<TAO_ROOT>` means the directory containing this shared library. In
-committed or shared repo-local instructions, do not replace it with a personal
-absolute path such as `/Users/.../tao-agent-os`. Use `${TAO_HOME}`
-when each machine can set the variable, or a repo-relative pinned path such as
-`.agents/tao-agent-os` when the root is committed or pinned with the target
-repo. Personal absolute paths are acceptable only in uncommitted local runtime
-bridges, one-shot prompts, or shell environment setup for a specific user.
-`${KEYFLOW_AGENT_ROOT}` is accepted only as a legacy local alias when already
-configured.
+Count task-owned changed paths before review; the default maximum is 25. Raise
+it only for one cohesive mechanical migration, using the exact observed count
+and a narrow owned pathspec. An added runtime file in an existing multi-role
+package, or a new runtime package boundary, requires:
+`owner: ...; allowed imports: ...; forbidden imports: ...; callers/tests: ...;
+verification: ...`.
+
+Subject unit tests mirror the production owner's logical package/folder and use
+the subject name. Broad feature test locations are reserved for genuine
+cross-owner contracts or integration flows.
+
+## Failure And Recovery
+
+Required gate failure is `🐱🔴 FAIL`, never completion. Use one
+`retrospective_repair_verify_resume` cycle from the first failed checkpoint:
+repair the canonical rule, hook, validator, or test; verify it; then resume the
+original task. Stop when the same failure recurs, repair is unsafe or ambiguous,
+ownership is uncertain, or verification fails.
+
+## Release And Source Control
+
+This repository uses monthly CalVer `vYY.MM.N`. `N` counts tags in the month
+and resets to 1 in a new month. A tag is a deployment even without GitHub
+release notes; release ranges start at the previous tag.
+
+Local commit creation uses the lightweight `commit`/`git_commit` route after
+review readiness. Push, PR creation, tags, releases, deployment, migration, and
+publishing require their own matching user authority and checks.
+
+## Runtime And Ownership Rules
+
+Use the installed launcher by resolved absolute path. Keep `<TAO_ROOT>` and
+`<TAO_LAUNCHER>` placeholders in committed documentation; never commit a
+personal absolute path. Permission rules bind only the parameter-free absolute
+launcher/script path.
+
+Keep reusable knowledge single-owned. Runtime files are thin adapters or
+pointers unless behavior is truly runtime-specific. Preserve existing Spill
+metering and label handoff integration when changing runtime bridges, prompts,
+hooks, workflows, installers, docs publishing, or release paths. Background
+metering details remain silent unless the user explicitly asks about that
+subsystem.
 
 <!-- vibeguard:start version=1 -->
 ## VibeGuard
@@ -694,3 +213,22 @@ deployment, or credentials:
 
 Refresh this managed block only when `vibeguard audit .` reports stale guardrails, or manually with `vibeguard update .` / `npx --yes @taehwandev/vibeguard@latest update .`.
 <!-- vibeguard:end -->
+
+## Supporting Map
+
+Use `index.md` or the workflow router for narrow selection. Common entrypoints
+include:
+
+- `common/skills/stack-discovery/SKILL.md`
+- `common/skills/llm-coding-discipline/SKILL.md`
+- `common/skills/code-conventions/SKILL.md`
+- `common/skills/tool-failure-recovery/SKILL.md`
+- `common/skills/agent-interaction/SKILL.md`
+- `common/skills/agent-editing-safety/SKILL.md`
+- `workflows/skills/agent-task-lifecycle/SKILL.md`
+- `workflows/skills/agent-handoff-continuation/SKILL.md`
+- `workflows/skills/review-and-commit/SKILL.md`
+- `workflows/skills/retrospective-learning/SKILL.md`
+
+Do not copy the whole Tao library into a target repo. Link only the guidance
+that repo actually needs.

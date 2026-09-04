@@ -8,6 +8,7 @@ area, and narrowing decides *how many* of them a route may mandate.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -42,6 +43,24 @@ SOURCE_DRIVEN_REFERENCE = (
 
 
 class EntrypointResolutionTests(unittest.TestCase):
+    def test_pointer_vote_excludes_project_runtime_skill_copies(self) -> None:
+        """Generated runtime state cannot outvote repository-owned guidance."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = []
+            for index in range(20):
+                path = root / "common" / "skills" / f"skill-{index}" / "SKILL.md"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# Canonical {index}\n\nRepository pointer body.\n", encoding="utf-8")
+                canonical.append(path.relative_to(root).as_posix())
+            for index in range(21):
+                path = root / ".tao" / "runtime" / "skills" / f"copy-{index}" / "SKILL.md"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# Runtime {index}\n\nRuntime copy body.\n", encoding="utf-8")
+
+            self.assertTrue(is_pointer_entrypoint(root, canonical[0]))
+
     def test_pointer_entrypoint_resolves_to_its_reference(self) -> None:
         """A generated pointer is replaced by the document holding the rules."""
         # review-and-commit used to be the fixture here, but its entrypoint now

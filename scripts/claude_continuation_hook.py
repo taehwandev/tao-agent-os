@@ -11,7 +11,7 @@ from typing import Any
 
 from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_continuation_packet import ContinuationPacketError
-from agent_continuation_resume import resume_last, resume_list
+from agent_continuation_resume import resume_last, session_resume_summaries
 from agent_runtime_session import (
     bind_resumed_runtime_session,
     is_run_local_continuation_evidence,
@@ -211,7 +211,7 @@ def _resume_target(root: Path, session_id: str) -> tuple[str, list[dict[str, Any
         # The claim below lists again, so this path never pays for a listing
         # it would only use to reach the run it has already identified.
         return evidence.parent.name, []
-    entries = resume_list(root)["entries"]
+    entries = session_resume_summaries(root)
     return (str(entries[0]["run_id"]) if len(entries) == 1 else ""), entries
 
 
