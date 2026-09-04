@@ -524,12 +524,7 @@ def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
         for line in failure_lines
     )
     intrinsic_analysis_drift = any(
-        line.startswith("FAIL: read-only execution was declared but the ")
-        and " root changed after start; " in line
-        and "the analysis route is intrinsically read-only; wait for concurrent writers "
-        "to settle, then rerun start and finish with refreshed workspace fingerprints"
-        in line
-        for line in failure_lines
+        _is_intrinsic_analysis_drift(line) for line in failure_lines
     )
     required_doc_refresh_lines = (
         "FAIL: execution capsule required doc size changed: ",
@@ -541,13 +536,7 @@ def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
     only_refreshable_drift = all(
         line in refreshable_failures
         or line.startswith(required_doc_refresh_lines)
-        or (
-            line.startswith("FAIL: read-only execution was declared but the ")
-            and " root changed after start; " in line
-            and "the analysis route is intrinsically read-only; wait for concurrent writers "
-            "to settle, then rerun start and finish with refreshed workspace fingerprints"
-            in line
-        )
+        or _is_intrinsic_analysis_drift(line)
         for line in failure_lines
     )
     return (
@@ -555,6 +544,24 @@ def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
         and bool(failure_lines)
         and (stale_review or stale_required_docs or intrinsic_analysis_drift)
         and only_refreshable_drift
+    )
+
+
+def _is_intrinsic_analysis_drift(line: str) -> bool:
+    """Whether this failure is an analysis run an upstream write overtook.
+
+    Two callers ask the same question of the same line -- whether any failure
+    is this one, and whether every failure is refreshable -- and the three-part
+    match was written out twice. A wording change to one copy and not the other
+    would leave the wrapper offering a refresh it then refuses to apply.
+    """
+
+    return (
+        line.startswith("FAIL: read-only execution was declared but the ")
+        and " root changed after start; " in line
+        and "the analysis route is intrinsically read-only; wait for concurrent writers "
+        "to settle, then rerun start and finish with refreshed workspace fingerprints"
+        in line
     )
 
 
