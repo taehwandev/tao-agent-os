@@ -132,7 +132,18 @@ class AdoptedRunStartTests(unittest.TestCase):
                     "--read-only", "--runtime-session-id", "adopted-run-probe",
                 ],
                 cwd=project, capture_output=True, text=True,
-                env={**os.environ, "TAO_STATE_HOME": state},
+                # Adoption binds a run to the runtime session in the
+                # environment, not to `--runtime-session-id`, which binds the
+                # intent envelope instead. Inheriting the outer session made
+                # this pass inside a Claude session and fail in a clean shell
+                # or on CI, where there is no session to adopt into and every
+                # start records `initial` again.
+                env={
+                    **os.environ,
+                    "TAO_STATE_HOME": state,
+                    "CLAUDE_CODE_SESSION_ID": "adopted-run-probe",
+                    "CODEX_THREAD_ID": "",
+                },
             ).stdout
 
         with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as state:
