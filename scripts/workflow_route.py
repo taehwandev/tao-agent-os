@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from workflow_catalog import (
     BASELINE_CONCERNS,
@@ -137,18 +137,44 @@ LIGHTWEIGHT_PUBLICATION_CONCERNS = {
 }
 
 
-def resolve_docs(
+class RoutedDocuments(NamedTuple):
+    """Everything the document phase resolved, before any of it is described.
+
+    The route reads its documents once and then answers three questions about
+    the same result: which are required, what the notes should say, and what the
+    manifest carries. Passing this instead of a dozen locals is what lets those
+    three stay separate functions; the fields are exactly the values that cross
+    from one to the next.
+    """
+
+    routed: list[str]
+    required: list[str]
+    reference: list[str]
+    missing: list[str]
+    surface_matches: list[dict[str, object]]
+    search_outcome: SearchOutcome
+    search_seed_docs: list[str]
+    graph_matches: list[dict[str, object]]
+    resolution: dict[str, object]
+
+
+def _resolve_documents(
+    *,
     command: str,
     platform: Optional[str],
     concerns: list[str],
-    request_classification: Optional[dict[str, object]] = None,
-    request_classified: bool = False,
-    classification_evidence: str = "",
-    request_text: str = "",
-    surface_paths: Optional[list[str]] = None,
-    project_root: Path | None = None,
-) -> dict[str, object]:
-    profile = COMMANDS[command]
+    profile: object,
+    request_text: str,
+    surface_paths: list[str],
+) -> RoutedDocuments:
+    """Gather every document this route gets from, in the order they compose.
+
+    Deterministic route docs first, then the surfaces the request text and owner
+    paths infer, then the search seeds, then what the graph reaches from both.
+    Each stage may only add; the split into required and reference happens once,
+    at the end, so no stage can quietly promote its own candidates.
+    """
+
     base_gates = route_gates(command)
     docs: list[str] = [*CORE_DOCS, *profile.docs]
     docs.extend(automatic_docs(command))
@@ -161,7 +187,7 @@ def resolve_docs(
         command=command,
         platform=platform,
         request_text=request_text,
-        surface_paths=surface_paths or [],
+        surface_paths=surface_paths,
     )
     search_outcome = (
         search_docs_outcome(ROOT, request_text, max_results=12)
@@ -191,7 +217,9 @@ def resolve_docs(
             docs.extend(PLATFORM_CONCERNS.get((platform, concern), ()))
 
     routed_docs = unique(canonical_doc_path(doc) for doc in docs)
-    required_docs = route_required_docs(command, platform, concerns, profile.docs, [*surface_docs, *graph_required])
+    required_docs = route_required_docs(
+        command, platform, concerns, profile.docs, [*surface_docs, *graph_required]
+    )
     # Every routed document stays reachable in exactly one of the two lists.
     # Filtering out entrypoints whose reference was promoted would read better,
     # but it breaks the invariant that `required_docs | reference_docs` covers
@@ -200,17 +228,149 @@ def resolve_docs(
     reference_docs = [doc for doc in routed_docs if doc not in required_set]
     manifest_docs = unique([*routed_docs, *required_docs])
     missing = [doc for doc in manifest_docs if not (ROOT / doc).exists()]
-    document_resolution = _document_resolution(
+    return RoutedDocuments(
+        routed=routed_docs,
+        required=required_docs,
+        reference=reference_docs,
+        missing=missing,
+        surface_matches=surface_matches,
         search_outcome=search_outcome,
         search_seed_docs=search_seed_docs,
-        missing=missing,
+        graph_matches=doc_graph_matches,
+        resolution=_document_resolution(
+            search_outcome=search_outcome,
+            search_seed_docs=search_seed_docs,
+            missing=missing,
+        ),
     )
+
+
+def _route_notes(
+    *,
+    command: str,
+    platform: Optional[str],
+    concerns: list[str],
+    profile: object,
+    documents: RoutedDocuments,
+    request_classification: Optional[dict[str, object]],
+    request_classified: bool,
+    classification_evidence: str,
+) -> list[str]:
+    """Say, in the route's own words, how it reached the documents it reached.
+
+    Every note here is derived from a decision already made above; none of them
+    changes one. Keeping them out of the resolver is what makes that readable --
+    a reader looking for what the route *does* no longer walks 70 lines of what
+    it *says*.
+    """
+
     notes = list(profile.notes)
     if command == "product" and not platform:
         notes.append("Select at least one platform card before writing ARD.")
     for concern in concerns:
         if concern in BASELINE_CONCERNS:
             notes.append(f"Concern `{concern}` is {BASELINE_CONCERNS[concern]}")
+    if request_classification:
+        notes.append(
+            "Request classification is attached to this route; keep it as evidence for the request intake or classify request gate."
+        )
+    elif request_classified:
+        notes.append(
+            "Caller asserted the request was already classified or answered; record that evidence for the request intake gate."
+        )
+        if classification_evidence:
+            notes.append("Request classification evidence was provided to the route command.")
+    if documents.reference:
+        notes.append(
+            "Read `required_docs` before work; treat `reference_docs` as on-demand context only when the current task touches that concern."
+        )
+    notes.extend(_surface_notes(command, documents.surface_matches))
+    notes.extend(
+        _document_search_notes(
+            documents.search_seed_docs, documents.resolution, documents.search_outcome
+        )
+    )
+    if documents.graph_matches:
+        notes.append(
+            "Expanded related candidate docs from the local document graph; explicit `requires_docs` edges become required docs."
+        )
+    return notes
+
+
+def _surface_notes(command: str, surface_matches: list[dict[str, object]]) -> list[str]:
+    """Which of the three ways a surface match can be promoted actually applied."""
+
+    if not surface_matches:
+        return []
+    if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
+        return [
+            "Kept surface-inferred docs in `reference_docs` for the lightweight commit route; explicit concerns can still promote required guidance."
+        ]
+    if any(match.get("type") == "path_surface" for match in surface_matches):
+        return [
+            "Promoted required docs from semantic request intent or verified owner paths using `workflow-doc-surfaces.json`."
+        ]
+    return [
+        "Matched semantic request-intent guidance. Code routes still require work-surface owner proof before task-specific reading or edits."
+    ]
+
+
+def _document_search_notes(
+    search_seed_docs: list[str],
+    resolution: dict[str, object],
+    search_outcome: SearchOutcome,
+) -> list[str]:
+    """What the search found, and which of its outcomes are terminal."""
+
+    notes: list[str] = []
+    if search_seed_docs:
+        notes.append(
+            "Wikimap supplied natural-language seed documents to the router; seeds remain reference candidates unless an explicit route rule or required relation promotes them."
+        )
+    elif resolution["status"] == "no_matches":
+        notes.append(
+            "Natural-language document search completed with no matching project documents. This is a terminal no-source outcome, not a retry condition; continue with the deterministic required_docs and record the no-source decision."
+        )
+    if resolution["status"] == "invalid_manifest":
+        notes.append(
+            "The route manifest names missing documents. Stop once with the missing paths; do not retry document discovery until the manifest or files are repaired."
+        )
+    if search_outcome.fallback_reason:
+        notes.append(
+            "Wikimap was unavailable for this route, so the local legacy scorer supplied recovery candidates."
+        )
+    return notes
+
+
+def resolve_docs(
+    command: str,
+    platform: Optional[str],
+    concerns: list[str],
+    request_classification: Optional[dict[str, object]] = None,
+    request_classified: bool = False,
+    classification_evidence: str = "",
+    request_text: str = "",
+    surface_paths: Optional[list[str]] = None,
+    project_root: Path | None = None,
+) -> dict[str, object]:
+    profile = COMMANDS[command]
+    documents = _resolve_documents(
+        command=command,
+        platform=platform,
+        concerns=concerns,
+        profile=profile,
+        request_text=request_text,
+        surface_paths=surface_paths or [],
+    )
+    routed_docs = documents.routed
+    required_docs = documents.required
+    reference_docs = documents.reference
+    missing = documents.missing
+    surface_matches = documents.surface_matches
+    search_outcome = documents.search_outcome
+    search_seed_docs = documents.search_seed_docs
+    doc_graph_matches = documents.graph_matches
+    document_resolution = documents.resolution
 
     graphify_context = graphify_route_context(
         concerns=concerns,
@@ -222,57 +382,16 @@ def resolve_docs(
     if command not in QUESTION_ROUTE_COMMANDS:
         gates = ["request intake", *gates]
 
-    if request_classification:
-        notes.append(
-            "Request classification is attached to this route; keep it as evidence for the request intake or classify request gate."
-        )
-    elif request_classified:
-        notes.append(
-            "Caller asserted the request was already classified or answered; record that evidence for the request intake gate."
-        )
-        if classification_evidence:
-            notes.append("Request classification evidence was provided to the route command.")
-    if reference_docs:
-        notes.append(
-            "Read `required_docs` before work; treat `reference_docs` as on-demand context only when the current task touches that concern."
-        )
-    if surface_matches:
-        verified_path_match = any(
-            match.get("type") == "path_surface" for match in surface_matches
-        )
-        if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
-            notes.append(
-                "Kept surface-inferred docs in `reference_docs` for the lightweight commit route; explicit concerns can still promote required guidance."
-            )
-        elif verified_path_match:
-            notes.append(
-                "Promoted required docs from semantic request intent or verified owner paths using `workflow-doc-surfaces.json`."
-            )
-        else:
-            notes.append(
-                "Matched semantic request-intent guidance. Code routes still require work-surface owner proof before task-specific reading or edits."
-            )
-    if search_seed_docs:
-        notes.append(
-            "Wikimap supplied natural-language seed documents to the router; seeds remain reference candidates unless an explicit route rule or required relation promotes them."
-        )
-    elif document_resolution["status"] == "no_matches":
-        notes.append(
-            "Natural-language document search completed with no matching project documents. This is a terminal no-source outcome, not a retry condition; continue with the deterministic required_docs and record the no-source decision."
-        )
-    if document_resolution["status"] == "invalid_manifest":
-        notes.append(
-            "The route manifest names missing documents. Stop once with the missing paths; do not retry document discovery until the manifest or files are repaired."
-        )
-    if search_outcome.fallback_reason:
-        notes.append(
-            "Wikimap was unavailable for this route, so the local legacy scorer supplied recovery candidates."
-        )
-    if doc_graph_matches:
-        notes.append(
-            "Expanded related candidate docs from the local document graph; explicit `requires_docs` edges become required docs."
-        )
-
+    notes = _route_notes(
+        command=command,
+        platform=platform,
+        concerns=concerns,
+        profile=profile,
+        documents=documents,
+        request_classification=request_classification,
+        request_classified=request_classified,
+        classification_evidence=classification_evidence,
+    )
     graphify_readiness = graphify_context["readiness"]
     blocking = list(graphify_context["blocking"])
     notes.extend(graphify_context["notes"])
@@ -459,6 +578,18 @@ def _route_required_docs(
     profile_docs: tuple[str, ...],
     surface_docs: list[str] | None = None,
 ) -> list[str]:
+    compact = _compact_required_docs(command, concerns)
+    if compact is not None:
+        return compact
+    gates = set(route_gates(command))
+    selected = _unbudgeted_required_docs(platform, concerns, gates)
+    tiers = _required_doc_tiers(command, platform, profile_docs, surface_docs, gates)
+    return _select_within_budget(command, tiers, selected)
+
+
+def _compact_required_docs(command: str, concerns: list[str]) -> list[str] | None:
+    """The two routes whose required set is fixed, or None for the full policy."""
+
     # A simple investigation has no work-producing gates. Keep the concise
     # operating entrypoint available without charging every analysis for the
     # broad Tao repository instructions in addition to its target project's
@@ -480,8 +611,17 @@ def _route_required_docs(
         return unique(
             [OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT, *commit_docs]
         )
+    return None
 
-    gates = set(route_gates(command))
+
+def _required_doc_tiers(
+    command: str,
+    platform: Optional[str],
+    profile_docs: tuple[str, ...],
+    surface_docs: list[str] | None,
+    gates: set[str],
+) -> list[list[str]]:
+    """The priority order the budget is spent down, most specific first."""
 
     # Tiers are ordered by how directly the document is tied to something this
     # route actually activates.  Everything above the budget line becomes
@@ -516,6 +656,13 @@ def _route_required_docs(
     # 6. General code-work discipline, for routes that produce code.
     if command in CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE:
         tiers.append(list(CODE_WORK_REQUIRED_DOCS))
+    return tiers
+
+
+def _unbudgeted_required_docs(
+    platform: Optional[str], concerns: list[str], gates: set[str]
+) -> list[str]:
+    """What every route gets before the budget starts counting."""
 
     # The operating entrypoint is not subject to the budget: every route gets
     # the small progressive-disclosure contract, and a route with no required
@@ -554,6 +701,13 @@ def _route_required_docs(
         )
         if doc not in selected
     )
+    return selected
+
+
+def _select_within_budget(
+    command: str, tiers: list[list[str]], selected: list[str]
+) -> list[str]:
+    """Spend the budget down the tiers and stop, rather than skipping past."""
 
     used = 0
 

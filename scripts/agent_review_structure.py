@@ -158,27 +158,13 @@ def structure_review(
         source_project=source_root,
     )
     subject_run_command = _subject_run_command(project, run_command, review_commits)
-    result: dict[str, Any] = {
-        "checked_paths": [str(path) for path in paths],
-        "checked_path_count": len(paths),
-        "development_extensions": sorted(REVIEW_SOURCE_EXTENSIONS),
-        "strict_checked_paths": [],
-        "test_exempt_paths": [],
-        "max_file_lines": max_file_lines,
-        "max_block_lines": max_block_lines,
-        "max_added_lines": max_added_lines,
-        "review_warning_file_lines": REVIEW_FILE_REVIEW_WARNING_LIMIT,
-        "test_max_file_lines": REVIEW_TEST_FILE_LINE_LIMIT,
-        "test_max_added_lines": max_added_lines * REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER,
-        "test_review_warning_file_lines": REVIEW_TEST_FILE_REVIEW_WARNING_LIMIT,
-        "scope": STRUCTURE_REVIEW_SCOPE_NOTE,
-        "warnings": [],
-        "failures": list(discovery["command_errors"]),
-        "boundary_note_requirements": [],
-        "net_deletion_limit": REVIEW_NET_DELETION_LIMIT,
-        "net_deletions": net_deletion_findings(discovery["path_metadata"]),
-        "discovery": discovery,
-    }
+    result = _structure_result(
+        discovery,
+        paths,
+        max_file_lines=max_file_lines,
+        max_block_lines=max_block_lines,
+        max_added_lines=max_added_lines,
+    )
 
     for relative in paths:
         is_test_path = test_exempt_path(relative)
@@ -229,9 +215,72 @@ def structure_review(
         result["failures"].extend(block_failures)
         result["warnings"].extend(block_warnings)
 
+    _add_cross_path_findings(
+        result,
+        source_root=source_root,
+        paths=paths,
+        discovery=discovery,
+        subject_run_command=subject_run_command,
+    )
+    return result
+
+
+def _structure_result(
+    discovery: dict[str, Any],
+    paths: list[Path],
+    *,
+    max_file_lines: int,
+    max_block_lines: int,
+    max_added_lines: int,
+) -> dict[str, Any]:
+    """The review's answer sheet, with every limit it will be judged against.
+
+    The limits are recorded rather than only applied, because a reader who is
+    told a file is too long has to be able to see what "too long" was for that
+    file: the test budget and the source budget differ, and which one applied is
+    not recoverable from the failure text alone.
+    """
+
+    return {
+        "checked_paths": [str(path) for path in paths],
+        "checked_path_count": len(paths),
+        "development_extensions": sorted(REVIEW_SOURCE_EXTENSIONS),
+        "strict_checked_paths": [],
+        "test_exempt_paths": [],
+        "max_file_lines": max_file_lines,
+        "max_block_lines": max_block_lines,
+        "max_added_lines": max_added_lines,
+        "review_warning_file_lines": REVIEW_FILE_REVIEW_WARNING_LIMIT,
+        "test_max_file_lines": REVIEW_TEST_FILE_LINE_LIMIT,
+        "test_max_added_lines": max_added_lines * REVIEW_TEST_FILE_LINE_LIMIT_MULTIPLIER,
+        "test_review_warning_file_lines": REVIEW_TEST_FILE_REVIEW_WARNING_LIMIT,
+        "scope": STRUCTURE_REVIEW_SCOPE_NOTE,
+        "warnings": [],
+        "failures": list(discovery["command_errors"]),
+        "boundary_note_requirements": [],
+        "net_deletion_limit": REVIEW_NET_DELETION_LIMIT,
+        "net_deletions": net_deletion_findings(discovery["path_metadata"]),
+        "discovery": discovery,
+    }
+
+
+def _add_cross_path_findings(
+    result: dict[str, Any],
+    *,
+    source_root: Path,
+    paths: list[Path],
+    discovery: dict[str, Any],
+    subject_run_command: CommandRunner,
+) -> None:
+    """Everything that can only be seen with the whole changed set in view.
+
+    Sprawl, content-preserving copies, purpose overlap and boundary notes are
+    all statements about how the changed files relate to each other, so none of
+    them can be decided inside the per-file loop above.
+    """
+
     flag_new_source_file_sprawl(result, discovery["path_metadata"])
     flag_content_preserving_source_copies(result, discovery["path_metadata"])
-
     result["failures"].extend(
         purpose_failures(
             source_root,
@@ -260,8 +309,6 @@ def structure_review(
         review_source_path,
         test_exempt_path,
     )
-
-    return result
 
 
 def flag_new_source_file_sprawl(
