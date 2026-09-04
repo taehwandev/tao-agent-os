@@ -1361,6 +1361,65 @@ def protected_branch_names(root: Path) -> frozenset[str] | None:
     return frozenset(str(name) for name in names)
 
 
+def _shared_history_hazard(
+    subcommand: str,
+    arguments: list[str],
+    flags: set[str],
+    short_flags: set[str],
+    words: list[str],
+    first: str,
+) -> str:
+    """Why this command deserves a question about state every worktree shares.
+
+    The other half of the list asks about this working tree -- a branch
+    deleted, a push, a hard reset, a checkout over local edits. These reach
+    further: refs, reflogs, objects, remotes and config that every worktree
+    on the repository reads. Split for the block limit, along the line the
+    list already divides on.
+    """
+
+    if subcommand == "tag" and (
+        short_flags & {"d", "f"} or flags & {"--delete", "--force"}
+    ):
+        return "deletes or overwrites a tag every worktree shares"
+    update_ref_help = flags in ({"-h"}, {"--help"})
+    if subcommand == "update-ref" and arguments and not update_ref_help:
+        return "writes a shared ref directly, past the commands that check it"
+    if subcommand in {"filter-branch", "filter-repo"}:
+        return "rewrites the entire shared history"
+    if subcommand == "reflog" and first in {"expire", "delete"}:
+        return "removes the reflog, which is how the rest of this list is undone"
+    if subcommand == "gc" and "--prune" in flags:
+        return "prunes objects the reflog would otherwise recover"
+    if subcommand == "prune":
+        return "deletes unreachable objects from the shared object store"
+    if subcommand == "replace" and flags & {"-d", "--delete"}:
+        return "deletes a replacement ref every worktree shares"
+    if subcommand == "remote" and first in {"remove", "rm", "set-url"}:
+        return "changes a remote every worktree shares"
+    if subcommand == "stash" and first in {"drop", "clear"}:
+        return "drops stashed work every worktree shares"
+    if subcommand == "worktree" and flags & {"-f", "--force"}:
+        # Only the forced forms. Git refuses to remove a worktree holding
+        # modified or untracked files, and refuses to add one over a path it
+        # already registers; the plain forms therefore cannot lose anything,
+        # and asking about them put a prompt on the step that closes every
+        # task, on top of a check git was already making. `--force` is what
+        # overrides both refusals.
+        return "forces past git's own refusal to overwrite or drop a worktree"
+    if subcommand == "submodule" and first in {"deinit", "foreach", "set-url"}:
+        return "removes files, changes shared config, or executes a nested command"
+    if subcommand == "config":
+        getters = {"--get", "--get-all", "--get-regexp", "--list"}
+        if flags & getters:
+            return ""
+        if flags & {"-f", "--file", "--global", "--system"}:
+            return "changes Git configuration outside this repository"
+        if "core.hooksPath" in words:
+            return "changes the executable hooks path every worktree shares"
+    return ""
+
+
 def shared_repository_hazard(
     tokens: list[str], protected: frozenset[str] | None = None
 ) -> str:
@@ -1448,46 +1507,9 @@ def shared_repository_hazard(
         force_flags = {"--discard-changes", "--force", "--force-create"}
         if short_flags & {"C", "f"} or flags & force_flags:
             return "discards work or overwrites a branch"
-    if subcommand == "tag" and (
-        short_flags & {"d", "f"} or flags & {"--delete", "--force"}
-    ):
-        return "deletes or overwrites a tag every worktree shares"
-    update_ref_help = flags in ({"-h"}, {"--help"})
-    if subcommand == "update-ref" and arguments and not update_ref_help:
-        return "writes a shared ref directly, past the commands that check it"
-    if subcommand in {"filter-branch", "filter-repo"}:
-        return "rewrites the entire shared history"
-    if subcommand == "reflog" and first in {"expire", "delete"}:
-        return "removes the reflog, which is how the rest of this list is undone"
-    if subcommand == "gc" and "--prune" in flags:
-        return "prunes objects the reflog would otherwise recover"
-    if subcommand == "prune":
-        return "deletes unreachable objects from the shared object store"
-    if subcommand == "replace" and flags & {"-d", "--delete"}:
-        return "deletes a replacement ref every worktree shares"
-    if subcommand == "remote" and first in {"remove", "rm", "set-url"}:
-        return "changes a remote every worktree shares"
-    if subcommand == "stash" and first in {"drop", "clear"}:
-        return "drops stashed work every worktree shares"
-    if subcommand == "worktree" and flags & {"-f", "--force"}:
-        # Only the forced forms. Git refuses to remove a worktree holding
-        # modified or untracked files, and refuses to add one over a path it
-        # already registers; the plain forms therefore cannot lose anything,
-        # and asking about them put a prompt on the step that closes every
-        # task, on top of a check git was already making. `--force` is what
-        # overrides both refusals.
-        return "forces past git's own refusal to overwrite or drop a worktree"
-    if subcommand == "submodule" and first in {"deinit", "foreach", "set-url"}:
-        return "removes files, changes shared config, or executes a nested command"
-    if subcommand == "config":
-        getters = {"--get", "--get-all", "--get-regexp", "--list"}
-        if flags & getters:
-            return ""
-        if flags & {"-f", "--file", "--global", "--system"}:
-            return "changes Git configuration outside this repository"
-        if "core.hooksPath" in words:
-            return "changes the executable hooks path every worktree shares"
-    return ""
+    return _shared_history_hazard(
+        subcommand, arguments, flags, short_flags, words, first
+    )
 
 
 def decide(payload: dict) -> int:

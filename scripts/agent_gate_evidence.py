@@ -566,6 +566,269 @@ def merge_gate_evidence_from_ledger(
     return merged, diagnostics
 
 
+def _render_cycle_contract(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'cycle contract' gate."""
+
+    return (
+        f"cycle_type={fields['cycle_type']}; input_scope={fields['input_scope']}; "
+        f"allowed_changes={fields['allowed_changes']}; "
+        f"forbidden_changes={fields['forbidden_changes']}; "
+        f"acceptance criteria={fields['acceptance_criteria']}; "
+        f"verification={fields['verification']}; "
+        f"stop condition={fields['stop_condition']}; checkpoint={fields['checkpoint']}",
+        [],
+    )
+
+
+def _render_agentic_run_state(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'agentic run state' gate."""
+
+    return (
+        f"run state: {fields['state']}; next transition: {fields['transition']}; "
+        f"gate/command/check evidence: {fields['evidence']}; "
+        f"checkpoint: {fields['checkpoint']}; blocker status: {fields['blockers']}",
+        [],
+    )
+
+
+def _render_ambiguity_check(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'ambiguity check' gate."""
+
+    failures: list[str] = []
+    blocker_status = fields["blocker_status"].strip().lower()
+    decision = fields["decision"].strip().lower()
+    if blocker_status not in AMBIGUITY_BLOCKER_STATUSES:
+        failures.append(
+            "ambiguity check blocker_status must be "
+            + " or ".join(AMBIGUITY_BLOCKER_STATUSES)
+        )
+    if decision not in AMBIGUITY_DECISIONS:
+        failures.append(
+            "ambiguity check decision must be " + " or ".join(AMBIGUITY_DECISIONS)
+        )
+    if failures:
+        return "", failures
+    return (
+        "ambiguity check; no blockers or blockers resolved: "
+        f"{blocker_status}; explicit safe assumptions: {fields['assumptions']}; "
+        f"clarified decision: {decision}",
+        [],
+    )
+
+
+def _render_alignment_brief(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'alignment brief' gate."""
+
+    checkpoint = fields["checkpoint"].strip().lower()
+    if checkpoint not in ALIGNMENT_BRIEF_CHECKPOINTS:
+        return "", [
+            "alignment brief checkpoint must be "
+            + " or ".join(ALIGNMENT_BRIEF_CHECKPOINTS)
+        ]
+    return (
+        f"alignment brief; shared understanding: {fields['shared_understanding']}; "
+        f"possible differences: {fields['possible_differences']}; "
+        f"unsupported assumptions/unknowns: {fields['assumptions']}; "
+        "user-visible checkpoint before edits: user_visible_before_edits",
+        [],
+    )
+
+
+def _render_boundary_plan(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'boundary plan' gate."""
+
+    return (
+        f"boundary/scope: {fields['scope']}; nearest verification/check: "
+        f"{fields['verification']}",
+        [],
+    )
+
+
+def _render_work_surface_resolution(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'work surface resolution' gate."""
+
+    from agent_finish_gate_surface_validators import (
+        validate_work_surface_resolution,
+    )
+
+    rendered = (
+        f"work surface resolution: result={fields['result']}; "
+        f"owner={fields['owner']}; anchors={fields['anchors']}; "
+        f"evidence chain={fields['evidence']}; verified surface paths="
+        f"{fields['surface_paths']}; concerns={fields['concerns']}; "
+        f"search hops={fields['search_hops']}; nearest falsifying verification="
+        f"{fields['verification']}"
+    )
+    return rendered, validate_work_surface_resolution(rendered)
+
+
+def _render_multi_agent_split_decision(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'multi-agent split decision' gate."""
+
+    mode = fields["mode"].lower()
+    if mode in {"serial", "single-agent", "single agent"}:
+        return (
+            "serial/single-agent decision; concrete reason: "
+            f"{fields['reason']}; verification: {fields['verification']}",
+            [],
+        )
+    if mode in MULTI_AGENT_SEQUENTIAL_MODES:
+        return (
+            "sequential multi-agent/subagent delegation; "
+            f"{SEQUENTIAL_MULTI_AGENT_MARKER}; concrete reason: {fields['reason']}; "
+            f"owned scope: {fields['owned_scope']}; "
+            f"forbidden scope: {fields['forbidden_scope']}; "
+            f"contract/brief: {fields['contract']}; "
+            f"acceptance checks: {fields['acceptance']}; "
+            f"integration owner: {fields['integration_owner']}; "
+            f"verification: {fields['verification']}",
+            [],
+        )
+    return (
+        "multi-agent/subagent split; owned scope: "
+        f"{fields['owned_scope']}; forbidden scope: {fields['forbidden_scope']}; "
+        f"contract/brief: {fields['contract']}; acceptance checks: {fields['acceptance']}; "
+        f"integration owner: {fields['integration_owner']}; verification: {fields['verification']}",
+        [],
+    )
+
+
+def _render_side_effect_audit(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'side-effect audit' gate."""
+
+    return (
+        "side-effect audit checked final diff; "
+        f"scope/risk reviewed: {fields['scope']}; result: {fields['result']}",
+        [],
+    )
+
+
+def _render_retrospective_check(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'retrospective check' gate."""
+
+    return (
+        "retrospective check; "
+        f"skills checked: {fields['skills_checked']}; "
+        f"outcome: {fields['outcome']}; "
+        f"observation: {fields['observation']}",
+        [],
+    )
+
+
+def _render_documentation_impact(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'documentation impact' gate."""
+
+    return (
+        "pre-code/pre-edit documentation artifact selection: "
+        f"{fields['artifact']}; impact decision: {fields['decision']}; "
+        f"reason: {fields['reason']}; original evidence: {evidence}",
+        [],
+    )
+
+
+def _render_documentation(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'documentation' gate."""
+
+    return (
+        f"documentation decision: {fields['decision']}; source-of-truth target: "
+        f"{fields['target']}; reason: {fields['reason']}; original evidence: {evidence}",
+        [],
+    )
+
+
+def _render_source_docs(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'source docs' gate."""
+
+    return (
+        "read every route required_docs entry directly before implementation or edits; "
+        f"required-doc reading: {fields['required_docs']}; "
+        "searched and opened/read source-of-truth docs before implementation or edits; "
+        f"source: {fields['source']}; applied takeaway: {fields['takeaway']}; "
+        f"original evidence: {evidence}",
+        [],
+    )
+
+
+def _render_tests(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'tests' gate."""
+
+    return f"test/check run: {fields['check']}; result: {fields['result']}", []
+
+
+def _render_graphify_readiness(
+    gate: str, fields: dict[str, str], evidence: str
+) -> tuple[str, list[str]]:
+    """Render recorded evidence for the 'graphify readiness' gate."""
+
+    invalid = [
+        field
+        for field in FIELD_REQUIREMENTS[gate]
+        if fields[field].strip().lower() != GRAPHIFY_READINESS_STATUS
+    ]
+    if invalid:
+        return "", [
+            "graphify readiness fields must use exact success status: "
+            + ", ".join(invalid)
+        ]
+    return (
+        f"graphify readiness: cli={fields['cli']}; skill doc="
+        f"{fields['skill_doc']}; runtime links={fields['runtime_links']}; "
+        f"runtime ownership={fields['runtime_ownership']}; project integration="
+        f"{fields['project_integration']}; target graph={fields['graph']}; "
+        f"query smoke={fields['query_smoke']}",
+        [],
+    )
+
+
+# One renderer per gate, because that is what the chain this replaced was:
+# fourteen `if gate == ...` arms in one 181-line block, against the
+# 120-line limit this repository enforces on every change. A table also
+# says the thing the chain only implied -- that a gate with no renderer
+# keeps the evidence it was given.
+_GATE_RENDERERS = {
+    "cycle contract": _render_cycle_contract,
+    "agentic run state": _render_agentic_run_state,
+    "ambiguity check": _render_ambiguity_check,
+    "alignment brief": _render_alignment_brief,
+    "boundary plan": _render_boundary_plan,
+    "work surface resolution": _render_work_surface_resolution,
+    "multi-agent split decision": _render_multi_agent_split_decision,
+    "side-effect audit": _render_side_effect_audit,
+    "retrospective check": _render_retrospective_check,
+    "documentation impact": _render_documentation_impact,
+    "documentation": _render_documentation,
+    "source docs": _render_source_docs,
+    "tests": _render_tests,
+    "graphify readiness": _render_graphify_readiness,
+}
+
+
 def synthesize_gate_evidence(
     gate: str,
     evidence: str,
@@ -580,162 +843,9 @@ def synthesize_gate_evidence(
         for field in FIELD_REQUIREMENTS[gate]
     ):
         return evidence, []
-    if gate == "cycle contract":
-        return (
-            f"cycle_type={fields['cycle_type']}; input_scope={fields['input_scope']}; "
-            f"allowed_changes={fields['allowed_changes']}; "
-            f"forbidden_changes={fields['forbidden_changes']}; "
-            f"acceptance criteria={fields['acceptance_criteria']}; "
-            f"verification={fields['verification']}; "
-            f"stop condition={fields['stop_condition']}; checkpoint={fields['checkpoint']}",
-            [],
-        )
-    if gate == "agentic run state":
-        return (
-            f"run state: {fields['state']}; next transition: {fields['transition']}; "
-            f"gate/command/check evidence: {fields['evidence']}; "
-            f"checkpoint: {fields['checkpoint']}; blocker status: {fields['blockers']}",
-            [],
-        )
-    if gate == "ambiguity check":
-        failures: list[str] = []
-        blocker_status = fields["blocker_status"].strip().lower()
-        decision = fields["decision"].strip().lower()
-        if blocker_status not in AMBIGUITY_BLOCKER_STATUSES:
-            failures.append(
-                "ambiguity check blocker_status must be "
-                + " or ".join(AMBIGUITY_BLOCKER_STATUSES)
-            )
-        if decision not in AMBIGUITY_DECISIONS:
-            failures.append(
-                "ambiguity check decision must be " + " or ".join(AMBIGUITY_DECISIONS)
-            )
-        if failures:
-            return "", failures
-        return (
-            "ambiguity check; no blockers or blockers resolved: "
-            f"{blocker_status}; explicit safe assumptions: {fields['assumptions']}; "
-            f"clarified decision: {decision}",
-            [],
-        )
-    if gate == "alignment brief":
-        checkpoint = fields["checkpoint"].strip().lower()
-        if checkpoint not in ALIGNMENT_BRIEF_CHECKPOINTS:
-            return "", [
-                "alignment brief checkpoint must be "
-                + " or ".join(ALIGNMENT_BRIEF_CHECKPOINTS)
-            ]
-        return (
-            f"alignment brief; shared understanding: {fields['shared_understanding']}; "
-            f"possible differences: {fields['possible_differences']}; "
-            f"unsupported assumptions/unknowns: {fields['assumptions']}; "
-            "user-visible checkpoint before edits: user_visible_before_edits",
-            [],
-        )
-    if gate == "boundary plan":
-        return (
-            f"boundary/scope: {fields['scope']}; nearest verification/check: "
-            f"{fields['verification']}",
-            [],
-        )
-    if gate == "work surface resolution":
-        from agent_finish_gate_surface_validators import (
-            validate_work_surface_resolution,
-        )
-
-        rendered = (
-            f"work surface resolution: result={fields['result']}; "
-            f"owner={fields['owner']}; anchors={fields['anchors']}; "
-            f"evidence chain={fields['evidence']}; verified surface paths="
-            f"{fields['surface_paths']}; concerns={fields['concerns']}; "
-            f"search hops={fields['search_hops']}; nearest falsifying verification="
-            f"{fields['verification']}"
-        )
-        return rendered, validate_work_surface_resolution(rendered)
-    if gate == "multi-agent split decision":
-        mode = fields["mode"].lower()
-        if mode in {"serial", "single-agent", "single agent"}:
-            return (
-                "serial/single-agent decision; concrete reason: "
-                f"{fields['reason']}; verification: {fields['verification']}",
-                [],
-            )
-        if mode in MULTI_AGENT_SEQUENTIAL_MODES:
-            return (
-                "sequential multi-agent/subagent delegation; "
-                f"{SEQUENTIAL_MULTI_AGENT_MARKER}; concrete reason: {fields['reason']}; "
-                f"owned scope: {fields['owned_scope']}; "
-                f"forbidden scope: {fields['forbidden_scope']}; "
-                f"contract/brief: {fields['contract']}; "
-                f"acceptance checks: {fields['acceptance']}; "
-                f"integration owner: {fields['integration_owner']}; "
-                f"verification: {fields['verification']}",
-                [],
-            )
-        return (
-            "multi-agent/subagent split; owned scope: "
-            f"{fields['owned_scope']}; forbidden scope: {fields['forbidden_scope']}; "
-            f"contract/brief: {fields['contract']}; acceptance checks: {fields['acceptance']}; "
-            f"integration owner: {fields['integration_owner']}; verification: {fields['verification']}",
-            [],
-        )
-    if gate == "side-effect audit":
-        return (
-            "side-effect audit checked final diff; "
-            f"scope/risk reviewed: {fields['scope']}; result: {fields['result']}",
-            [],
-        )
-    if gate == "retrospective check":
-        return (
-            "retrospective check; "
-            f"skills checked: {fields['skills_checked']}; "
-            f"outcome: {fields['outcome']}; "
-            f"observation: {fields['observation']}",
-            [],
-        )
-    if gate == "documentation impact":
-        return (
-            "pre-code/pre-edit documentation artifact selection: "
-            f"{fields['artifact']}; impact decision: {fields['decision']}; "
-            f"reason: {fields['reason']}; original evidence: {evidence}",
-            [],
-        )
-    if gate == "documentation":
-        return (
-            f"documentation decision: {fields['decision']}; source-of-truth target: "
-            f"{fields['target']}; reason: {fields['reason']}; original evidence: {evidence}",
-            [],
-        )
-    if gate == "source docs":
-        return (
-            "read every route required_docs entry directly before implementation or edits; "
-            f"required-doc reading: {fields['required_docs']}; "
-            "searched and opened/read source-of-truth docs before implementation or edits; "
-            f"source: {fields['source']}; applied takeaway: {fields['takeaway']}; "
-            f"original evidence: {evidence}",
-            [],
-        )
-    if gate == "tests":
-        return f"test/check run: {fields['check']}; result: {fields['result']}", []
-    if gate == "graphify readiness":
-        invalid = [
-            field
-            for field in FIELD_REQUIREMENTS[gate]
-            if fields[field].strip().lower() != GRAPHIFY_READINESS_STATUS
-        ]
-        if invalid:
-            return "", [
-                "graphify readiness fields must use exact success status: "
-                + ", ".join(invalid)
-            ]
-        return (
-            f"graphify readiness: cli={fields['cli']}; skill doc="
-            f"{fields['skill_doc']}; runtime links={fields['runtime_links']}; "
-            f"runtime ownership={fields['runtime_ownership']}; project integration="
-            f"{fields['project_integration']}; target graph={fields['graph']}; "
-            f"query smoke={fields['query_smoke']}",
-            [],
-        )
+    renderer = _GATE_RENDERERS.get(gate)
+    if renderer is not None:
+        return renderer(gate, fields, evidence)
     if not evidence.strip():
         generic_fields = {
             key: value
