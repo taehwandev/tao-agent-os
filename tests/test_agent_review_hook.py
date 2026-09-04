@@ -1532,5 +1532,49 @@ class StaleBaseBlocksReviewTests(unittest.TestCase):
         self.assertNotIn("for example", failures[0])
 
 
+class TheHookObeysTheLimitItEnforcesTests(unittest.TestCase):
+    """This hook refuses other people's oversized blocks and had the worst one.
+
+    `review_hook` was 321 lines against the 120-line limit it fails changes
+    for, and it stayed there because the structure review only measures files a
+    change touches. Nothing was going to touch this one until something had to.
+    """
+
+    def _block_lines(self, name: str) -> int:
+        import ast
+
+        source = (ROOT / "scripts" / "agent_review_hook.py").read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node.end_lineno - node.lineno + 1
+        raise AssertionError(f"{name} is not defined in agent_review_hook.py")
+
+    def test_no_block_in_this_module_exceeds_the_limit(self) -> None:
+        import ast
+
+        source = (ROOT / "scripts" / "agent_review_hook.py").read_text(encoding="utf-8")
+        oversized = {
+            node.name: node.end_lineno - node.lineno + 1
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.FunctionDef)
+            and node.end_lineno - node.lineno + 1 > 120
+        }
+
+        self.assertEqual({}, oversized)
+
+    def test_the_hook_reads_as_the_four_questions_it_asks(self) -> None:
+        """Named apart so the split is a shape, not just a smaller number."""
+
+        for name in (
+            "_review_may_start",
+            "_review_working_tree",
+            "_review_scope_verdict",
+            "_run_review_checks",
+            "_review_verdict",
+        ):
+            with self.subTest(block=name):
+                self.assertGreater(self._block_lines(name), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

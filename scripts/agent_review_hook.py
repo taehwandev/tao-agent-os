@@ -72,78 +72,22 @@ def required_review_evidence_flags(route_gates: list[str]) -> list[str]:
     return flags
 
 
-def review_hook(
+def _review_working_tree(
     args: Any,
+    checks: dict[str, Any],
     run_command: CommandRunner,
     git_status: Callable[[Path], tuple[dict[str, Any], list[str]]],
-    vibeguard_command: Callable[[Path, Path], list[str]],
-    parse_overall: Callable[[str], str],
-    finish_with_result: FinishWithResult,
-    on_invocation_error: Callable[[], None] | None = None,
-) -> int:
-    checks: dict[str, Any] = {}
-    prerequisite_failures: list[str] = []
-    record_review_prerequisite_readiness(args, checks, prerequisite_failures)
-    if prerequisite_failures:
-        if on_invocation_error is not None:
-            on_invocation_error()
-        return finish_with_result(
-            "review",
-            False,
-            review_prerequisite_failure_details(prerequisite_failures),
-            args.output,
-            checks,
-            args.repair_cycle,
-            invocation_error=True,
-        )
+    review_subject: dict[str, Any],
+    review_paths: list[str],
+) -> dict[str, Any]:
+    """Read the working tree as this review sees it.
 
-    settled_state = settled_review_run_state(args)
-    if settled_state:
-        checks["review_lifecycle"] = {
-            "state": settled_state,
-            "next_action": "fresh_start",
-        }
-        if on_invocation_error is not None:
-            on_invocation_error()
-        return finish_with_result(
-            "review",
-            False,
-            settled_review_run_invocation_failure_details(settled_state),
-            args.output,
-            checks,
-            args.repair_cycle,
-            fresh_start_required=True,
-        )
+    Lifted out of `review_hook` for the block limit this repository enforces on
+    every change but its own. What it returns is what the scope decision and
+    the checks below both read: the status before the review, and the four
+    flags that each say an empty diff is acceptable for a different reason.
+    """
 
-    requested_review_paths = review_pathspec(args)
-    try:
-        review_subject = resolve_review_subject(
-            args,
-            run_command,
-            requested_review_paths,
-        )
-    except ValueError as error:
-        if on_invocation_error is not None:
-            on_invocation_error()
-        return finish_with_result(
-            "review",
-            False,
-            invalid_review_subject_details(str(error)),
-            args.output,
-            checks,
-            args.repair_cycle,
-            invocation_error=True,
-        )
-
-    review_paths = (
-        list(review_subject["changed_paths"])
-        if review_subject["kind"] == "commit-range"
-        else requested_review_paths
-    )
-    review_scope = review_scope_label(args, review_paths, review_subject)
-    checks["review_scope"] = review_scope
-    checks["review_paths"] = review_paths
-    checks["review_subject"] = review_subject_record(review_subject)
     with stage("git_status"):
         full_status_before, full_status_before_lines = git_status(args.project)
     if is_git_status_review_only(args.project, full_status_before):
@@ -175,18 +119,107 @@ def review_hook(
     clean_restored_scope = clean_restored_pathspec_review(args, review_subject, review_paths)
     clean_task_setup_scope = clean_task_setup_pathspec_review(args, review_subject, review_paths)
     clean_repo_hygiene_scope = clean_repo_hygiene_review(args, review_subject, review_paths)
+    return {
+        "status_before": status_before,
+        "status_before_lines": status_before_lines,
+        "full_status_before": full_status_before,
+        "full_status_before_lines": full_status_before_lines,
+        "local_config_scope": local_config_scope,
+        "clean_read_only_scope": clean_read_only_scope,
+        "clean_restored_scope": clean_restored_scope,
+        "clean_task_setup_scope": clean_task_setup_scope,
+        "clean_repo_hygiene_scope": clean_repo_hygiene_scope,
+    }
+
+
+def _review_may_start(
+    args: Any,
+    checks: dict[str, Any],
+    prerequisite_failures: list[str],
+    finish_with_result: FinishWithResult,
+    on_invocation_error: Callable[[], None] | None,
+) -> int | None:
+    """Refuse a review that can attest nothing, before any work is done.
+
+    Two conditions end the hook before it looks at a diff: a prerequisite that
+    is not ready, and a run whose state is already settled.
+    """
+
+    if prerequisite_failures:
+        if on_invocation_error is not None:
+            on_invocation_error()
+        return finish_with_result(
+            "review",
+            False,
+            review_prerequisite_failure_details(prerequisite_failures),
+            args.output,
+            checks,
+            args.repair_cycle,
+            invocation_error=True,
+        )
+
+    settled_state = settled_review_run_state(args)
+    if settled_state:
+        checks["review_lifecycle"] = {
+            "state": settled_state,
+            "next_action": "fresh_start",
+        }
+        if on_invocation_error is not None:
+            on_invocation_error()
+        return finish_with_result(
+            "review",
+            False,
+            settled_review_run_invocation_failure_details(settled_state),
+            args.output,
+            checks,
+            args.repair_cycle,
+            fresh_start_required=True,
+        )
+    return None
+
+
+def _review_scope_verdict(
+    args: Any,
+    checks: dict[str, Any],
+    failures: list[str],
+    finish_with_result: FinishWithResult,
+    on_invocation_error: Callable[[], None] | None,
+    *,
+    status_before: dict[str, Any],
+    full_status_before: dict[str, Any],
+    status_before_lines: list[str],
+    review_scope: str,
+    local_config_scope: bool,
+    clean_read_only_scope: bool,
+    clean_restored_scope: bool,
+    clean_task_setup_scope: bool,
+    clean_repo_hygiene_scope: bool,
+) -> int | None:
+    """Decide whether this scope can be reviewed at all.
+
+    Answers with the finished result when the scope cannot be reviewed, and
+    with `None` when it can, having appended anything found to `failures`.
+
+    The four clean-scope flags arrive separately rather than as the one
+    question they mostly answer, because the branch below also has to say
+    *which* of them made an empty diff acceptable.
+    """
+
+    an_empty_scope_is_expected = (
+        clean_read_only_scope
+        or clean_restored_scope
+        or clean_task_setup_scope
+        or clean_repo_hygiene_scope
+        or local_config_scope
+    )
     if status_before["returncode"] != 0 and not status_before.get("review_only"):
-        failures = ["git status failed"]
+        failures.append("git status failed")
     elif full_status_before["returncode"] != 0 and not full_status_before.get("review_only"):
-        failures = ["git status failed"]
+        failures.append("git status failed")
     elif (
         not status_before_lines
         and not status_before.get("review_only")
-        and not clean_read_only_scope
-        and not clean_restored_scope
-        and not clean_task_setup_scope
-        and not clean_repo_hygiene_scope
-        and not local_config_scope
+        and not an_empty_scope_is_expected
     ):
         scope_failure = (
             "review scope has no changed paths; the working-tree review hook cannot "
@@ -255,9 +288,33 @@ def review_hook(
             invocation_error=True,
         )
     else:
-        failures = []
+        pass
+    return None
 
-    record_review_input_evidence(args, checks, failures)
+
+def _run_review_checks(
+    args: Any,
+    checks: dict[str, Any],
+    failures: list[str],
+    run_command: CommandRunner,
+    git_status: Callable[[Path], tuple[dict[str, Any], list[str]]],
+    vibeguard_command: Callable[[Path, Path], list[str]],
+    parse_overall: Callable[[str], str],
+    *,
+    review_paths: list[str],
+    review_subject: dict[str, Any],
+    review_scope: str,
+    status_before: dict[str, Any],
+    status_before_lines: list[str],
+    full_status_before_lines: list[str],
+    local_config_scope: bool,
+) -> dict[str, Any]:
+    """Run every check the review attests, appending to `failures`.
+
+    This is the half of the hook that does the work, as against the half that
+    decides whether there is work to do. It returns the structure report, which
+    the verdict reads and which it also records in `checks`.
+    """
 
     snapshot: Any | None = None
     source_project = args.project
@@ -343,6 +400,19 @@ def review_hook(
         failures,
         review_subject=review_subject,
     )
+    return structure
+
+
+def _review_verdict(
+    args: Any,
+    checks: dict[str, Any],
+    failures: list[str],
+    structure: dict[str, Any],
+    review_scope: str,
+    finish_with_result: FinishWithResult,
+    on_invocation_error: Callable[[], None] | None,
+) -> int:
+    """Record the attestation and answer with it."""
 
     # A correctable invocation (a stale base, a missing evidence field) is not a
     # review finding: recording it as one would leave a failure in the ledger
@@ -392,6 +462,110 @@ def review_hook(
         checks,
         args.repair_cycle,
         invocation_error=invocation_failure,
+    )
+
+
+def review_hook(
+    args: Any,
+    run_command: CommandRunner,
+    git_status: Callable[[Path], tuple[dict[str, Any], list[str]]],
+    vibeguard_command: Callable[[Path, Path], list[str]],
+    parse_overall: Callable[[str], str],
+    finish_with_result: FinishWithResult,
+    on_invocation_error: Callable[[], None] | None = None,
+) -> int:
+    checks: dict[str, Any] = {}
+    prerequisite_failures: list[str] = []
+    record_review_prerequisite_readiness(args, checks, prerequisite_failures)
+    opening = _review_may_start(
+        args, checks, prerequisite_failures, finish_with_result, on_invocation_error
+    )
+    if opening is not None:
+        return opening
+
+    requested_review_paths = review_pathspec(args)
+    try:
+        review_subject = resolve_review_subject(
+            args,
+            run_command,
+            requested_review_paths,
+        )
+    except ValueError as error:
+        if on_invocation_error is not None:
+            on_invocation_error()
+        return finish_with_result(
+            "review",
+            False,
+            invalid_review_subject_details(str(error)),
+            args.output,
+            checks,
+            args.repair_cycle,
+            invocation_error=True,
+        )
+
+    review_paths = (
+        list(review_subject["changed_paths"])
+        if review_subject["kind"] == "commit-range"
+        else requested_review_paths
+    )
+    review_scope = review_scope_label(args, review_paths, review_subject)
+    checks["review_scope"] = review_scope
+    checks["review_paths"] = review_paths
+    checks["review_subject"] = review_subject_record(review_subject)
+    tree = _review_working_tree(
+        args, checks, run_command, git_status, review_subject, review_paths
+    )
+    status_before = tree["status_before"]
+    status_before_lines = tree["status_before_lines"]
+    full_status_before_lines = tree["full_status_before_lines"]
+    local_config_scope = tree["local_config_scope"]
+    failures: list[str] = []
+    scope_result = _review_scope_verdict(
+        args,
+        checks,
+        failures,
+        finish_with_result,
+        on_invocation_error,
+        status_before=status_before,
+        full_status_before=tree["full_status_before"],
+        status_before_lines=status_before_lines,
+        review_scope=review_scope,
+        local_config_scope=local_config_scope,
+        clean_read_only_scope=tree["clean_read_only_scope"],
+        clean_restored_scope=tree["clean_restored_scope"],
+        clean_task_setup_scope=tree["clean_task_setup_scope"],
+        clean_repo_hygiene_scope=tree["clean_repo_hygiene_scope"],
+    )
+    if scope_result is not None:
+        return scope_result
+
+    record_review_input_evidence(args, checks, failures)
+
+    structure = _run_review_checks(
+        args,
+        checks,
+        failures,
+        run_command,
+        git_status,
+        vibeguard_command,
+        parse_overall,
+        review_paths=review_paths,
+        review_subject=review_subject,
+        review_scope=review_scope,
+        status_before=status_before,
+        status_before_lines=status_before_lines,
+        full_status_before_lines=full_status_before_lines,
+        local_config_scope=local_config_scope,
+    )
+
+    return _review_verdict(
+        args,
+        checks,
+        failures,
+        structure,
+        review_scope,
+        finish_with_result,
+        on_invocation_error,
     )
 
 
