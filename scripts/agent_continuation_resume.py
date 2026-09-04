@@ -71,28 +71,50 @@ def resume_list(
     debt worth seeing.
     """
 
-    runs = {
-        str(run.get("run_id")): run
-        for run in read_registry_state(registry_path(project)).get("runs") or []
-        if run.get("run_id")
-    }
-    candidates = [
-        run_id
-        for run_id in sorted(set(list_continuation_run_ids(project)) | set(runs))
-        if runs.get(run_id, {}).get("state") not in TERMINAL_RUN_STATES
-    ]
+    runs, recorded = _registered_runs(project)
+    packets = set(list_continuation_run_ids(project))
     states = _CheckoutStates(project)
     entries = [
         _entry(project, rules, run_id, runs, stale_after_seconds, states)
-        for run_id in candidates
+        for run_id in sorted(packets | set(runs))
         if run_id in runs
     ]
     entries.sort(key=lambda entry: entry["updated_at"], reverse=True)
     return {
         "result": "ok",
         "entries": entries,
-        "unregistered_packets": len(candidates) - len(entries),
+        # Counted against every run the registry records, not against the
+        # unfinished ones alone. Subtracting the listed entries from the
+        # candidates counted a run that simply finished: it is absent from
+        # `runs`, so nothing filtered it out and nothing listed it, and the
+        # difference reported it as a packet the registry had lost. On the
+        # checkout that caught this, 39 completed runs were reported as
+        # unclaimable debt while the true number was zero.
+        "unregistered_packets": len(packets - recorded),
     }
+
+
+def session_resume_summaries(project: Path) -> list[dict[str, str]]:
+    """Return the content-free SessionStart choice set without packet checks.
+
+    Automatic startup needs only two facts before it can choose safely: whether
+    this checkout has exactly one unfinished run, and which opaque runs to name
+    when it has several.  Packet boundary, drift, and Git checks belong to the
+    one run that is actually selected.  Running them for every historical
+    failure made startup cost grow with abandoned work even when no run could
+    be selected.
+    """
+
+    entries = [
+        {
+            "run_id": run_id,
+            "route_command": str(run.get("command") or ""),
+            "updated_at": str(run.get("updated_at") or ""),
+        }
+        for run_id, run in _unfinished_runs(project).items()
+    ]
+    entries.sort(key=lambda entry: entry["updated_at"], reverse=True)
+    return entries
 
 
 def resume_last(
@@ -119,7 +141,26 @@ def resume_last(
     allowed, so naming another session's live run is refused, not granted.
     """
 
-    entries = resume_list(project, rules=rules, stale_after_seconds=stale_after_seconds)["entries"]
+    if run_id:
+        runs = _unfinished_runs(project)
+        if run_id not in runs:
+            return _result("not_found", {}, reason="run_id_not_unfinished")
+        entries = [
+            _entry(
+                project,
+                rules,
+                run_id,
+                runs,
+                stale_after_seconds,
+                _CheckoutStates(project),
+            )
+        ]
+    else:
+        entries = resume_list(
+            project,
+            rules=rules,
+            stale_after_seconds=stale_after_seconds,
+        )["entries"]
     if not entries:
         return _result("not_found", {}, reason="no_unfinished_packet")
     if run_id:
@@ -145,6 +186,32 @@ def resume_last(
         stale_after_seconds=stale_after_seconds,
     )
     return _claimed(claim, newest)
+
+
+def _unfinished_runs(project: Path) -> dict[str, dict[str, Any]]:
+    """Return registered non-terminal runs keyed by their opaque id."""
+
+    return _registered_runs(project)[0]
+
+
+def _registered_runs(project: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
+    """Return the resumable runs, and every run id the registry still records.
+
+    Both come from one read. A caller that needs to say whether a packet has
+    outlived its record needs the whole set, and deriving that from the
+    unfinished runs alone reads a finished run as a missing one.
+    """
+
+    unfinished: dict[str, dict[str, Any]] = {}
+    recorded: set[str] = set()
+    for run in read_registry_state(registry_path(project)).get("runs") or []:
+        run_id = str(run.get("run_id") or "")
+        if not run_id:
+            continue
+        recorded.add(run_id)
+        if run.get("state") not in TERMINAL_RUN_STATES:
+            unfinished[run_id] = run
+    return unfinished, recorded
 
 
 def _claimed(

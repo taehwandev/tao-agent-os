@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import agent_continuation_resume
-from agent_continuation_resume import resume_last, resume_list
+from agent_continuation_resume import resume_last, resume_list, session_resume_summaries
 from agent_continuation_store import continuation_path
 from agent_execution_capsule_state import git_states_for_paths
 from agent_hook_resume import _ready_lines
@@ -146,6 +146,41 @@ class UnregisteredPacketTests(unittest.TestCase):
     nobody could take, and paid a drift verification each time to advertise it.
     """
 
+    def test_a_run_that_simply_finished_is_not_reported_as_lost(self) -> None:
+        """Finishing is not losing, and the count says the registry lost it.
+
+        A completed run keeps its packet on purpose -- retention keeps the
+        newest finished ones so they can be read back. Counting the listing's
+        candidates minus its entries reported every one of them as a packet the
+        registry no longer records, which the resume report prints as work that
+        "cannot be claimed or checkpointed". On the checkout that caught this,
+        39 completed runs were reported as debt while the true number was zero.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            open_run = free_fixture(directory, "still working")
+            finished = free_fixture(
+                directory,
+                "work that finished normally",
+                project=open_run.project,
+                rules=open_run.rules,
+            )
+            path = registry_path(open_run.project)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            for run in payload["runs"]:
+                if run["run_id"] == finished.run_id:
+                    run["state"] = "completed"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            listing = resume_list(open_run.project)
+
+            self.assertEqual([open_run.run_id], [entry["run_id"] for entry in listing["entries"]])
+            self.assertEqual(0, listing["unregistered_packets"])
+            self.assertTrue(
+                continuation_path(open_run.project, finished.run_id).is_file(),
+                "the finished run keeps its packet; it is simply not a candidate",
+            )
+
     def test_a_packet_whose_run_the_registry_dropped_is_not_a_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             kept = free_fixture(directory, "the run still on record")
@@ -232,6 +267,45 @@ class ListingCostTests(unittest.TestCase):
 
             self.assertEqual(4, len(listing["entries"]))
             self.assertEqual(1, len(captures))
+
+    def test_session_summary_reads_no_packets_or_drift_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first = free_fixture(directory, "the first run")
+            free_fixture(directory, "the second run", project=first.project, rules=first.rules)
+
+            with (
+                patch.object(
+                    agent_continuation_resume,
+                    "read_continuation_packet",
+                    side_effect=AssertionError("SessionStart summary must not read packets"),
+                ),
+                patch.object(
+                    agent_continuation_resume,
+                    "verify_drift",
+                    side_effect=AssertionError("SessionStart summary must not verify drift"),
+                ),
+            ):
+                summaries = session_resume_summaries(first.project)
+
+            self.assertEqual(2, len(summaries))
+            self.assertEqual(
+                {first.run_id},
+                {item["run_id"] for item in summaries if item["run_id"] == first.run_id},
+            )
+
+    def test_named_resume_does_not_scan_unrelated_packet_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "the selected run")
+
+            with patch.object(
+                agent_continuation_resume,
+                "list_continuation_run_ids",
+                side_effect=AssertionError("named resume must validate only its selected run"),
+            ):
+                result = resume_last(fixture.project, run_id=fixture.run_id)
+
+            self.assertEqual("ready", result["result"])
+            self.assertEqual(fixture.run_id, result["run_id"])
 
     def test_a_run_with_no_packet_is_never_read_or_proved(self) -> None:
         """Proving a packet's boundary asks Git; absence needs no answer."""
