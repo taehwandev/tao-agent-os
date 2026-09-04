@@ -46,62 +46,13 @@ from workflow_request import infer_concerns_from_request
 from workflow_route import resolve_docs
 
 
-ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-
-
-def clean_output(text: str) -> str:
-    return ANSI_RE.sub("", text)
-
-
-def run_command(command: list[str], cwd: Path) -> dict[str, Any]:
-    result = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    return {
-        "command": command,
-        "cwd": str(cwd),
-        "returncode": result.returncode,
-        "stdout": clean_output(result.stdout),
-        "stderr": clean_output(result.stderr),
-    }
-
-
-def vibeguard_command(project: Path, rules: Path) -> list[str]:
-    binary = shutil.which("vibeguard")
-    if binary:
-        return [binary, "audit", str(project), "--rules", str(rules)]
-    return [
-        "npx",
-        "--yes",
-        "@taehwandev/vibeguard",
-        "audit",
-        str(project),
-        "--rules",
-        str(rules),
-    ]
-
-
-def parse_overall(output: str) -> dict[str, str]:
-    for raw_line in clean_output(output).splitlines():
-        line = raw_line.strip()
-        if not line.startswith("Overall:"):
-            continue
-        value = line.split("Overall:", 1)[1].strip()
-        if "Ready" in value:
-            status = "Ready"
-        elif "Needs review" in value:
-            status = "Needs review"
-        elif "Blocked" in value:
-            status = "Blocked"
-        else:
-            status = value or "unknown"
-        return {"status": status, "line": line}
-    return {"status": "unknown", "line": ""}
+from agent_command_runtime import (
+    ANSI_RE,
+    clean_output,
+    parse_overall_record as parse_overall,
+    run_command,
+    vibeguard_command,
+)
 
 
 def route_command(args: argparse.Namespace, tao_root: Path) -> list[str]:
