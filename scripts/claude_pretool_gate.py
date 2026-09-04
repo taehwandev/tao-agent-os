@@ -72,6 +72,10 @@ try:  # The gate must never fail to load; the import is only used for a message.
         raw_path_arguments,
         worktree_denial,
         worktree_policy,
+        COMPUTED_TEXT,
+        NAMED_TARGET,
+        AUTHORING_GIT,
+        UNREADABLE_SYNTAX,
     )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
@@ -134,8 +138,13 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     def worktree_policy(root: Path) -> dict | None:
         return None
 
-    def worktree_denial(root: Path) -> str | None:
+    def worktree_denial(root: Path, cause: str = "") -> str | None:
         return None
+
+    COMPUTED_TEXT = "computed_text"
+    NAMED_TARGET = "named_target"
+    AUTHORING_GIT = "authoring_git"
+    UNREADABLE_SYNTAX = "unreadable_syntax"
 
     def git_subcommand(tokens: list[str]) -> tuple[str | None, list[str]]:
         # A broken install is not a policy violation, and the stubs around this
@@ -706,6 +715,47 @@ def workflow_start_target_root(tokens: list[str], effective_cwd: Path) -> Path |
     except OSError:
         return None
     return find_project_root(resolved)
+
+
+def _worktree_reason_naming_its_cause(
+    roots: list[Path],
+    fallback: str | None,
+    *,
+    is_bash: bool,
+    standing_in_the_protected_checkout: bool,
+    readable: bool,
+    syntax_is_simple: bool,
+) -> str:
+    """Rebuild the refusal so it says which of its four conditions fired.
+
+    All four end here and every one of them printed the same sentence, whose
+    remedy -- go work in a linked worktree -- only fits the last two. A reader
+    already standing in a worktree, refused because their line was a pipeline,
+    read that remedy, concluded the gate had blocked something else, and went
+    looking for the cause in the wrong place. Twice, in one session, by the
+    agent maintaining this file.
+
+    The verdict does not move. Only the sentence that explains it does.
+    """
+
+    if is_bash and not syntax_is_simple:
+        cause = UNREADABLE_SYNTAX
+    elif is_bash and not readable:
+        cause = COMPUTED_TEXT
+    elif is_bash and standing_in_the_protected_checkout:
+        cause = AUTHORING_GIT
+    else:
+        # An Edit or a Write, or a Bash command reaching in from outside: in
+        # every one of them the target path is what put this here.
+        cause = NAMED_TARGET
+    named = next(
+        (reason for reason in (worktree_denial(root, cause) for root in roots) if reason),
+        None,
+    )
+    # The policy can only have loosened between the two reads -- an override set
+    # mid-command, say -- and a refusal with no reason left to give is still a
+    # refusal, so the original stands.
+    return named or (fallback or "")
 
 
 def bash_governed_roots(
@@ -1303,6 +1353,10 @@ def decide(payload: dict) -> int:
     # every tool. Leaving this unbound made that check raise for exactly the
     # calls the waiver exists to allow.
     tokens: list[str] = []
+    # Only a Bash command has a shape that can be unreadable; an Edit or a
+    # Write names one path and is judged by where that path is. Bound for both
+    # so the refusal below can name the condition that caused it either way.
+    syntax_is_simple = True
     if tool in BASH_TOOLS:
         effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
         bash_kind = bash_command_kind(tokens, syntax_is_simple)
@@ -1426,7 +1480,16 @@ def decide(payload: dict) -> int:
                 "uncommitted work there, or reaches shared state. Allow it only "
                 "if that is what you meant."
             )
-        return deny(worktree_reason)
+        return deny(
+            _worktree_reason_naming_its_cause(
+                roots,
+                worktree_reason,
+                is_bash=tool in BASH_TOOLS,
+                standing_in_the_protected_checkout=standing_in_the_protected_checkout,
+                readable=readable,
+                syntax_is_simple=syntax_is_simple,
+            )
+        )
     if worktree_policy_satisfied(root):
         hazard = shared_repository_hazard(tokens, protected_branch_names(root))
         if hazard:

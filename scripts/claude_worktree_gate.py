@@ -114,10 +114,46 @@ def current_branch(root: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def worktree_deny_reason(root: Path, branch: str) -> str:
+# Four different conditions end at this one refusal, and for a long time it
+# described only the last of them. A reader who hit any of the other three read
+# a remedy that did not apply -- "go work in a linked worktree" when they were
+# already in one -- and looked for a cause in the wrong place. Naming the
+# condition costs one sentence and is the difference between a refusal a reader
+# can act on and one they have to guess at.
+UNREADABLE_SYNTAX = "unreadable_syntax"
+COMPUTED_TEXT = "computed_text"
+NAMED_TARGET = "named_target"
+AUTHORING_GIT = "authoring_git"
+
+DENIAL_CAUSES = {
+    UNREADABLE_SYNTAX: (
+        "The reason is this line's shape, not what it would do: it is a chain, a "
+        "pipeline, or spans more than one line, so the gate cannot read which "
+        "command runs here. A single command on one line is read on its own terms. "
+    ),
+    COMPUTED_TEXT: (
+        "The reason is that the shell computes part of this line -- a substitution, "
+        "a backquote, or a variable -- so its text does not say what will run, and "
+        "no reading of it can. Spell the value out. "
+    ),
+    NAMED_TARGET: (
+        "The reason is a path this line names, not where it runs: the target is "
+        "inside the protected checkout, so running from a worktree does not move "
+        "the write out of it. "
+    ),
+    AUTHORING_GIT: (
+        "The reason is what this Git command does here: it writes new content "
+        "into this working tree, or reaches a path in it through an option, "
+        "which is the one thing the protected checkout is protected from. "
+    ),
+}
+
+
+def worktree_deny_reason(root: Path, branch: str, cause: str = "") -> str:
     location = "main checkout" if (root / ".git").is_dir() else f"protected branch `{branch}`"
     return (
         f"Tao Agent OS worktree gate: {location} cannot run a mutating tool in {root}. "
+        f"{DENIAL_CAUSES.get(cause, '')}"
         "Create or select the task's dedicated linked worktree, make that path the project root, "
         "run the workflow start hook again there, and retry. The hook does not create a worktree "
         "because branch, base, ticket, and local-file copy decisions belong to the repository workflow. "
@@ -131,11 +167,11 @@ def worktree_deny_reason(root: Path, branch: str) -> str:
     )
 
 
-def worktree_denial(root: Path) -> str | None:
+def worktree_denial(root: Path, cause: str = "") -> str | None:
     policy = worktree_policy(root)
     if policy is None or os.environ.get(MAIN_CHECKOUT_OVERRIDE_ENV, "").strip() == "1":
         return None
     branch = current_branch(root)
     if (root / ".git").is_dir() or branch in set(policy["protected_branches"]):
-        return worktree_deny_reason(root, branch)
+        return worktree_deny_reason(root, branch, cause)
     return None
