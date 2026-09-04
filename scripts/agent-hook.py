@@ -1288,7 +1288,9 @@ def _run_checkpoint_hook(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
 ) -> int:
-    if not args.checkpoint_kind:
+    # `--work-shape` writes no checkpoint; it answers what one must contain, so
+    # the start hook can name it instead of reprinting it every session.
+    if not args.checkpoint_kind and not getattr(args, "work_shape", False):
         parser.error("checkpoint requires --checkpoint-kind")
     if args.mutation_kind and args.checkpoint_kind != "pre_mutation":
         parser.error("--mutation-kind is only valid for pre_mutation")
