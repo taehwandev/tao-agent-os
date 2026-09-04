@@ -450,6 +450,34 @@ class ReviewAttestationTests(unittest.TestCase):
             failures,
         )
 
+    def test_graphify_final_artifacts_are_allowlisted_but_cache_is_not(self) -> None:
+        (self.project / ".gitignore").write_text(
+            ".tao/\n.agents/local/graphify-out/\n",
+            encoding="utf-8",
+        )
+        output = self.project / ".agents/local/graphify-out"
+        output.mkdir(parents=True)
+        final_paths = [
+            ".agents/local/graphify-out/graph.json",
+            ".agents/local/graphify-out/manifest.json",
+            ".agents/local/graphify-out/GRAPH_REPORT.md",
+            ".agents/local/graphify-out/graph.html",
+        ]
+        for relative in final_paths:
+            (self.project / relative).write_text("generated\n", encoding="utf-8")
+
+        subject = ReviewAttestation.local_config_subject(self.project, final_paths)
+
+        self.assertEqual(final_paths, [item["path"] for item in subject["files"]])
+        cache = output / "cache/state.json"
+        cache.parent.mkdir()
+        cache.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "not allowlisted"):
+            ReviewAttestation.local_config_subject(
+                self.project,
+                [".agents/local/graphify-out/cache/state.json"],
+            )
+
     def test_committed_change_requires_a_commit_range_review(self) -> None:
         self._record_real_review()
         (self.project / "tracked.txt").write_text("committed after review\n", encoding="utf-8")

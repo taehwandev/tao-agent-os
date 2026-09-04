@@ -128,13 +128,17 @@ Use after implementation, before handing off or committing.
      checkout is clean, every path exists inside the project, and no glob is
      used. This attests the named inspection surface; it is not a substitute for
      working-tree or commit-range review of a mutation.
-   - **The task changes an ignored local agent adapter.** Use
+   - **The task changes an ignored local agent boundary.** Use
      `--review-scope local-config --review-path <exact-path>` only for the
-     allowlisted project-root files `.codex/hooks.json`,
-     `.claude/settings.json`, and `.claude/settings.local.json`. The hook
-     requires each path to be an existing, non-symlink, Git-ignored file; it
-     rejects globs, tracked files, and every other ignored path. Because Git has
-     no diff for this boundary, review the current configuration bytes and
+     allowlisted project-root adapter files `.codex/hooks.json`,
+     `.claude/settings.json`, and `.claude/settings.local.json`, or the canonical
+     Graphify final artifacts `.agents/local/graphify-out/graph.json`,
+     `.agents/local/graphify-out/manifest.json`,
+     `.agents/local/graphify-out/GRAPH_REPORT.md`, and
+     `.agents/local/graphify-out/graph.html`. The hook requires each path to be
+     an existing, non-symlink, Git-ignored file; it rejects globs, tracked files,
+     Graphify caches/intermediates/cost records, and every other ignored path.
+     Because Git has no diff for this boundary, review the current bytes and
      report that scope in the evidence fields. The attestation binds each file's
      path, size, and SHA-256 and finish recomputes them, so a post-review edit
      invalidates the gate. Never manufacture a staged diff or use this scope for
