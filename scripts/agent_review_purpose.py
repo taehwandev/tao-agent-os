@@ -323,11 +323,20 @@ def package_role_failures(
     review_source_path: PathPredicate,
     test_exempt_path: TestPredicate,
 ) -> list[str]:
+    """Refuse a grab-bag package segment for newly added runtime source.
+
+    This once also refused a package whose files mixed runtime roles, which
+    meant reading every file in the changed directory to collect those roles.
+    That check was removed for producing false positives on legacy structure
+    (`0078102c`), and the scan feeding it was left behind: on a three-file
+    patch it read 142 files and 105ms to build a list nothing then consulted.
+    What remains is answered by the directory name and the changed files' own
+    status, so no sibling is opened at all.
+    """
+
     failures: list[str] = []
     for parent in sorted({path.parent for path in paths if not test_exempt_path(path)}):
         changed = [path for path in paths if path.parent == parent and not test_exempt_path(path)]
-        entries = package_role_entries(project, parent, review_source_path, test_exempt_path)
-        roles = sorted({role for _, role in entries if role})
         generic = [part for part in parent.parts if part.lower() in GENERIC_PACKAGE_PARTS]
         if generic and any(path_metadata.get(str(path), {}).get("status") == "A" for path in changed):
             failures.append(
@@ -335,28 +344,6 @@ def package_role_failures(
                 "runtime source; choose a package name that states the purpose, owner, or contract"
             )
     return failures
-
-
-def package_role_entries(
-    project: Path,
-    parent: Path,
-    review_source_path: PathPredicate,
-    test_exempt_path: TestPredicate,
-) -> list[tuple[str, str | None]]:
-    entries: list[tuple[str, str | None]] = []
-    for child in sorted((project / parent).iterdir()):
-        relative = parent / child.name
-        if not child.is_file() or not review_source_path(project, relative) or test_exempt_path(relative):
-            continue
-        role = role_for_name(child.stem)
-        if role is None:
-            try:
-                declarations = top_level_type_declarations(relative, child.read_text(encoding="utf-8").splitlines())
-            except UnicodeDecodeError:
-                declarations = []
-            role = next((declaration["role"] for declaration in declarations if declaration["role"]), None)
-        entries.append((child.name, role))
-    return entries
 
 
 def exported_by_default(path: Path) -> bool:
@@ -402,8 +389,3 @@ def format_declaration(declaration: dict[str, Any]) -> str:
     family_size = declaration.get("family_size")
     family_suffix = f"[{family_size}]" if family_size else ""
     return f"{declaration['name']}{family_suffix}@{declaration['line']}"
-
-
-def format_role_entries(entries: list[tuple[str, str | None]]) -> str:
-    visible = [f"{name}:{role}" for name, role in entries if role]
-    return ", ".join(visible[:8]) + ("" if len(visible) <= 8 else f" ... (+{len(visible) - 8} more)")
