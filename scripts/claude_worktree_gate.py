@@ -121,6 +121,12 @@ def worktree_deny_reason(root: Path, branch: str) -> str:
         "Create or select the task's dedicated linked worktree, make that path the project root, "
         "run the workflow start hook again there, and retry. The hook does not create a worktree "
         "because branch, base, ticket, and local-file copy decisions belong to the repository workflow. "
+        "Creating one needs no exception and no operator: a lone `git worktree add <path> -b <branch> "
+        "<base>` is a bootstrap command this gate allows from here, and it makes the missing parent "
+        "directories itself. It has to stand alone on one readable line -- a `mkdir` ahead of it, a "
+        "substitution inside it, or a line continuation makes the whole line a mutation here and earns "
+        "this same denial, which is what sends a reader looking for an operator to run it. Everything "
+        "after it belongs in the new worktree, as `cd <worktree> && <command>`. "
         f"Set {MAIN_CHECKOUT_OVERRIDE_ENV}=1 only for a user-approved exception."
     )
 

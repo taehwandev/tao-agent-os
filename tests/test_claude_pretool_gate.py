@@ -207,6 +207,54 @@ class ClaudePreToolGateTests(unittest.TestCase):
             self.assertTrue(gate.worktree_policy_satisfied(linked))
             self.assertFalse(gate.worktree_policy_satisfied(bare))
 
+    def test_the_main_checkout_may_create_the_worktree_it_is_sent_to(self) -> None:
+        """The remedy the denial names has to work where the denial is read.
+
+        `git worktree add` is bootstrap, so it was already allowed here, but
+        nothing pinned that: the refusal tells the reader to go create a
+        worktree, and if that one command ever stopped being allowed from the
+        protected checkout the instruction would have no route at all. A reader
+        who cannot run it stops and asks a human, which is the outcome this
+        gate exists to avoid.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp))
+            _require_linked_worktree(main)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "no-evidence",
+                    "tool_input": {
+                        "command": f"git worktree add {tmp}/wt -b topic main"
+                    },
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_the_worktree_denial_names_the_command_that_answers_it(self) -> None:
+        """Naming the remedy without its shape sent readers to a human.
+
+        The message said to create a worktree and stopped there. A chained
+        spelling -- `mkdir -p <dir> && git worktree add ...` -- is a mutation
+        here and earns this same refusal, so an agent that reached for the
+        obvious form read the denial twice and then asked its operator to run
+        the command by hand. The one spelling that works has to be in the text
+        that refuses the other ones.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp))
+            _require_linked_worktree(main)
+            reason = worktree_gate.worktree_deny_reason(main, "main")
+
+        self.assertIn("git worktree add", reason)
+        self.assertIn("makes the missing parent directories itself", reason)
+        self.assertIn("`mkdir` ahead of it", reason)
+
     def test_a_linked_worktree_may_edit_without_workflow_evidence(self) -> None:
         """The worktree is the isolation, so it is the thing worth requiring.
 
