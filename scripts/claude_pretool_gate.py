@@ -717,6 +717,159 @@ def workflow_start_target_root(tokens: list[str], effective_cwd: Path) -> Path |
     return find_project_root(resolved)
 
 
+def _ungoverned_project_verdict(cwd: Path, tokens: list[str]) -> int:
+    """Answer a call whose target belongs to no governed project.
+
+    Lifted out of `decide` for the block limit. It is its own question:
+    everything here is about a command that has left every governed root,
+    where the gate keeps only the one thing it alone knows.
+    """
+
+    # Not an Tao Agent OS project; never block ordinary editing.
+    #
+    # `-C <elsewhere>` moves the command's target out of every governed
+    # root and landed here, so `git -C /tmp/other branch -D main` from a
+    # governed session was silent while the same deletion spelled
+    # `--git-dir=/tmp/other/.git` was asked about -- the same act, decided
+    # two ways by which flag named the repository. Destroying another
+    # repository is not "ordinary editing", so a session working inside a
+    # compliant worktree is still asked. Only hazards, and only `ask`: a
+    # session that is not in a governed project keeps this gate out of its
+    # way entirely.
+    session_root = find_project_root(cwd)
+    if session_root is not None and worktree_policy_satisfied(session_root):
+        hazard = shared_repository_hazard(
+            tokens, protected_branch_names(session_root)
+        )
+        if hazard:
+            return ask(
+                "This command leaves the worktree to reach another "
+                f"repository, and there it {hazard}. Allow it only if that "
+                "is what you meant."
+            )
+    return allow()
+
+
+def _isolated_checkout_verdict(payload: dict, tool: str, root: Path, cwd: Path) -> int:
+    """Answer a call the worktree policy has already cleared.
+
+    Isolation is one question and workflow entry is another: this one asks
+    whether the session has entered the workflow, stayed inside its file
+    budget, and still holds the evidence its edit will be checkpointed
+    against. Lifted out of `decide` for the block limit, and it reads as its
+    own question rather than as the tail of the dispatcher.
+    """
+
+    session_id = str(payload.get("session_id") or "")
+    if not workflow_entry_allows(root, session_id):
+        return deny(deny_reason(root, session_id, tool))
+    sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
+    if sprawl_reason:
+        return deny(sprawl_reason)
+    # A missing adapter module is a broken install, not a policy violation. This
+    # gate promises never to fail to load; denying every edit because an import
+    # failed breaks that promise and removes the means of repairing the install.
+    evidence = session_evidence(root, session_id)
+    if evidence is None:
+        # The active claim can disappear between the workflow-entry check and
+        # the mutation checkpoint. Do not turn that registry race into an
+        # uncheckpointed edit.
+        return deny(deny_reason(root, session_id, tool))
+    if tool in EDIT_TOOLS and is_run_local_continuation_evidence(root, evidence):
+        adapter = continuation_adapter()
+        if adapter is not None:
+            continuation_reason = adapter.pre_mutation(
+                payload, root=root, cwd=cwd, session_id=session_id
+            )
+            if continuation_reason:
+                return deny(continuation_reason)
+    record_edit_activity(root, session_id)
+    record_session_project(root, session_id)
+    return allow()
+
+
+def _worktree_policy_verdict(
+    payload: dict,
+    tool: str,
+    root: Path,
+    roots: list[Path],
+    tokens: list[str],
+    command_cwd: Path,
+    worktree_reason: str,
+    *,
+    syntax_is_simple: bool,
+) -> int:
+    """Answer a call that a governed root refuses, once one of them does.
+
+    Lifted out of `decide`, which had grown to 199 lines against a 120-line
+    limit and was most of one branch. The branch decides one question --
+    whether a refusing root leaves the caller anywhere else to work -- and
+    reads better as the answer to that question than as the middle of the
+    function that dispatches every tool.
+    """
+
+    # Reaching a protected checkout from outside it is a different act from
+    # standing in one. A session with a worktree that names the protected
+    # checkout has somewhere else to be, and the remedy is deterministic --
+    # work there -- which is what `deny` is for. A session whose shell is
+    # simply in the protected checkout has nowhere else to run, so a refusal
+    # leaves no route and the operator is asked instead.
+    cwd_root = find_project_root(command_cwd) if tool in BASH_TOOLS else None
+    denying = [candidate for candidate in roots if worktree_denial(candidate)]
+    # Standing in the protected checkout, and only there. Two other shapes
+    # keep their refusal because each has a deterministic remedy, which is
+    # what `deny` is for:
+    #
+    #   - reaching in from somewhere else. A session with a worktree that
+    #     names the protected checkout has another place to work, and the
+    #     remedy is to work there.
+    #   - a linked worktree sitting on a protected branch. The remedy is to
+    #     leave the branch, and the checkout is not the problem.
+    standing_in_the_protected_checkout = (
+        bool(denying)
+        and all(candidate == cwd_root for candidate in denying)
+        and (cwd_root / ".git").is_dir()
+    )
+    # Text the shell computes is text this gate cannot read, and a prompt
+    # cannot describe what it would do. `eval $(echo rm -rf build)` parses
+    # as a simple command line and says nothing about the command that
+    # actually runs, so it keeps the refusal rather than becoming a question
+    # the operator has no way to answer.
+    readable = tool in BASH_TOOLS and not has_unresolvable_expansion(
+        bash_command(payload)
+    )
+    landing = (
+        protected_checkout_verdict(tokens, protected_branch_names(root))
+        if readable
+        and syntax_is_simple
+        and standing_in_the_protected_checkout
+        else ""
+    )
+    if landing == "allow":
+        return _approve(
+            "This authors nothing in the protected checkout: it moves or "
+            "removes references that already exist."
+        )
+    if landing == "defer":
+        return allow()
+    if landing == "ask":
+        return ask(
+            "This writes a commit into the protected checkout, discards "
+            "uncommitted work there, or reaches shared state. Allow it only "
+            "if that is what you meant."
+        )
+    return deny(
+        _worktree_reason_naming_its_cause(
+            roots,
+            worktree_reason,
+            is_bash=tool in BASH_TOOLS,
+            standing_in_the_protected_checkout=standing_in_the_protected_checkout,
+            readable=readable,
+            syntax_is_simple=syntax_is_simple,
+        )
+    )
+
+
 def _worktree_reason_naming_its_cause(
     roots: list[Path],
     fallback: str | None,
@@ -1353,10 +1506,13 @@ def decide(payload: dict) -> int:
     # every tool. Leaving this unbound made that check raise for exactly the
     # calls the waiver exists to allow.
     tokens: list[str] = []
-    # Only a Bash command has a shape that can be unreadable; an Edit or a
-    # Write names one path and is judged by where that path is. Bound for both
-    # so the refusal below can name the condition that caused it either way.
+    # Only a Bash command has a shape that can be unreadable, and only a Bash
+    # command can run somewhere other than the shell's directory; an Edit or a
+    # Write names one path and is judged by where that path is. Both are bound
+    # for either tool because the verdicts below are now functions, and an
+    # argument is evaluated whether or not the branch that reads it is taken.
     syntax_is_simple = True
+    command_cwd = cwd
     if tool in BASH_TOOLS:
         effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
         bash_kind = bash_command_kind(tokens, syntax_is_simple)
@@ -1369,29 +1525,7 @@ def decide(payload: dict) -> int:
         root = find_edit_project_root(payload, cwd)
         roots = [root] if root is not None else []
     if root is None:
-        # Not an Tao Agent OS project; never block ordinary editing.
-        #
-        # `-C <elsewhere>` moves the command's target out of every governed
-        # root and landed here, so `git -C /tmp/other branch -D main` from a
-        # governed session was silent while the same deletion spelled
-        # `--git-dir=/tmp/other/.git` was asked about -- the same act, decided
-        # two ways by which flag named the repository. Destroying another
-        # repository is not "ordinary editing", so a session working inside a
-        # compliant worktree is still asked. Only hazards, and only `ask`: a
-        # session that is not in a governed project keeps this gate out of its
-        # way entirely.
-        session_root = find_project_root(cwd)
-        if session_root is not None and worktree_policy_satisfied(session_root):
-            hazard = shared_repository_hazard(
-                tokens, protected_branch_names(session_root)
-            )
-            if hazard:
-                return ask(
-                    "This command leaves the worktree to reach another "
-                    f"repository, and there it {hazard}. Allow it only if that "
-                    "is what you meant."
-                )
-        return allow()
+        return _ungoverned_project_verdict(cwd, tokens)
     if tool in BASH_TOOLS and bash_kind == "read_only":
         return allow()
     if tool in BASH_TOOLS and bash_kind == "bootstrap":
@@ -1430,65 +1564,15 @@ def decide(payload: dict) -> int:
             return deny(reason) if reason else allow()
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
-        # Reaching a protected checkout from outside it is a different act from
-        # standing in one. A session with a worktree that names the protected
-        # checkout has somewhere else to be, and the remedy is deterministic --
-        # work there -- which is what `deny` is for. A session whose shell is
-        # simply in the protected checkout has nowhere else to run, so a refusal
-        # leaves no route and the operator is asked instead.
-        cwd_root = find_project_root(command_cwd) if tool in BASH_TOOLS else None
-        denying = [candidate for candidate in roots if worktree_denial(candidate)]
-        # Standing in the protected checkout, and only there. Two other shapes
-        # keep their refusal because each has a deterministic remedy, which is
-        # what `deny` is for:
-        #
-        #   - reaching in from somewhere else. A session with a worktree that
-        #     names the protected checkout has another place to work, and the
-        #     remedy is to work there.
-        #   - a linked worktree sitting on a protected branch. The remedy is to
-        #     leave the branch, and the checkout is not the problem.
-        standing_in_the_protected_checkout = (
-            bool(denying)
-            and all(candidate == cwd_root for candidate in denying)
-            and (cwd_root / ".git").is_dir()
-        )
-        # Text the shell computes is text this gate cannot read, and a prompt
-        # cannot describe what it would do. `eval $(echo rm -rf build)` parses
-        # as a simple command line and says nothing about the command that
-        # actually runs, so it keeps the refusal rather than becoming a question
-        # the operator has no way to answer.
-        readable = tool in BASH_TOOLS and not has_unresolvable_expansion(
-            bash_command(payload)
-        )
-        landing = (
-            protected_checkout_verdict(tokens, protected_branch_names(root))
-            if readable
-            and syntax_is_simple
-            and standing_in_the_protected_checkout
-            else ""
-        )
-        if landing == "allow":
-            return _approve(
-                "This authors nothing in the protected checkout: it moves or "
-                "removes references that already exist."
-            )
-        if landing == "defer":
-            return allow()
-        if landing == "ask":
-            return ask(
-                "This writes a commit into the protected checkout, discards "
-                "uncommitted work there, or reaches shared state. Allow it only "
-                "if that is what you meant."
-            )
-        return deny(
-            _worktree_reason_naming_its_cause(
-                roots,
-                worktree_reason,
-                is_bash=tool in BASH_TOOLS,
-                standing_in_the_protected_checkout=standing_in_the_protected_checkout,
-                readable=readable,
-                syntax_is_simple=syntax_is_simple,
-            )
+        return _worktree_policy_verdict(
+            payload,
+            tool,
+            root,
+            roots,
+            tokens,
+            command_cwd,
+            worktree_reason,
+            syntax_is_simple=syntax_is_simple,
         )
     if worktree_policy_satisfied(root):
         hazard = shared_repository_hazard(tokens, protected_branch_names(root))
@@ -1508,32 +1592,7 @@ def decide(payload: dict) -> int:
                 "This is an ordinary Git command inside the isolated linked worktree."
             )
         return allow()
-    session_id = str(payload.get("session_id") or "")
-    if not workflow_entry_allows(root, session_id):
-        return deny(deny_reason(root, session_id, tool))
-    sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
-    if sprawl_reason:
-        return deny(sprawl_reason)
-    # A missing adapter module is a broken install, not a policy violation. This
-    # gate promises never to fail to load; denying every edit because an import
-    # failed breaks that promise and removes the means of repairing the install.
-    evidence = session_evidence(root, session_id)
-    if evidence is None:
-        # The active claim can disappear between the workflow-entry check and
-        # the mutation checkpoint. Do not turn that registry race into an
-        # uncheckpointed edit.
-        return deny(deny_reason(root, session_id, tool))
-    if tool in EDIT_TOOLS and is_run_local_continuation_evidence(root, evidence):
-        adapter = continuation_adapter()
-        if adapter is not None:
-            continuation_reason = adapter.pre_mutation(
-                payload, root=root, cwd=cwd, session_id=session_id
-            )
-            if continuation_reason:
-                return deny(continuation_reason)
-    record_edit_activity(root, session_id)
-    record_session_project(root, session_id)
-    return allow()
+    return _isolated_checkout_verdict(payload, tool, root, cwd)
 
 
 def main() -> int:
