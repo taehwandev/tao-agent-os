@@ -6,8 +6,6 @@ from pathlib import Path
 
 from support.permission_entries import agy_legacy_permission_entries, agy_permission_entries
 from support.runtime_bridge import (
-    RUNTIME_BRIDGE_BEGIN,
-    RUNTIME_BRIDGE_END,
     merge_runtime_bridge,
     runtime_bridge_block,
     runtime_bridge_required_phrases,
@@ -16,8 +14,6 @@ from support.setup_config_files import merge_permissions_allow, quote, read_json
 from support.stable_launcher import stable_launcher_path
 
 AGY_RUNTIME_BRIDGE_PATH = Path.home() / ".antigravity" / "AGENTS.md"
-AGY_RUNTIME_BRIDGE_BEGIN = RUNTIME_BRIDGE_BEGIN
-AGY_RUNTIME_BRIDGE_END = RUNTIME_BRIDGE_END
 AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES = runtime_bridge_required_phrases("Antigravity", "AGENTS.md")
 _STATUSLINE_ALIAS = "agy-statusline"
 _STATUSLINE_MARKER = "TAO_STATUSLINE=1"

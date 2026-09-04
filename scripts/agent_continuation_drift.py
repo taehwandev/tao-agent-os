@@ -21,11 +21,6 @@ from agent_execution_capsule_state import (
 )
 
 
-DRIFT_SIGNALS = (
-    "head", "project_worktree", "rules_worktree", "required_docs", "pending_mutation",
-)
-
-
 def required_docs_digest(records: Any) -> str:
     """Hash the ordered required-document trust record.
 
@@ -90,6 +85,13 @@ def verify_drift(
     identity is a single content fingerprint, so a worktree signal names no
     paths rather than inventing them; the required-document snapshot does hold
     per-path hashes, so its affected paths are exact.
+
+    The signals are `head`, `project_worktree`, `rules_worktree`,
+    `required_docs` and `pending_mutation`, appended as literals below. That
+    list used to also exist as a module constant, which nothing read: two places
+    named the same vocabulary and only one of them was true, so a reader who
+    trusted the constant could be reading a name this function no longer emits.
+    Stated here instead, next to the appends, where the two cannot disagree.
     """
 
     recorded = packet.get("drift") or {}

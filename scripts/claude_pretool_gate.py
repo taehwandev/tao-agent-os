@@ -208,7 +208,6 @@ SESSION_PROJECT_DIR = "claude-session-projects"
 OPT_IN_FILES = ("AGENTS.md", "CLAUDE.md", "CODEX.md")
 OPT_IN_TOKEN = "tao"
 DEFAULT_MAX_AGE_SECONDS = 8 * 60 * 60
-MAX_ROOT_WALK = 40
 # New source files past this count in one session must be collapsed or justified.
 # Matches the review-time signal in
 # agent_review_structure.REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT. Only code source
