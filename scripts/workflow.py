@@ -73,6 +73,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Resolve Tao Agent OS workflow routes.")
     subparsers = parser.add_subparsers(dest="action", required=True)
 
+    _add_route_parser(subparsers)
+
+    _add_dispatch_parser(subparsers)
+    _add_dispatch_finalize_parser(subparsers)
+
+    classify = subparsers.add_parser("classify", help="Classify request clarity and effort.")
+    classify.add_argument("request", help="User request text to classify.")
+    classify.add_argument("--continuation-scope", default="")
+    classify.add_argument("--command", default="task")
+    classify.add_argument(
+        "--intent-envelope",
+        default="",
+        help="runtime intent envelope as JSON or a path to it; when given it decides",
+    )
+    _add_approval_record_argument(classify)
+    classify.add_argument("--runtime-session-id", default="")
+    classify.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
+    query = subparsers.add_parser("query", help="Search Tao Agent OS docs by keyword relevance.")
+    query.add_argument("terms", nargs="+", help="Search terms (space-separated keywords).")
+    query.add_argument(
+        "--max",
+        type=int,
+        default=8,
+        dest="max_results",
+        help="Maximum results to return (default: 8).",
+    )
+    query.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
+    subparsers.add_parser("list", help="List available commands, platforms, and concerns.")
+    subparsers.add_parser("validate", help="Validate route references, markdown frontmatter, and links.")
+    return parser
+
+
+def _add_route_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Every option the `route` action takes.
+
+    Split out of `build_parser`, which had grown past the block limit: one
+    action's options were most of it, and the four other actions were hard
+    to see past them.
+    """
+
     route = subparsers.add_parser("route", help="Print a workflow route manifest.")
     route.add_argument(
         "command",
@@ -163,37 +205,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     route.add_argument("--format", choices=("markdown", "json"), default="markdown")
-
-    _add_dispatch_parser(subparsers)
-    _add_dispatch_finalize_parser(subparsers)
-
-    classify = subparsers.add_parser("classify", help="Classify request clarity and effort.")
-    classify.add_argument("request", help="User request text to classify.")
-    classify.add_argument("--continuation-scope", default="")
-    classify.add_argument("--command", default="task")
-    classify.add_argument(
-        "--intent-envelope",
-        default="",
-        help="runtime intent envelope as JSON or a path to it; when given it decides",
-    )
-    _add_approval_record_argument(classify)
-    classify.add_argument("--runtime-session-id", default="")
-    classify.add_argument("--format", choices=("markdown", "json"), default="markdown")
-
-    query = subparsers.add_parser("query", help="Search Tao Agent OS docs by keyword relevance.")
-    query.add_argument("terms", nargs="+", help="Search terms (space-separated keywords).")
-    query.add_argument(
-        "--max",
-        type=int,
-        default=8,
-        dest="max_results",
-        help="Maximum results to return (default: 8).",
-    )
-    query.add_argument("--format", choices=("markdown", "json"), default="markdown")
-
-    subparsers.add_parser("list", help="List available commands, platforms, and concerns.")
-    subparsers.add_parser("validate", help="Validate route references, markdown frontmatter, and links.")
-    return parser
 
 
 def _add_dispatch_parser(subparsers: argparse._SubParsersAction) -> None:
