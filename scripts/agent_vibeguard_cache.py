@@ -66,7 +66,10 @@ def cached_vibeguard(
     result["cached"] = False
     result["cache"] = {"hit": False, "path": str(_cache_path(project))}
     if signature and result.get("returncode") == 0:
-        _write_cache(project, signature, _cacheable_result(result))
+        try:
+            _write_cache(project, signature, _cacheable_result(result))
+        except OSError as error:
+            result["cache"]["write_error"] = type(error).__name__
     return result
 
 

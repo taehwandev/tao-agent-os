@@ -337,6 +337,99 @@ class VibeguardCacheTests(unittest.TestCase):
         self.assertFalse(first["cached"])
         self.assertFalse(second["cached"])
 
+    def test_vibeguard_cache_write_permission_failure_does_not_hide_successful_audit(self) -> None:
+        calls: list[list[str]] = []
+
+        def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+            calls.append(command)
+            if command[:3] == ["git", "rev-parse", "--verify"]:
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": 0,
+                    "stdout": "abc\n",
+                    "stderr": "",
+                }
+            if command[:3] == ["git", "status", "--short"]:
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": 0,
+                    "stdout": "",
+                    "stderr": "",
+                }
+            if command == ["vibeguard", "audit", "."]:
+                return {
+                    "command": command,
+                    "cwd": str(cwd),
+                    "returncode": 0,
+                    "stdout": "Overall: Ready\n",
+                    "stderr": "",
+                }
+            raise AssertionError(command)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            command = lambda _project, _rules: ["vibeguard", "audit", "."]
+            parse = lambda output: "Ready" if "Ready" in output else "unknown"
+
+            with patch(
+                "agent_vibeguard_cache._write_cache",
+                side_effect=PermissionError("cache is read-only"),
+            ):
+                result = cached_vibeguard(
+                    project=project,
+                    rules=project,
+                    run_command=run_command,
+                    vibeguard_command=command,
+                    parse_overall=parse,
+                )
+
+        self.assertEqual(0, result["returncode"])
+        self.assertEqual("Ready", result["overall"])
+        self.assertFalse(result["cached"])
+        self.assertEqual("PermissionError", result["cache"]["write_error"])
+        self.assertEqual(1, calls.count(["vibeguard", "audit", "."]))
+
+    def test_vibeguard_cache_does_not_swallow_non_io_write_failures(self) -> None:
+        def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+            if command[:3] == ["git", "rev-parse", "--verify"]:
+                stdout = "abc\n"
+            elif command[:3] == ["git", "status", "--short"]:
+                stdout = ""
+            elif command == ["vibeguard", "audit", "."]:
+                stdout = "Overall: Ready\n"
+            else:
+                raise AssertionError(command)
+            return {
+                "command": command,
+                "cwd": str(cwd),
+                "returncode": 0,
+                "stdout": stdout,
+                "stderr": "",
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            with patch(
+                "agent_vibeguard_cache._write_cache",
+                side_effect=RuntimeError("unexpected cache bug"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "unexpected cache bug"):
+                    cached_vibeguard(
+                        project=project,
+                        rules=project,
+                        run_command=run_command,
+                        vibeguard_command=lambda _project, _rules: [
+                            "vibeguard",
+                            "audit",
+                            ".",
+                        ],
+                        parse_overall=lambda output: (
+                            "Ready" if "Ready" in output else "unknown"
+                        ),
+                    )
+
     def test_vibeguard_cache_ignores_preexisting_failed_cache_entry(self) -> None:
         calls: list[list[str]] = []
 
