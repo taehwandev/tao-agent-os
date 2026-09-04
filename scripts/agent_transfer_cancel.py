@@ -19,6 +19,14 @@ from agent_transfer_validate import git, validate_transfer
 CANCEL_RECEIPT_NAME = "cancel.json"
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
+TRANSFERRED = "transferred_to_completed_linked_worktree"
+NO_CHANGE = "no_change_required"
+
+# A transfer names the run that finished the work instead. Nothing finished a
+# no-change run, so it names no replacement; what it names instead is the two
+# observations that make "nothing changed" checkable rather than asserted.
+CANCEL_REASONS = frozenset({TRANSFERRED, NO_CHANGE})
+
 
 def cancellation_receipt_failure(
     cancellation: dict,
@@ -32,13 +40,25 @@ def cancellation_receipt_failure(
         return "cancellation receipt schema_version must be 1"
     if cancellation.get("status") != "cancelled":
         return "cancellation receipt status must be cancelled"
-    if cancellation.get("reason") != "transferred_to_completed_linked_worktree":
-        return "cancellation receipt reason is not a completed linked-worktree transfer"
+    reason = cancellation.get("reason")
+    if reason not in CANCEL_REASONS:
+        return (
+            "cancellation receipt reason is not a completed linked-worktree "
+            "transfer or a proven no-change close"
+        )
 
-    for field in ("source_run_id", "replacement_run_id"):
+    required = ["source_run_id"]
+    if reason == TRANSFERRED:
+        required.append("replacement_run_id")
+    for field in required:
         value = cancellation.get(field)
         if not isinstance(value, str) or not value.strip():
             return f"cancellation receipt {field} must be a non-empty string"
+    if reason == NO_CHANGE and cancellation.get("recorded_changed_scope") != 0:
+        return (
+            "cancellation receipt recorded_changed_scope must be 0 for a "
+            "no-change close"
+        )
 
     fingerprint = cancellation.get("request_fingerprint")
     if not isinstance(fingerprint, str) or SHA256_PATTERN.fullmatch(fingerprint) is None:
@@ -209,12 +229,120 @@ def cancel_transferred_run(args: Any) -> int:
     receipt = {
         "schema_version": 1,
         "status": "cancelled",
-        "reason": "transferred_to_completed_linked_worktree",
+        "reason": TRANSFERRED,
         "source_run_id": source_run["run_id"],
         "replacement_run_id": replacement_run["run_id"],
         "request_fingerprint": source_run["request_fingerprint"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    return _settle_cancellation(
+        args,
+        evidence,
+        receipt,
+        [
+            "source checkout is clean",
+            "replacement is a completed linked-worktree run for the same request and session",
+            "source run settled as cancelled; existing evidence was preserved",
+        ],
+    )
+
+
+def cancel_no_change_run(args: Any) -> int:
+    """Settle a run whose outcome is that nothing needed changing.
+
+    An investigation can be finished and correct and still produce no diff --
+    the reported defect was a deliberate guard, the measurement did not support
+    the change. Until now such a run could not be closed: the review hook
+    refuses every scope with "no changed paths", and the transfer cancellation
+    above needs a replacement run that finished the work, which is exactly what
+    does not exist here. The run was left unfinished, which is its own hazard.
+
+    "Nothing changed" is proven here, not asserted, by two observations that
+    already exist: the checkout is clean, and the run's own continuation packet
+    records no changed scope. The second is what covers a run that changed files
+    and committed them, which the first would not catch.
+
+    The residual limit is stated rather than hidden: a file written outside the
+    governed path leaves no record in either place. Preventing that is the
+    pretool gate's job, not this one's.
+    """
+
+    evidence = args.evidence
+    restored = restore_missing_receipt(args, evidence)
+    if restored is not None:
+        return restored
+    run = registered_run(args.project, evidence)
+    if run is None:
+        return finish_with_result(
+            "cancel",
+            False,
+            ["no registered run is bound to this evidence path"],
+            args.output,
+            {},
+            args.repair_cycle,
+            invocation_error=True,
+        )
+    changed = recorded_changed_scope(args.project, str(run.get("run_id") or ""))
+    if changed:
+        return finish_with_result(
+            "cancel",
+            False,
+            [
+                f"this run recorded {changed} changed path(s), so it is not a "
+                "no-change run",
+                "complete the review hook and finish instead of cancelling",
+            ],
+            args.output,
+            {},
+            args.repair_cycle,
+            invocation_error=True,
+        )
+    receipt = {
+        "schema_version": 1,
+        "status": "cancelled",
+        "reason": NO_CHANGE,
+        "source_run_id": run["run_id"],
+        "request_fingerprint": run.get("request_fingerprint") or "",
+        "recorded_changed_scope": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return _settle_cancellation(
+        args,
+        evidence,
+        receipt,
+        [
+            "source checkout is clean",
+            "the run's continuation packet records no changed scope",
+            "run settled as cancelled with no change; existing evidence was preserved",
+        ],
+    )
+
+
+def recorded_changed_scope(project: Path, run_id: str) -> int:
+    """How many paths this run recorded changing, as its own packet reports it.
+
+    A run with no readable packet recorded nothing, which is the same answer a
+    packet with an empty changed scope gives. Both are only half the proof; the
+    clean-checkout precondition is the other half.
+    """
+
+    if not run_id:
+        return 0
+    from agent_continuation_store import continuation_path, read_continuation_packet
+
+    result = read_continuation_packet(project, continuation_path(project, run_id))
+    if result["status"] != "ok":
+        return 0
+    work = (result["packet"] or {}).get("work") or {}
+    scope = work.get("changed_scope")
+    return len(scope) if isinstance(scope, list) else 0
+
+
+def _settle_cancellation(
+    args: Any, evidence: Path, receipt: dict, details: list[str]
+) -> int:
+    """Take the clean-checkout observation and the transition in one transaction."""
+
     receipt_path = evidence.parent / CANCEL_RECEIPT_NAME
     # The clean-checkout test is only true at the instant it runs, and no
     # placement makes it simultaneous with the write. Running it as a
@@ -233,11 +361,10 @@ def cancel_transferred_run(args: Any) -> int:
         ).hexdigest()
         return None
 
-
     transitioned = cancel_run(
         args.project,
         evidence,
-        run_id=str(source_run["run_id"]),
+        run_id=str(receipt["source_run_id"]),
         precondition=source_checkout_is_still_clean,
         cancellation=receipt,
     )
@@ -276,14 +403,5 @@ def cancel_transferred_run(args: Any) -> int:
             invocation_error=True,
         )
     return finish_with_result(
-        "cancel",
-        True,
-        [
-            "source checkout is clean",
-            "replacement is a completed linked-worktree run for the same request and session",
-            "source run settled as cancelled; existing evidence was preserved",
-        ],
-        args.output,
-        {"cancellation": receipt},
-        args.repair_cycle,
+        "cancel", True, details, args.output, {"cancellation": receipt}, args.repair_cycle
     )

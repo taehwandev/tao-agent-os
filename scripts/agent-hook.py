@@ -92,6 +92,7 @@ from agent_run_registry import (
 from agent_route_state import request_fingerprint
 from agent_runtime_session import recorded_session_id, runtime_session, settle_superseded_session_runs
 from agent_transfer_cancel import (
+    cancel_no_change_run,
     cancel_transferred_run,
     cancellation_receipt_failure,
     cancellation_worktree_drift,
@@ -1123,11 +1124,18 @@ def _add_finish_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_cancel_arguments(parser: argparse.ArgumentParser) -> None:
-    cancel = parser.add_argument_group("transferred-run cancellation")
+    cancel = parser.add_argument_group("run cancellation")
     cancel.add_argument(
         "--replacement-evidence",
         type=existing_path,
         help="completed linked-worktree preflight that replaced this clean source run",
+    )
+    cancel.add_argument(
+        "--no-change-evidence",
+        help=(
+            "why this run correctly produced no diff; settles it as cancelled "
+            "once the checkout is clean and its packet records no changed scope"
+        ),
     )
 
 
@@ -1282,6 +1290,29 @@ def _lifecycle_output_error(args: argparse.Namespace) -> str:
             "the current project as the writable primary workspace"
         )
     return ""
+
+
+def _run_cancel_hook(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> int:
+    """Route the two ways a run can be settled without finishing it.
+
+    They are mutually exclusive on purpose. A transfer says another run did the
+    work; a no-change close says the work was correctly not done. Accepting both
+    at once would let a caller claim a replacement finished a run that also
+    changed nothing, which is two different stories about one run.
+    """
+
+    if bool(args.replacement_evidence) == bool(args.no_change_evidence):
+        parser.error(
+            "cancel requires exactly one of --replacement-evidence, when a "
+            "completed linked-worktree run replaced this one, or "
+            "--no-change-evidence, when this run correctly produced no diff"
+        )
+    if args.replacement_evidence:
+        return cancel_transferred_run(args)
+    return cancel_no_change_run(args)
 
 
 def _run_checkpoint_hook(
@@ -1567,9 +1598,7 @@ def _dispatch_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
             parser.error("resume --run-id selects what --last claims; it does not filter --list")
         return resume_hook(args)
     if args.hook == "cancel":
-        if not args.replacement_evidence:
-            parser.error("cancel requires --replacement-evidence")
-        return cancel_transferred_run(args)
+        return _run_cancel_hook(parser, args)
     if args.hook == "checkpoint":
         return _run_checkpoint_hook(parser, args)
     if args.hook == "repair-verify":
