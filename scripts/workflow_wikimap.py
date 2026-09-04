@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Sequence
+from support.project_tree import PRUNED_DIRECTORIES, iter_project_files
 from support.stage_timing import stage
 
 
@@ -32,6 +34,11 @@ WIKIMAP_IGNORES = (
     "scripts/.tao",
     "scripts/third_party",
 )
+# What the signature walks has to match what the index reads: the same ignores
+# the update is given, plus `.git` and `.wikimap`, whose own churn is not a
+# change to the corpus. Walking more than the index reads would refresh for
+# nothing; walking less would skip a refresh that was needed.
+_PRUNED_FOR_INDEX = frozenset({*PRUNED_DIRECTORIES, ".wikimap", *WIKIMAP_IGNORES})
 
 
 @dataclass(frozen=True)
@@ -105,20 +112,114 @@ def clear_wikimap_cache() -> None:
 
 @lru_cache(maxsize=8)
 def _ensure_index(root_text: str) -> str:
+    """Refresh the index unless nothing it reads has changed.
+
+    Wikimap's own update is incremental, but reaching that conclusion costs a
+    Python start and a walk in a second process -- 90 ms of a 921 ms `start` on
+    the reference machine, and near 290 ms on a cold one. Every hook is its own
+    process, so the in-process cache above never saved the next one anything.
+
+    The corpus signature is the same shape the document-graph cache uses: size
+    and modification time per file, which is cheap next to reading them. It
+    also covers the pinned tool and the ignore list, because a graph built by
+    other code is not the graph this one would build.
+
+    Every failure path ends in the refresh running: an unreadable signature, an
+    unwritable receipt, a missing index. The cost of a needless refresh is the
+    90 ms this avoids; the cost of a wrongly skipped one is a search that
+    cannot see a document that exists.
+    """
+
     root = Path(root_text)
-    command = [
-        sys.executable,
-        str(WIKIMAP_SCRIPT),
-        "--root",
-        str(root),
-        "update",
-        "--no-map",
-    ]
-    for ignored in WIKIMAP_IGNORES:
-        command.extend(("--ignore", ignored))
+    # The stage covers the decision as well as the refresh, and is recorded
+    # even when nothing runs. A skipped refresh that reported no stage at all
+    # would read as one that was never attempted, and the point of these
+    # numbers is to say which half of a search to look at.
     with stage("wikimap_index"):
+        signature = _corpus_signature(root)
+        if signature and _index_receipt(root) == signature:
+            return ""
+        command = [
+            sys.executable,
+            str(WIKIMAP_SCRIPT),
+            "--root",
+            str(root),
+            "update",
+            "--no-map",
+        ]
+        for ignored in WIKIMAP_IGNORES:
+            command.extend(("--ignore", ignored))
         _completed, error = _run(command, root)
-    return error
+        if not error and signature:
+            _record_index_receipt(root, signature)
+        return error
+
+
+def _receipt_path(root: Path) -> Path | None:
+    """The run-state cache, only where run state already exists.
+
+    `.tao` carries its own ignore file, so writing under it stays out of the
+    repository, and a project that has never run a hook has no `.tao` to write
+    into.
+    """
+
+    state = root / ".tao"
+    return state / "cache" / "wikimap-index.json" if state.is_dir() else None
+
+
+def _corpus_signature(root: Path) -> str:
+    """Digest every input the index is built from, or "" when it cannot be."""
+
+    digest = hashlib.sha256()
+    digest.update(WIKIMAP_SHA256.encode("utf-8"))
+    for ignored in WIKIMAP_IGNORES:
+        digest.update(f"\0ignore:{ignored}".encode("utf-8"))
+    # Deleting the index is how a person asks for a rebuild, so its absence
+    # ends the signature and the refresh runs. Its size and time are
+    # deliberately not in the digest: the refresh writes that file, so a
+    # signature describing it would never match the state it just recorded, and
+    # the receipt would invalidate itself on the way out.
+    if not (root / ".wikimap" / "index.db").exists():
+        return ""
+    try:
+        for path in sorted(iter_project_files(root, pruned=_PRUNED_FOR_INDEX)):
+            stat = path.stat()
+            relative = path.relative_to(root).as_posix()
+            digest.update(f"\0{relative}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return digest.hexdigest()
+
+
+def _index_receipt(root: Path) -> str:
+    path = _receipt_path(root)
+    if path is None:
+        return ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    recorded = payload.get("corpus_signature")
+    return recorded if isinstance(recorded, str) else ""
+
+
+def _record_index_receipt(root: Path, signature: str) -> None:
+    path = _receipt_path(root)
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        temporary.write_text(
+            json.dumps({"corpus_signature": signature}, sort_keys=True), encoding="utf-8"
+        )
+        temporary.replace(path)
+    except OSError:
+        # A receipt that cannot be written costs the next hook a refresh, which
+        # is the outcome this exists to make rarer, not a failure.
+        return
 
 
 def _validate_vendor_source() -> str:

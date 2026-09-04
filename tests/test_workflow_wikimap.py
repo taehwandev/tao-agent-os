@@ -19,6 +19,7 @@ from workflow_wikimap import (
     WIKIMAP_SCRIPT,
     WIKIMAP_SHA256,
     WIKIMAP_VERSION,
+    _ensure_index,
     clear_wikimap_cache,
     search_wikimap,
 )
@@ -89,6 +90,108 @@ class WorkflowWikimapTests(unittest.TestCase):
         self.assertIn("checksum", outcome.fallback_reason)
         self.assertTrue(outcome.results)
         self.assertTrue(all(item["search_backend"] == "legacy" for item in outcome.results))
+
+
+class IndexRefreshIsSkippedOnlyWhenNothingChangedTests(unittest.TestCase):
+    """Every hook is its own process, so the in-process cache saved the next
+    one nothing: each `start` spent about 90 ms deciding that an incremental
+    index had nothing to do.
+
+    Skipping that is only safe while a skipped refresh is indistinguishable
+    from a run one, so each test here is a way the corpus can change.
+    """
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        (self.root / ".tao").mkdir()
+        (self.root / ".wikimap").mkdir()
+        (self.root / ".wikimap" / "index.db").write_bytes(b"index")
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "one.md").write_text("# one\n", encoding="utf-8")
+        clear_wikimap_cache()
+
+    def tearDown(self) -> None:
+        clear_wikimap_cache()
+
+    def _refresh(self) -> bool:
+        """Run the refresh and report whether it reached the subprocess."""
+
+        clear_wikimap_cache()
+        with patch("workflow_wikimap._run", return_value=(None, "")) as ran:
+            error = _ensure_index(str(self.root))
+        self.assertEqual("", error)
+        return bool(ran.call_count)
+
+    def test_the_first_refresh_runs(self) -> None:
+        self.assertTrue(self._refresh())
+
+    def test_a_second_hook_skips_it(self) -> None:
+        self._refresh()
+
+        self.assertFalse(self._refresh())
+
+    def test_a_changed_document_refreshes(self) -> None:
+        self._refresh()
+        (self.root / "docs" / "one.md").write_text("# one, edited\n", encoding="utf-8")
+
+        self.assertTrue(self._refresh())
+
+    def test_a_new_document_refreshes(self) -> None:
+        self._refresh()
+        (self.root / "docs" / "two.md").write_text("# two\n", encoding="utf-8")
+
+        self.assertTrue(self._refresh())
+
+    def test_a_removed_document_refreshes(self) -> None:
+        (self.root / "docs" / "two.md").write_text("# two\n", encoding="utf-8")
+        self._refresh()
+        (self.root / "docs" / "two.md").unlink()
+
+        self.assertTrue(self._refresh())
+
+    def test_deleting_the_index_refreshes(self) -> None:
+        """Removing it is how a person asks for a rebuild."""
+
+        self._refresh()
+        (self.root / ".wikimap" / "index.db").unlink()
+
+        self.assertTrue(self._refresh())
+
+    def test_the_receipt_does_not_invalidate_itself(self) -> None:
+        """The refresh writes the index, so the signature must not describe it.
+
+        Digesting the index file's own size and time made every receipt stale
+        the moment it was written, and the skip never once happened.
+        """
+
+        self._refresh()
+        (self.root / ".wikimap" / "index.db").write_bytes(b"index, rewritten by the update")
+
+        self.assertFalse(self._refresh())
+
+    def test_a_project_with_no_run_state_always_refreshes(self) -> None:
+        """No `.tao` means nowhere to write a receipt, so nothing is skipped."""
+
+        with tempfile.TemporaryDirectory() as bare:
+            root = Path(bare)
+            (root / ".wikimap").mkdir()
+            (root / ".wikimap" / "index.db").write_bytes(b"index")
+            for _ in range(2):
+                clear_wikimap_cache()
+                with patch("workflow_wikimap._run", return_value=(None, "")) as ran:
+                    _ensure_index(str(root))
+                self.assertTrue(ran.call_count)
+
+    def test_a_failed_refresh_records_nothing(self) -> None:
+        """A receipt for a refresh that failed would skip the retry."""
+
+        clear_wikimap_cache()
+        with patch("workflow_wikimap._run", return_value=(None, "wikimap exited with status 1")):
+            self.assertNotEqual("", _ensure_index(str(self.root)))
+
+        self.assertTrue(self._refresh())
 
 
 if __name__ == "__main__":
