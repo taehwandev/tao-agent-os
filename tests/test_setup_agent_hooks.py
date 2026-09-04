@@ -94,6 +94,11 @@ class SetupAgentHooksTests(unittest.TestCase):
             patch.object(setup_agent_hooks_impl, "_has_claude", return_value=True),
             patch.object(setup_agent_hooks_impl, "_has_agy", return_value=True),
             patch.object(setup_agent_hooks_impl, "ensure_stable_launcher", return_value=[]),
+            patch.object(
+                setup_agent_hooks_impl,
+                "configure_maintenance_scheduler",
+                return_value=[],
+            ) as configure_maintenance,
             patch.object(setup_agent_hooks_impl, "configure_codex", return_value=[]) as configure_codex,
             patch.object(setup_agent_hooks_impl, "configure_claude", return_value=[]) as configure_claude,
             patch.object(setup_agent_hooks_impl, "configure_agy", return_value=[]) as configure_agy,
@@ -105,6 +110,7 @@ class SetupAgentHooksTests(unittest.TestCase):
         configure_codex.assert_called_once()
         configure_claude.assert_called_once()
         configure_agy.assert_called_once()
+        configure_maintenance.assert_called_once_with(ROOT, True)
 
     def test_codex_only_setup_refreshes_shared_global_graphify(self) -> None:
         with (
@@ -120,6 +126,11 @@ class SetupAgentHooksTests(unittest.TestCase):
                 return_value=[],
             ) as ensure_launcher,
             patch.object(setup_agent_hooks_impl, "configure_codex", return_value=[]),
+            patch.object(
+                setup_agent_hooks_impl,
+                "configure_maintenance_scheduler",
+                return_value=[],
+            ),
             patch.object(
                 setup_agent_hooks_impl.shutil,
                 "which",
@@ -150,6 +161,11 @@ class SetupAgentHooksTests(unittest.TestCase):
                 return_value=[],
             ) as ensure_launcher,
             patch.object(setup_agent_hooks_impl, "configure_agy", return_value=[]),
+            patch.object(
+                setup_agent_hooks_impl,
+                "configure_maintenance_scheduler",
+                return_value=[],
+            ),
             patch.object(setup_agent_hooks_impl, "configure_global_graphify", return_value=[]),
             patch.object(setup_agent_hooks_impl, "configure_target_projects", return_value=[]),
         ):

@@ -47,16 +47,24 @@ versioning and CI may derive values from their tags.
 
 ### Merge Judgment
 
-Treat a branch as merged only when
-`git merge-base --is-ancestor <branch> origin/<integration>` passes.
+Use the cheapest authoritative evidence and stop once it decides the branch:
 
-- Judge against the remote integration branch. The local one may lag.
-- Do not rely on `git branch -d`'s own merge judgment; use `-D` only on
-  branches that passed the ancestry check above.
-- Squash- or rebase-merged branches fail the ancestry check even when their
-  content landed. Do not auto-delete on that guess: collect
-  `git cherry origin/<integration> <branch>` evidence and ask the user to
-  confirm before deleting.
+1. For PR-backed branches, fetch once immediately before classification and
+   query the forge once for all candidates. A PR is sufficient proof when its
+   state is `MERGED`, its base is the integration branch, and its recorded head
+   SHA equals the fetched remote branch tip. Delete that branch without an
+   ancestry check, `git cherry`, content diff, or repeated per-branch PR query.
+2. A PR that is open, closed without merge, aimed at another base, or whose
+   head SHA no longer matches the branch tip is unmerged. Preserve it and stop;
+   do not run content-equivalence heuristics trying to turn it into a deletion.
+3. When no authoritative PR record exists, fall back to
+   `git merge-base --is-ancestor <branch> origin/<integration>`. Judge against
+   the remote integration branch because the local one may lag.
+
+Do not rely on `git branch -d`'s own merge judgment. A squash or rebase merge is
+handled by the authoritative PR result above; without that result, preserve it
+unless the ancestry fallback passes or the user explicitly approves a separate
+manual recovery decision.
 
 ### Worktree State
 
@@ -75,16 +83,17 @@ user the dirty status output that justified preserving them.
    timeout. An interrupted removal leaves a half-deleted tree; if that
    happens, re-confirm the branch is merged, then finish with
    `git worktree remove --force <path>`.
-4. Immediately before deleting branches, fetch again and re-run the ancestry
-   check per branch. Concurrent sessions can move the branch tip or the
-   remote integration branch while slow worktree removal runs. Checked-out
-   branches cannot be deleted, so preserved worktrees keep their branches
-   automatically.
-5. Remote deletion, only on explicit request: show the classification table
-   first, then re-verify ancestry immediately before each
-   `git push origin --delete <branch>`. Many remote work branches are already
-   deleted by the PR host on merge and show locally as `upstream: gone`; the
-   real deletion list is usually short.
+4. If slow worktree removal occurred after classification, fetch once more and
+   reclassify affected tips. Otherwise do not repeat an unchanged check.
+   Checked-out branches cannot be deleted, so preserved worktrees keep their
+   branches automatically.
+5. Remote deletion, only on explicit request: show the classification table,
+   then batch the approved deletes into one push. Bind every deletion to the
+   fetched tip with `--force-with-lease=refs/heads/<branch>:<sha>` so a
+   concurrently moved branch is refused atomically instead of requiring a
+   second fetch/query/check loop. Many remote work branches are already deleted
+   by the PR host on merge and show locally as `upstream: gone`; the real
+   deletion list is usually short.
 
 ## Recovery
 
@@ -98,7 +107,7 @@ Log the tip SHA of every branch before deleting it.
 
 - Do not commit or push content changes from a cleanup task.
 - Do not delete a branch another person owns, whatever its merge state.
-- Do not delete on squash/rebase-merge suspicion without user confirmation.
+- Do not replace an authoritative non-merged PR result with content heuristics.
 - Do not judge merge state against a local integration branch.
 - Do not use `git worktree remove --force` before re-confirming the branch is
   merged.
@@ -106,7 +115,8 @@ Log the tip SHA of every branch before deleting it.
 ## Stop If
 
 - The integration branch or the owner-prefix convention cannot be determined.
-- Ancestry re-verification fails or disagrees with the earlier classification.
+- The authoritative PR result or ancestry fallback says the branch is not
+  merged, or the leased deletion reports that its tip moved.
 - A deletion target is checked out, dirty, protected, or not owned.
 
 ## Report

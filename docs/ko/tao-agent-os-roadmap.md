@@ -67,7 +67,9 @@ worker 종료 코드에 따라 completed/failed로 전환한다. 실제 runtime 
   budget이 남아 있는 task만 다시 queued로 전환한다.
 - `agent-os-watchdog.py`는 기본 1회 실행으로 stale run/task 복구와 retention을
   수행하며, `--max-cycles`를 지정한 경우에도 유한한 횟수만 실행한다. 무한 daemon은
-  기본 경로에 포함하지 않아 운영자가 launchd/cron 등 수명주기를 선택할 수 있다.
+  기본 경로에 포함하지 않는다. macOS에서는 `setup-agent-hooks.py`가 로그인 시점과
+  24시간 간격으로 bounded maintenance를 실행하는 LaunchAgent를 멱등 설치하고,
+  다른 운영체제에서는 운영자가 cron 등 수명주기를 선택한다.
 - IPC는 content-free `worker.heartbeat`, `worker.result`, `worker.failure`,
   `worker.partial` 이벤트와 opaque worker/result ID를 제공한다.
 - scheduler는 heartbeat, cancellation, partial-result checkpoint를 제공해
