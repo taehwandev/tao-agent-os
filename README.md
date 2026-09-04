@@ -410,7 +410,9 @@ The start hook performs classification, routing, and preflight. Read its `requir
 <TAO_LAUNCHER> workflow validate
 ```
 
-Supported commands are `ambiguity`, `bugfix`, `docs`, `docs-review`, `feature`, `multi-agent`, `planning`, `prd`, `product`, `refactor`, `release`, `retrospective`, `review`, `task`, and `triage`.
+Supported commands are `ambiguity`, `bugfix`, `cleanup`, `docs`, `docs-review`, `feature`, `multi-agent`, `planning`, `prd`, `product`, `refactor`, `release`, `retrospective`, `review`, `task`, and `triage`.
+
+`cleanup` is the route for removing merged branches, stale worktrees, and the local refs a merged pull request left behind. It exists because that work has no product: routed as `task` it collected nineteen gates, a review hook, a boundary plan and a test gate for an operation whose git work takes under a second. It answers the four deletion gates the cleanup guidance already states, reports what it removed and kept, and still needs a recorded approval, because deleting a ref is a git write.
 
 Supported platforms are `android`, `application`, `flutter`, `ios`, `kmp`, `server`, and `web`. Supported concerns are `accessibility`, `aeo`, `ai-mode`, `ai-overviews`, `ai-search`, `ai-search-optimization`, `agent-credentials`, `answer-engine`, `answer-engine-optimization`, `api`, `asset`, `assets`, `auth`, `background`, `billing`, `brokered-credentials`, `cache`, `canonical`, `capability-token`, `channel`, `component`, `component-api`, `compose`, `config`, `copy`, `credential-broker`, `defensive`, `dependency`, `desktop`, `discovery`, `effort`, `egress-control`, `error`, `errors`, `failure`, `generated`, `generative-ai`, `generative-ai-search`, `geo`, `intake`, `interaction`, `invite`, `llms`, `llms-txt`, `module`, `observability`, `open-graph`, `persistence`, `platform`, `prose`, `react`, `release`, `reusability`, `robots`, `runtime-url`, `security`, `seo`, `sitemap`, `stack`, `state`, `structure`, `structured-data`, `swiftui`, `ui`, `uikit`, `url`, `voice`, `widget`, `wiki`, `worktree`, and `writing`.
 

@@ -92,6 +92,11 @@ PRODUCT_REENTRY_COMMANDS = {
 
 SOURCE_DOCS_COMMANDS = WORK_PRODUCING_COMMANDS | {
     "ambiguity",
+    # Cleanup produces nothing, so none of the work gates apply to it -- but the
+    # rules that stop it deleting the wrong branch live in a document, and this
+    # is the gate that makes an agent say what it read there. Being here also
+    # keeps it inside the retrospective check every route ends with.
+    "cleanup",
     "commit",
     "docs-review",
     "git_commit",

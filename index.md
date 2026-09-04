@@ -74,7 +74,7 @@ Pick the smallest relevant document set. Repo-local guidance wins over this shar
 - Commit review: start with code review, then add `common/skills/commit-review/SKILL.md`
 - Branch strategy and branch naming: `common/skills/branch-strategy/SKILL.md`
 - Commit creation, branch/PR/push safety, staged diff policy: `common/skills/commit-workflow/SKILL.md`
-- Merged-branch and worktree cleanup safety gates: `common/skills/branch-cleanup/SKILL.md`
+- Merged-branch and worktree cleanup safety gates: `common/skills/branch-cleanup/SKILL.md`, routed by the `cleanup` command. Use that route rather than `task` or `refactor`: removing what a merge already absorbed produces no work, so it answers the four deletion gates and reports, and carries none of the gates a change carries.
 - Git history investigation, blame noise filtering, origin-commit tracing: `common/skills/git-history-investigation/SKILL.md`
 
 ## Platform
