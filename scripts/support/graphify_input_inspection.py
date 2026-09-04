@@ -20,10 +20,14 @@ KNOWLEDGE_SUFFIXES = {
 }
 
 
-def inspect_project_graph_inputs(project_path: Path) -> dict[str, object]:
+def inspect_project_graph_inputs(
+    project_path: Path,
+    *,
+    manifest_path: Path | None = None,
+) -> dict[str, object]:
     blanket_exclusions = blanket_knowledge_exclusions(project_path)
     knowledge_files = project_knowledge_files(project_path)
-    manifest, _ = read_manifest_state(project_path)
+    manifest, _ = read_manifest_state(project_path, manifest_path=manifest_path)
     manifest_keys = set(manifest)
     knowledge_relatives = {
         path.relative_to(project_path).as_posix() for path in knowledge_files
@@ -130,8 +134,12 @@ def blanket_knowledge_exclusions(project_path: Path) -> list[str]:
     return matches
 
 
-def read_manifest_state(project_path: Path) -> tuple[dict[str, object], set[str]]:
-    path = project_path / PROJECT_MANIFEST_PATH
+def read_manifest_state(
+    project_path: Path,
+    *,
+    manifest_path: Path | None = None,
+) -> tuple[dict[str, object], set[str]]:
+    path = manifest_path or project_path / PROJECT_MANIFEST_PATH
     if not path.is_file():
         return {}, set()
     try:

@@ -44,6 +44,6 @@ GRAPHIFY_OUT=.agents/local/graphify-out graphify merge-graphs \
 ```
 
 Once `.agents/local/graphify-out/graph.json` exists, the fast path above takes
-over: any codebase question runs
-`GRAPHIFY_OUT=.agents/local/graphify-out graphify query` directly on the merged
-graph — no re-extraction, no size gate.
+over: any codebase question follows `references/query.md`, validates the graph,
+and queries the readiness-selected `GRAPHIFY_READ_OUT` — no re-extraction or
+size gate.

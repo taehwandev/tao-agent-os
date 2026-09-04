@@ -12,6 +12,9 @@ DEFAULT_GRAPH_STATE: dict[str, object] = {
     "project_head": None,
     "graph_built_at_commit": None,
     "graph_fresh": False,
+    "graph_head_matches": False,
+    "graph_head_comparison_ready": False,
+    "graph_worktree_status_ready": False,
     "graph_source_dirty_count": 0,
     "graph_node_count": 0,
     "graph_malformed_node_count": 0,
@@ -41,6 +44,7 @@ def inspect_project_graph_state(project_path: Path, graph_path: Path) -> dict[st
             project_path,
             integrity.get("graph_built_at_commit"),
             float(integrity.get("graph_mtime") or 0),
+            manifest_path=graph_path.parent / "manifest.json",
         )
     )
     state.pop("graph_mtime", None)

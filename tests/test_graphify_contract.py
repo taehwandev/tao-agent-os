@@ -152,8 +152,9 @@ class GraphifyOutputBoundaryTests(unittest.TestCase):
     def test_the_skill_writes_only_to_the_project_local_boundary(self) -> None:
         skill_root = ROOT / RUNTIME_BUNDLED_SKILL_DIR
         markdown_files = sorted(skill_root.rglob("*.md"))
-        # A write is a command with an output directory in front of it.
-        legacy_write = re.compile(r"GRAPHIFY_OUT=(?!\.agents/local/graphify-out)")
+        known_output = re.compile(
+            r'GRAPHIFY_OUT=(?!(?:\.agents/local/graphify-out|"\$GRAPHIFY_(?:READ|WRITE)_OUT"))'
+        )
         bare_cli = re.compile(
             r"(?m)^\s*graphify "
             r"(?:query|path|explain|update|cluster-only|extract|export|"
@@ -162,28 +163,44 @@ class GraphifyOutputBoundaryTests(unittest.TestCase):
 
         for path in markdown_files:
             text = path.read_text(encoding="utf-8")
-            self.assertIsNone(legacy_write.search(text), path)
+            self.assertIsNone(known_output.search(text), path)
             self.assertIsNone(bare_cli.search(text), path)
+
+        query = (skill_root / "references" / "query.md").read_text(encoding="utf-8")
+        self.assertIn(
+            'GRAPHIFY_WRITE_OUT="$(pwd -P)/.agents/local/graphify-out"',
+            query,
+        )
+        for line in query.splitlines():
+            if re.search(r"graphify (?:save-result|reflect)\b", line):
+                self.assertIn('GRAPHIFY_OUT="$GRAPHIFY_WRITE_OUT"', line)
+                self.assertNotIn('GRAPHIFY_OUT="$GRAPHIFY_READ_OUT"', line)
 
     def test_the_skill_says_where_to_read_when_nothing_redirected_the_output(self) -> None:
         skill = (ROOT / RUNTIME_BUNDLED_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
 
-        self.assertIn("graphify-out/graph.json", skill)
-        self.assertIn("read the newer one", skill)
+        self.assertIn("root-level default", skill)
+        self.assertIn("actual path", skill)
+        self.assertIn("fresh and structurally valid", skill)
 
-    def test_the_skill_still_names_the_redirected_location_first(self) -> None:
+    def test_query_commands_use_the_readiness_selected_graph(self) -> None:
         skill_root = ROOT / RUNTIME_BUNDLED_SKILL_DIR
         skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         query = (skill_root / "references" / "query.md").read_text(encoding="utf-8")
-        self.assertIn(".agents/local/graphify-out/graph.json", skill)
-        self.assertIn(
-            "GRAPHIFY_OUT=.agents/local/graphify-out graphify query",
-            skill,
-        )
-        self.assertIn(
-            "GRAPHIFY_OUT=.agents/local/graphify-out graphify query",
-            query,
-        )
+        self.assertIn("GRAPHIFY_READ_OUT", skill)
+        self.assertIn("setup-project-graphify.py --project . --check --format json", query)
+        for field in ("graph_exists", "graph_fresh", "graph_integrity_ready"):
+            self.assertIn(field, query)
+        self.assertIn('GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" graphify query', query)
+        self.assertIn('GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" graphify path', query)
+        self.assertIn('GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" graphify explain', query)
+        legacy_query = "GRAPHIFY_OUT=.agents/local/graphify-out graphify query"
+        for path in sorted(skill_root.rglob("*.md")):
+            self.assertNotIn(
+                legacy_query,
+                path.read_text(encoding="utf-8"),
+                path,
+            )
 
 
 class GlobalBundleFreshnessTests(unittest.TestCase):

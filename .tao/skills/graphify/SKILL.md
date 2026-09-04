@@ -10,9 +10,9 @@ Turn any folder of files into a navigable knowledge graph with community detecti
 ## Output Boundary
 
 Write generated state under `.agents/local/graphify-out/` relative to the
-target repository root: every Graphify CLI invocation in this skill sets
-`GRAPHIFY_OUT=.agents/local/graphify-out`, and the inline Python flows name the
-same directory. Keep that assignment when adapting a command.
+target repository root. The query flow may read an existing graph from the
+CLI's root-level default, but vocabulary, reflection, saved-result, rebuild,
+and export writes stay under `.agents/local/graphify-out/`.
 
 **Read from wherever the graph actually is.** The installed commit hooks write
 to the CLI's own default, `graphify-out/` at the repository root, whenever that
@@ -22,9 +22,10 @@ that directory legacy and refusing to read it left this repository's own agents
 pointed at an empty path while the only graph on disk, rebuilt on every branch
 switch, sat in the one they were told never to open.
 
-So: prefer `.agents/local/graphify-out/graph.json` when it exists, fall back to
-`graphify-out/graph.json`, and when both exist read the newer one and say which
-you read. Never write to both.
+Resolve the graph through the Tao readiness check before querying. It selects
+the graph that actually exists and evaluates the matching sibling manifest;
+continue only when that graph is fresh and structurally valid. Say which graph
+you read. Never write generated state to both locations.
 
 ## Usage
 
@@ -100,13 +101,19 @@ Both are non-default subcommands. `--update` re-extracts only new or changed fil
 
 ## For /graphify query
 
-When `.agents/local/graphify-out/graph.json` already exists and the user asks a question about the corpus, answer from the graph rather than rebuilding it:
+When a graph already exists and the user asks a question about the corpus,
+resolve and validate its actual path with `references/query.md` before running
+anything. That reference defines `GRAPHIFY_READ_OUT` for read-only traversal
+and keeps `GRAPHIFY_WRITE_OUT` on the canonical write boundary. Do not replace
+the selected read path with a literal directory.
 
-```bash
-GRAPHIFY_OUT=.agents/local/graphify-out graphify query "<question>"
-```
-
-Before traversal, expand the question against the graph's own vocabulary so a wording mismatch does not collapse the answer to noise. If the `graphify query` CLI is unavailable, fall back to an inline NetworkX traversal of `.agents/local/graphify-out/graph.json`. Answer using only what the graph output contains, and quote `source_location` when citing a specific fact. For that vocab-expansion step, the BFS/DFS traversal modes, the `--budget` cap, the NetworkX fallback, `save-result` feedback, and the `/graphify path` and `/graphify explain` flows, see `references/query.md`.
+Before traversal, expand the question against the selected graph's own
+vocabulary so a wording mismatch does not collapse the answer to noise. If the
+`graphify query` CLI is unavailable, use the reference's inline NetworkX
+fallback against the same selected graph. Answer using only what the graph
+output contains, and quote `source_location` when citing a specific fact. For
+the freshness gate, vocab expansion, BFS/DFS modes, `--budget`, feedback, path,
+and explain flows, see `references/query.md`.
 
 ---
 
