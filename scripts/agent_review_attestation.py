@@ -23,6 +23,10 @@ SCHEMA_VERSION = 3
 REVIEW_HOOK_GATE = "review hook"
 LOCAL_AGENT_CONFIG_PATHS = frozenset(
     {
+        ".agents/local/graphify-out/GRAPH_REPORT.md",
+        ".agents/local/graphify-out/graph.html",
+        ".agents/local/graphify-out/graph.json",
+        ".agents/local/graphify-out/manifest.json",
         ".claude/settings.json",
         ".claude/settings.local.json",
         ".codex/hooks.json",
@@ -44,7 +48,7 @@ class ReviewAttestation:
 
     @staticmethod
     def local_config_subject(project: Path, review_paths: list[str]) -> dict[str, Any]:
-        """Snapshot an explicit allowlisted ignored agent configuration boundary."""
+        """Snapshot an explicit allowlisted ignored agent-local boundary."""
 
         return _local_config_subject(project, review_paths)
 
