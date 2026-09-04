@@ -316,22 +316,105 @@ class RetrospectiveGateOrderingTests(unittest.TestCase):
 
         source = inspect.getsource(followup.skill_followup_failures)
         self.assertIn("recorded_observation_failures(", source)
-        self.assertIn("_retrospective_fields(preflight)", source)
+        self.assertIn("_retrospective_fields(gate_evidence_ledger)", source)
 
-    def test_retrospective_fields_are_read_from_the_gate_ledger(self):
+    def test_retrospective_fields_are_read_from_the_gate_evidence_ledger(self):
+        """The fields come from the file that records them, not the start snapshot.
+
+        This test used to build a preflight whose `route.gate_ledger` entries
+        carried a `fields` key. No run has ever produced that shape -- across 99
+        recorded preflights the entries are `gate`, `status`, `signal` and
+        `evidence` only -- so the reader returned `{}` in production while this
+        test proved it worked. The manufactured input is what let the defect
+        survive, so the fixture below is the real ledger shape.
+        """
+
         from agent_skill_followup import _retrospective_fields
 
+        self.assertEqual(_retrospective_fields(None), {})
         self.assertEqual(_retrospective_fields({}), {})
-        self.assertEqual(_retrospective_fields({"route": "not a dict"}), {})
-        preflight = {
-            "route": {
-                "gate_ledger": [
-                    {"gate": "act", "fields": {"x": "y"}},
-                    {"gate": "retrospective check", "fields": {"outcome": "reusable_gap"}},
-                ]
-            }
+        self.assertEqual(_retrospective_fields({"entries": "not a list"}), {})
+        ledger = {
+            "entries": [
+                {"gate": "act", "fields": {"x": "y"}},
+                {"gate": "retrospective check", "fields": {"outcome": "reusable_gap"}},
+            ]
         }
-        self.assertEqual(_retrospective_fields(preflight), {"outcome": "reusable_gap"})
+        self.assertEqual(
+            _retrospective_fields(ledger), {"outcome": "reusable_gap"}
+        )
+
+    def test_a_re_recorded_retrospective_replaces_the_earlier_one(self):
+        """Re-recording a gate is how a correction is made; the correction wins."""
+
+        from agent_skill_followup import _retrospective_fields
+
+        ledger = {
+            "entries": [
+                {"gate": "retrospective check", "fields": {"outcome": "reusable_gap"}},
+                {"gate": "retrospective check", "fields": {"outcome": "no_reusable_gap"}},
+            ]
+        }
+        self.assertEqual(
+            _retrospective_fields(ledger), {"outcome": "no_reusable_gap"}
+        )
+
+    def test_a_claimed_observation_is_refused_through_the_followup_path(self):
+        """The guarantee, exercised the way finish reaches it.
+
+        The neighbouring test calls the verifier directly with hand-built
+        fields, which passed throughout the period when nothing could reach it.
+        This one goes through `skill_followup_failures` with a real ledger, so
+        it fails if the wiring is broken again.
+        """
+
+        from agent_skill_followup import skill_followup_failures
+
+        ledger = {
+            "entries": [
+                {
+                    "gate": "retrospective check",
+                    "fields": {
+                        "outcome": "reusable_gap",
+                        "observation": "recorded",
+                        "skills_checked": "code_conventions",
+                    },
+                }
+            ]
+        }
+        with TemporaryDirectory() as tmp:
+            failures = skill_followup_failures(
+                state_root=Path(tmp),
+                preflight={"agent_run_id": "run-xyz"},
+                gate_evidence_ledger=ledger,
+            )
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("matching stored observation", failures[0])
+
+    def test_an_honest_no_reusable_gap_still_passes_the_followup_path(self):
+        from agent_skill_followup import skill_followup_failures
+
+        ledger = {
+            "entries": [
+                {
+                    "gate": "retrospective check",
+                    "fields": {
+                        "outcome": "no_reusable_gap",
+                        "observation": "not_needed",
+                        "skills_checked": "code_conventions",
+                    },
+                }
+            ]
+        }
+        with TemporaryDirectory() as tmp:
+            failures = skill_followup_failures(
+                state_root=Path(tmp),
+                preflight={"agent_run_id": "run-xyz"},
+                gate_evidence_ledger=ledger,
+            )
+
+        self.assertEqual([], failures)
 
     def test_a_reusable_gap_without_a_stored_observation_still_fails_at_finish(self):
         from agent_retrospective_observation import recorded_observation_failures

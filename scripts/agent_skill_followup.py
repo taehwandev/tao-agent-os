@@ -32,6 +32,7 @@ def skill_followup_failures(
     *,
     state_root: Path,
     preflight: dict[str, Any],
+    gate_evidence_ledger: dict[str, Any] | None = None,
 ) -> list[str]:
     """Report unfinished learning triggered by the current opaque occurrence.
 
@@ -47,7 +48,7 @@ def skill_followup_failures(
     failures.update(
         recorded_observation_failures(
             preflight=preflight,
-            fields=_retrospective_fields(preflight),
+            fields=_retrospective_fields(gate_evidence_ledger),
             state_root=state_root,
         )
     )
@@ -75,18 +76,32 @@ def skill_followup_failures(
     return sorted(failures)
 
 
-def _retrospective_fields(preflight: dict[str, Any]) -> dict[str, Any]:
-    """Read the current retrospective fields from the route gate ledger."""
+def _retrospective_fields(gate_evidence_ledger: dict[str, Any] | None) -> dict[str, Any]:
+    """Read the retrospective fields the agent actually recorded.
 
-    route = preflight.get("route")
-    if not isinstance(route, dict):
+    This used to read `preflight["route"]["gate_ledger"]`, which is the route
+    snapshot frozen at `start`: its entries carry `gate`, `status`, `signal` and
+    `evidence`, and never a `fields` key at all. Across 99 recorded runs not one
+    carried fields, so the lookup returned `{}` every time and the observation
+    check below could never see a `reusable_gap` to verify. The recorded fields
+    live in the gate evidence ledger, which is the file `gate` and `gate-batch`
+    write and the finish check has already read and validated by this point.
+
+    The last matching entry wins: re-recording a gate is how a correction is
+    made, and the correction is what the finish is judging.
+    """
+
+    entries = (gate_evidence_ledger or {}).get("entries")
+    if not isinstance(entries, list):
         return {}
-    for item in route.get("gate_ledger") or []:
+    fields: dict[str, Any] = {}
+    for item in entries:
         if not isinstance(item, dict) or item.get("gate") != "retrospective check":
             continue
-        fields = item.get("fields")
-        return fields if isinstance(fields, dict) else {}
-    return {}
+        recorded = item.get("fields")
+        if isinstance(recorded, dict):
+            fields = recorded
+    return fields
 
 
 def _valid_current_observation(payload: dict[str, Any], occurrence_key: str) -> bool:
