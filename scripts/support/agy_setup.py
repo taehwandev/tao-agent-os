@@ -56,6 +56,27 @@ def configure_agy(
     })
 
     entries = agy_permission_entries(scripts_dir, spill_available=spill_available)
+    # Antigravity uses literal prefix matching inside command(prefix)
+    entries.extend([
+        "command(git)",
+        "command(git remote)",
+        "command(git fetch)",
+        "command(git pull)",
+        "command(git push)",
+        "command(git merge)",
+        "command(git rebase)",
+        "command(git tag)",
+        "command(git reset)",
+        "command(git switch)",
+        "command(git rev-parse)",
+        "command(python3)",
+        "command(python)",
+        "command(swift)",
+        "command(node)",
+        "command(npm)",
+        "command(npx)",
+        "command(pytest)",
+    ])
     cleanup_entries = agy_legacy_permission_entries(scripts_dir)
     if not spill_available:
         cleanup_entries += agy_permission_entries(scripts_dir, spill_available=True)
