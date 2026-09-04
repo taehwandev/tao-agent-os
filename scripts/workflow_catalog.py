@@ -222,6 +222,33 @@ COMMANDS: Dict[str, Profile] = {
             "Use release only when the request actually packages, deploys, tags, migrates, or publishes a release artifact.",
         ),
     ),
+    "cleanup": Profile(
+        docs=(
+            "common/skills/branch-cleanup/SKILL.md",
+            "common/skills/worktree-hygiene/SKILL.md",
+        ),
+        # The four safety questions this route exists to answer are the ones
+        # `branch-cleanup` already states as its deletion gates, plus the report
+        # it asks for. Nothing here produces work, so none of the gates a work
+        # route carries -- tests, boundary plan, documentation impact,
+        # retrospective, review hook -- applies to it.
+        gates=(
+            "ownership",
+            "protected branches",
+            "merge judgment",
+            "worktree state",
+            "cleanup report",
+        ),
+        notes=(
+            "Use for removing merged branches, stale worktrees, and the local refs a merged "
+            "pull request left behind, and for nothing else. "
+            "Deleting a ref is a git write, so the route still needs a recorded approval bound "
+            "to this request and target; deleting a remote branch needs one that covers "
+            "external_write, and the guidance never does it unasked. "
+            "Use commit for work that produces a commit, and task or refactor when the request "
+            "changes content rather than removing what a merge already absorbed.",
+        ),
+    ),
     "planning": Profile(
         docs=("workflows/skills/planning-research/SKILL.md",),
         gates=("question", "sources", "options", "recommendation"),
@@ -286,6 +313,7 @@ SPILL_ROUTE_LABELS: Dict[str, Tuple[str, str]] = {
     "docs-review": ("code_review", "verify"),
     "feature": ("code_generation", "implement"),
     "build": ("code_generation", "implement"),
+    "cleanup": ("repo_hygiene", "implement"),
     "commit": ("git_commit", "verify"),
     "git_commit": ("git_commit", "verify"),
     "multi-agent": ("architecture", "plan"),

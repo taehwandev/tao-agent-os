@@ -112,7 +112,8 @@ from workflow_doc_graph import (
     graph_required_docs,
 )
 from workflow_parallel_validate import validate_parallel_execution_plan
-from workflow_route import resolve_docs, route_hooks
+from workflow_effect_policy import route_minimum_effect
+from workflow_route import resolve_docs, route_gates, route_hooks
 from workflow_search import SearchOutcome, search_docs, search_docs_outcome
 from workflow_skill_paths import canonical_doc_path
 from workflow_spill import spill_tool_label, validate_spill_label_contracts
@@ -656,6 +657,84 @@ class WorkflowCatalogTests(unittest.TestCase):
                         command, route, route.get("skill_feedback") or {}
                     ),
                 )
+
+
+class CleanupRouteStaysLightTests(unittest.TestCase):
+    """Deleting merged branches was costing a work route's whole ceremony.
+
+    There was no route for it, so it arrived as `task` or `refactor`: 19 gates,
+    a review hook, a boundary plan, a test gate and a retrospective, for an
+    operation that produces nothing and whose git work takes under a second.
+    The guidance for it already existed and nothing routed to it.
+
+    What keeps this light is absence -- `cleanup` is in none of the command
+    sets that add automatic gates -- and absence is invisible in a diff. These
+    tests are where it becomes visible.
+    """
+
+    def test_the_route_carries_only_its_own_safety_gates(self) -> None:
+        gates = route_gates("cleanup")
+
+        self.assertEqual(
+            [
+                # Read the rules that stop this deleting the wrong branch,
+                "source docs",
+                # answer the four questions the guidance calls its deletion
+                # gates, say what was removed and what was kept,
+                "ownership",
+                "protected branches",
+                "merge judgment",
+                "worktree state",
+                "cleanup report",
+                # and end where every route ends.
+                "retrospective check",
+            ],
+            gates,
+        )
+
+    def test_it_is_lighter_than_the_work_routes_it_replaces(self) -> None:
+        for work_route in ("task", "refactor"):
+            with self.subTest(route=work_route):
+                self.assertLess(
+                    len(route_gates("cleanup")), len(route_gates(work_route)) // 2
+                )
+
+    def test_no_work_gate_reaches_it(self) -> None:
+        """Each of these belongs to producing a change, not to removing a ref.
+
+        The retrospective check is not among them: every route ends with one,
+        and a cleanup that went wrong is exactly the kind of thing worth
+        learning from.
+        """
+
+        gates = set(route_gates("cleanup"))
+
+        for absent in (
+            "tests",
+            "boundary plan",
+            "documentation",
+            "documentation impact",
+            "review hook",
+            "alignment brief",
+            "work surface resolution",
+            "cycle contract",
+            "multi-agent split decision",
+        ):
+            with self.subTest(gate=absent):
+                self.assertNotIn(absent, gates)
+
+    def test_removing_a_ref_still_needs_a_recorded_approval(self) -> None:
+        """Light is not unguarded: the one approval is the deletion approval."""
+
+        self.assertEqual("git_write", route_minimum_effect("cleanup"))
+
+    def test_it_routes_to_the_guidance_that_already_existed(self) -> None:
+        route = resolve_docs("cleanup", None, [])
+
+        self.assertIn(
+            "common/skills/branch-cleanup/references/current-guidance.md",
+            route["required_docs"],
+        )
 
 
 class AutoRouteSentinelTests(unittest.TestCase):

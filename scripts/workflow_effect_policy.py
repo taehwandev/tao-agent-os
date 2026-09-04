@@ -41,6 +41,10 @@ ROUTE_MINIMUM_EFFECT = {
     "test": "local_write",
     "webperf": "local_write",
     "workflow-setup": "local_write",
+    # A floor, not a ceiling: removing local refs and worktrees is a git write,
+    # and a request that also names a remote branch still needs an envelope and
+    # an approval that cover external_write.
+    "cleanup": "git_write",
     "commit": "git_write",
     "git_commit": "git_write",
     "release": "external_write",
