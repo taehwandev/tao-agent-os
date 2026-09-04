@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -131,6 +132,106 @@ class SharedRootIsNotDowngradedTests(unittest.TestCase):
             self.durable.resolve(),
             Path((self.home / ".tao" / "tao-root").read_text(encoding="utf-8").strip()),
         )
+
+
+class LauncherRunsTheScriptInProcessTests(unittest.TestCase):
+    """The launcher is on the hot path, so it must not pay for a second Python.
+
+    A PreToolUse gate runs on every Bash, Edit and Write call, and spawning an
+    interpreter to reach the gate script cost 24 ms of the 72 ms that call
+    took. What the child gave for free -- the scripts directory on `sys.path`,
+    `sys.argv`, an exit code, and a crash the soft-fail switch could absorb --
+    is what these tests pin, because losing any of them turns a saved 24 ms
+    into a hook that breaks the tool call it was gating.
+    """
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        base = Path(self.temporary_directory.name)
+        self.home = base / "home"
+        (self.home / ".tao").mkdir(parents=True)
+        self.root = base / "tao-agent-os"
+        (self.root / "scripts").mkdir(parents=True)
+        (self.root / "AGENTS.md").write_text("markers only\n", encoding="utf-8")
+        (self.root / "index.md").write_text("markers only\n", encoding="utf-8")
+        self.report = base / "report.json"
+        with patch("support.stable_launcher.Path.home", return_value=self.home):
+            ensure_stable_launcher(self.root, dry_run=False)
+            self.launcher = stable_launcher_path()
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def _write_script(self, body: str) -> None:
+        (self.root / "scripts" / "workflow.py").write_text(body, encoding="utf-8")
+
+    def _run(self, *arguments: str, soft_fail: bool = False):
+        environment = dict(os.environ)
+        environment["HOME"] = str(self.home)
+        environment["TAO_HOME"] = str(self.root)
+        environment["TAO_REPORT"] = str(self.report)
+        environment["TAO_HOOK_SOFT_FAIL"] = "1" if soft_fail else "0"
+        return subprocess.run(
+            [sys.executable, str(self.launcher), "workflow", *arguments],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_the_script_runs_in_the_launcher_process(self) -> None:
+        self._write_script(
+            "import json, os, sys\n"
+            "json.dump(\n"
+            "    {'ppid': os.getppid(), 'argv': sys.argv, 'path0': sys.path[0]},\n"
+            "    open(os.environ['TAO_REPORT'], 'w'),\n"
+            ")\n"
+        )
+
+        result = self._run("validate", "--strict")
+        report = json.loads(self.report.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        # A spawned child would report the launcher as its parent. Reporting
+        # this test process instead is what proves there was no second Python.
+        self.assertEqual(os.getpid(), report["ppid"])
+        # Resolved, because the launcher resolves the root it was pointed at
+        # and the temporary directory sits behind a symlink on macOS.
+        scripts = self.root.resolve() / "scripts"
+        self.assertEqual(
+            [str(scripts / "workflow.py"), "validate", "--strict"], report["argv"]
+        )
+        # Every script under scripts/ imports its siblings by bare name, which
+        # only works while their directory leads sys.path.
+        self.assertEqual(str(scripts), report["path0"])
+
+    def test_a_scripts_exit_code_still_reaches_the_caller(self) -> None:
+        self._write_script("import sys\nsys.exit(3)\n")
+
+        self.assertEqual(3, self._run().returncode)
+
+    def test_soft_fail_still_absorbs_a_failing_script(self) -> None:
+        self._write_script("import sys\nsys.exit(3)\n")
+
+        self.assertEqual(0, self._run(soft_fail=True).returncode)
+
+    def test_a_crashing_script_reports_the_traceback_and_does_not_escape(self) -> None:
+        """In-process, an unhandled error would otherwise be the launcher's."""
+
+        self._write_script("raise RuntimeError('gate is broken')\n")
+
+        result = self._run()
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("RuntimeError: gate is broken", result.stderr)
+
+    def test_soft_fail_absorbs_a_crash_so_a_broken_hook_cannot_brick_a_tool_call(self) -> None:
+        self._write_script("raise RuntimeError('gate is broken')\n")
+
+        result = self._run(soft_fail=True)
+
+        self.assertEqual(0, result.returncode)
+        self.assertIn("RuntimeError: gate is broken", result.stderr)
 
 
 if __name__ == "__main__":
