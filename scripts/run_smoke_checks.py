@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run automated smoke checks to verify Tao Agent OS hooks and search library E2E."""
 
+import json
 import shutil
 import subprocess
 import sys
@@ -108,26 +109,39 @@ def test_gate_validation_success(temp_dir: str) -> None:
             "evidence": "skills checked: request-triage, retrospective-learning; outcome: no_reusable_gap; observation: not_needed",
         },
     ]
-    for data in gates_data:
-        cmd = [
+    # One batch, not one process per gate. The route's own start output tells
+    # agents to record simultaneously-ready gates together, and this check ran
+    # eight separate interpreters instead -- so it was slower than it needed to
+    # be and, worse, it smoke-tested a path the guidance tells nobody to use.
+    records = [
+        {
+            "gate": data["gate"],
+            "status": "SUCCESS",
+            "evidence": data["evidence"],
+            "fields": data.get("fields", {}),
+        }
+        for data in gates_data
+    ]
+    batch = Path(temp_dir) / "smoke-gates.json"
+    batch.write_text(json.dumps(records), encoding="utf-8")
+    result = run_command(
+        [
             sys.executable,
             str(ROOT / "scripts" / "agent-hook.py"),
-            "gate",
+            "gate-batch",
             "--project",
             temp_dir,
             "--rules",
             str(ROOT),
-            "--gate-name",
-            data["gate"],
-            "--status",
-            "SUCCESS",
-            "--gate-evidence",
-            data["evidence"],
+            "--gate-json",
+            str(batch),
         ]
-        for k, v in data.get("fields", {}).items():
-            cmd.extend(["--field", f"{k}={v}"])
-        result = run_command(cmd)
-        assert result.returncode == 0, f"Failed to record gate {data['gate']}:\n{result.stderr}"
+    )
+    assert result.returncode == 0, f"Failed to record the gate batch:\n{result.stderr}"
+    for data in gates_data:
+        assert data["gate"] in result.stdout or "truncated" in result.stdout, (
+            f"Gate {data['gate']} is missing from the batch result:\n{result.stdout}"
+        )
     print("SUCCESS: All gates populated with valid evidence.")
 
 
