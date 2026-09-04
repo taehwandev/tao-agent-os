@@ -26,60 +26,16 @@ from workflow_common import (
 )
 from support.stage_timing import recorded_stages
 
-ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 REVIEW_CHANGED_PATH_LIMIT = 25
 
 
-def clean_output(text: str) -> str:
-    return ANSI_RE.sub("", text)
-
-
-def run_command(command: list[str], cwd: Path) -> dict[str, Any]:
-    result = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    return {
-        "command": command,
-        "cwd": str(cwd),
-        "returncode": result.returncode,
-        "stdout": clean_output(result.stdout),
-        "stderr": clean_output(result.stderr),
-    }
-
-
-def vibeguard_command(project: Path, rules: Path) -> list[str]:
-    binary = shutil.which("vibeguard")
-    if binary:
-        return [binary, "audit", str(project), "--rules", str(rules)]
-    return [
-        "npx",
-        "--yes",
-        "@taehwandev/vibeguard",
-        "audit",
-        str(project),
-        "--rules",
-        str(rules),
-    ]
-
-
-def parse_overall(output: str) -> str:
-    for raw_line in clean_output(output).splitlines():
-        line = raw_line.strip()
-        if line.startswith("Overall:"):
-            value = line.split("Overall:", 1)[1].strip()
-            if "Ready" in value:
-                return "Ready"
-            if "Needs review" in value:
-                return "Needs review"
-            if "Blocked" in value:
-                return "Blocked"
-            return value or "unknown"
-    return "unknown"
+from agent_command_runtime import (
+    ANSI_RE,
+    clean_output,
+    parse_overall,
+    run_command,
+    vibeguard_command,
+)
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
