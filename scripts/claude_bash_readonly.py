@@ -430,6 +430,61 @@ def _current_python_interpreter(token: str) -> bool:
         return False
 
 
+# Running the repository's own tests is verification, and the gate already
+# allows every one of these when it stands alone: a non-Git command in the
+# protected checkout defers to the permission layer, where the operator's
+# answer persists. What it did not allow was the same command with a pipe on
+# the end, because only a simple command reaches that deferral -- so `pytest`
+# passed and `pytest | tail` was refused, and neither writes anything a
+# worktree exists to isolate.
+#
+# Naming them here removes that asymmetry and nothing else. A compound line is
+# still judged by its strictest part, so `pytest && rm -rf build` is mutating
+# on the second half exactly as it was.
+#
+# This is a weaker claim than the digest-bound rule below, and deliberately so:
+# a test run executes repository code, and `-m` cannot be pinned to a digest.
+# It is bounded instead by naming the module, so `python3 -m pytest` is a test
+# run and `python3 -m http.server` is not.
+TEST_RUNNER_MODULES = frozenset({"pytest", "unittest", "py_compile", "compileall"})
+
+
+def test_runner_kind(tokens: list[str]) -> str | None:
+    """Read-only when the line is a test or compile check and nothing else."""
+
+    if not tokens:
+        return None
+    if Path(tokens[0]).name == "pytest":
+        return "read_only"
+    if not _names_a_python(tokens[0]):
+        return None
+    # `-m <module>` has to be the first thing the interpreter is given, so a
+    # line that first runs a script, or opens an interactive shell, or takes
+    # `-c`, never reaches this.
+    if len(tokens) < 3 or tokens[1] != "-m":
+        return None
+    return "read_only" if tokens[2] in TEST_RUNNER_MODULES else None
+
+
+def _names_a_python(token: str) -> bool:
+    """Whether this token is a Python interpreter, whichever one it is.
+
+    Looser than `_current_python_interpreter`, and it has to be: that one
+    answers "will *this* interpreter run the file we hashed", which is the
+    right question for a digest-bound script and the wrong one here. What
+    bounds this allowance is the module named after `-m`, not which Python
+    reaches it.
+    """
+
+    if not token or "\x00" in token:
+        return False
+    name = Path(token).name
+    if not name.startswith("python"):
+        return False
+    suffix = name[len("python"):]
+    return suffix == "" or all(part.isdigit() for part in suffix.split(".") if part)
+
+
 def read_only_script_kind(tokens: list[str]) -> str | None:
     """Read-only when a digest-bound script is what the interpreter runs.
 
@@ -633,6 +688,9 @@ def simple_command_kind(tokens: list[str]) -> str:
     script_kind = read_only_script_kind(command)
     if script_kind is not None:
         return script_kind
+    runner_kind = test_runner_kind(command)
+    if runner_kind is not None:
+        return runner_kind
     executable = Path(command[0]).name
     if executable in READ_ONLY_COMMANDS:
         if executable == "rg" and any(arg == "--pre" or arg.startswith("--pre=") for arg in command[1:]):

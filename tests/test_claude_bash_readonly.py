@@ -836,5 +836,60 @@ class AnyPythonRunsTheInstallerTests(unittest.TestCase):
         self.assertFalse(_current_python_interpreter("/bin/sh"))
 
 
+class TestRunnersReadTheSamePipedOrNotTests(unittest.TestCase):
+    """Verification should not need a worktree, and did not need one alone."""
+
+    @staticmethod
+    def _kind(command: str, cwd: Path = Path("/tmp")) -> str:
+        payload = {"tool_input": {"command": command}}
+        _, tokens, simple = bash_readonly.bash_invocation(payload, cwd)
+        return bash_readonly.bash_command_kind(tokens, simple)
+
+    def test_a_test_run_reads_the_same_whether_or_not_a_pipe_follows_it(self) -> None:
+        """`pytest` was allowed and `pytest | tail` refused, and neither writes.
+
+        A non-Git command in the protected checkout defers to the permission
+        layer, but only a simple command reaches that deferral, so appending a
+        pipe to a test run turned an allowance into a refusal. Naming the
+        runners removes the asymmetry.
+        """
+
+        for command in (
+            "pytest tests -q",
+            "pytest tests -q | tail -4",
+            "python3 -m pytest tests -q",
+            "python3 -m pytest tests -q | tail -4",
+            "python -m unittest discover -s tests",
+            "python3 -m py_compile scripts/agent-hook.py",
+            "python3.11 -m pytest tests",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", self._kind(command))
+
+    def test_naming_a_runner_does_not_open_the_interpreter(self) -> None:
+        """The module bounds the allowance; the interpreter does not."""
+
+        for command in (
+            "python3 -m http.server 8000",
+            "python3 build.py",
+            "python3 -c 'import os; os.remove(\"x\")'",
+            "python3 -i",
+            "pytest-watch tests",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", self._kind(command))
+
+    def test_a_test_run_cannot_carry_a_write_past_the_gate(self) -> None:
+        """A compound line is still its strictest part."""
+
+        for command in (
+            "python3 -m pytest tests && rm -rf build",
+            "pytest tests | tee /etc/passwd",
+            "python3 -m pytest tests; python3 build.py",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", self._kind(command))
+
+
 if __name__ == "__main__":
     unittest.main()
