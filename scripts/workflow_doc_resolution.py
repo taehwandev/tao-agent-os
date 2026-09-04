@@ -30,6 +30,7 @@ from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 
+from support.project_tree import iter_project_files
 from workflow_skill_paths import guidance_reference_path
 
 
@@ -67,8 +68,11 @@ def _pointer_digest(root_key: str) -> str:
 
     root = Path(root_key)
     groups: dict[str, int] = defaultdict(int)
-    for skill in root.glob("**/skills/*/SKILL.md"):
-        rel = str(skill.relative_to(root))
+    for skill in iter_project_files(root, "SKILL.md"):
+        relative = skill.relative_to(root)
+        if len(relative.parts) < 3 or relative.parts[-3] != "skills":
+            continue
+        rel = relative.as_posix()
         body = _normalised_body(root, rel)
         if body:
             groups[hashlib.sha256(body.encode("utf-8")).hexdigest()] += 1
