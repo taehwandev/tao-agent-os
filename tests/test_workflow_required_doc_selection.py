@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -40,6 +41,9 @@ MULTI_AGENT_REFERENCE = (
 OPERATING_SKILL = "common/skills/agent-operating-skill/SKILL.md"
 SOURCE_DRIVEN_REFERENCE = (
     "common/skills/source-driven-development/references/current-guidance.md"
+)
+BRANCH_CLEANUP_REFERENCE = (
+    "common/skills/branch-cleanup/references/current-guidance.md"
 )
 
 
@@ -143,6 +147,48 @@ class RequiredDocMembershipTests(unittest.TestCase):
         """A bounded investigation must not pay the full document-read cost."""
         self.assertEqual(
             [OPERATING_SKILL], route_required_docs("analysis", None, [], ())
+        )
+
+    def test_cleanup_uses_its_fixed_contract_without_document_search(self) -> None:
+        with (
+            patch("workflow_route.infer_surface_docs") as infer_surfaces,
+            patch("workflow_route.search_docs_outcome") as search,
+            patch("workflow_route.expand_doc_matches") as expand_graph,
+        ):
+            route = resolve_docs(
+                "cleanup",
+                None,
+                ["worktree"],
+                request_classified=True,
+                request_text="remove the merged linked worktree",
+            )
+
+        infer_surfaces.assert_not_called()
+        search.assert_not_called()
+        expand_graph.assert_not_called()
+        self.assertEqual(
+            [OPERATING_SKILL, BRANCH_CLEANUP_REFERENCE],
+            route["required_docs"],
+        )
+        self.assertEqual("fixed-route", route["document_search"]["backend"])
+        self.assertEqual("resolved", route["document_search"]["status"])
+        self.assertLess(
+            sum(doc_size(ROOT, doc) for doc in route["required_docs"]),
+            10_000,
+        )
+
+    def test_cleanup_with_a_separate_risk_keeps_full_document_selection(self) -> None:
+        route = resolve_docs(
+            "cleanup",
+            None,
+            ["security"],
+            request_classified=True,
+        )
+
+        self.assertEqual("wikimap", route["document_search"]["backend"])
+        self.assertTrue(
+            any("security" in doc for doc in route["required_docs"]),
+            route["required_docs"],
         )
 
     def test_commit_push_pr_follow_up_keeps_only_the_lightweight_contract(self) -> None:

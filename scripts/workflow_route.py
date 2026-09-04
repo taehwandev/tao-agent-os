@@ -136,6 +136,17 @@ LIGHTWEIGHT_PUBLICATION_CONCERNS = {
     "push",
 }
 
+BRANCH_CLEANUP_SKILL = "common/skills/branch-cleanup/SKILL.md"
+LIGHTWEIGHT_CLEANUP_CONCERNS = {"branch", "worktree"}
+
+
+def _uses_fixed_cleanup_documents(command: str, concerns: list[str]) -> bool:
+    """True when cleanup's one deletion contract owns the whole request."""
+
+    return command == "cleanup" and set(concerns).issubset(
+        LIGHTWEIGHT_CLEANUP_CONCERNS
+    )
+
 
 class RoutedDocuments(NamedTuple):
     """Everything the document phase resolved, before any of it is described.
@@ -183,27 +194,37 @@ def _resolve_documents(
         for gate, reference in ON_DEMAND_GATE_REFERENCES.items()
         if gate in base_gates
     )
-    surface_docs, surface_matches = infer_surface_docs(
-        command=command,
-        platform=platform,
-        request_text=request_text,
-        surface_paths=surface_paths,
-    )
-    search_outcome = (
-        search_docs_outcome(ROOT, request_text, max_results=12)
-        if request_text.strip()
-        else SearchOutcome(results=[], backend="wikimap", backend_version=WIKIMAP_VERSION)
-    )
-    search_seed_docs = [str(item["path"]) for item in search_outcome.results]
-    doc_graph_matches = expand_doc_matches(
-        ROOT,
-        unique([*surface_docs, *search_seed_docs]),
-        max_depth=1,
-        max_docs=24,
-        relation_prefixes=("frontmatter:", "markdown:", "compat:"),
-    )
+    if _uses_fixed_cleanup_documents(command, concerns):
+        surface_docs: list[str] = []
+        surface_matches: list[dict[str, object]] = []
+        search_outcome = SearchOutcome(results=[], backend="fixed-route")
+        search_seed_docs: list[str] = []
+        doc_graph_matches: list[dict[str, object]] = []
+        graph_required: list[str] = []
+    else:
+        surface_docs, surface_matches = infer_surface_docs(
+            command=command,
+            platform=platform,
+            request_text=request_text,
+            surface_paths=surface_paths,
+        )
+        search_outcome = (
+            search_docs_outcome(ROOT, request_text, max_results=12)
+            if request_text.strip()
+            else SearchOutcome(
+                results=[], backend="wikimap", backend_version=WIKIMAP_VERSION
+            )
+        )
+        search_seed_docs = [str(item["path"]) for item in search_outcome.results]
+        doc_graph_matches = expand_doc_matches(
+            ROOT,
+            unique([*surface_docs, *search_seed_docs]),
+            max_depth=1,
+            max_docs=24,
+            relation_prefixes=("frontmatter:", "markdown:", "compat:"),
+        )
+        graph_required = graph_required_docs(doc_graph_matches)
     graph_docs = [str(match["path"]) for match in doc_graph_matches]
-    graph_required = graph_required_docs(doc_graph_matches)
     docs.extend(surface_docs)
     docs.extend(search_seed_docs)
     docs.extend(graph_docs)
@@ -321,6 +342,12 @@ def _document_search_notes(
     search_outcome: SearchOutcome,
 ) -> list[str]:
     """What the search found, and which of its outcomes are terminal."""
+
+    if search_outcome.backend == "fixed-route":
+        return [
+            "Skipped natural-language document search for the fixed cleanup route; "
+            "its branch-cleanup contract owns the complete safety decision."
+        ]
 
     notes: list[str] = []
     if search_seed_docs:
@@ -471,6 +498,12 @@ def _document_resolution(
             "terminal": True,
             "reason": "Route references missing document paths.",
         }
+    if search_outcome.backend == "fixed-route":
+        return {
+            "status": "resolved",
+            "terminal": True,
+            "reason": "The fixed cleanup route uses its deterministic safety contract.",
+        }
     if not search_seed_docs:
         source = "Wikimap" if search_outcome.backend == "wikimap" else "local recovery search"
         return {
@@ -596,6 +629,14 @@ def _compact_required_docs(command: str, concerns: list[str]) -> list[str] | Non
     # already-loaded root instructions.
     if command == "analysis":
         return [OPERATING_SKILL]
+
+    # Cleanup exists only to remove Git state already absorbed by an integration
+    # branch. Its branch-cleanup reference contains all ownership, protected-ref,
+    # merge, worktree-state, recovery, and reporting rules; general concern and
+    # retrospective references repeat context without adding a deletion decision.
+    if _uses_fixed_cleanup_documents(command, concerns):
+        cleanup_docs = resolve_guidance_docs(ROOT, [BRANCH_CLEANUP_SKILL])
+        return unique([OPERATING_SKILL, *cleanup_docs])
 
     # Commit, push, and pull-request publication after implementation share
     # one compact contract. The commit workflow reference already covers the

@@ -736,6 +736,19 @@ class CleanupRouteStaysLightTests(unittest.TestCase):
             route["required_docs"],
         )
 
+    def test_single_target_cleanup_batches_its_inspection_and_evidence(self) -> None:
+        route = resolve_docs(
+            "cleanup",
+            None,
+            ["worktree"],
+            request_classified=True,
+            request_text="remove the merged linked worktree",
+        )
+        notes = " ".join(route["notes"])
+
+        self.assertIn("one bounded inspection", notes)
+        self.assertIn("one gate-batch", notes)
+
 
 class AutoRouteSentinelTests(unittest.TestCase):
     """The prompt hook cannot know the task, so it must be able to defer.
