@@ -138,7 +138,30 @@ def finish_with_result(
         **payload,
     }
     if output:
-        write_json(output, evidence)
+        try:
+            write_json(output, evidence)
+        except OSError as error:
+            # A requested result file is diagnostic output, not permission to
+            # turn an otherwise useful hook result into a Python traceback.
+            # The CLI probes the parent before costly hooks, but the fallback
+            # still owns races such as a workspace becoming read-only while a
+            # hook is running.
+            output_failure = (
+                f"result output was not written ({type(error).__name__}); "
+                "omit --output or use a writable path under the current "
+                "project's .tao root"
+            )
+            if success:
+                policy, output_policy_details = hook_failure_policy(
+                    False,
+                    repair_cycle,
+                    invocation_error=True,
+                )
+                details = [*details, output_failure, *output_policy_details]
+            else:
+                details = [*details, output_failure]
+            print_status(name, False, details)
+            return 1
     print_status(name, success, details)
     return 0 if success else 1
 

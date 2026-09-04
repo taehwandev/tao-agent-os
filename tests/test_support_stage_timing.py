@@ -10,12 +10,15 @@ with them.
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -98,6 +101,29 @@ class TimingsReachTheEvidenceTests(unittest.TestCase):
 
         self.assertTrue(all(isinstance(key, str) for key in timings))
         self.assertTrue(all(isinstance(value, int) for value in timings.values()))
+
+    def test_an_output_write_failure_is_reported_without_a_traceback(self) -> None:
+        output = io.StringIO()
+        with (
+            patch(
+                "agent_hook_runtime.write_json",
+                side_effect=PermissionError("sandbox denied output"),
+            ),
+            redirect_stdout(output),
+        ):
+            result = finish_with_result(
+                "review",
+                True,
+                ["review completed"],
+                Path("result.json"),
+                {},
+                0,
+            )
+
+        self.assertEqual(1, result)
+        self.assertIn("FAIL review", output.getvalue())
+        self.assertIn("result output was not written (PermissionError)", output.getvalue())
+        self.assertIn("correct the reported argument and rerun", output.getvalue())
 
 
 class TheHooksAreActuallyInstrumentedTests(unittest.TestCase):

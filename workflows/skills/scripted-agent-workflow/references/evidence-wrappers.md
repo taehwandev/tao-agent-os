@@ -191,6 +191,13 @@ before it reports completion. Its earlier validation only establishes that the
 final checks may start; bytes changed while those checks run must fail closed.
 This does not prohibit a legitimate pathspec review of an explicitly owned
 slice—the exact scope is attested and may not later be widened by prose.
+When `--output` is requested, keep lifecycle result files under the current
+project's `.tao` root. The wrapper probes the requested parent before running
+the hook, including compatibility callers that still choose another explicit
+result location, so a workspace that is not writable is an immediate invocation
+refusal instead of a completed review followed by a persistence traceback. Omit
+`--output` when the separate diagnostic result file is not needed; the preflight,
+gate ledger, attestation, and timing records remain the lifecycle evidence.
 For gates that only the active agent can prove, batch every simultaneously-ready
 record from the same lifecycle phase instead of spawning one shell process per
 gate. Each `gate` or `gate-batch` invocation also rewrites one strong

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +19,39 @@ if str(SCRIPTS) not in sys.path:
 from agent_route_state import request_fingerprint
 
 
+def _load_agent_hook():
+    spec = importlib.util.spec_from_file_location(
+        "agent_hook_summary_test",
+        ROOT / "scripts" / "agent-hook.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load agent-hook.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+agent_hook = _load_agent_hook()
+
+
 class AgentHookSummaryTests(unittest.TestCase):
+    def test_review_rejects_an_unwritable_output_parent_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as project_directory:
+            project = Path(project_directory)
+            output = project / ".tao" / "review.json"
+            output.parent.mkdir()
+            args = Namespace(project=project, output=output, hook="review")
+
+            with patch.object(
+                agent_hook.tempfile,
+                "NamedTemporaryFile",
+                side_effect=PermissionError("sandbox denied output"),
+            ):
+                failure = agent_hook._lifecycle_output_error(args)
+
+        self.assertIn("--output parent is not writable (PermissionError)", failure)
+        self.assertIn("writable primary workspace", failure)
+
     def test_start_rejects_preflight_evidence_outside_project_evidence_root(self) -> None:
         with tempfile.TemporaryDirectory() as project_directory:
             with tempfile.TemporaryDirectory() as external_directory:

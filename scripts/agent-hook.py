@@ -1256,6 +1256,27 @@ def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
     return ""
 
 
+def _lifecycle_output_error(args: argparse.Namespace) -> str:
+    """Reject a diagnostic result path before a costly lifecycle hook runs."""
+
+    if not args.output:
+        return ""
+    try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=args.output.parent,
+            prefix=".tao-output-probe-",
+        ):
+            pass
+    except OSError as error:
+        return (
+            f"--output parent is not writable ({type(error).__name__}); "
+            "omit --output, choose a writable result location, or relaunch with "
+            "the current project as the writable primary workspace"
+        )
+    return ""
+
+
 def _run_checkpoint_hook(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
@@ -1493,6 +1514,9 @@ def main() -> int:
     lifecycle_evidence_error = _lifecycle_evidence_error(args)
     if lifecycle_evidence_error:
         parser.error(lifecycle_evidence_error)
+    lifecycle_output_error = _lifecycle_output_error(args)
+    if lifecycle_output_error:
+        parser.error(lifecycle_output_error)
     worker_error = _apply_worker_evidence_boundary(args)
     if worker_error:
         print_status(args.hook, False, [worker_error])
