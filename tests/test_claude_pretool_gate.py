@@ -1040,6 +1040,41 @@ class ClaudePreToolGateTests(unittest.TestCase):
             self.assertIn(f"{project}/docs", reason)
             self.assertNotIn(str(scratch), reason)
 
+    def test_the_refusal_never_reports_the_command_word_as_the_path(self) -> None:
+        """`python3 x.py <checkout>` names the checkout, not `<checkout>/python3`.
+
+        A bare word is read as a possible relative target, which is right for
+        finding roots -- `sed x note` may create `note`. But the word in slot
+        zero is the program being run, and reporting it sent the reader looking
+        for a file that does not exist.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            worktree = _opt_in_project(Path(tmp) / "wt")
+            _require_linked_worktree(worktree, linked=True)
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(worktree),
+                    "session_id": "no-evidence",
+                    "tool_input": {
+                        "command": f"python3 {Path(tmp) / 'run.py'} {project}"
+                    },
+                }
+            )
+
+            self.assertEqual(0, code)
+            reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+            self.assertEqual(
+                STOP_DECISION,
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
+            self.assertIn(f"`{project}`", reason)
+            self.assertNotIn("python3`", reason)
+
     def test_a_tool_that_names_no_path_still_answers_to_the_cwd(self) -> None:
         # The cwd fallback is what covers Bash, whose effects are not bounded by
         # its arguments, and it still resolves the checkout. What this gate does

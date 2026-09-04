@@ -911,9 +911,22 @@ def _protected_path_named(
     if target is not None:
         return str(target)
     source_indices = copy_source_token_indices(tokens)
+    # The command word is dropped. `path_arguments` reads a bare word as a
+    # possible relative target, which is right for finding roots -- `sed x note`
+    # may create `note` -- but the word in slot zero is the program being run.
+    # Keeping it made `python3 scripts/x.py` report `<checkout>/python3`, a file
+    # that does not exist, as the path putting the command in the checkout.
     candidates = [
-        token for index, token in enumerate(tokens) if index not in source_indices
+        token
+        for index, token in enumerate(tokens)
+        if index and index not in source_indices
     ]
+    # The first owned candidate, in the order the roots were discovered in. No
+    # preference is applied among them: a rule that favoured a spelling with a
+    # separator picked the `s/a/b/` out of `sed -i s/a/b/ note.md` over the file
+    # being written, which is the confusion this sentence exists to end. What
+    # the gate matched first is what put the command here, and the sentence
+    # around it already says a path is read wherever it appears.
     for path in path_arguments(candidates):
         absolute = path if path.is_absolute() else cwd / path
         try:
