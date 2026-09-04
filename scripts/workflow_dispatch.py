@@ -39,6 +39,69 @@ from workflow_request import (
 )
 
 
+def _validated_capability(
+    selected_kind: str, *, isolation_required: bool
+) -> tuple[dict[str, object], dict[str, object]]:
+    """The worker's capability profile and runtime contract, both proven valid.
+
+    Both are validated here rather than at use because an invalid profile must
+    stop the dispatch, not reach a launcher that would read it as permission.
+    """
+
+    capability = capability_profile(selected_kind, isolation_required=isolation_required)
+    capability_failures = validate_capability_profile(capability)
+    if capability_failures:
+        raise ValueError("invalid capability profile: " + "; ".join(capability_failures))
+    runtime_contract = runtime_adapter_contract(
+        "codex",
+        capabilities={
+            "read_only": capability["sandbox_mode"] == "read-only",
+            "workspace_write": capability["sandbox_mode"] == "workspace-write",
+            "isolated_write": capability.get("isolation_mode") == "isolated-write",
+        },
+        enforcement=str(capability["enforcement"]),
+    )
+    runtime_failures = validate_runtime_adapter_contract(runtime_contract)
+    if runtime_failures:
+        raise ValueError("invalid runtime adapter contract: " + "; ".join(runtime_failures))
+    return capability, runtime_contract
+
+
+def _worker_invocation(
+    *,
+    command: str,
+    request: str,
+    selected_kind: str,
+    handoff_state: Mapping[str, object],
+    continuation_scope: str,
+    capability: Mapping[str, object],
+    project: Path,
+    profile: str,
+    sandbox_mode: str,
+) -> tuple[str, list[str]]:
+    """Where the worker runs and the argv that starts it there.
+
+    The two are decided together because the working directory is an argument
+    of the command: a capability that asks for an isolated worktree has to name
+    that path in the argv, and deciding them apart is how they drift.
+    """
+
+    handoff_prompt = build_handoff_prompt(
+        command,
+        request,
+        selected_kind,
+        handoff_state,
+        non_authoring=selected_kind in READ_ONLY_WORK_KINDS,
+        continuation_scope=continuation_scope,
+    )
+    isolated_worktree = capability.get("working_dir_kind") == "worktree"
+    worktree_path = str(_new_worktree_path(project)) if isolated_worktree else ""
+    working_dir = Path(worktree_path) if worktree_path else project
+    return worktree_path, _codex_argv(
+        project, profile, sandbox_mode, handoff_prompt, working_dir
+    )
+
+
 def build_dispatch_manifest(
     command: str,
     request: str,
@@ -114,35 +177,20 @@ def build_dispatch_manifest(
         execution_capsule_state=_execution_capsule_state,
         isolated_worker_evidence=_isolated_worker_evidence,
     )
-    capability = capability_profile(selected_kind, isolation_required=isolation_required)
-    capability_failures = validate_capability_profile(capability)
-    if capability_failures:
-        raise ValueError("invalid capability profile: " + "; ".join(capability_failures))
-    runtime_contract = runtime_adapter_contract(
-        "codex",
-        capabilities={
-            "read_only": capability["sandbox_mode"] == "read-only",
-            "workspace_write": capability["sandbox_mode"] == "workspace-write",
-            "isolated_write": capability.get("isolation_mode") == "isolated-write",
-        },
-        enforcement=str(capability["enforcement"]),
+    capability, runtime_contract = _validated_capability(
+        selected_kind, isolation_required=isolation_required
     )
-    runtime_failures = validate_runtime_adapter_contract(runtime_contract)
-    if runtime_failures:
-        raise ValueError("invalid runtime adapter contract: " + "; ".join(runtime_failures))
-    non_authoring = selected_kind in READ_ONLY_WORK_KINDS
-    handoff_prompt = build_handoff_prompt(
-        command,
-        request,
-        selected_kind,
-        handoff_state,
-        non_authoring=non_authoring,
+    worktree_path, argv = _worker_invocation(
+        command=command,
+        request=request,
+        selected_kind=selected_kind,
+        handoff_state=handoff_state,
         continuation_scope=continuation_scope,
+        capability=capability,
+        project=project,
+        profile=profile,
+        sandbox_mode=sandbox_mode,
     )
-    isolated_worktree = capability.get("working_dir_kind") == "worktree"
-    worktree_path = str(_new_worktree_path(project)) if isolated_worktree else ""
-    working_dir = Path(worktree_path) if worktree_path else project
-    argv = _codex_argv(project, profile, sandbox_mode, handoff_prompt, working_dir)
     return {
         "schema_version": 1,
         "project": str(project),
