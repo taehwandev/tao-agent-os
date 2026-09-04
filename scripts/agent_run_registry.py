@@ -57,6 +57,10 @@ SETTLED_RUN_STATES = frozenset({"completed", "cancelled"})
 # The registry's shared stale window, repeated here as a name so the owner-less
 # compatibility path is bounded by the same number the sweep uses.
 DEFAULT_STALE_AFTER_SECONDS = 3600
+# A minute against an hour-wide staleness window: sixty refreshes of headroom
+# before a run could be swept, and one registry write per minute instead of one
+# per lifecycle hook.
+HEARTBEAT_MIN_INTERVAL_SECONDS = 60
 MAX_RUNS = 100
 
 
@@ -701,6 +705,7 @@ def touch_run(
     evidence_path: Path,
     *,
     run_id: str | None = None,
+    min_interval_seconds: int = HEARTBEAT_MIN_INTERVAL_SECONDS,
 ) -> dict[str, Any] | None:
     """Refresh an active run's heartbeat without changing its state.
 
@@ -708,6 +713,13 @@ def touch_run(
     so a genuinely alive task that spent longer than the staleness window
     between those two points looked abandoned. Every lifecycle hook a working
     agent calls is proof of life and refreshes the timestamp here.
+
+    A heartbeat younger than ``min_interval_seconds`` is left alone. Every
+    post-start hook calls this, and each call rewrote the whole registry --
+    74 KB and a hundred records on the reference machine -- under two locks, to
+    move a timestamp that only has to stay inside an hour-wide staleness
+    window. The run is still found and returned; only the write is skipped, so
+    a caller reading the result sees no difference.
     """
 
     path = registry_path(project)
@@ -726,9 +738,29 @@ def touch_run(
         recorded_owner = target.get("owner")
         if is_recorded_owner(recorded_owner) and recorded_owner != process_owner():
             return None
-        target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
+        if _heartbeat_age_seconds(target, now) < max(0, int(min_interval_seconds)):
+            return target
+        target["updated_at"] = now.isoformat()
         _write_registry(path, payload)
     return target
+
+
+def _heartbeat_age_seconds(run: dict[str, Any], now: datetime) -> float:
+    """How long since this run was last marked alive, or forever.
+
+    An unreadable or absent timestamp has to read as old: skipping the write
+    would then be skipping the only thing keeping the run out of the staleness
+    sweep.
+    """
+
+    try:
+        recorded = datetime.fromisoformat(str(run.get("updated_at") or ""))
+    except ValueError:
+        return float("inf")
+    if recorded.tzinfo is None:
+        recorded = recorded.replace(tzinfo=timezone.utc)
+    return (now - recorded).total_seconds()
 
 
 def recover_stale_runs(
