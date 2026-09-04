@@ -372,6 +372,56 @@ class LiveRunSurvivalTests(unittest.TestCase):
             self.assertEqual([], recover_stale_runs(project))
             self.assertEqual(1, len(active_runs(project)))
 
+    def test_a_fresh_heartbeat_is_not_rewritten(self) -> None:
+        """Every post-start hook calls this, and each call rewrote the registry.
+
+        On the reference machine that is 74 KB and a hundred records, under two
+        locks, to move a timestamp that only has to stay inside an hour-wide
+        window.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            register_run(project, evidence, {"command": "task"}, {"request": "build"})
+            registry = project / ".tao" / "run-registry.json"
+            before = registry.read_text(encoding="utf-8")
+
+            self.assertIsNotNone(touch_run(project, evidence))
+
+            self.assertEqual(before, registry.read_text(encoding="utf-8"))
+
+    def test_a_stale_heartbeat_is_still_written(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            register_run(project, evidence, {"command": "task"}, {"request": "build"})
+            self._age(project, minutes=5)
+            registry = project / ".tao" / "run-registry.json"
+            before = registry.read_text(encoding="utf-8")
+
+            self.assertIsNotNone(touch_run(project, evidence))
+
+            self.assertNotEqual(before, registry.read_text(encoding="utf-8"))
+
+    def test_an_unreadable_timestamp_is_always_refreshed(self) -> None:
+        """Skipping there would skip the only thing keeping the run alive."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            register_run(project, evidence, {"command": "task"}, {"request": "build"})
+            registry = project / ".tao" / "run-registry.json"
+            payload = json.loads(registry.read_text())
+            for run in payload["runs"]:
+                run["updated_at"] = "not a timestamp"
+            registry.write_text(json.dumps(payload), encoding="utf-8")
+
+            touch_run(project, evidence)
+
+            refreshed = json.loads(registry.read_text())["runs"][0]["updated_at"]
+            self.assertNotEqual("not a timestamp", refreshed)
+
     def test_negative_control_abandoned_run_is_still_recovered(self) -> None:
         """The control: without a heartbeat the sweep must still free the path.
 
