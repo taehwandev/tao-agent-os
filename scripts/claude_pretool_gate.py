@@ -43,12 +43,9 @@ import os
 import sys
 import time
 from pathlib import Path
+from types import ModuleType
 
 try:  # The gate must never fail to load; the import is only used for a message.
-    from agent_runtime_session import (
-        is_run_local_continuation_evidence,
-        resolve_runtime_evidence,
-    )
     from support.stable_launcher import stable_launcher_path
     from support.global_state import (
         global_state_dir,
@@ -98,14 +95,6 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
             if (candidate / ".git").exists():
                 return candidate
         return candidates[0] if candidates else None
-
-    def resolve_runtime_evidence(project: Path, session: dict[str, str]) -> Path | None:
-        return None
-
-    def is_run_local_continuation_evidence(
-        project: Path, evidence: Path | None
-    ) -> bool:
-        return False
 
     BASH_TOOLS = {"Bash"}
     MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
@@ -498,13 +487,43 @@ def workflow_entry_allows(root: Path, session_id: str) -> bool:
     return evidence is not None and evidence_is_fresh(evidence)
 
 
+def _run_evidence_reader() -> "ModuleType | None":
+    """Import the run-evidence reader on first use, or None on a broken install.
+
+    Reading run evidence pulls in the run registry, the execution capsule and
+    the worktree fingerprints: 24.6ms of imports, against 1.0ms of decision, on
+    a hook that runs before every Bash, Edit and Write call.  Nothing on the
+    allow path asks it a question -- a read-only command is classified from its
+    own text -- so it is loaded where it is answered instead of at module load.
+
+    A broken install still has to fail open rather than fail to load, which is
+    why the ImportError is answered here with None and not raised.
+    """
+
+    try:
+        import agent_runtime_session
+    except ImportError:  # pragma: no cover - exercised only on a broken install
+        return None
+    return agent_runtime_session
+
+
 def session_evidence(root: Path, session_id: str) -> Path | None:
     if not session_id:
         return None
-    return resolve_runtime_evidence(
+    reader = _run_evidence_reader()
+    if reader is None:
+        return None
+    return reader.resolve_runtime_evidence(
         root,
         {"runtime": "claude", "session_id": session_id},
     )
+
+
+def is_run_local_continuation_evidence(project: Path, evidence: Path | None) -> bool:
+    reader = _run_evidence_reader()
+    if reader is None:
+        return False
+    return reader.is_run_local_continuation_evidence(project, evidence)
 
 
 def record_edit_activity(root: Path, session_id: str) -> None:
