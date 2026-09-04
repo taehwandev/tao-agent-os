@@ -25,7 +25,7 @@ from agent_preflight_runtime import (
     agy_runtime_bridge_issue,
     check_agent_hooks,
 )
-from agent_preflight_spill import write_spill_label
+from workflow_spill import write_spill_label
 from agent_vibeguard_cache import cached_vibeguard, skipped_vibeguard
 from agent_worker_evidence import (
     claim_worker_reservation,

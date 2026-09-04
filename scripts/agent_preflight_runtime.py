@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent_preflight_spill import has_spill_setup_helper
+from workflow_spill import has_spill_setup_helper
 from support.permission_entries import (
     agy_permission_entries,
     claude_permission_entries,

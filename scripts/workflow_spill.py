@@ -11,7 +11,7 @@ from typing import Any
 from workflow_catalog import SPILL_ACTION_LABELS, SPILL_ROUTE_LABELS
 
 
-SPILL_SETUP_HELPER = (
+DEFAULT_SPILL_SETUP_HELPER = (
     Path.home()
     / "Library"
     / "Application Support"
@@ -20,6 +20,7 @@ SPILL_SETUP_HELPER = (
     / "setup"
     / "spill-token-metering-setup.mjs"
 )
+SPILL_HELPER_PATH_ENV = "TAO_SPILL_HELPER_PATH"
 SPILL_ALLOWED_TOOLS = {"codex", "claude", "antigravity", "openai"}
 SPILL_TOOL_ALIASES = {"agy": "antigravity"}
 CODEX_RUNTIME_ENV_KEYS = ("CODEX_SANDBOX", "CODEX_THREAD_ID", "CODEX_CI")
@@ -57,14 +58,36 @@ def _normal_tool_label(value: str) -> str:
     return tool if tool in SPILL_ALLOWED_TOOLS else ""
 
 
+def spill_setup_helper_path() -> Path:
+    override = os.environ.get(SPILL_HELPER_PATH_ENV, "")
+    return Path(override) if override else DEFAULT_SPILL_SETUP_HELPER
+
+
+def has_spill_setup_helper() -> bool:
+    return spill_setup_helper_path().is_file()
+
+
 def write_spill_label(task_type: str, stage: str) -> None:
-    if not SPILL_SETUP_HELPER.exists():
+    """Hand the label to the metering helper without waiting for it.
+
+    Nothing in this process reads the result: the label is context that a
+    later usage event picks up, and that event is a whole turn away. Waiting
+    for Node to start and exit put 72 ms of the 296 ms this prompt hook took --
+    41% of it -- in front of the user for an answer nobody here wants.
+
+    stdin is closed rather than inherited. The hook's payload arrives on this
+    process's stdin and is read for the session id and the prompt, so handing
+    the same pipe to a child is a race over who drains it.
+    """
+
+    helper = spill_setup_helper_path()
+    if not helper.is_file():
         return
     try:
-        subprocess.run(
+        subprocess.Popen(
             [
                 "node",
-                str(SPILL_SETUP_HELPER),
+                str(helper),
                 "--label",
                 spill_tool_label(),
                 "--task-type",
@@ -72,12 +95,14 @@ def write_spill_label(task_type: str, stage: str) -> None:
                 "--stage",
                 stage,
             ],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=5,
+            # Detached, so the label still lands when this short-lived hook
+            # exits first, and so it never inherits the runtime's terminal.
+            start_new_session=True,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError:
         return
 
 
