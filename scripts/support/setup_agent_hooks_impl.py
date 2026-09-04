@@ -13,6 +13,7 @@ from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
 from support.codex_permissions import merge_codex_worktree_roots
 from support.codex_setup import merge_codex_stop_gate
+from support.codex_statusline_setup import merge_codex_status_line
 from support.graphify_setup import (
     CANONICAL_SKILL_PATH,
     configure_global_graphify,
@@ -49,19 +50,6 @@ DEFAULT_SPILL_SETUP_HELPER = (
     / "Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
 )
 DEFAULT_GITHUB_DIR = Path.home() / "GitHub"
-
-# Claude and Antigravity both let a status line run a command, which is how Tao
-# draws the remaining quota there. Codex has a status line too -- `/statusline`
-# configures it, and `status_line` stores it -- but it chooses from a fixed list
-# of built-in items and offers no slot for a command of one's own, so there is
-# nothing here for the installer to write. Saying so out loud is the point: the
-# row was absent before, and an absent row reads as an oversight rather than as
-# an answer.
-CODEX_STATUS_LINE_STATUS = (
-    "ok (codex has a status line, but /statusline selects from built-in items "
-    "and takes no custom command; nothing to install)"
-)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -301,6 +289,7 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
     )
     stop_status = merge_codex_stop_gate(hooks_target, stop_command, dry_run)
     config_target = Path.home() / ".codex" / "config.toml"
+    status_line_status = merge_codex_status_line(config_target, dry_run)
     permissions_status = merge_codex_worktree_roots(
         config_target,
         [worktree_root(root)],
@@ -334,7 +323,7 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         {
             "tool": "codex",
             "hook": "statusLine",
-            "status": CODEX_STATUS_LINE_STATUS,
+            "status": status_line_status,
             "path": str(config_target),
         },
     ]
