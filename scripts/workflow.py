@@ -8,6 +8,7 @@ gates an agent should use before it executes work in a target repository.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -43,7 +44,8 @@ from workflow_request import (
     infer_concerns_from_request,
     print_classification,
 )
-from workflow_output import print_markdown
+from workflow_advisory_echo import already_delivered, hook_session_id, record_delivery
+from workflow_output import print_markdown, render_markdown
 from workflow_route import resolve_docs
 from workflow_search import print_query_results, search_docs_outcome
 from workflow_spill import spill_label_for_args, write_spill_label
@@ -149,6 +151,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Print the document listing and label context without asserting request "
             "intake. An advisory route satisfies no downstream gate."
+        ),
+    )
+    route.add_argument(
+        "--hook-stdin",
+        action="store_true",
+        help=(
+            "This call is a runtime prompt hook: read the hook payload on stdin for "
+            "its session id, and replace an advisory route this session already "
+            "received with a one-line reminder. Only the session id is read."
         ),
     )
     route.add_argument("--format", choices=("markdown", "json"), default="markdown")
@@ -427,9 +438,37 @@ def print_route(args: argparse.Namespace) -> int:
             notes.append(f"Inferred concern(s) from request keywords: {joined}.")
     if args.format == "json":
         print(json.dumps(route, indent=2, sort_keys=True))
+    elif advisory and getattr(args, "hook_stdin", False):
+        _print_advisory_once(route, project_root or Path.cwd(), _hook_payload_text(args))
     else:
         print_markdown(route)
     return 1 if route["missing"] or route.get("blocking") else 0
+
+
+def _print_advisory_once(route: dict[str, object], root: Path, payload_text: str) -> None:
+    """Print the advisory route, unless this session already has this one.
+
+    The prompt hook that calls this runs on every turn and never sees the
+    prompt, so it renders the same listing every time; re-injecting it is
+    thousands of tokens per turn that tell the model nothing it was not told on
+    the turn before. A session is given the route once, and again whenever the
+    guidance behind it changes.
+    """
+
+    text = render_markdown(route)
+    session_id = hook_session_id(payload_text)
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if session_id and already_delivered(root, session_id, digest):
+        # Named rather than silent: a session whose context was compacted has
+        # to be able to tell that a route exists and how to ask for it again.
+        print(
+            f"Tao workflow route `{route['command']}`: unchanged since this "
+            f"session already received it (digest {digest[:12]}). Rerun "
+            "`tao-hook workflow route <command>` to see it again."
+        )
+        return
+    sys.stdout.write(text)
+    record_delivery(root, session_id, digest)
 
 
 def _dispatch_request_classification(
@@ -598,6 +637,28 @@ def print_dispatch_finalize(args: argparse.Namespace) -> int:
     return 0
 
 
+def _hook_payload_text(args: argparse.Namespace) -> str:
+    """Return the runtime hook payload, reading stdin at most once.
+
+    Two callers want something out of the same payload -- the `auto` sentinel
+    wants the prompt, and `--hook-stdin` wants the session id -- and stdin can
+    only be drained once. Whichever asks first reads it; the other gets the
+    same text rather than an empty pipe.
+    """
+
+    cached = getattr(args, "_hook_payload_text", None)
+    if cached is not None:
+        return cached
+    text = ""
+    try:
+        if not sys.stdin.isatty():
+            text = sys.stdin.read()
+    except Exception:
+        text = ""
+    args._hook_payload_text = text
+    return text
+
+
 def _resolve_auto_command(args: argparse.Namespace) -> None:
     """Replace the ``auto`` sentinel with the classifier's recommended route.
 
@@ -613,11 +674,10 @@ def _resolve_auto_command(args: argparse.Namespace) -> None:
     args.command = "triage"
     prompt = ""
     try:
-        if not sys.stdin.isatty():
-            payload = json.loads(sys.stdin.read() or "{}")
-            if isinstance(payload, dict):
-                candidate = payload.get("prompt") or payload.get("request") or ""
-                prompt = candidate if isinstance(candidate, str) else ""
+        payload = json.loads(_hook_payload_text(args) or "{}")
+        if isinstance(payload, dict):
+            candidate = payload.get("prompt") or payload.get("request") or ""
+            prompt = candidate if isinstance(candidate, str) else ""
     except Exception:
         return
     if not prompt.strip():

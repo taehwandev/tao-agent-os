@@ -2,12 +2,31 @@
 
 from __future__ import annotations
 
+import io
+from contextlib import redirect_stdout
+
 from workflow_common import (
     REPAIR_CYCLE_LIMIT,
     REPAIR_POLICY,
     REPAIR_STOP_CONDITION,
     RESUME_SCOPE,
 )
+
+
+def render_markdown(route: dict[str, object]) -> str:
+    """Return exactly what `print_markdown` would print.
+
+    A caller that has to decide whether the route is worth printing needs it as
+    text first. The renderer is one long sequence of `print` calls, and
+    rewriting it to build a string would be a large edit for no change in
+    output, so its stdout is captured instead -- which also means the printed
+    route and the digested one can never drift apart.
+    """
+
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        print_markdown(route)
+    return buffer.getvalue()
 
 
 def print_markdown(route: dict[str, object]) -> None:
