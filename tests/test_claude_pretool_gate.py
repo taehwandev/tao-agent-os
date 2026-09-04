@@ -2188,8 +2188,12 @@ class ImportCostTests(unittest.TestCase):
     """
 
     CHAIN = ("claude_continuation_hook", "agent_continuation_checkpoint")
+    # The other chain an allowed Bash call never asks about: reading run
+    # evidence pulls the run registry, the execution capsule and the worktree
+    # fingerprints behind it, which measured 24.6ms of the gate's 53ms.
+    EVIDENCE_CHAIN = ("agent_runtime_session", "agent_run_registry")
 
-    def _loaded_chain(self, payload: dict, state_home: str) -> list[str]:
+    def _loaded_chain(self, payload: dict, state_home: str, chain: tuple) -> list[str]:
         probe = "\n".join(
             [
                 "import io, json, sys",
@@ -2199,7 +2203,7 @@ class ImportCostTests(unittest.TestCase):
                 f"payload = json.loads({json.dumps(json.dumps(payload))})",
                 "with redirect_stdout(io.StringIO()):",
                 "    gate.decide(payload)",
-                f"loaded = [m for m in {self.CHAIN!r} if m in sys.modules]",
+                f"loaded = [m for m in {chain!r} if m in sys.modules]",
                 "print(json.dumps(loaded))",
             ]
         )
@@ -2227,6 +2231,7 @@ class ImportCostTests(unittest.TestCase):
                     "tool_input": {"command": "git status --short"},
                 },
                 state,
+                self.CHAIN,
             )
 
         self.assertEqual([], loaded)
@@ -2246,9 +2251,49 @@ class ImportCostTests(unittest.TestCase):
                     "tool_input": {"file_path": str(project / "note.md")},
                 },
                 state,
+                self.CHAIN,
             )
 
         self.assertEqual(sorted(self.CHAIN), sorted(loaded))
+
+    def test_a_bash_call_does_not_load_the_run_evidence_chain(self) -> None:
+        """A read-only command is classified from its own text, not from a run."""
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
+            project = _opt_in_project(Path(tmp))
+
+            loaded = self._loaded_chain(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "import-cost-session",
+                    "tool_input": {"command": "git status --short"},
+                },
+                state,
+                self.EVIDENCE_CHAIN,
+            )
+
+        self.assertEqual([], loaded)
+
+    def test_an_edit_still_reads_the_run_evidence(self) -> None:
+        """The deferral must not turn the workflow-entry check into a no-op."""
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project, "import-cost-session")
+
+            loaded = self._loaded_chain(
+                {
+                    "tool_name": "Write",
+                    "cwd": str(project),
+                    "session_id": "import-cost-session",
+                    "tool_input": {"file_path": str(project / "note.md")},
+                },
+                state,
+                self.EVIDENCE_CHAIN,
+            )
+
+        self.assertEqual(sorted(self.EVIDENCE_CHAIN), sorted(loaded))
 
 
 class ClaudePreToolGateSetupTests(unittest.TestCase):
