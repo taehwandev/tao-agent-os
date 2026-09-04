@@ -94,14 +94,6 @@ EXPLICIT_DOCUMENTATION_DECISION_PATTERN = re.compile(
     r"(updated|created|added|unchanged|not applicable|no docs?|변경 없음|해당 없음)\b"
 )
 
-UNCHANGED_COVERAGE_PHRASES = (
-    "already covered", "already cover", "already covers", "already documented",
-    "existing doc", "existing docs", "inspected", "current doc",
-    "current docs", "up to date", "still current", "no edit needed",
-    "covered by", "coverage:", "covered_by=", "covers the",
-    "이미", "커버", "반영되어", "반영됨", "현재 문서",
-)
-
 # An `unchanged` documentation decision must prove the doc was actually opened
 # and read, not merely asserted to already cover the change. These phrases are
 # the inspection proof; a bare coverage claim without one of them is a
@@ -345,10 +337,6 @@ def validate_documentation_source_to_artifact_evidence(
             "card, platform card, workflow card, or agent instruction update"
         ]
     return []
-
-
-def _has_existing_doc_coverage(text: str) -> bool:
-    return has_any(text, UNCHANGED_COVERAGE_PHRASES)
 
 
 def _names_doc_path(text: str) -> bool:

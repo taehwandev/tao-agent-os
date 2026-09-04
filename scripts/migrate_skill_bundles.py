@@ -19,7 +19,6 @@ from workflow_skill_paths import canonical_doc_path, guidance_reference_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FRONTMATTER_RE = re.compile(r"\A---\n(?P<header>.*?)\n---\n(?P<body>.*)\Z", re.DOTALL)
 MARKDOWN_LINK_RE = re.compile(r"(\[[^\]]+\]\()([^)]+)(\))")
 STUB_MARKER = "tao_skill_bundle_stub: true"
 

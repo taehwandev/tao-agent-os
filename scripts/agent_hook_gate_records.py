@@ -195,15 +195,6 @@ def record_hook_gate_batch(
     )
 
 
-def reset_and_record_start_gate(args: argparse.Namespace) -> None:
-    evidence_path = preflight_evidence_path(args)
-    try:
-        preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    reset_and_record_preflight_gate(evidence_path, preflight, source="start")
-
-
 def bind_existing_gate_evidence(evidence_path: Path, preflight: dict[str, Any]) -> int:
     """Bind start-time entries after their execution capsule becomes ready."""
 

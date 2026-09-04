@@ -240,12 +240,6 @@ def _resolves_to_trusted(token: str, name: str, locations: tuple) -> bool:
     return stat.S_ISREG(mode) and resolved in trusted
 
 
-def _trusted_copy_executable(token: str) -> bool:
-    """Kept for the tests that named the `cp`-only rule directly."""
-
-    return _resolves_to_trusted(token, "cp", TRUSTED_COPY_LOCATIONS)
-
-
 def path_arguments(tokens: list[str]) -> list[Path]:
     """Every path a command names, however it spells it.
 

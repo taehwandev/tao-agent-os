@@ -63,9 +63,6 @@ GRILL_ME_REQUEST_PATTERNS = (
     r"그릴미\s*(해줘|해주세요|해|하자|돌려|실행|써|질문)",
 )
 
-DRILL_PHRASES = GRILL_ME_REQUEST_PATTERNS
-
-
 PRIOR_COMPLETION_REFERENCE_PATTERNS = (
     r"\b(?:previously|earlier|just)\s+(?:completed|finished|reported|delivered)"
     r"\s+(?:result|work|change|implementation|answer|output)\b",
