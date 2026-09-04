@@ -148,12 +148,44 @@ DENIAL_CAUSES = {
     ),
 }
 
+# A path is read wherever it is written, including inside a larger token, because
+# `sh -c 'touch <protected>/x'` names its target as a substring and would
+# otherwise pass. The cost is that a path can be found in a token that is not a
+# path operand at all -- a `sed` expression mentioning the checkout, an argument
+# handed to a script -- and the refusal then reads as if the file being written
+# were the problem. Saying which path was found is the difference: three times in
+# one session the wrong operand was blamed, twice by the agent maintaining this
+# file, because the sentence above names no path at all.
+NAMED_TARGET_PATH = (
+    "The reason is a path this line names, not where it runs: `{named}` is inside "
+    "the protected checkout, so running from a worktree does not move the write "
+    "out of it. That path is read as a target wherever it appears, including "
+    "inside a larger token such as a `sed` expression or an argument handed to a "
+    "script, because a path named anywhere in a mutating line can be written by "
+    "it. "
+)
 
-def worktree_deny_reason(root: Path, branch: str, cause: str = "") -> str:
+
+def named_target_cause(named: str = "") -> str:
+    """The named-target sentence, carrying the path when one is known."""
+
+    if not named:
+        return DENIAL_CAUSES[NAMED_TARGET]
+    return NAMED_TARGET_PATH.format(named=named)
+
+
+def worktree_deny_reason(
+    root: Path, branch: str, cause: str = "", named: str = ""
+) -> str:
     location = "main checkout" if (root / ".git").is_dir() else f"protected branch `{branch}`"
+    explanation = (
+        named_target_cause(named)
+        if cause == NAMED_TARGET
+        else DENIAL_CAUSES.get(cause, "")
+    )
     return (
         f"Tao Agent OS worktree gate: {location} cannot run a mutating tool in {root}. "
-        f"{DENIAL_CAUSES.get(cause, '')}"
+        f"{explanation}"
         "Create or select the task's dedicated linked worktree, make that path the project root, "
         "run the workflow start hook again there, and retry. The hook does not create a worktree "
         "because branch, base, ticket, and local-file copy decisions belong to the repository workflow. "
@@ -167,11 +199,11 @@ def worktree_deny_reason(root: Path, branch: str, cause: str = "") -> str:
     )
 
 
-def worktree_denial(root: Path, cause: str = "") -> str | None:
+def worktree_denial(root: Path, cause: str = "", named: str = "") -> str | None:
     policy = worktree_policy(root)
     if policy is None or os.environ.get(MAIN_CHECKOUT_OVERRIDE_ENV, "").strip() == "1":
         return None
     branch = current_branch(root)
     if (root / ".git").is_dir() or branch in set(policy["protected_branches"]):
-        return worktree_deny_reason(root, branch, cause)
+        return worktree_deny_reason(root, branch, cause, named)
     return None

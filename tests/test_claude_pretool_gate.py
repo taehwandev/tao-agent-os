@@ -979,6 +979,67 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 json.loads(out)["hookSpecificOutput"]["permissionDecision"],
             )
 
+    def test_the_refusal_names_the_path_it_found(self) -> None:
+        """An edit's target, said back, so the reader is not left guessing."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            worktree = _opt_in_project(Path(tmp) / "wt")
+            _require_linked_worktree(worktree, linked=True)
+            target = project / "AGENTS.md"
+
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(worktree),
+                    "session_id": "no-evidence",
+                    "tool_input": {"file_path": str(target)},
+                }
+            )
+
+            self.assertEqual(0, code)
+            reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+            self.assertIn(str(target), reason)
+
+    def test_the_refusal_names_a_path_found_inside_a_larger_token(self) -> None:
+        """The case that misleads: the path is in an expression, not an operand.
+
+        `sed -i 's|<protected>/x|y|' <scratch file>` writes to the scratch file
+        and names the checkout only inside the substitution -- which is read as
+        a target anyway, because `sh -c 'touch <protected>/x'` hides one the same
+        way. The verdict is deliberate; without the path in the sentence the
+        reader blames the operand instead, which is how the same denial was
+        misdiagnosed three times in one session.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            worktree = _opt_in_project(Path(tmp) / "wt")
+            _require_linked_worktree(worktree, linked=True)
+            scratch = Path(tmp) / "outside.txt"
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(worktree),
+                    "session_id": "no-evidence",
+                    "tool_input": {
+                        "command": f"sed -i.bak 's|{project}/docs|X|' {scratch}"
+                    },
+                }
+            )
+
+            self.assertEqual(0, code)
+            reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+            self.assertEqual(
+                STOP_DECISION,
+                json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+            )
+            self.assertIn(f"{project}/docs", reason)
+            self.assertNotIn(str(scratch), reason)
+
     def test_a_tool_that_names_no_path_still_answers_to_the_cwd(self) -> None:
         # The cwd fallback is what covers Bash, whose effects are not bounded by
         # its arguments, and it still resolves the checkout. What this gate does
