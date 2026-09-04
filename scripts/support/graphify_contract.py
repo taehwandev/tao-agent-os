@@ -1,5 +1,7 @@
 """Constants for the shared Tao Graphify installation."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 
@@ -48,6 +50,32 @@ TRACKING_POLICY_PATHS = (Path(".graphifyignore"),)
 PROJECT_GRAPH_DIR = Path(".agents/local/graphify-out")
 PROJECT_GRAPH_PATH = PROJECT_GRAPH_DIR / "graph.json"
 PROJECT_MANIFEST_PATH = PROJECT_GRAPH_DIR / "manifest.json"
+
+# Where a graph is written when nothing redirects it: the CLI's own default at
+# the repository root. Setup asks for the directory above, but the commit hooks
+# are installed by `graphify hook install` rather than by setup, so they carry
+# no such assignment and write here. Asserting only the redirected path meant
+# reading an empty directory while the only graph on disk sat in this one.
+FALLBACK_GRAPH_DIR = Path("graphify-out")
+
+
+def resolve_graph_path(project: Path) -> Path | None:
+    """Return the graph this project actually has, or None when it has none.
+
+    The redirected location wins when both exist and it is not older, because
+    that is the one setup asks for; otherwise the newer file answers. A caller
+    that needs to say *which* file it read can compare against the constants
+    above.
+    """
+
+    candidates = [
+        project / PROJECT_GRAPH_DIR / "graph.json",
+        project / FALLBACK_GRAPH_DIR / "graph.json",
+    ]
+    present = [path for path in candidates if path.is_file()]
+    if not present:
+        return None
+    return max(present, key=lambda path: path.stat().st_mtime)
 
 # These paths identify the removed project-bundle design. Their presence means
 # setup has leaked common runtime assets into a target checkout.

@@ -50,8 +50,35 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
     output mentioned it.
     """
 
-    def _args(self, project: Path, evidence: Path) -> Namespace:
-        return Namespace(project=project, rules=ROOT, evidence=evidence)
+    def _args(self, project: Path, evidence: Path, *, verbose: bool = True) -> Namespace:
+        # The schema is nine unchanging lines and every start printed them. The
+        # default advice now names where to get them; these tests still read
+        # them, because what they pin is that the printed schema matches the
+        # validator, wherever it is printed.
+        return Namespace(project=project, rules=ROOT, evidence=evidence, verbose=verbose)
+
+    def test_by_default_the_advice_names_the_schema_rather_than_printing_it(self) -> None:
+        """Nine unchanging lines, printed by every start in every session.
+
+        A reader who has seen them once needs the command and the reason. One
+        that has not can ask for them, and the line that replaces them says
+        exactly how.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text("{}", encoding="utf-8")
+
+            advice = wiring.work_checkpoint_advice(
+                self._args(project, evidence, verbose=False)
+            )
+
+        joined = "\n".join(advice)
+        self.assertIn("checkpoint --work-shape", joined)
+        self.assertNotIn("non_goals[", joined)
+        self.assertLess(len(advice), 5)
 
     def test_a_run_with_a_packet_is_told_how_to_fill_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

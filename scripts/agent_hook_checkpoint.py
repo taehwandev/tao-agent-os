@@ -30,10 +30,22 @@ def add_checkpoint_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="read one schema-bounded partial work object from stdin",
     )
+    checkpoint.add_argument(
+        "--work-shape",
+        action="store_true",
+        help="print the work object's fields, limits and enums, and do nothing else",
+    )
 
 
 def checkpoint_hook(args: argparse.Namespace) -> int:
     """Write one strict checkpoint; failures never permit a mutation to start."""
+
+    if getattr(args, "work_shape", False):
+        # Asked for, rather than printed by every start in every session. The
+        # schema is nine unchanging lines; a reader needs them once.
+        from agent_hook_continuation import _work_shape_lines
+
+        return _result(args, True, "\n".join(_work_shape_lines()))
 
     binding = run_binding_path(args)
     if binding is None:

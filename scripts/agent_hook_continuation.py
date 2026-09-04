@@ -125,6 +125,17 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
             "--work-stdin",
         ]
     )
+    # The schema is nine lines that never change, printed by every start in
+    # every session. A reader who has seen it once needs the command and the
+    # reason, not the field list again; a reader who has not can ask the
+    # checkpoint hook for it. Naming where it is beats reprinting it.
+    if not getattr(args, "verbose", False):
+        return [
+            WORK_CHECKPOINT_LEAD,
+            f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command} < work.json",
+            "  the work object's fields, their limits and their enums: "
+            "`checkpoint --work-shape`",
+        ]
     return [
         WORK_CHECKPOINT_LEAD,
         f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command} < work.json",

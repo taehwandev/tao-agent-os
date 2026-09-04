@@ -136,10 +136,24 @@ class RuntimeRootReadinessTests(unittest.TestCase):
 
 
 class GraphifyOutputBoundaryTests(unittest.TestCase):
-    def test_runtime_skill_uses_only_the_project_local_output_boundary(self) -> None:
+    """Writing has one home; reading has to find the graph that exists.
+
+    This used to refuse any mention of the root-level directory anywhere in the
+    bundle, on the reading that it was legacy. It is not: the commit hooks are
+    installed by graphify's own installer, carry no `GRAPHIFY_OUT`, and write
+    there. Enforcing the ban left this repository's agents pointed at an empty
+    `.agents/local/graphify-out` while the only graph on disk, rebuilt on every
+    branch switch, sat in the directory they were told never to open.
+
+    So the ban now covers what the bundle *writes*, and the reading path is
+    required to name the fallback instead of forbidding it.
+    """
+
+    def test_the_skill_writes_only_to_the_project_local_boundary(self) -> None:
         skill_root = ROOT / RUNTIME_BUNDLED_SKILL_DIR
         markdown_files = sorted(skill_root.rglob("*.md"))
-        legacy_path = re.compile(r"(?<!\.agents/local/)graphify-out")
+        # A write is a command with an output directory in front of it.
+        legacy_write = re.compile(r"GRAPHIFY_OUT=(?!\.agents/local/graphify-out)")
         bare_cli = re.compile(
             r"(?m)^\s*graphify "
             r"(?:query|path|explain|update|cluster-only|extract|export|"
@@ -148,9 +162,17 @@ class GraphifyOutputBoundaryTests(unittest.TestCase):
 
         for path in markdown_files:
             text = path.read_text(encoding="utf-8")
-            self.assertIsNone(legacy_path.search(text), path)
+            self.assertIsNone(legacy_write.search(text), path)
             self.assertIsNone(bare_cli.search(text), path)
 
+    def test_the_skill_says_where_to_read_when_nothing_redirected_the_output(self) -> None:
+        skill = (ROOT / RUNTIME_BUNDLED_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("graphify-out/graph.json", skill)
+        self.assertIn("read the newer one", skill)
+
+    def test_the_skill_still_names_the_redirected_location_first(self) -> None:
+        skill_root = ROOT / RUNTIME_BUNDLED_SKILL_DIR
         skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         query = (skill_root / "references" / "query.md").read_text(encoding="utf-8")
         self.assertIn(".agents/local/graphify-out/graph.json", skill)
