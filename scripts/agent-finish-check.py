@@ -115,7 +115,22 @@ def print_result(output_path: Path, required_gates: list[str], overall: str, res
     print(f"Finish evidence: {output_path}")
     print(f"Required gates: {required_gates}")
     print(f"VibeGuard overall: {overall}")
-    print(f"Retrospective required: {str(result['retrospective_required']).lower()}")
+    # "Retrospective required: false" named the failure-repair loop, and every
+    # clean closeout printed it directly after the route had required a
+    # `retrospective check` gate -- all 27 routes require one. It read as "no
+    # retrospective was needed", which is the opposite of what just happened,
+    # and it misled the agent maintaining this file into reporting the closeout
+    # retrospective as missing. The loop is named, and the check that did run
+    # says so on its own line.
+    print(
+        "Retrospective repair required: "
+        f"{str(result['retrospective_required']).lower()}"
+    )
+    if not result["retrospective_required"]:
+        print(
+            "Closeout retrospective: recorded by the required `retrospective "
+            "check` gate"
+        )
     lesson = result.get("retrospective_lesson") or {}
     if lesson.get("created"):
         print(f"Retrospective lesson candidate: {lesson.get('relative_path')}")
