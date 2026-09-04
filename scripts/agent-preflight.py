@@ -512,6 +512,28 @@ def parse_route_payload(route_result: dict[str, Any]) -> tuple[dict[str, Any] | 
         return None, str(error)
 
 
+def route_command_record(
+    route_result: dict[str, Any], route_payload: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Drop the copy of the route that this evidence file already holds.
+
+    The route is resolved in this process; the JSON string in `stdout` is that
+    same object dumped so the reader below can parse it straight back. Writing
+    both put the whole route in the file twice -- 32 KB of a 74 KB preflight,
+    43% of it -- and the two copies say the same thing by construction.
+
+    `stdout` is kept whenever it is the only account of what happened: a route
+    that failed, or one whose output could not be parsed. There the string is
+    the diagnostic, and `route` is empty. The key is omitted rather than
+    emptied, because an empty `stdout` beside a zero return code reads as a
+    route that printed nothing.
+    """
+
+    if route_result.get("returncode") != 0 or route_payload is None:
+        return route_result
+    return {key: value for key, value in route_result.items() if key != "stdout"}
+
+
 def collect_failures(
     route_result: dict[str, Any],
     route_payload: dict[str, Any] | None,
@@ -594,7 +616,7 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
         "execution_mode": {"read_only": read_only},
         "route": route_payload,
         "route_parse_error": route_parse_error,
-        "route_command": route_result_payload,
+        "route_command": route_command_record(route_result_payload, route_payload),
         "git_status": git_status,
         "vibeguard": vibeguard,
         "global_lessons": global_lessons,

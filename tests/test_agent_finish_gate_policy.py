@@ -243,8 +243,33 @@ class FinishGatePolicyTests(unittest.TestCase):
 
         self.assertEqual(1, routed.call_count)
         self.assertIn("execution_snapshot", evidence)
+        # The route is stored once. `stdout` held the same object dumped to a
+        # string so it could be parsed straight back, which put the whole route
+        # in this file twice -- 32 KB of 74 KB on the reference machine.
+        self.assertEqual(route, evidence["route"])
+        self.assertNotIn("stdout", evidence["route_command"])
         self.assertNotIn("project_git", evidence["execution_snapshot"])
         self.assertFalse((project / ".tao" / "execution-capsule.json").exists())
+
+    def test_a_route_that_failed_keeps_the_only_account_of_why(self) -> None:
+        """With no parsed route, the string in `stdout` is the diagnostic."""
+
+        route_result = {
+            "returncode": 2,
+            "stdout": "workflow route refused the request",
+            "stderr": "",
+        }
+
+        record = agent_preflight.route_command_record(route_result, None)
+
+        self.assertEqual(route_result, record)
+
+    def test_an_unparsable_route_keeps_its_output_too(self) -> None:
+        route_result = {"returncode": 0, "stdout": "{ not json", "stderr": ""}
+
+        record = agent_preflight.route_command_record(route_result, None)
+
+        self.assertEqual("{ not json", record["stdout"])
 
     def test_finish_cli_has_no_gate_override_option(self) -> None:
         finish_options = {
