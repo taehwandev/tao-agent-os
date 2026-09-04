@@ -22,8 +22,11 @@ from agent_run_registry import register_run, registered_run, transition_run
 import agent_transfer_cancel as transfer_cancel
 from agent_transfer_cancel import (
     CANCEL_RECEIPT_NAME,
+    NO_CHANGE,
+    cancel_no_change_run,
     cancel_transferred_run,
     cancellation_receipt_failure,
+    recorded_changed_scope,
 )
 
 
@@ -506,6 +509,125 @@ class TransferredRunCancellationTests(unittest.TestCase):
         return TransferFixture(complete_replacement, replacement_request)
 
 
+class NoChangeCancellationTests(unittest.TestCase):
+    """Settling a run whose honest outcome was that nothing needed changing.
+
+    Before this existed such a run could not be closed at all: the review hook
+    refuses every scope with "no changed paths", and the transfer cancellation
+    needs a replacement run that finished the work -- which is exactly what a
+    no-change investigation does not have. The run was left unfinished, and an
+    unfinished run is what makes a session start blocking its own edits.
+    """
+
+    def test_a_clean_run_with_no_recorded_change_is_settled(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            code, output = fixture.cancel_no_change()
+            source = registered_run(
+                fixture.source, fixture.source_evidence, run_id=fixture.source_run_id
+            )
+            receipt = json.loads(
+                (fixture.source_evidence.parent / CANCEL_RECEIPT_NAME).read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(0, code, output)
+        self.assertEqual("cancelled", source["state"])
+        self.assertEqual(NO_CHANGE, receipt["reason"])
+        self.assertEqual(0, receipt["recorded_changed_scope"])
+        # No replacement finished this work, so the receipt names none. That is
+        # the field the transfer reason requires and this one must not carry.
+        self.assertNotIn("replacement_run_id", receipt)
+        self.assertIn("verified_worktree_signature", receipt)
+        self.assertIsNone(cancellation_receipt_failure(receipt))
+
+    def test_a_dirty_checkout_is_not_a_no_change_run(self) -> None:
+        """The clean checkout is half the proof, so it is a precondition."""
+
+        with TransferFixture(True, "same request") as fixture:
+            (fixture.source / "appeared.txt").write_text("x\n", encoding="utf-8")
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+            receipt_path = fixture.source_evidence.parent / CANCEL_RECEIPT_NAME
+
+        self.assertEqual(1, code)
+        self.assertIn("stopped being clean", output)
+        self.assertEqual("running", source["state"])
+        self.assertFalse(receipt_path.exists())
+
+    def test_a_run_that_recorded_a_change_is_refused(self) -> None:
+        """The other half: a run that changed files and committed them is clean.
+
+        Without this the clean-checkout test alone would settle a run that did
+        real work, as long as the work was committed first.
+        """
+
+        with TransferFixture(True, "same request") as fixture:
+            with patch(
+                "agent_transfer_cancel.recorded_changed_scope", return_value=2
+            ):
+                code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+            receipt_path = fixture.source_evidence.parent / CANCEL_RECEIPT_NAME
+
+        self.assertEqual(1, code)
+        self.assertIn("recorded 2 changed path(s)", output)
+        self.assertIn("finish instead of cancelling", output)
+        self.assertEqual("running", source["state"])
+        self.assertFalse(receipt_path.exists())
+
+    def test_the_changed_scope_reader_counts_what_the_packet_records(self) -> None:
+        ok = {
+            "status": "ok",
+            "packet": {"work": {"changed_scope": [{"path": "a"}, {"path": "b"}]}},
+        }
+        with patch("agent_continuation_store.read_continuation_packet", return_value=ok):
+            self.assertEqual(2, recorded_changed_scope(Path("/nowhere"), "a" * 32))
+
+    def test_an_unreadable_packet_reports_no_recorded_change(self) -> None:
+        """A run that never checkpointed recorded nothing, which is not a claim
+        that nothing happened -- the clean checkout is what carries that half."""
+
+        refused = {"status": "local_boundary_failed", "packet": None}
+        with patch(
+            "agent_continuation_store.read_continuation_packet", return_value=refused
+        ):
+            self.assertEqual(0, recorded_changed_scope(Path("/nowhere"), "a" * 32))
+
+
+class CancelInvocationTests(unittest.TestCase):
+    """The two ways to settle a run are mutually exclusive at the command line.
+
+    Accepting both would let one call claim a replacement finished the work and
+    that no work was done, which are two different stories about one run.
+    """
+
+    def _cancel(self, *arguments: str) -> str:
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPTS / "agent-hook.py"), "cancel", *arguments],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(0, completed.returncode)
+        return completed.stderr
+
+    def test_neither_reason_is_refused(self) -> None:
+        self.assertIn("exactly one of --replacement-evidence", self._cancel())
+
+    def test_both_reasons_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            replacement = Path(tmp) / "preflight.json"
+            replacement.write_text("{}", encoding="utf-8")
+            stderr = self._cancel(
+                "--replacement-evidence",
+                str(replacement),
+                "--no-change-evidence",
+                "nothing needed changing",
+            )
+
+        self.assertIn("exactly one of --replacement-evidence", stderr)
+
+
 class TransferFixture:
     def __init__(self, complete_replacement: bool, replacement_request: str):
         self._temporary = tempfile.TemporaryDirectory()
@@ -592,6 +714,21 @@ class TransferFixture:
         output = io.StringIO()
         with redirect_stdout(output):
             code = cancel_transferred_run(args)
+        return code, output.getvalue()
+
+    def cancel_no_change(self, reason: str = "the reported defect was a guard") -> tuple[int, str]:
+        args = Namespace(
+            project=self.source,
+            rules=self.rules,
+            evidence=self.source_evidence,
+            replacement_evidence=None,
+            no_change_evidence=reason,
+            output=None,
+            repair_cycle=0,
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = cancel_no_change_run(args)
         return code, output.getvalue()
 
     @staticmethod

@@ -144,6 +144,21 @@ the replacement must be a completed linked worktree and the source checkout
 must have no tracked or untracked changes. The command preserves both evidence
 directories and writes a content-free cancellation receipt.
 
+A run whose honest outcome is that nothing needed changing is settled the other
+way, with `tao-hook cancel --evidence <RUN> --no-change-evidence "<why>"`. The
+two are mutually exclusive: a transfer says another run did the work, and this
+says the work was correctly not done. It is proven rather than asserted, by two
+observations -- the checkout is clean, and the run's own continuation packet
+records no changed scope. The second is what covers a run that changed files and
+committed them, which a clean checkout alone would not catch. A file written
+outside the governed path leaves no record in either place; preventing that is
+the pretool gate's job.
+
+Reach for it when an investigation route ends in "no change needed": the review
+hook refuses every scope with `no changed paths` and cannot attest a clean
+checkout, so without this the run stays unfinished, and unfinished runs are what
+make a session start blocking its own edits.
+
 ## Before Reporting
 
 - Re-check the final diff or touched files.
