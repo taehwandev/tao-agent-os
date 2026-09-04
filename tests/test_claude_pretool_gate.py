@@ -235,6 +235,80 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
+    def test_each_refusal_names_the_condition_that_caused_it(self) -> None:
+        """Four conditions end at one refusal, and it described only one of them.
+
+        The remedy it gave -- go work in a linked worktree -- fits a named
+        target and an authoring Git command. A reader refused because their
+        line was a pipeline was already in a worktree, so that remedy read as
+        the gate blocking something else, and they went looking for the cause
+        elsewhere. That happened twice in one session, to the agent maintaining
+        this file, before the message was made to say which condition fired.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp))
+            _require_linked_worktree(main)
+            linked = Path(tmp) / "linked"
+            (linked / ".tao").mkdir(parents=True)
+            (linked / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
+            _require_linked_worktree(linked, linked=True)
+
+            cases = {
+                "chain, a pipeline": (main, "python3 -m pytest tests | tail -4"),
+                "the shell computes part of this line": (main, "python3 -m pytest $(ls tests)"),
+                "what this Git command does here": (main, "git commit -m wip"),
+                "a path this line names": (linked, f"python3 tool.py --project {main}"),
+            }
+            for expected, (cwd, command) in cases.items():
+                with self.subTest(cause=expected):
+                    code, out = _decide(
+                        {
+                            "tool_name": "Bash",
+                            "cwd": str(cwd),
+                            "session_id": "no-evidence",
+                            "tool_input": {"command": command},
+                        }
+                    )
+
+                    self.assertEqual(0, code)
+                    self.assertIn(expected, _reason(out))
+
+    def test_a_named_cause_never_replaces_the_remedy(self) -> None:
+        """The cause is added in front of the route out, not instead of it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp))
+            _require_linked_worktree(main)
+
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(main),
+                    "session_id": "no-evidence",
+                    "tool_input": {"command": "python3 -m pytest tests | tail -4"},
+                }
+            )
+
+        self.assertEqual(0, code)
+        reason = _reason(out)
+        self.assertIn("git worktree add", reason)
+        self.assertIn(worktree_gate.MAIN_CHECKOUT_OVERRIDE_ENV, reason)
+        self.assertLess(reason.index("The reason is"), reason.index("Create or select"))
+
+    def test_an_unnamed_cause_still_produces_the_refusal(self) -> None:
+        """A cause it cannot name must never turn a denial into an allow."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _opt_in_project(Path(tmp))
+            _require_linked_worktree(main)
+
+            reason = worktree_gate.worktree_deny_reason(main, "main", "no such cause")
+
+        self.assertIn("cannot run a mutating tool", reason)
+        self.assertIn("Create or select", reason)
+        self.assertNotIn("The reason is", reason)
+
     def test_the_worktree_denial_names_the_command_that_answers_it(self) -> None:
         """Naming the remedy without its shape sent readers to a human.
 
