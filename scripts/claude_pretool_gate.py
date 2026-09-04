@@ -885,8 +885,44 @@ def _worktree_policy_verdict(
             standing_in_the_protected_checkout=standing_in_the_protected_checkout,
             readable=readable,
             syntax_is_simple=syntax_is_simple,
+            payload=payload,
+            tokens=tokens,
+            command_cwd=command_cwd,
         )
     )
+
+
+def _protected_path_named(
+    payload: dict, tokens: list[str], cwd: Path, root: Path
+) -> str:
+    """The path this command names inside `root`, or "" when none can be shown.
+
+    An edit names its target outright. A Bash line names it among its arguments,
+    and the one that matters is the one the gate found inside the protected
+    checkout -- not necessarily the operand a reader would call the target, since
+    a path is read wherever it appears, a `sed` expression included. Reporting
+    the path the gate actually acted on is what makes the two distinguishable.
+
+    Only the denial path calls this, so the second pass over the arguments costs
+    nothing on any call that is allowed.
+    """
+
+    target = write_target_path(payload, cwd)
+    if target is not None:
+        return str(target)
+    source_indices = copy_source_token_indices(tokens)
+    candidates = [
+        token for index, token in enumerate(tokens) if index not in source_indices
+    ]
+    for path in path_arguments(candidates):
+        absolute = path if path.is_absolute() else cwd / path
+        try:
+            owner = _owning_project(absolute)
+        except UnresolvableTarget:
+            continue
+        if owner == root:
+            return str(absolute)
+    return ""
 
 
 def _worktree_reason_naming_its_cause(
@@ -897,6 +933,9 @@ def _worktree_reason_naming_its_cause(
     standing_in_the_protected_checkout: bool,
     readable: bool,
     syntax_is_simple: bool,
+    payload: dict,
+    tokens: list[str],
+    command_cwd: Path,
 ) -> str:
     """Rebuild the refusal so it says which of its four conditions fired.
 
@@ -920,14 +959,27 @@ def _worktree_reason_naming_its_cause(
         # An Edit or a Write, or a Bash command reaching in from outside: in
         # every one of them the target path is what put this here.
         cause = NAMED_TARGET
-    named = next(
-        (reason for reason in (worktree_denial(root, cause) for root in roots) if reason),
+    reason = next(
+        (
+            refusal
+            for refusal in (
+                worktree_denial(
+                    root,
+                    cause,
+                    _protected_path_named(payload, tokens, command_cwd, root)
+                    if cause == NAMED_TARGET
+                    else "",
+                )
+                for root in roots
+            )
+            if refusal
+        ),
         None,
     )
     # The policy can only have loosened between the two reads -- an override set
     # mid-command, say -- and a refusal with no reason left to give is still a
     # refusal, so the original stands.
-    return named or (fallback or "")
+    return reason or (fallback or "")
 
 
 def bash_governed_roots(
