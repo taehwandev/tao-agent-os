@@ -242,6 +242,9 @@ COMMANDS: Dict[str, Profile] = {
         notes=(
             "Use for removing merged branches, stale worktrees, and the local refs a merged "
             "pull request left behind, and for nothing else. "
+            "For one explicit target, collect its worktree status, tip SHA, remote integration "
+            "state, and merge evidence in one bounded inspection, then record every "
+            "simultaneously-ready safety gate in one gate-batch. "
             "Deleting a ref is a git write, so the route still needs a recorded approval bound "
             "to this request and target; deleting a remote branch needs one that covers "
             "external_write, and the guidance never does it unasked. "
