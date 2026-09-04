@@ -57,10 +57,14 @@ def configure_claude(
     # was exactly the self-asserting bypass that flag no longer allows. The
     # advisory route emits the same listing and label context while satisfying
     # no downstream gate.
+    # --hook-stdin lets that same listing be delivered once per session instead
+    # of on every turn. The listing is identical for every prompt, so repeating
+    # it spent thousands of tokens a turn restating what the session already
+    # held; the label context this hook exists for is written either way.
     baseline_cmd = (
         f"TAO_HOOK_SOFT_FAIL=1 SPILL_AI_TOOL=claude {quote(str(launcher_path))}"
         " workflow"
-        " route triage --advisory"
+        " route triage --advisory --hook-stdin"
     )
     results = []
 
