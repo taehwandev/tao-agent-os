@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import workflow_doc_resolution  # noqa: E402
 from agent_finish_gate_validators import validate_source_docs_evidence  # noqa: E402
 from workflow_doc_resolution import (  # noqa: E402
     doc_size,
@@ -97,6 +98,44 @@ class EntrypointResolutionTests(unittest.TestCase):
 
     def test_non_skill_documents_pass_through_untouched(self) -> None:
         self.assertEqual(["AGENTS.md"], resolve_guidance_docs(ROOT, ["AGENTS.md"]))
+
+    def test_a_corpus_entrypoint_is_not_read_a_second_time_to_classify_it(self) -> None:
+        """The vote already digested it; asking about it must not re-read it.
+
+        Validation resolves every route, which asked this question 285 times for
+        36 documents the corpus scan had already digested.
+        """
+        entrypoint = "common/skills/commit-workflow/SKILL.md"
+        is_pointer_entrypoint(ROOT, entrypoint)  # warm the corpus vote
+
+        reads: list[str] = []
+        original = workflow_doc_resolution._normalised_body
+
+        def recording(root: Path, path: str) -> str:
+            reads.append(path)
+            return original(root, path)
+
+        workflow_doc_resolution._normalised_body = recording
+        try:
+            self.assertTrue(is_pointer_entrypoint(ROOT, entrypoint))
+        finally:
+            workflow_doc_resolution._normalised_body = original
+
+        self.assertEqual([], reads)
+
+    def test_an_entrypoint_outside_the_corpus_is_still_classified(self) -> None:
+        """The vote walks `<area>/skills/<name>/`; a document elsewhere is read."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index in range(20):
+                path = root / "common" / "skills" / f"skill-{index}" / "SKILL.md"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# Canonical {index}\n\nShared body.\n", encoding="utf-8")
+            outside = root / "vendor" / "SKILL.md"
+            outside.parent.mkdir(parents=True, exist_ok=True)
+            outside.write_text("# Vendor\n\nShared body.\n", encoding="utf-8")
+
+            self.assertTrue(is_pointer_entrypoint(root, "vendor/SKILL.md"))
 
 
 class RequiredDocMembershipTests(unittest.TestCase):
