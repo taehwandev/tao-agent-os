@@ -243,6 +243,7 @@ def process_skill_followup(
     preflight: dict[str, Any],
     gate_signals: list[dict[str, str]],
     failures: list[str],
+    gate_evidence_ledger: dict[str, Any] | None = None,
 ) -> list[str]:
     """Block only a clean finish whose current occurrence needs follow-up."""
 
@@ -252,6 +253,7 @@ def process_skill_followup(
         pending = skill_followup_failures(
             state_root=state_home(),
             preflight=preflight,
+            gate_evidence_ledger=gate_evidence_ledger,
         )
     except (OSError, ValueError):
         pending = ["skill follow-up state unavailable"]
@@ -275,6 +277,7 @@ def process_closeout_learning(
     gate_signals: list[dict[str, str]],
     failures: list[str],
     rules: Path | None = None,
+    gate_evidence_ledger: dict[str, Any] | None = None,
 ) -> tuple[bool, dict[str, Any], list[str]]:
     """Keep failure learning and successful closeout follow-up in one boundary."""
 
@@ -290,6 +293,7 @@ def process_closeout_learning(
         preflight=preflight,
         gate_signals=gate_signals,
         failures=failures,
+        gate_evidence_ledger=gate_evidence_ledger,
     )
     return retrospective_required, retrospective_lesson, skill_followup
 
@@ -521,6 +525,7 @@ def main() -> int:
         gate_signals=gate_signals,
         failures=failures,
         rules=rules,
+        gate_evidence_ledger=gate_evidence_ledger,
     )
 
     result = build_result(
