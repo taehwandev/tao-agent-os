@@ -66,6 +66,20 @@ class CodexStopGateTests(unittest.TestCase):
         self.assertIn("fresh user authority", payload["reason"])
         self.assertIn("complete the work and gate evidence", payload["reason"])
 
+    def test_closeout_prompt_does_not_revive_a_superseded_cancelled_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = _project(Path(directory))
+            evidence = project / ".tao" / "preflight.json"
+            evidence.write_text(
+                json.dumps({"rules": str(project)}),
+                encoding="utf-8",
+            )
+
+            reason = gate.closeout_reason(project, evidence)
+
+        self.assertIn("no longer owns an active run", reason)
+        self.assertIn("do not revive it", reason)
+
     def test_real_active_run_resolves_only_its_bound_codex_session(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = _project(Path(directory))
