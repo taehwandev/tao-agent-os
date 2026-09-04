@@ -14,7 +14,14 @@ one.
 
 If the user invoked `/graphify --help` or `/graphify -h` (with no other arguments), print the contents of the `## Usage` section above verbatim and stop. Do not run any commands, do not detect files, do not default the path to `.`. Just print the Usage block and return.
 
-**Fast path — existing graph:** Before doing anything else, check whether `.agents/local/graphify-out/graph.json` exists. The expected location is `.agents/local/graphify-out/graph.json` relative to the **current working directory** (i.e. the project root where you are running commands). If it exists AND the user's request is a natural-language question about the codebase (e.g. "How does X work?", "What calls Y?", "Trace the data flow through Z") and NOT an explicit rebuild command (`--update`, `--cluster-only`, or a bare path/URL that implies fresh extraction): **skip Steps 1–5 entirely and jump straight to `## For /graphify query`.** Run `GRAPHIFY_OUT=.agents/local/graphify-out graphify query "<question>"` immediately. Do not run detect. Do not check corpus size. Do not ask the user to narrow. The graph is already built — use it.
+**Fast path — existing graph:** If the user's request is a natural-language
+question about the codebase (for example, "How does X work?", "What calls Y?",
+or "Trace the data flow through Z") and not an explicit rebuild command
+(`--update`, `--cluster-only`, or a bare path/URL that implies fresh
+extraction), skip Steps 1–5 and use `references/query.md`. Its readiness check
+finds either supported graph location, rejects a stale or malformed graph, and
+sets `GRAPHIFY_READ_OUT` for the query. Do not run detect, check corpus size, or
+ask the user to narrow before that fast-path check.
 
 If no path was given, use `.` (current directory). Do not ask the user for a path.
 

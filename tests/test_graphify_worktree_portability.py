@@ -103,11 +103,19 @@ class GraphifyWorktreePortabilityTests(unittest.TestCase):
                 cwd=project,
                 check=True,
             )
+            built_at_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
             graph = project / PROJECT_GRAPH_PATH
             graph.parent.mkdir(parents=True)
             graph.write_text(
                 json.dumps(
                     {
+                        "built_at_commit": built_at_commit,
                         "nodes": [
                             {
                                 "id": "src_main",

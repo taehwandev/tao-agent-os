@@ -9,16 +9,37 @@ Two traversal modes - choose based on the question:
 | BFS (default) | _(none)_ | "What is X connected to?" - broad context, nearest neighbors first |
 | DFS | `--dfs` | "How does X reach Y?" - trace a specific chain or dependency path |
 
-First check the graph exists:
+### Resolve and validate the read graph
+
+Do not guess the output directory from which paths happen to exist. Run Tao's
+read-only readiness inspection first:
+
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -c "
-from pathlib import Path
-if not Path('.agents/local/graphify-out/graph.json').exists():
-    print('ERROR: No graph found. Run /graphify <path> first to build the graph.')
-    raise SystemExit(1)
-"
+python3 <TAO_ROOT>/scripts/setup-project-graphify.py --project . --check --format json
 ```
-If it fails, stop and tell the user to run `/graphify <path>` first.
+
+Read `projects[0].readiness` from that output. Continue only when all three are
+true: `graph_exists`, `graph_fresh`, and `graph_integrity_ready`. These are the
+query safety fields; the broader `ready` field also checks global skill install
+freshness and project knowledge coverage, which must be reported but does not
+choose the query file. If the graph is missing, stale, or malformed, stop and
+tell the user which field failed. Offer `/graphify <path> --update`; do not start
+that potentially expensive write automatically.
+
+Set the read directory to the parent of the exact reported `graph_path`, and
+keep the write directory canonical:
+
+```bash
+GRAPHIFY_READ_OUT="<parent directory of readiness.graph_path>"
+GRAPHIFY_WRITE_OUT="$(pwd -P)/.agents/local/graphify-out"
+GRAPHIFY_GRAPH="$GRAPHIFY_READ_OUT/graph.json"
+export GRAPHIFY_READ_OUT GRAPHIFY_WRITE_OUT GRAPHIFY_GRAPH
+echo "Graph source: $GRAPHIFY_GRAPH"
+```
+
+The fallback `graphify-out/` location is read-only compatibility. Query, path,
+and explain may read it. Vocabulary, reflection, saved-result, rebuild, and
+export writes must continue to use `GRAPHIFY_WRITE_OUT`.
 
 ### Step 0 — Constrained query expansion (REQUIRED before traversal)
 
@@ -26,12 +47,15 @@ graphify's `query` CLI matches nodes via case-folded substring + IDF — there i
 
 Fix this **without inventing tokens** by expanding the query against the actual graph vocabulary first:
 
-1. Extract the token vocabulary from node labels:
+1. Extract the token vocabulary from the selected graph's node labels. The
+   reusable vocabulary cache is still written only to the canonical boundary:
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -c "
-import json, re
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" GRAPHIFY_WRITE_OUT="$GRAPHIFY_WRITE_OUT" $(cat "$GRAPHIFY_WRITE_OUT/.graphify_python") -c "
+import json, os, re
 from pathlib import Path
-data = json.loads(Path('.agents/local/graphify-out/graph.json').read_text(encoding='utf-8'))
+graph = Path(os.environ['GRAPHIFY_OUT']) / 'graph.json'
+write_out = Path(os.environ['GRAPHIFY_WRITE_OUT'])
+data = json.loads(graph.read_text(encoding='utf-8'))
 vocab = set()
 for n in data['nodes']:
     for c in re.findall(r'[^\W\d_]+', n.get('label','') or '', re.UNICODE):
@@ -40,12 +64,15 @@ for n in data['nodes']:
             t = p.lower()
             if 3 <= len(t) <= 30:
                 vocab.add(t)
-Path('.agents/local/graphify-out/.vocab.txt').write_text('\n'.join(sorted(vocab)), encoding='utf-8')
+write_out.mkdir(parents=True, exist_ok=True)
+(write_out / '.vocab.txt').write_text('\n'.join(sorted(vocab)), encoding='utf-8')
 print(f'vocab: {len(vocab)} tokens')
 "
 ```
 
-2. Read `.agents/local/graphify-out/.vocab.txt`. Then for the user's question, select **up to 12 tokens from this exact list** that semantically match the query intent. Hard constraints:
+2. Read `$GRAPHIFY_WRITE_OUT/.vocab.txt`. Then for the user's question, select
+   **up to 12 tokens from this exact list** that semantically match the query
+   intent. Hard constraints:
    - You MUST pick only tokens present in the vocabulary file. Do NOT invent tokens.
    - If a query concept has no plausible token in the vocab, skip it — do not substitute a near-synonym from training memory.
    - If **no** vocab tokens match the query at all, output an empty list and tell the user the corpus has no relevant vocabulary for this question. Do not fabricate a search.
@@ -64,12 +91,12 @@ Build the **expanded query string** by joining the selected tokens with spaces. 
 
 Prefer the CLI when it is installed:
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out graphify query "QUESTION"
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" graphify query "QUESTION"
 # or:
-GRAPHIFY_OUT=.agents/local/graphify-out graphify query "QUESTION" --dfs --budget 3000
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" graphify query "QUESTION" --dfs --budget 3000
 ```
 
-If the CLI is unavailable, load `.agents/local/graphify-out/graph.json` and run the traversal inline:
+If the CLI is unavailable, load `$GRAPHIFY_GRAPH` and run the traversal inline:
 
 1. Find the 1-3 nodes whose label best matches the expanded tokens.
 2. Run the appropriate traversal from each starting node.
@@ -78,13 +105,13 @@ If the CLI is unavailable, load `.agents/local/graphify-out/graph.json` and run 
 5. If the graph lacks enough information, say so - do not hallucinate edges.
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -c "
-import sys, json
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" $(cat "$GRAPHIFY_WRITE_OUT/.graphify_python") -c "
+import sys, json, os
 from networkx.readwrite import json_graph
 import networkx as nx
 from pathlib import Path
 
-data = json.loads(Path('.agents/local/graphify-out/graph.json').read_text(encoding='utf-8'))
+data = json.loads((Path(os.environ['GRAPHIFY_OUT']) / 'graph.json').read_text(encoding='utf-8'))
 G = json_graph.node_link_graph(data, edges='links')
 
 question = 'QUESTION'
@@ -166,10 +193,18 @@ print(output)
 
 Replace `QUESTION` with the **expanded** query string, `MODE` with `bfs` or `dfs`, and `BUDGET` with the token budget (default `2000`, or whatever `--budget N` specifies). Then answer based on the subgraph output above, using only what the graph contains.
 
-After writing the answer, save it back into the graph so it improves future queries. Include the expanded tokens inside the `--answer` text (e.g. `"Expanded from original query via vocab: [tokens]. Then traversed..."`) so the next `--update` extracts the expansion history as a graph node:
+After writing the answer, save it back only when the selected graph already
+lives on the canonical write boundary. Include the expanded tokens inside the
+`--answer` text (e.g. `"Expanded from original query via vocab: [tokens]. Then
+traversed..."`) so the next `--update` extracts the expansion history as a graph
+node:
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -m graphify save-result --question "ORIGINAL_QUESTION" --answer "ANSWER" --type query --nodes NODE1 NODE2
+if [ "$GRAPHIFY_READ_OUT" = "$GRAPHIFY_WRITE_OUT" ]; then
+    GRAPHIFY_OUT="$GRAPHIFY_WRITE_OUT" $(cat "$GRAPHIFY_WRITE_OUT/.graphify_python") -m graphify save-result --question "ORIGINAL_QUESTION" --answer "ANSWER" --type query --nodes NODE1 NODE2
+else
+    echo "Skipped Graphify memory write: the selected graph is the read-only fallback."
+fi
 ```
 
 Replace `ORIGINAL_QUESTION` with the user's verbatim question, `ANSWER` with your full answer text (containing the expanded-token trace), `NODE1 NODE2` with the list of node labels you cited. This closes the feedback loop: the next `--update` will extract this Q&A as a node in the graph.
@@ -180,12 +215,19 @@ Replace `ORIGINAL_QUESTION` with the user's verbatim question, `ANSWER` with you
 - `dead_end` — the question/path led nowhere; don't re-derive it next time.
 - `corrected` — the saved answer was wrong; `--correction` records what was right.
 
-At the **start** of graph work, refresh and read the lessons with
-`GRAPHIFY_OUT=.agents/local/graphify-out graphify reflect --if-stale`, then read
-`.agents/local/graphify-out/reflections/LESSONS.md`. The command is cheap and
-deterministic; `--if-stale` makes it a no-op when `LESSONS.md` is already newer
-than every input. The lessons list preferred sources, known dead ends, and
-prior corrections.
+At the **start** of graph work, refresh and read lessons only when the selected
+graph is canonical:
+
+```bash
+if [ "$GRAPHIFY_READ_OUT" = "$GRAPHIFY_WRITE_OUT" ]; then
+    GRAPHIFY_OUT="$GRAPHIFY_WRITE_OUT" graphify reflect --if-stale
+fi
+```
+
+Then read `$GRAPHIFY_WRITE_OUT/reflections/LESSONS.md` when it exists. The
+command is cheap and deterministic; `--if-stale` makes it a no-op when the
+lessons are already newer than every canonical input. A fallback query never
+writes reflections or saved results beside the fallback graph.
 
 ---
 
@@ -194,19 +236,19 @@ prior corrections.
 Find the shortest path between two named concepts in the graph. Prefer the CLI when installed:
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out graphify path "NODE_A" "NODE_B"
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" graphify path "NODE_A" "NODE_B"
 ```
 
 If the CLI is unavailable, run it inline:
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -c "
-import json, sys
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" $(cat "$GRAPHIFY_WRITE_OUT/.graphify_python") -c "
+import json, os, sys
 import networkx as nx
 from networkx.readwrite import json_graph
 from pathlib import Path
 
-data = json.loads(Path('.agents/local/graphify-out/graph.json').read_text(encoding='utf-8'))
+data = json.loads((Path(os.environ['GRAPHIFY_OUT']) / 'graph.json').read_text(encoding='utf-8'))
 G = json_graph.node_link_graph(data, edges='links')
 
 a_term = 'NODE_A'
@@ -252,7 +294,9 @@ Replace `NODE_A` and `NODE_B` with the actual concept names from the user. Then 
 After writing the explanation, save it back:
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -m graphify save-result --question "Path from NODE_A to NODE_B" --answer "ANSWER" --type path_query --nodes NODE_A NODE_B
+if [ "$GRAPHIFY_READ_OUT" = "$GRAPHIFY_WRITE_OUT" ]; then
+    GRAPHIFY_OUT="$GRAPHIFY_WRITE_OUT" $(cat "$GRAPHIFY_WRITE_OUT/.graphify_python") -m graphify save-result --question "Path from NODE_A to NODE_B" --answer "ANSWER" --type path_query --nodes NODE_A NODE_B
+fi
 ```
 
 ---
@@ -262,19 +306,19 @@ GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphi
 Give a plain-language explanation of a single node - everything connected to it. Prefer the CLI when installed:
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out graphify explain "NODE_NAME"
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" graphify explain "NODE_NAME"
 ```
 
 If the CLI is unavailable, run it inline:
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -c "
-import json, sys
+GRAPHIFY_OUT="$GRAPHIFY_READ_OUT" $(cat "$GRAPHIFY_WRITE_OUT/.graphify_python") -c "
+import json, os, sys
 import networkx as nx
 from networkx.readwrite import json_graph
 from pathlib import Path
 
-data = json.loads(Path('.agents/local/graphify-out/graph.json').read_text(encoding='utf-8'))
+data = json.loads((Path(os.environ['GRAPHIFY_OUT']) / 'graph.json').read_text(encoding='utf-8'))
 G = json_graph.node_link_graph(data, edges='links')
 
 term = 'NODE_NAME'
@@ -313,5 +357,7 @@ Replace `NODE_NAME` with the concept the user asked about. Then write a 3-5 sent
 After writing the explanation, save it back:
 
 ```bash
-GRAPHIFY_OUT=.agents/local/graphify-out $(cat .agents/local/graphify-out/.graphify_python) -m graphify save-result --question "Explain NODE_NAME" --answer "ANSWER" --type explain --nodes NODE_NAME
+if [ "$GRAPHIFY_READ_OUT" = "$GRAPHIFY_WRITE_OUT" ]; then
+    GRAPHIFY_OUT="$GRAPHIFY_WRITE_OUT" $(cat "$GRAPHIFY_WRITE_OUT/.graphify_python") -m graphify save-result --question "Explain NODE_NAME" --answer "ANSWER" --type explain --nodes NODE_NAME
+fi
 ```

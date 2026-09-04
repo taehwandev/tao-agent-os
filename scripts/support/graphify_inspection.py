@@ -16,6 +16,7 @@ from support.graphify_contract import (
     PROJECT_RUNTIME_ASSET_PATHS,
     RUNTIME_BUNDLED_SKILL_DIR,
     leaked_runtime_asset,
+    resolve_graph_path,
 )
 from support.graphify_graph_state import inspect_project_graph_state
 from support.graphify_input_inspection import inspect_project_graph_inputs
@@ -56,8 +57,11 @@ def inspect_target_graphify(
         for relative in PROJECT_RUNTIME_ASSET_PATHS
         if leaked_runtime_asset(project_path, relative)
     ]
-    graph_path = project_path / PROJECT_GRAPH_PATH
-    input_state = inspect_project_graph_inputs(project_path)
+    graph_path = resolve_graph_path(project_path) or project_path / PROJECT_GRAPH_PATH
+    input_state = inspect_project_graph_inputs(
+        project_path,
+        manifest_path=graph_path.parent / "manifest.json",
+    )
     graph_state = inspect_project_graph_state(project_path, graph_path)
     project_integration_ready = not unexpected_assets
     runtime_ready = bool(
