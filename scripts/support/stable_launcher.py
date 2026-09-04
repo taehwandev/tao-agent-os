@@ -150,8 +150,9 @@ def _is_executable(path: Path) -> bool:
 def _launcher_script_text() -> str:
     return """#!/usr/bin/env python3
 import os
-import subprocess
+import runpy
 import sys
+import traceback
 from pathlib import Path
 
 STATE_DIR_NAME = ".tao"
@@ -236,12 +237,47 @@ def main():
             "Tao Agent OS root pointer is stale. Run setup-agent-hooks.py from the current Tao Agent OS checkout."
         )
 
-    env = os.environ.copy()
-    env.setdefault("TAO_HOME", str(root))
-    result = subprocess.run([sys.executable, str(script), *passthrough_args], env=env, check=False)
-    if result.returncode and env.get("TAO_HOOK_SOFT_FAIL") == "1":
+    os.environ.setdefault("TAO_HOME", str(root))
+    return _run_in_process(script, passthrough_args)
+
+def _run_in_process(script, passthrough_args):
+    # Every gated tool call, every prompt and every Stop pays for this launcher,
+    # and spawning a second interpreter to reach the script cost 24 ms of the
+    # 72 ms a PreToolUse gate took -- a third of it, before any policy ran. The
+    # script is ordinary Python and this process has nothing to protect, so run
+    # it here.
+    #
+    # The two things the child gave for free have to be restored by hand: the
+    # scripts directory as sys.path[0], which is how these modules import each
+    # other, and sys.argv as the script sees it.
+    sys.argv = [str(script), *passthrough_args]
+    scripts_directory = str(script.parent)
+    if scripts_directory not in sys.path:
+        sys.path.insert(0, scripts_directory)
+
+    # A crash used to reach the caller as the child's non-zero exit, which
+    # TAO_HOOK_SOFT_FAIL then absorbed. In-process it would reach the runtime as
+    # a launcher traceback and a hook that brings down the tool call it gates,
+    # so the same failure is converted back into the same exit code here.
+    # KeyboardInterrupt is deliberately not caught: an interrupt belongs to the
+    # operator, not to the hook.
+    try:
+        runpy.run_path(str(script), run_name="__main__")
+        code = 0
+    except SystemExit as requested:
+        code = requested.code
+        if code is None:
+            code = 0
+        elif not isinstance(code, int):
+            print(code, file=sys.stderr)
+            code = 1
+    except Exception:
+        traceback.print_exc()
+        code = 1
+
+    if code and os.environ.get("TAO_HOOK_SOFT_FAIL") == "1":
         return 0
-    return result.returncode
+    return code
 
 def _find_root():
     candidates: list[Path] = []
