@@ -53,6 +53,11 @@ failure-repair and skill-learning automation boundary.
    closeout when `reusable_gap` is recorded. The runtime does not blindly write
    prose: the agent authors the canonical skill change, then the maintenance
    recorder verifies the changed target before finish.
+8. Read the `Skill learning backlog` line that start and finish print whenever
+   anything waits. It counts what earlier runs left in the review queue and in
+   staging, and ages the oldest from when it was queued. It is a report, not a
+   gate: unrelated historical items still never block the current run, so
+   draining the queue is a task to schedule, not an obstacle to clear.
 
 ## Do Not
 
@@ -91,7 +96,9 @@ failure-repair and skill-learning automation boundary.
   optional.
 - Prove a reusable-gap observation queues same-closeout follow-up and blocks
   finish until `no_change`, `applied`, or `rejected` is recorded.
-- Prove unrelated historical review-queue items never block the current run.
+- Prove unrelated historical review-queue items never block the current run,
+  and that start and finish still report how many wait and how old the oldest
+  is, so a queue nothing drains cannot stay invisible.
 - Prove a user-confirmed wrong completion enters blocking failure repair while
   an optional improvement or unrelated follow-up does not.
 - Prove correction routing requires an explicit completed-result anchor, keeps
