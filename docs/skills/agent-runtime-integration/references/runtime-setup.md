@@ -135,6 +135,14 @@ for example `setup-agent-hooks --runtime codex --target <TARGET_REPO>`, adds
 Existing user roots and unrelated settings are preserved. A foreign default
 profile or legacy `approval_policy`/`sandbox_mode` is an ownership conflict and
 must be reported rather than replaced.
+The installed Codex bridge also distinguishes tool-session state from execution
+evidence. A result that only supplies a running cell or session id does not
+prove that an escalated command started. For an operation expected to finish
+promptly, the agent waits once for at most 15 seconds and then uses a read-only
+process or target-state check. It must not attribute the delay to hooks or tests
+without that evidence. If execution remains unproven, it terminates the cell
+before a retry; it retries only after proving no side effect occurred and never
+automatically retries a non-idempotent external write.
 `start` binds evidence to Codex's exact `CODEX_THREAD_ID`; the Stop gate acts
 only when that same session still owns an active run. It continues the turn
 once with the remaining `finish` and same-closeout skill-maintenance work, then

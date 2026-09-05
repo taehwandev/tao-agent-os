@@ -24,6 +24,15 @@ CODEX_DISPATCH_BRIDGE_PHRASE = (
     "required. A matching parent profile or unavailable parent profile information both stay in the "
     "current process or use a native worker; neither condition starts a fresh Codex process."
 )
+CODEX_APPROVAL_WAIT_BRIDGE_PHRASE = (
+    "A Codex exec result that only reports `Script running with cell ID ...` or a session id is "
+    "transport state, not proof that the command started. For an escalated command expected to "
+    "finish promptly, if no output appears, wait once for at most 15 seconds, then use read-only "
+    "process or target-state evidence; never claim hooks or tests are running without that evidence. "
+    "If execution is still unproven, terminate the cell before any retry. Retry only after proving "
+    "the first attempt made no side effect, and never automatically retry a non-idempotent external "
+    "write."
+)
 RUNTIME_NATIVE_DELEGATION_PHRASES = {
     "Codex": (
         "For an eligible split, use Codex native subagents or parallel workers; the parent owns "
@@ -155,6 +164,7 @@ def runtime_bridge_required_phrases(runtime_name: str, instruction_file: str) ->
         phrases.append(native_delegation)
     if runtime_name == "Codex":
         phrases.append(CODEX_DISPATCH_BRIDGE_PHRASE)
+        phrases.append(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
     return phrases
 
 
@@ -162,6 +172,9 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
     native_delegation = RUNTIME_NATIVE_DELEGATION_PHRASES.get(runtime_name)
     native_delegation_phrase = [f"- {native_delegation}"] if native_delegation else []
     dispatch_phrase = [f"- {CODEX_DISPATCH_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
+    approval_wait_phrase = (
+        [f"- {CODEX_APPROVAL_WAIT_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
+    )
     return "\n".join([
         RUNTIME_BRIDGE_BEGIN,
         "## Tao Agent OS Runtime Bridge",
@@ -189,6 +202,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         f"- {LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE}",
         *native_delegation_phrase,
         *dispatch_phrase,
+        *approval_wait_phrase,
         f"- If this bridge or the project-root {instruction_file} cannot be confirmed before project work, stop before routing, editing, testing, committing, or reporting completion and ask for bridge repair.",
         "- Do not mention Tao Agent OS setup, hook, permission, helper, or label commands in normal conversation.",
         "- Do not report whether background labels, hooks, or metering ran unless the user explicitly asks about that subsystem.",
