@@ -32,8 +32,33 @@ import os
 import sys
 from pathlib import Path
 
-try:  # Never fail to load; used for the message and the session lookup.
-    from agent_runtime_session import recorded_session_id
+def recorded_session_id(payload: object) -> str:
+    """Read back a session id stamped by `runtime_session()`.
+
+    Defined here rather than imported. `agent_runtime_session` costs 17.7ms of
+    this gate's 23.2ms of imports -- it pulls the run registry, the worker
+    evidence, the execution capsule and the worktree fingerprints -- and this
+    gate asks it for nothing else: two dictionary lookups on a payload it has
+    already parsed. The module's own broken-install fallback held a
+    byte-identical copy of this function, so the import was buying a tree to
+    supply code the file already had.
+
+    It stays a copy rather than moving to a shared module: this runs on every
+    turn end, and a new import to share six lines would reintroduce what it
+    costs. The stamp's shape is fixed by `runtime_session()`, and a change there
+    that broke this would break the fallback it was copied from too.
+    """
+
+    if not isinstance(payload, dict):
+        return ""
+    session = payload.get("runtime_session")
+    if not isinstance(session, dict):
+        return ""
+    recorded = session.get("session_id")
+    return recorded if isinstance(recorded, str) else ""
+
+
+try:  # Never fail to load; used for the message and the project lookup.
     from support.stable_launcher import stable_launcher_path
     from support.global_state import (
         global_state_dir,
@@ -62,15 +87,6 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
             if (candidate / ".git").exists():
                 return candidate
         return candidates[0] if candidates else None
-
-    def recorded_session_id(payload: object) -> str:
-        if not isinstance(payload, dict):
-            return ""
-        session = payload.get("runtime_session")
-        if not isinstance(session, dict):
-            return ""
-        recorded = session.get("session_id")
-        return recorded if isinstance(recorded, str) else ""
 
 STATE_DIR = ".tao"
 FINISH_NAME = "finish.json"

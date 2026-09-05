@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -392,6 +393,55 @@ def _make_global_state_dir(home: Path) -> Path:
     (state / "projects.json").write_text("{}")
     (state / "claude-session-projects").mkdir()
     return state
+
+
+class SessionStampReaderTests(unittest.TestCase):
+    """This gate runs at every turn end, so what it loads is what it costs.
+
+    Reading the session stamp used to be imported from `agent_runtime_session`,
+    which pulls the run registry, the worker evidence, the execution capsule and
+    the worktree fingerprints -- 19.5ms of the gate's 25.6ms of imports -- to
+    supply two dictionary lookups the file's own broken-install fallback already
+    contained verbatim.
+    """
+
+    CHAIN = ("agent_runtime_session", "agent_run_registry")
+
+    def test_the_stop_gate_does_not_load_the_run_evidence_chain(self) -> None:
+        probe = "\n".join(
+            [
+                "import sys",
+                f"sys.path.insert(0, {str(ROOT / 'scripts')!r})",
+                "import json",
+                "import claude_stop_gate",
+                f"print(json.dumps([m for m in {self.CHAIN!r} if m in sys.modules]))",
+            ]
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True, text=True, check=True,
+        )
+
+        self.assertEqual([], json.loads(completed.stdout))
+
+    def test_the_local_reader_matches_the_stamp_that_is_written(self) -> None:
+        """The copy has to keep answering the shape `runtime_session()` makes."""
+
+        from agent_runtime_session import recorded_session_id, runtime_session
+
+        with patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "s-42"}, clear=False):
+            stamped = {"runtime_session": runtime_session()}
+
+        self.assertEqual("s-42", gate.recorded_session_id(stamped))
+        self.assertEqual(
+            recorded_session_id(stamped), gate.recorded_session_id(stamped)
+        )
+        for malformed in ({}, {"runtime_session": None}, {"runtime_session": {}}, "x"):
+            with self.subTest(payload=malformed):
+                self.assertEqual(
+                    recorded_session_id(malformed),
+                    gate.recorded_session_id(malformed),
+                )
 
 
 class GlobalInstallIsNotAProjectTests(unittest.TestCase):
