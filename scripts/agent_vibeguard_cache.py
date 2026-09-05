@@ -13,7 +13,10 @@ from typing import Any, Callable
 CommandRunner = Callable[[list[str], Path], dict[str, Any]]
 VibeGuardCommand = Callable[[Path, Path], list[str]]
 OverallParser = Callable[[str], Any]
-CACHE_SCHEMA_VERSION = 1
+# Bumped when the key gains an input: a cache written by the previous scheme
+# was keyed on git status alone and cannot be trusted to describe the bytes it
+# audited, so every entry from it is discarded rather than read.
+CACHE_SCHEMA_VERSION = 2
 
 
 def skipped_vibeguard(project: Path) -> dict[str, Any]:
@@ -161,10 +164,54 @@ def _git_state(
     status = git_status_result or run_command(["git", "status", "--short", "--untracked-files=all"], path)
     if head.get("returncode") != 0 or status.get("returncode") != 0:
         return None
+    status_text = str(status.get("stdout", ""))
     return {
         "head": str(head.get("stdout", "")).strip(),
-        "status": str(status.get("stdout", "")),
+        "status": status_text,
+        "dirty_content": _dirty_content_digest(path, status_text),
     }
+
+
+def _dirty_content_digest(path: Path, status_text: str) -> str:
+    """Digest the bytes of every path git reports as changed.
+
+    HEAD covers what is committed and the status text covers *which* paths
+    differ from it, but not what they now contain: `git status --short` prints
+    ` M app.py` for every edit of that file, so a second edit produced the same
+    key as the first and reused its verdict. An audit that never saw the current
+    bytes must not be able to speak for them.
+
+    Only the changed paths are read, so the cost is the size of the edit rather
+    than the size of the project -- which is what makes the cache still worth
+    having. A path that cannot be read is recorded as unreadable rather than
+    skipped, because a file the digest cannot account for must still change the
+    key when it appears or disappears.
+    """
+
+    digest = hashlib.sha256()
+    for line in status_text.splitlines():
+        # Porcelain v1: two status columns, a space, then the path. A rename
+        # prints `old -> new`; the destination is what now holds the bytes.
+        entry = line[3:] if len(line) > 3 else ""
+        if not entry:
+            continue
+        target = entry.split(" -> ")[-1].strip().strip('"')
+        digest.update(target.encode("utf-8", "surrogateescape"))
+        digest.update(b"\0")
+        candidate = path / target
+        try:
+            if candidate.is_dir():
+                # An untracked directory is reported as one entry. Its contents
+                # are what the audit reads, so they are what the key measures.
+                for child in sorted(candidate.rglob("*")):
+                    if child.is_file():
+                        digest.update(str(child.relative_to(path)).encode("utf-8", "surrogateescape"))
+                        digest.update(hashlib.sha256(child.read_bytes()).digest())
+            else:
+                digest.update(hashlib.sha256(candidate.read_bytes()).digest())
+        except OSError:
+            digest.update(b"\0unreadable\0")
+    return digest.hexdigest()
 
 
 def _cache_path(project: Path) -> Path:

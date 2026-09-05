@@ -223,6 +223,87 @@ class VibeguardCacheTests(unittest.TestCase):
         self.assertTrue(second["cached"])
         self.assertFalse(third["cached"])
 
+    def test_a_second_edit_of_the_same_file_is_audited_again(self) -> None:
+        """The key has to see the bytes, not only which paths differ.
+
+        `git status --short` prints ` M app.py` for every edit of that file, so
+        HEAD plus the status text was identical before and after a second edit.
+        The cache returned the first edit's verdict for content no audit had
+        ever read -- a clean result standing in for unreviewed bytes.
+        """
+
+        audits: list[str] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            target = project / "app.py"
+            target.write_text("SAFE = 1\n", encoding="utf-8")
+
+            def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                base = {"command": command, "cwd": str(cwd), "stderr": ""}
+                if command[:3] == ["git", "rev-parse", "--verify"]:
+                    return {**base, "returncode": 0, "stdout": "abc123\n"}
+                if command[:3] == ["git", "status", "--short"]:
+                    return {**base, "returncode": 0, "stdout": " M app.py\n"}
+                if command == ["vibeguard", "audit", "."]:
+                    audits.append(target.read_text(encoding="utf-8"))
+                    return {**base, "returncode": 0, "stdout": "Overall: Ready\n"}
+                raise AssertionError(command)
+
+            def audit() -> dict:
+                return cached_vibeguard(
+                    project=project,
+                    rules=project,
+                    run_command=run_command,
+                    vibeguard_command=lambda _project, _rules: ["vibeguard", "audit", "."],
+                    parse_overall=lambda output: "Ready" if "Ready" in output else "unknown",
+                )
+
+            first = audit()
+            cached = audit()
+            target.write_text("AWS_SECRET_ACCESS_KEY = 'AKIAEXAMPLE'\n", encoding="utf-8")
+            after_edit = audit()
+            second_cached = audit()
+
+        self.assertFalse(first["cached"])
+        # Nothing changed between these two, so the cache is still worth having.
+        self.assertTrue(cached["cached"])
+        # The bytes changed while the status text did not: audit again.
+        self.assertFalse(after_edit["cached"])
+        # And the new content is cached in its turn, so the fix costs one audit
+        # per distinct content rather than one per call.
+        self.assertTrue(second_cached["cached"])
+        self.assertEqual(
+            ["SAFE = 1\n", "AWS_SECRET_ACCESS_KEY = 'AKIAEXAMPLE'\n"], audits
+        )
+
+    def test_an_unreadable_changed_path_still_changes_the_key(self) -> None:
+        """A path the digest cannot read must not silently drop out of it."""
+
+        from agent_vibeguard_cache import _dirty_content_digest
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            absent = _dirty_content_digest(project, " M gone.py\n")
+            (project / "gone.py").write_text("x = 1\n", encoding="utf-8")
+            present = _dirty_content_digest(project, " M gone.py\n")
+
+        self.assertNotEqual(absent, present)
+
+    def test_a_renamed_path_is_digested_at_its_destination(self) -> None:
+        """A rename entry names two paths; the bytes live at the second."""
+
+        from agent_vibeguard_cache import _dirty_content_digest
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "new.py").write_text("first\n", encoding="utf-8")
+            before = _dirty_content_digest(project, "R  old.py -> new.py\n")
+            (project / "new.py").write_text("second\n", encoding="utf-8")
+            after = _dirty_content_digest(project, "R  old.py -> new.py\n")
+
+        self.assertNotEqual(before, after)
+
     def test_vibeguard_cache_invalidates_on_rules_git_state_change(self) -> None:
         calls: list[tuple[Path, list[str]]] = []
         states = {"project": "", "rules": ""}
