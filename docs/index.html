@@ -6,7 +6,7 @@
     <title>Tao Agent OS</title>
     <meta
       name="description"
-      content="Tao Agent OS connects shared skills, workflows, and evidence for AI coding agents."
+      content="Tao Agent OS gives coding agents project rules, task-specific workflows, and checks to run before reporting completion."
     >
     <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 
@@ -14,23 +14,24 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://tao.thdev.app/">
     <meta property="og:title" content="Tao Agent OS">
-    <meta property="og:description" content="Tao Agent OS connects shared skills, workflows, and evidence for AI coding agents.">
+    <meta property="og:description" content="Tao Agent OS gives coding agents project rules, task-specific workflows, and checks to run before reporting completion.">
     <meta property="og:image" content="./og-image.svg">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="https://tao.thdev.app/">
     <meta property="twitter:title" content="Tao Agent OS">
-    <meta property="twitter:description" content="Tao Agent OS connects shared skills, workflows, and evidence for AI coding agents.">
+    <meta property="twitter:description" content="Tao Agent OS gives coding agents project rules, task-specific workflows, and checks to run before reporting completion.">
     <meta property="twitter:image" content="./og-image.svg">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css?family=Outfit:400,600,700,800|Inter:400,500,600,700|JetBrains+Mono:400,500,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./styles/workflow.css">
   </head>
   <body>
-    <!-- Background glows for modern futuristic atmosphere -->
+    <!-- Decorative background -->
     <div class="ambient-glow glow-top-right" aria-hidden="true"></div>
     <div class="ambient-glow glow-bottom-left" aria-hidden="true"></div>
 
@@ -41,10 +42,10 @@
       </a>
       <nav class="nav" aria-label="Primary navigation" data-i18n-attr="aria-label:nav.label">
         <a href="#start" data-i18n="nav.start">Start</a>
+        <a href="#routing" data-i18n="nav.routing">Workflow</a>
         <a href="#apply" data-i18n="nav.apply">Apply</a>
         <a href="#update" data-i18n="nav.update">Update</a>
         <a href="#evidence" data-i18n="nav.evidence">Evidence</a>
-        <a href="#routing" data-i18n="nav.routing">Routing</a>
         <a href="#library" data-i18n="nav.library">Library</a>
         <a href="#vibeguard" data-i18n="nav.vibeguard">Safety</a>
       </nav>
@@ -62,21 +63,21 @@
     </header>
 
     <main>
-      <!-- Premium Two-Column Hero Section -->
+      <!-- Introduction and setup prompts -->
       <section id="start" class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
           <p class="eyebrow" data-i18n="hero.eyebrow">Tao Agent OS</p>
-          <h1 id="hero-title" data-i18n="hero.title">Connect Tao Agent OS to your project.</h1>
+          <h1 id="hero-title" data-i18n="hero.title">Give your coding agent a workflow.</h1>
           <p class="lede" data-i18n="hero.lede">
-            Tao Agent OS connects shared skills, local project rules,
-            workflows, and execution evidence for AI coding agents.
+            Tao Agent OS tells your agent which project rules to read, which steps
+            a task needs, and what to check before calling it done.
           </p>
-          <div class="release-meta" aria-label="Latest release">
-            <span class="release-version" data-i18n="release.latest">Latest: v26.07.6</span>
-            <a href="https://github.com/taehwandev/tao-agent-os/releases/tag/v26.07.6" target="_blank" rel="noopener noreferrer" data-i18n="release.notes">Release notes</a>
+          <div class="release-meta">
+            <a href="https://github.com/taehwandev/tao-agent-os/releases" target="_blank" rel="noopener noreferrer" data-i18n="release.notes">Release history</a>
           </div>
           <div class="hero-actions">
             <a href="#apply" class="button primary" data-i18n="hero.action.getstarted">Get Started</a>
+            <a href="#routing" class="button secondary" data-i18n="hero.action.explore">See the workflow</a>
             <a href="https://github.com/taehwandev/tao-agent-os" class="button secondary github-btn" target="_blank" rel="noopener noreferrer">
               <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" style="margin-right: 8px;">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
@@ -86,7 +87,7 @@
           </div>
         </div>
 
-        <!-- Premium Double-Stacked responsive Console -->
+        <!-- Setup prompts -->
         <div class="hero-interactive-stacked">
           <!-- Step 1 (Required) -->
           <div class="editor-window step1-window" id="step1Window">
@@ -98,7 +99,7 @@
                   <span class="dot green"></span>
                 </div>
                 <span class="window-title">agent-setup.prompt</span>
-                <span class="badge-req">Required</span>
+                <span class="badge-req" data-i18n="quick.required">Required</span>
               </div>
               <div class="window-right">
                 <button type="button" class="button-copy primary-copy" id="copyStep1" data-i18n="quick.copy.step1">Copy Step 1</button>
@@ -143,13 +144,13 @@ and continue with my task.</code></pre>
 
           <!-- Step 1 Helper (Reveal Step 2) -->
           <div class="step1-footer-helper" id="step1Helper">
-            <button type="button" class="btn-reveal-opt" id="revealStep2Btn" data-i18n="quick.reveal">➔ Need global setup? Show optional Step 2 bridge</button>
+            <button type="button" class="btn-reveal-opt" id="revealStep2Btn" data-i18n="quick.reveal">Show optional setup for future sessions</button>
           </div>
 
           <!-- Connecting flow path -->
           <div class="stepper-connector hidden-collapse" id="stepperConnector">
             <div class="connector-line"></div>
-            <div class="connector-badge" data-i18n="quick.connector">Optional Setup</div>
+            <div class="connector-badge" data-i18n="quick.connector">Optional setup</div>
           </div>
 
           <!-- Step 2 (Optional) -->
@@ -162,10 +163,10 @@ and continue with my task.</code></pre>
                   <span class="dot green"></span>
                 </div>
                 <span class="window-title">user-bridge.prompt</span>
-                <span class="badge-opt">Optional</span>
+                <span class="badge-opt" data-i18n="quick.optional">Optional</span>
               </div>
               <div class="window-right">
-                <button type="button" class="button-copy secondary-copy" id="copyStep2" data-i18n="quick.copy.step2">Copy Step 2</button>
+                <button type="button" class="button-copy secondary-copy" id="copyStep2" data-i18n="quick.copy.step2">Copy optional Step 2</button>
               </div>
             </div>
             <pre><code id="quickPromptStep2" data-i18n="quick.prompt.step2">Optional Step 2 - Register a user-level runtime bridge on this machine.
@@ -211,13 +212,31 @@ The bridge must force this behavior:
         </div>
       </section>
 
+      <section id="routing" class="section band" aria-labelledby="routing-title">
+        <div class="section-heading">
+          <p class="eyebrow" data-i18n="routing.eyebrow">Workflow</p>
+          <h2 id="routing-title" data-i18n="routing.title">What happens after a request?</h2>
+          <p data-i18n="routing.body">Choose a task below to see its steps, checks, and stopping points. The arrows show the order of work, not a live run.</p>
+        </div>
+        <div id="workflow-map"><p>Read the project rules, choose a workflow, then check the result. Code changes, analysis, publication and cleanup use different checks.</p></div>
+        <noscript>
+          <p>The interactive map needs JavaScript. Here are the four task flows:</p>
+          <ul>
+            <li>Code changes: confirm the scope, read the relevant rules, implement, test, review, and report the result.</li>
+            <li>Analysis: confirm the question, inspect the relevant sources without editing, and report the findings.</li>
+            <li>Publication: confirm approval and changed files, review, then commit, push, or open a pull request within the approved scope.</li>
+            <li>Cleanup: check that the exact branch is merged and the worktree has no changes to preserve, then remove the approved targets.</li>
+          </ul>
+        </noscript>
+      </section>
+
       <section id="apply" class="section" aria-labelledby="apply-title">
         <div class="section-heading">
           <p class="eyebrow" data-i18n="apply.eyebrow">Apply</p>
-          <h2 id="apply-title" data-i18n="apply.title">The default path is agent-driven.</h2>
+          <h2 id="apply-title" data-i18n="apply.title">Start with the first prompt.</h2>
           <p data-i18n="apply.body">
-            Most users should paste Step 1 first. Step 2 is optional and only registers
-            user-level runtime bridges for stronger future behavior.
+            Paste Step 1 into your coding agent while working in the target project.
+            Optional Step 2 adds user-level instructions so future sessions can find Tao.
           </p>
         </div>
 
@@ -232,11 +251,11 @@ The bridge must force this behavior:
 
         <div class="mode-layout">
           <article class="mode-card">
-            <h3 id="modeTitle" data-i18n="mode.agent.title">Let the agent choose the path.</h3>
+            <h3 id="modeTitle" data-i18n="mode.agent.title">Ask the agent to inspect the project first.</h3>
             <p id="modeBody" data-i18n="mode.agent.body">
-              The agent should inspect local instructions, reuse an existing
-              Tao Agent OS root if available, connect a short routing block, and continue
-              with the user's task.
+              The agent reads your project instructions and looks for an existing Tao
+              installation. It asks before downloading another copy, then adds the agreed
+              instruction pointers and continues your task.
             </p>
           </article>
 
@@ -268,7 +287,7 @@ The bridge must force this behavior:
           <div class="hero-actions" style="margin-top: 24px;">
             <a class="button primary" href="https://github.com/taehwandev/tao-agent-os" data-i18n="update.github">Open GitHub</a>
             <a class="button secondary" href="https://github.com/taehwandev/tao-agent-os/blob/main/docs/ko/update-tao.md" data-i18n="update.ko">Korean update guide</a>
-            <a class="button secondary" href="https://github.com/taehwandev/tao-agent-os/releases/tag/v26.07.6" data-i18n="update.release">Latest release notes</a>
+            <a class="button secondary" href="https://github.com/taehwandev/tao-agent-os/releases" data-i18n="update.release">Release history</a>
           </div>
         </div>
       </section>
@@ -276,13 +295,13 @@ The bridge must force this behavior:
       <section id="evidence" class="section band compact" aria-labelledby="evidence-title">
         <div class="section-heading">
           <p class="eyebrow" data-i18n="evidence.eyebrow">Evidence</p>
-          <h2 id="evidence-title" data-i18n="evidence.title">Make the required gates executable.</h2>
+          <h2 id="evidence-title" data-i18n="evidence.title">Check what ran before calling it done.</h2>
           <p data-i18n="evidence.body">
-            Use one start hook for routing and preflight, read required docs
-            directly, then keep review and finish hooks so git status, VibeGuard,
-            validation, and gate evidence are written before success is reported.
+            Use one start hook to select the workflow and its checks. The agent records
+            what it read, changed, and verified. The finish check rejects missing evidence;
+            a failed check or missing approval must be reported, not marked complete.
           </p>
-          <div class="signal-strip" aria-label="Gate signal legend">
+          <div class="signal-strip" aria-label="Check results" data-i18n-attr="aria-label:signal.label">
             <span class="signal-chip green" data-i18n="signal.green">🐱🟢 SUCCESS</span>
             <span class="signal-chip red" data-i18n="signal.red">🐱🔴 FAIL</span>
           </div>
@@ -293,61 +312,15 @@ The bridge must force this behavior:
         </div>
       </section>
 
-      <section id="routing" class="section band" aria-labelledby="routing-title">
-        <div class="section-heading">
-          <p class="eyebrow" data-i18n="routing.eyebrow">Routing</p>
-          <h2 id="routing-title" data-i18n="routing.title">The Tao Agent OS is loaded selectively.</h2>
-          <p data-i18n="routing.body">
-            Agents should not read everything by default. They classify the request,
-            route to the smallest useful document set, then execute the route gates with evidence.
-          </p>
-        </div>
-
-        <!-- Premium Visual Timeline Flow Steps -->
-        <div class="flow-timeline-container">
-          <div class="timeline-line" aria-hidden="true"></div>
-          <div class="flow-timeline">
-            <div class="timeline-step">
-              <div class="step-badge">01</div>
-              <div class="step-content">
-                <h3 data-i18n="flow.local.title">Read local rules</h3>
-                <p data-i18n="flow.local.body">Project instructions remain the source of truth for commands and domain policy.</p>
-              </div>
-            </div>
-            <div class="timeline-step">
-              <div class="step-badge">02</div>
-              <div class="step-content">
-                <h3 data-i18n="flow.route.title">Select route</h3>
-                <p data-i18n="flow.route.body">Use the workflow router for feature, docs, review, release, PRD, or debugging work.</p>
-              </div>
-            </div>
-            <div class="timeline-step">
-              <div class="step-badge">03</div>
-              <div class="step-content">
-                <h3 data-i18n="flow.cards.title">Load cards</h3>
-                <p data-i18n="flow.cards.body">Read only the common, platform, workflow, and product cards needed for the task.</p>
-              </div>
-            </div>
-            <div class="timeline-step">
-              <div class="step-badge">04</div>
-              <div class="step-content">
-                <h3 data-i18n="flow.evidence.title">Report evidence</h3>
-                <p data-i18n="flow.evidence.body">Completion requires concrete verification or a clear blocked reason.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section id="library" class="section" aria-labelledby="library-title">
         <div class="section-heading">
           <p class="eyebrow" data-i18n="library.eyebrow">Library</p>
-          <h2 id="library-title" data-i18n="library.title">Small reusable cards for common agent work.</h2>
+          <h2 id="library-title" data-i18n="library.title">Guides the agent reads when a task needs them.</h2>
         </div>
         <div class="library-grid">
           <article>
             <div class="library-icon">🛠️</div>
-            <h3 data-i18n="library.common.title">Common discipline</h3>
+            <h3 data-i18n="library.common.title">Code and project maintenance</h3>
             <p data-i18n="library.common.body">Stack discovery, coding discipline, testing, verification, project naming, error handling, and worktree hygiene.</p>
           </article>
           <article>
@@ -371,9 +344,10 @@ The bridge must force this behavior:
       <section id="vibeguard" class="section band compact" aria-labelledby="vibeguard-title">
         <div class="section-heading">
           <p class="eyebrow" data-i18n="vibeguard.eyebrow">Safety Gate</p>
-          <h2 id="vibeguard-title" data-i18n="vibeguard.title">VibeGuard details live on the VibeGuard site.</h2>
+          <h2 id="vibeguard-title" data-i18n="vibeguard.title">VibeGuard runs the safety checks.</h2>
           <p data-i18n="vibeguard.body">
-            Tao Agent OS covers routing and shared engineering guidance. Use VibeGuard for the required safety gate and its operating details.
+            Tao selects the workflow and its required checks. VibeGuard audits the
+            project against its safety rules. See its site for audit commands and setup.
           </p>
           <a class="button primary" style="margin-top: 24px;" href="https://vibeguard.thdev.app/" data-i18n="vibeguard.link">Open VibeGuard</a>
         </div>
@@ -387,7 +361,7 @@ The bridge must force this behavior:
             <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
           </svg>
         </a>
-        <p>&copy; 2026 Tao Agent OS. Crafted with human care and elegant engineering.</p>
+        <p>&copy; 2026 Tao Agent OS.</p>
       </div>
     </footer>
 
@@ -396,36 +370,37 @@ The bridge must force this behavior:
         en: {
           "brand.label": "Tao Agent OS home",
           "meta.title": "Tao Agent OS",
-          "meta.description": "A shared agent operating system library that tells AI coding agents how to use local instructions, route work, and report evidence.",
+          "meta.description": "Tao Agent OS gives coding agents project rules, task-specific workflows, and checks to run before reporting completion.",
           "nav.label": "Primary navigation",
           "nav.github": "GitHub Repository",
           "nav.start": "Start",
           "nav.apply": "Apply",
           "nav.update": "Update",
           "nav.evidence": "Evidence",
-          "nav.routing": "Routing",
+          "nav.routing": "Workflow",
           "nav.library": "Library",
           "nav.vibeguard": "Safety",
           "language.label": "Language",
           "hero.eyebrow": "Tao Agent OS",
-          "hero.title": "Connect Tao Agent OS to your project.",
-          "hero.lede": "Tao Agent OS connects shared skills, local project rules, workflows, and execution evidence for AI coding agents.",
+          "hero.title": "Give your coding agent a workflow.",
+          "hero.lede": "Tao Agent OS tells your agent which project rules to read, which steps a task needs, and what to check before calling it done.",
           "hero.action.getstarted": "Get Started",
-          "hero.action.explore": "Explore Routing",
-          "release.latest": "Latest: v26.07.6",
-          "release.notes": "Release notes",
+          "hero.action.explore": "See the workflow",
+          "release.notes": "Release history",
           "quick.eyebrow": "Use this first",
           "quick.title": "Paste this into your coding agent.",
           "quick.copy.step1": "Copy Step 1",
           "quick.copy.step2": "Copy optional Step 2",
           "quick.copied": "Copied",
-          "quick.connector": "Optional Bridge Setup",
-          "quick.reveal": "➔ Need global setup? Show optional Step 2 bridge",
+          "quick.connector": "Optional setup",
+          "quick.reveal": "Show optional setup for future sessions",
+          "quick.required": "Required",
+          "quick.optional": "Optional",
           "quick.prompt.step1": "Step 1 - Apply Tao Agent OS to this project:\nhttps://github.com/taehwandev/tao-agent-os\n\nBefore changing anything, open and read this project's current agent instructions first:\nAGENTS.md, CLAUDE.md, CODEX.md, .agents/README.md, CONTRIBUTING.md, task docs,\nPRD/ARD docs, equivalent project docs, or explicitly documented local override files.\nDo not rely on implicit runtime discovery. Do not claim an instruction file was read unless you actually opened it.\n\nIf Tao Agent OS already exists locally or in this repo, reuse that copy.\nDo not download, clone, vendor, copy, overwrite, or add another Tao Agent OS root unless I approve after you ask:\n\"Tao Agent OS already exists locally at <path>. Do you want me to download or pin a new copy anyway, or should I reuse the existing root?\"\n\nWhen updating repo-local instruction files that will be committed, do not write my personal absolute path into them. Use ${TAO_HOME} for shared local installs or a repo-relative pinned path such as .agents/tao-agent-os. Full local paths belong only in shell env setup, one-shot prompts, or user-level runtime bridges.\n\nCheck user-level runtime bridges, hooks, and permission allowlists with the selected Tao Agent OS root:\npython3 <TAO_ROOT>/scripts/setup-agent-hooks.py --check\n\nIf the check reports missing bridges, hooks, or permissions, ask for approval to update user-level runtime config, then run:\npython3 <TAO_ROOT>/scripts/setup-agent-hooks.py\n\nThis is required for Codex, Claude, and AGY to run Tao Agent OS Python wrappers without repeated permission failures. Keep the allowlist narrow; do not broadly allow python3.\n\nIf agent instructions or VibeGuard files already exist, ask me how to apply Tao Agent OS before running setup or update.\nOnly run VibeGuard update if I choose to refresh an existing managed block; otherwise audit current guardrails.\nFor multi-step work, run agent-hook.py start once with --request; it performs routing and preflight. Do not separately repeat workflow list, classify, route, or preflight after it succeeds.\nRead every route required_docs entry directly after start and before editing or reviewing. Run the review hook after meaningful edits and the finish hook before final report, commit, release, or handoff.\nDirect workflow.py route, agent-preflight.py, and agent-finish-check.py calls are lower-level diagnostic or compatibility fallbacks only; never run them as a second lifecycle.\nMissing wrapper evidence or missing route gate evidence is non-compliant.\nUse cat gate signals in visible reports: 🐱🟢 SUCCESS, 🐱🔴 FAIL. Do not report any third gate state.\nAnswer direct questions before starting project work.\nThen apply the selected VibeGuard package command with Tao Agent OS as rules,\nadd only a short routing block,\nand continue with my task.",
           "quick.prompt.step2": "Optional Step 2 - Register a user-level runtime bridge using the stable Tao Agent OS launcher.\n\nUse this only when I approve the optional setup. Preserve existing personal instructions and update only the managed block.\n\nRun:\n~/.tao/bin/tao-hook setup-agent-hooks --check\n\nIf the check reports missing bridges, hooks, or permissions, ask for approval before running:\n~/.tao/bin/tao-hook setup-agent-hooks\n\nKeep permissions narrow and update only the active runtime file:\nCodex -> ~/.codex/AGENTS.md\nClaude -> ~/.claude/CLAUDE.md\nAntigravity -> ~/.antigravity/AGENTS.md\n\nDo not install AGY lifecycle hooks for metering. Do not replace unrelated personal content. If the target project or instruction file is ambiguous, stop and ask before changing anything.",
           "apply.eyebrow": "Apply",
-          "apply.title": "The default path is agent-driven.",
-          "apply.body": "Most users should paste Step 1 first. Step 2 is optional and only registers user-level runtime bridges for stronger future behavior.",
+          "apply.title": "Start with the first prompt.",
+          "apply.body": "Paste Step 1 into your coding agent while working in the target project. Optional Step 2 adds user-level instructions so future sessions can find Tao.",
           "modes.label": "Application modes",
           "mode.agent": "Agent handles it",
           "mode.existing": "Existing local",
@@ -433,8 +408,8 @@ The bridge must force this behavior:
           "mode.team": "Team-pinned",
           "mode.copy": "Copy",
           "mode.copied": "Copied",
-          "mode.agent.title": "Let the agent choose the path.",
-          "mode.agent.body": "The agent should inspect local instructions, reuse an existing Tao Agent OS root if available, ask before any new download, update repo-local instruction pointers, connect a short routing block, and continue with the user's task.",
+          "mode.agent.title": "Ask the agent to inspect the project first.",
+          "mode.agent.body": "The agent reads your project instructions and looks for an existing Tao installation. It asks before downloading another copy, then adds the agreed instruction pointers and continues your task.",
           "mode.existing.title": "Manual: reuse an existing local root.",
           "mode.existing.body": "Use this only when you know the local Tao Agent OS path and want to wire the repo yourself. Commit ${TAO_HOME}, not a personal full path.",
           "mode.first.title": "Manual: clone a personal shared copy.",
@@ -446,28 +421,21 @@ The bridge must force this behavior:
           "update.body": "If target repos link to one Tao Agent OS root, update that root with git pull between tasks. Linked repos do not need copied files.",
           "update.github": "Open GitHub",
           "update.ko": "Korean update guide",
-          "update.release": "Latest release notes",
+          "update.release": "Release history",
           "evidence.eyebrow": "Evidence",
-          "evidence.title": "Make the required gates executable.",
-          "evidence.body": "Use one start hook for routing and preflight, read required docs directly, then keep review and finish hooks so git status, VibeGuard, validation, and gate evidence are written before success is reported.",
+          "evidence.title": "Check what ran before calling it done.",
+          "evidence.body": "Use one start hook to select the workflow and its checks. The agent records what it read, changed, and verified. The finish check rejects missing evidence; a failed check or missing approval must be reported, not marked complete.",
+          "signal.label": "Check results",
           "signal.green": "🐱🟢 SUCCESS",
           "signal.red": "🐱🔴 FAIL",
           "evidence.readme": "Read evidence guide",
           "evidence.scripts": "Open scripts",
-          "routing.eyebrow": "Routing",
-          "routing.title": "The Tao Agent OS is loaded selectively.",
-          "routing.body": "Agents should not read everything by default. They classify the request, route to the smallest useful document set, then execute the route gates with evidence.",
-          "flow.local.title": "Read local rules",
-          "flow.local.body": "Project instructions remain the source of truth for commands and domain policy.",
-          "flow.route.title": "Select route",
-          "flow.route.body": "Use the workflow router for feature, docs, review, release, PRD, or debugging work.",
-          "flow.cards.title": "Load cards",
-          "flow.cards.body": "Read only the common, platform, workflow, and product cards needed for the task.",
-          "flow.evidence.title": "Report evidence",
-          "flow.evidence.body": "Completion requires concrete verification or a clear blocked reason.",
+          "routing.eyebrow": "Workflow",
+          "routing.title": "What happens after a request?",
+          "routing.body": "Choose a task below to see its steps, checks, and stopping points. The arrows show the order of work, not a live run.",
           "library.eyebrow": "Library",
-          "library.title": "Small reusable cards for common agent work.",
-          "library.common.title": "Common discipline",
+          "library.title": "Guides the agent reads when a task needs them.",
+          "library.common.title": "Code and project maintenance",
           "library.common.body": "Stack discovery, coding discipline, testing, verification, project naming, error handling, and worktree hygiene.",
           "library.platform.title": "Platform guides",
           "library.platform.body": "Concrete implementation cards for web, iOS, Android, server, application, KMP, and Flutter work.",
@@ -476,95 +444,89 @@ The bridge must force this behavior:
           "library.product.title": "Product patterns",
           "library.product.body": "Auth, RBAC, invitations, billing, entitlements, agent credentials, and tenant boundaries.",
           "vibeguard.eyebrow": "Safety Gate",
-          "vibeguard.title": "VibeGuard details live on the VibeGuard site.",
-          "vibeguard.body": "Tao Agent OS covers routing and shared engineering guidance. Use VibeGuard for the required safety gate and its operating details.",
+          "vibeguard.title": "VibeGuard runs the safety checks.",
+          "vibeguard.body": "Tao selects the workflow and its required checks. VibeGuard audits the project against its safety rules. See its site for audit commands and setup.",
           "vibeguard.link": "Open VibeGuard"
         },
         ko: {
           "brand.label": "Tao Agent OS 홈",
           "meta.title": "Tao Agent OS",
-          "meta.description": "AI 코딩 에이전트가 로컬 지침을 읽고, 작업을 라우팅하고, 실행 근거를 보고하도록 돕는 공유 에이전트 OS 라이브러리입니다.",
+          "meta.description": "Tao Agent OS는 코딩 에이전트가 읽을 프로젝트 규칙, 작업별 순서, 완료 전에 실행할 검사를 정리합니다.",
           "nav.label": "주요 탐색",
           "nav.github": "GitHub 저장소",
           "nav.start": "시작",
           "nav.apply": "적용",
           "nav.update": "최신화",
           "nav.evidence": "근거",
-          "nav.routing": "라우팅",
+          "nav.routing": "작업 흐름",
           "nav.library": "라이브러리",
           "nav.vibeguard": "안전",
           "language.label": "언어",
           "hero.eyebrow": "Tao Agent OS",
-          "hero.title": "Tao Agent OS를 프로젝트에 연결해 보세요.",
-          "hero.lede": "Tao Agent OS는 AI 코딩 에이전트를 위해 공유 스킬, 로컬 프로젝트 규칙, 워크플로우, 실행 근거를 연결합니다.",
+          "hero.title": "코딩 에이전트의 작업 순서를 정합니다.",
+          "hero.lede": "Tao Agent OS는 에이전트가 어떤 프로젝트 규칙을 읽고, 어떤 순서로 작업하며, 완료 전에 무엇을 확인해야 하는지 정리합니다.",
           "hero.action.getstarted": "시작하기",
-          "hero.action.explore": "라우팅 알아보기",
-          "release.latest": "최신 버전: v26.07.6",
-          "release.notes": "릴리즈 노트",
+          "hero.action.explore": "작업 흐름 보기",
+          "release.notes": "릴리스 기록",
           "quick.eyebrow": "시작하기",
           "quick.title": "코딩 에이전트에 이 내용을 붙여넣으세요.",
           "quick.copy.step1": "Step 1 복사",
           "quick.copy.step2": "선택 Step 2 복사",
           "quick.copied": "복사 완료",
-          "quick.connector": "선택적 브릿지 설정",
-          "quick.reveal": "➔ 전역 설정이 필요하신가요? 선택적 Step 2 보기",
+          "quick.connector": "선택 설정",
+          "quick.reveal": "다음 세션에도 쓸 선택 설정 보기",
+          "quick.required": "필수",
+          "quick.optional": "선택",
           "quick.prompt.step1": "Step 1 - 이 프로젝트에 Tao Agent OS를 적용해줘:\nhttps://github.com/taehwandev/tao-agent-os\n\n무언가 바꾸기 전에 현재 프로젝트의 에이전트 지침 파일을 실제로 열어서 먼저 읽어줘:\nAGENTS.md, CLAUDE.md, CODEX.md, .agents/README.md, CONTRIBUTING.md, 작업 문서,\nPRD/ARD 문서, 동등한 프로젝트 문서 또는 명시적으로 문서화된 local override 파일.\n런타임이 알아서 읽었다고 가정하지 마. 실제로 열기 전에는 지침 파일을 읽었다고 말하지 마.\n\nTao Agent OS가 이미 로컬이나 이 저장소 안에 있으면 그 복사본을 재사용해줘.\n내가 승인하기 전에는 새로 다운로드, 클론, 벤더링, 복사, 덮어쓰기, 추가 루트 생성을 하지 말고 먼저 물어봐줘:\n\"Tao Agent OS가 이미 <path>에 있습니다. 그래도 새로 다운로드하거나 고정 복사본을 만들까요, 아니면 기존 루트를 재사용할까요?\"\n\n커밋될 repo-local 지침 파일을 갱신할 때는 내 개인 절대 경로를 쓰지 마. 개인 공유 설치는 ${TAO_HOME}, 팀 고정 설치는 .agents/tao-agent-os 같은 repo-relative 경로를 써줘. 전체 로컬 경로는 shell env 설정, one-shot 프롬프트, 사용자 전역 런타임 브리지에서만 써줘.\n\n선택된 Tao Agent OS root로 사용자 전역 런타임 브리지, 훅, permission allowlist를 확인해줘:\npython3 <TAO_ROOT>/scripts/setup-agent-hooks.py --check\n\n브리지, 훅, 권한이 빠져 있으면 사용자 전역 런타임 설정을 갱신해도 되는지 먼저 묻고, 승인 후 실행해줘:\npython3 <TAO_ROOT>/scripts/setup-agent-hooks.py\n\n이 절차는 Codex, Claude, AGY가 Tao Agent OS Python wrapper를 반복 permission 실패 없이 실행하기 위해 필요해. allowlist는 좁게 유지하고, python3 전체를 넓게 허용하지 마.\n\n에이전트 지침이나 VibeGuard 파일이 이미 있으면 setup 또는 update를 실행하기 전에 Tao Agent OS 적용 방식을 먼저 물어봐줘.\n기존 managed VibeGuard 블록을 새로고침하겠다고 내가 선택한 경우에만 VibeGuard update를 실행하고, 아니면 현재 가드레일로 audit만 해줘.\n여러 단계 작업이면 agent-hook.py start를 --request와 함께 한 번만 실행해줘. 이 hook이 라우팅과 preflight를 수행하므로 성공 후 workflow list, classify, route 또는 preflight를 따로 반복하지 마.\nstart 직후 모든 route required_docs 항목을 직접 읽고 수정이나 검토를 시작해줘. 의미 있는 수정 뒤에는 review hook, 최종 보고/커밋/릴리스/인계 전에는 finish hook을 실행해줘.\nworkflow.py route, agent-preflight.py, and agent-finish-check.py 직접 호출은 하위 진단 또는 호환성 fallback으로만 사용하고 두 번째 lifecycle로 실행하지 마.\nwrapper 근거 또는 route gate 근거가 없으면 non-compliant로 봐줘.\n사람이 보는 보고에는 두 가지 고양이 gate signal만 써줘: 🐱🟢 SUCCESS, 🐱🔴 FAIL. 제3의 상태는 보고하지 마.\n직접 질문은 프로젝트 작업을 시작하기 전에 먼저 답해줘.\n그 다음 선택된 VibeGuard 패키지 명령을 Tao Agent OS rules로 실행하고,\n짧은 라우팅 블록만 추가한 뒤 내 작업을 이어서 진행해줘.",
           "quick.prompt.step2": "선택 Step 2 - 이 머신의 사용자 전역 런타임 브리지를 등록해줘.\n\n이 단계는 내가 더 나은 향후 에이전트 동작을 위해 선택했을 때만 사용해줘.\n기존 개인 지침은 보존해줘. 짧은 managed block을 추가하거나 갱신하고, 관련 없는 사용자 내용을 교체하지 마.\n\nTao Agent OS 런타임 설정 체크도 실행해줘:\npython3 <TAO_ROOT>/scripts/setup-agent-hooks.py --check\n\n브리지, 훅, 권한이 빠져 있으면 사용자 전역 런타임 설정을 갱신해도 되는지 먼저 묻고, 승인 후 실행해줘:\npython3 <TAO_ROOT>/scripts/setup-agent-hooks.py\n\npermission allowlist는 현재 Tao Agent OS scripts/*.py 파일만 정확한 경로와 suffix-aware matcher로 좁게 허용하고, python3 전체를 넓게 허용하지 마.\n\n내가 선택한 런타임의 사용자 전역 파일을 갱신해줘:\nCodex -> ~/.codex/AGENTS.md\nClaude -> ~/.claude/CLAUDE.md\nAntigravity -> ~/.antigravity/AGENTS.md\nAntigravity SDK/IDE 변형 -> ~/.antigravity-ide에서 현재 런타임이 실제로 읽는 지침 파일 확인\n\n브리지는 이 동작을 강제해야 해:\n- 모든 작업 시작 시 현재 프로젝트 루트를 식별한다.\n- 런타임이 ~ 또는 다른 비프로젝트 디렉터리에서 시작하면 프로젝트 작업 전에 agent-entry.py 또는 project-discover.py로 대상 프로젝트를 확인한다.\n- discovery가 ambiguous 또는 not_found이면 진행하지 말고 대상 프로젝트를 물어본다.\n- 프로젝트 작업 전에 활성 런타임에 맞는 프로젝트 루트 지침 파일을 실제로 연다.\n- Codex는 AGENTS.md를 읽는다.\n- Claude는 CLAUDE.md를 읽는다.\n- Antigravity는 AGENTS.md를 읽는다.\n- 실제로 파일을 열기 전에는 지침 파일을 읽었다고 말하지 않는다.\n- 여러 단계 작업이면 현재 요청으로 agent-hook.py start를 한 번만 실행한다. 이 hook이 Tao Agent OS workflow routing과 preflight를 수행하므로 성공 후 workflow list, classify, route 또는 preflight를 따로 반복하지 않는다.\n- start 직후 모든 route required_docs 항목을 직접 읽고 수정이나 검토를 시작한다. route의 review와 finish hook을 lifecycle에 유지한다.\n- workflow.py route, agent-preflight.py, and agent-finish-check.py 직접 호출은 하위 진단 또는 호환성 fallback으로만 사용하고 두 번째 lifecycle로 실행하지 않는다.\n- 내가 문서 키워드를 말할 때까지 기다리지 않는다. 요청, 플랫폼, concern, 수정 대상 파일에서 작업 표면을 추론하고, 수정/검토 전에 route required_docs를 읽는다.\n- workflow-doc-surfaces.json과 local document graph를 routing/search 입력으로 사용한다. graph neighbor는 route가 required_docs로 승격하지 않으면 reference_docs로 취급한다.\n- routing/search가 명확히 관련 있는 플랫폼, concern, 문서 표면을 놓치면 기억으로 진행하지 말고 gap을 보고하고 멈춘다.\n- 활성 런타임이 Antigravity인데 이 브리지 또는 프로젝트 루트 AGENTS.md를 확인할 수 없으면 라우팅, 수정, 테스트, 커밋, 완료 보고 전에 멈추고 브리지 수정을 요청한다.\n- setup, hook, permission, helper, label 또는 백그라운드 metering 세부사항은 내가 해당 하위 시스템에 대해 명시적으로 묻기 전에는 일반 대화에서 언급하지 않는다.\n- 응답이 그런 백그라운드 세부사항을 노출했다면 사과문만으로 끝내지 않는다. 실행 경로를 고치거나 구체적인 blocker를 보고하고 멈춘다.\n- 내가 직접 질문을 하면 라우팅, 수정, 명령 실행 전에 먼저 답한다.\n- 내 요청이 모호하고 답에 따라 동작, 범위, 안전성 또는 외부 상태가 달라지면 작업 전에 먼저 묻는다.",
           "apply.eyebrow": "적용",
-          "apply.title": "기본 경로는 에이전트가 알아서 처리합니다.",
-          "apply.body": "대부분의 사용자는 Step 1을 먼저 붙여넣으면 됩니다. Step 2는 향후 세션의 동작을 더 강하게 만들기 위한 사용자 전역 런타임 브리지 등록 옵션입니다.",
+          "apply.title": "첫 번째 프롬프트부터 붙여넣으세요.",
+          "apply.body": "대상 프로젝트를 연 코딩 에이전트에 Step 1을 붙여넣으세요. 선택 사항인 Step 2는 다음 세션에서도 Tao를 찾도록 사용자 전역 지침을 추가합니다.",
           "modes.label": "적용 모드",
-          "mode.agent": "에이전트에게 일임",
+          "mode.agent": "에이전트로 설정",
           "mode.existing": "기존 로컬 연결",
           "mode.first": "첫 로컬 설정",
           "mode.team": "팀 고정 관리",
           "mode.copy": "스크립트 복사",
           "mode.copied": "복사 완료",
-          "mode.agent.title": "에이전트가 알아서 최적의 길을 찾습니다.",
-          "mode.agent.body": "에이전트가 프로젝트 로컬 가이드를 직접 분석하고, 이미 설치된 Tao Agent OS가 있다면 재사용하며, 저장소 지침 파일을 업데이트하고 미니 라우터를 연결한 뒤 본 작업을 이어갑니다.",
-          "mode.existing.title": "수동: 기존 로컬 root를 재사용합니다.",
-          "mode.existing.body": "로컬 Tao Agent OS 경로를 알고 있고, 직접 레포지토리에 연결하여 커스텀하고 싶을 때만 사용합니다. 커밋에는 개인 전체 경로 대신 ${TAO_HOME}을 남기세요.",
+          "mode.agent.title": "에이전트가 프로젝트부터 확인합니다.",
+          "mode.agent.body": "에이전트가 프로젝트 지침을 읽고 기존 Tao 설치를 찾습니다. 새 복사본을 받기 전에는 승인을 요청하고, 합의한 지침 연결을 추가한 뒤 작업을 이어갑니다.",
+          "mode.existing.title": "수동: 설치된 Tao를 연결합니다.",
+          "mode.existing.body": "Tao Agent OS의 로컬 경로를 알고 있고 저장소에 직접 연결할 때 사용합니다. 커밋할 지침에는 개인 전체 경로 대신 ${TAO_HOME}을 쓰세요.",
           "mode.first.title": "수동: 개인 공유 복사본을 클론합니다.",
-          "mode.first.body": "사용할 수 있는 로컬 root가 없음을 확인한 뒤, 여러 개인 레포지토리에서 재사용할 단일 체크아웃을 직접 만들 때만 사용합니다.",
+          "mode.first.body": "사용할 수 있는 로컬 설치가 없는지 먼저 확인하세요. 여러 개인 저장소에서 함께 쓸 Tao 복사본 하나를 만들 때 사용합니다.",
           "mode.team.title": "수동: 팀용 검토 버전을 고정합니다.",
           "mode.team.body": "모든 팀원과 에이전트가 검토를 거친 동일한 버전의 Tao Agent OS를 사용해야 할 때 사용합니다.",
           "update.eyebrow": "최신화",
-          "update.title": "공유 root는 Git으로 최신화합니다.",
-          "update.body": "대상 저장소가 하나의 Tao Agent OS root를 링크하고 있다면, 작업 사이에 그 root만 git pull로 최신화하면 됩니다. 링크된 저장소마다 파일을 복사해 업데이트할 필요는 없습니다.",
+          "update.title": "공유 설치는 Git으로 업데이트합니다.",
+          "update.body": "여러 저장소가 하나의 Tao Agent OS 설치를 가리킨다면, 작업 사이에 그 설치 폴더에서 git pull을 실행하세요. 연결된 저장소마다 파일을 복사할 필요는 없습니다.",
           "update.github": "GitHub 열기",
           "update.ko": "한글 최신화 안내",
-          "update.release": "최신 릴리즈 노트",
+          "update.release": "릴리스 기록",
           "evidence.eyebrow": "실행 근거",
-          "evidence.title": "필수 관문을 실행 가능한 체크로 만듭니다.",
-          "evidence.body": "start hook 한 번으로 라우팅과 preflight를 수행하고 required docs를 직접 읽은 뒤 review와 finish hook을 유지하면 git status, VibeGuard, 검증, gate 근거가 완료 보고 전에 남습니다.",
+          "evidence.title": "끝났다는 말 전에, 무엇을 확인했는지 남깁니다.",
+          "evidence.body": "start hook 한 번으로 작업 경로와 필요한 검사를 정합니다. 에이전트는 읽은 문서, 수정 내용, 검증 결과를 기록합니다. 완료 검사는 빠진 근거를 확인하며, 검사 실패나 승인 대기는 완료로 처리하지 않고 알립니다.",
+          "signal.label": "검사 결과",
           "signal.green": "🐱🟢 SUCCESS",
           "signal.red": "🐱🔴 FAIL",
           "evidence.readme": "근거 가이드 읽기",
           "evidence.scripts": "스크립트 열기",
-          "routing.eyebrow": "라우팅",
-          "routing.title": "Tao Agent OS는 필요한 부분만 로드됩니다.",
-          "routing.body": "에이전트는 모든 문서를 기본으로 다 읽지 않습니다. 요청의 성격을 분류하고, 필요한 최소한의 문서 세트로만 라우팅한 뒤, 명확한 근거와 함께 작업을 완료합니다.",
-          "flow.local.title": "로컬 규칙 읽기",
-          "flow.local.body": "프로젝트 로컬 지침이 명령어 및 도메인 정책에 대한 언제나 최우선적인 기준(Source of Truth)이 됩니다.",
-          "flow.route.title": "라우트 선택",
-          "flow.route.body": "기능 구현, 문서화, 코드 리뷰, 릴리스, PRD 작성 또는 디버깅 등 상황에 딱 맞는 워크플로우 라우터를 활용합니다.",
-          "flow.cards.title": "카드 로드",
-          "flow.cards.body": "작업에 필요한 공통 규율, 플랫폼 가이드, 워크플로우 및 프로덕트 패턴 카드만 선택적으로 읽습니다.",
-          "flow.evidence.title": "근거 보고",
-          "flow.evidence.body": "완료 보고 시에는 실제로 실행해 본 테스트 로그나 검증 데이터 등 구체적인 근거를 제시해야 하며, 차단된 경우 명확한 사유를 보고해야 합니다.",
+          "routing.eyebrow": "작업 흐름",
+          "routing.title": "요청한 뒤에는 어떤 순서로 움직일까요?",
+          "routing.body": "아래에서 작업을 고르면 순서와 검사, 멈추는 조건을 볼 수 있습니다. 화살표는 작업 순서를 나타내며 실제 실행 상태를 표시하지는 않습니다.",
           "library.eyebrow": "라이브러리",
-          "library.title": "반복되는 에이전트 작업을 위한 작은 재사용 카드.",
-          "library.common.title": "공통 엔지니어링 규율",
-          "library.common.body": "스택 탐색, 안전 코딩, 테스트 및 검증 규칙, 예외 처리 설계, 그리고 깃 워크트리 관리 규율을 포함합니다.",
-          "library.platform.title": "플랫폼 전용 가이드",
-          "library.platform.body": "웹, iOS, 안드로이드, 서버, KMP, 플러터 등 다양한 환경에서 에이전트가 한 치의 오차도 없이 구현하도록 돕는 카드입니다.",
-          "library.workflow.title": "워크플로우 프로세스",
-          "library.workflow.body": "구현, 버그 킬러, 고품격 문서 작성, 멀티 에이전트 협업, 코드 회고 등 검증된 16종 이상의 상세 동선을 정의합니다.",
-          "library.product.title": "검증된 프로덕트 패턴",
-          "library.product.body": "인증/인가, 권한 제어(RBAC), 초대 수락, 청구(Billing), 에이전트 자격 증명, 요금제 구독 처리 등 비즈니스 코어 요소를 실수 없이 작성하도록 지원합니다.",
+          "library.title": "작업에 맞춰 찾아 읽는 가이드입니다.",
+          "library.common.title": "코드와 프로젝트 관리",
+          "library.common.body": "기술 스택 확인, 코딩, 테스트, 검증, 프로젝트 이름, 오류 처리, Git 워크트리 관리 규칙을 다룹니다.",
+          "library.platform.title": "플랫폼 가이드",
+          "library.platform.body": "웹, iOS, Android, 서버, 애플리케이션, KMP, Flutter의 구현 규칙을 다룹니다.",
+          "library.workflow.title": "워크플로우",
+          "library.workflow.body": "기능 구현, 버그 수정, 문서 작성, 리뷰, 릴리스, PRD, 에이전트 협업, 회고의 작업 순서를 정합니다.",
+          "library.product.title": "프로덕트 패턴",
+          "library.product.body": "인증, 역할별 권한, 초대, 결제, 사용 권한, 에이전트 자격 증명, 테넌트 분리를 다룹니다.",
           "vibeguard.eyebrow": "안전 관문",
-          "vibeguard.title": "VibeGuard 상세 정보는 VibeGuard 사이트에서 제공됩니다.",
-          "vibeguard.body": "Tao Agent OS는 라우팅과 공유 엔지니어링 지침을 다룹니다. 필수 안전 관문 및 상세 운영 세부사항은 VibeGuard를 이용해 주세요.",
+          "vibeguard.title": "안전 검사는 VibeGuard가 실행합니다.",
+          "vibeguard.body": "Tao는 작업 순서와 필요한 검사를 정하고, VibeGuard는 안전 규칙에 따라 프로젝트를 검사합니다. 검사 명령과 설정 방법은 VibeGuard 사이트에서 확인할 수 있습니다.",
           "vibeguard.link": "VibeGuard 열기"
         }
       };
@@ -693,9 +655,10 @@ The bridge must force this behavior:
         }
         const revealBtn = document.getElementById("revealStep2Btn");
         if (revealBtn) {
-          revealBtn.textContent = dict["quick.reveal"] || "➔ Need global setup? Show optional Step 2 bridge";
+          revealBtn.textContent = dict["quick.reveal"] || "Show optional setup for future sessions";
         }
         renderMode();
+        document.dispatchEvent(new CustomEvent("tao:language", { detail: { language: currentLanguage } }));
         saveLanguage(currentLanguage);
       };
 
@@ -761,5 +724,6 @@ The bridge must force this behavior:
       const browserLanguage = navigator.language && navigator.language.toLowerCase().startsWith("ko") ? "ko" : "en";
       applyLanguage(getSavedLanguage() || browserLanguage);
     </script>
+    <script type="module" src="./workflow/map.js"></script>
   </body>
 </html>
