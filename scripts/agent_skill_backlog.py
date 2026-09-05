@@ -38,8 +38,9 @@ MAX_SCANNED = 200
 def skill_backlog_summary(state_root: Path) -> dict[str, Any]:
     """Report what waits in each skill-learning state, oldest first.
 
-    `observed` counts files without reading them: an uncurated observation has
-    no queue age of its own, and its remedy is the same whatever it contains.
+    `observed` is the retained observation-file count, kept for compatibility.
+    Curation and completion preserve this history, so it is not an uncurated
+    count and must not contribute to `waiting`. Counting needs no content reads.
     The two actionable states are read, because "sixteen waiting" and "sixteen
     waiting, oldest twenty-five days" prompt different actions.
     """
@@ -69,7 +70,7 @@ def format_skill_backlog(summary: dict[str, Any]) -> str:
         return ""
     line = (
         f"Skill learning backlog: {summary['queued']} awaiting review, "
-        f"{summary['staged']} staged, {summary['observed']} uncurated"
+        f"{summary['staged']} staged, {summary['observed']} observations retained"
     )
     age = summary.get("oldest_age_days")
     if age is not None:
