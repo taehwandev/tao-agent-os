@@ -611,7 +611,7 @@ def _route_required_docs(
     profile_docs: tuple[str, ...],
     surface_docs: list[str] | None = None,
 ) -> list[str]:
-    compact = _compact_required_docs(command, concerns)
+    compact = _compact_required_docs(command, platform, concerns)
     if compact is not None:
         return compact
     gates = set(route_gates(command))
@@ -620,8 +620,10 @@ def _route_required_docs(
     return _select_within_budget(command, tiers, selected)
 
 
-def _compact_required_docs(command: str, concerns: list[str]) -> list[str] | None:
-    """The two routes whose required set is fixed, or None for the full policy."""
+def _compact_required_docs(
+    command: str, platform: Optional[str], concerns: list[str]
+) -> list[str] | None:
+    """The routes whose required set is compact, or None for the full policy."""
 
     # A simple investigation has no work-producing gates. Keep the concise
     # operating entrypoint available without charging every analysis for the
@@ -641,18 +643,46 @@ def _compact_required_docs(command: str, concerns: list[str]) -> list[str] | Non
     # Commit, push, and pull-request publication after implementation share
     # one compact contract. The commit workflow reference already covers the
     # staged diff, worktree, remote, visibility, push, and idempotent PR checks.
-    # A separate risk concern falls through to the full selection policy below.
-    if (
-        command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS
-        and set(concerns).issubset(LIGHTWEIGHT_PUBLICATION_CONCERNS)
-    ):
+    #
+    # A concern outside that family is a risk the caller named, and it is
+    # answered with that concern's own documents rather than by abandoning the
+    # compact set. Falling through to the full policy instead meant one extra
+    # `--concern verification` returned 11 documents and 91KB where the compact
+    # route returns 3 and 14KB -- and six of the eight it added were the tier
+    # walk's, not the concern's: branch-strategy twice, worktree-hygiene, the
+    # review-and-commit reference. The caller asked about verification and was
+    # handed branch strategy, which is the opposite of honouring the signal.
+    if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
         commit_docs = resolve_guidance_docs(
             ROOT, ["common/skills/commit-workflow/SKILL.md"]
         )
-        return unique(
-            [OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT, *commit_docs]
-        )
+        compact = [OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT, *commit_docs]
+        named = _named_concern_docs(platform, concerns)
+        return unique([*compact, *named])
     return None
+
+
+def _named_concern_docs(platform: Optional[str], concerns: list[str]) -> list[str]:
+    """The documents a caller's own concerns ask for, and nothing besides.
+
+    Concerns inside the publication family add nothing: the commit workflow
+    reference already covers the staged diff, worktree, remote, visibility,
+    push, and idempotent PR checks that `commit`, `push`, `pr` and `branch`
+    would each point at.
+    """
+
+    named: list[str] = []
+    for concern in concerns:
+        if concern in LIGHTWEIGHT_PUBLICATION_CONCERNS:
+            continue
+        named.extend(CONCERNS.get(concern, ()))
+        if platform:
+            named.extend(PLATFORM_CONCERNS.get((platform, concern), ()))
+    if not named:
+        return []
+    return resolve_guidance_docs(
+        ROOT, unique(canonical_doc_path(doc) for doc in named)
+    )
 
 
 def _required_doc_tiers(
