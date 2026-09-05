@@ -6,10 +6,12 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from agent_skill_backlog import format_skill_backlog, skill_backlog_summary
+from agent_skill_learning import curate_observations, record_observation, review_candidate
 
 
 def ago(days: float) -> str:
@@ -61,9 +63,8 @@ class SkillBacklogTests(unittest.TestCase):
         self.assertIn("1 awaiting review, 1 staged", line)
         self.assertIn(f"oldest 25d (candidate {old})", line)
 
-    def test_uncurated_observations_are_counted_but_never_aged(self) -> None:
-        # An observation has no queue age of its own, and counting the files
-        # avoids reading records whose remedy is identical either way.
+    def test_retained_observations_are_counted_but_never_aged(self) -> None:
+        # Stored observations alone say nothing about actionable queue state.
         for index in range(3):
             self.write("observations", f"obs{index}", {"created_at": ago(90)})
         summary = skill_backlog_summary(self.root)
@@ -72,7 +73,39 @@ class SkillBacklogTests(unittest.TestCase):
         self.assertIsNone(summary["oldest_age_days"])
         self.assertEqual("", format_skill_backlog(summary))
         self.write("review-queue", "c" * 16, {"candidate_id": "c" * 16, "queued_at": ago(1)})
-        self.assertIn("3 uncurated", format_skill_backlog(skill_backlog_summary(self.root)))
+        self.assertIn("3 observations retained", format_skill_backlog(skill_backlog_summary(self.root)))
+
+    def test_curation_and_completion_preserve_history_without_inflating_waiting(self) -> None:
+        for occurrence in ("first", "second"):
+            observed = record_observation(
+                self.root, occurrence_id=occurrence,
+                skill_id="testing", signal="weak_verification",
+            )
+            self.assertTrue(observed["created"])
+        curated = curate_observations(self.root, min_occurrences=2)
+        self.assertEqual(1, curated["ready_count"])
+        summary = skill_backlog_summary(self.root)
+        self.assertEqual((2, 1, 0, 1), tuple(
+            summary[key] for key in ("observed", "queued", "staged", "waiting")
+        ))
+        line = format_skill_backlog(summary)
+        self.assertIn("1 awaiting review, 0 staged, 2 observations retained", line)
+        self.assertNotIn("uncurated", line)
+
+        reviewed = review_candidate(
+            self.root, curated["queued"][0], decision="no_change", min_occurrences=2,
+        )
+        self.assertTrue(reviewed["updated"])
+        summary = skill_backlog_summary(self.root)
+        self.assertEqual((2, 0, 0, 0), tuple(
+            summary[key] for key in ("observed", "queued", "staged", "waiting")
+        ))
+        self.assertEqual("", format_skill_backlog(summary))
+
+    def test_retained_count_does_not_read_observation_contents(self) -> None:
+        self.write("observations", "history", {"status": "observed"})
+        with patch("agent_skill_backlog.read_json", side_effect=AssertionError("unexpected read")):
+            self.assertEqual(1, skill_backlog_summary(self.root)["observed"])
 
     def test_unusable_records_still_count_and_never_raise(self) -> None:
         good = "d" * 16
