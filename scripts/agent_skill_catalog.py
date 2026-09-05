@@ -67,6 +67,31 @@ def normalize_feedback_signal(
     return ""
 
 
+SKILL_CONTAINER_DIRS = frozenset({"skills", "llm-skills"})
+
+
+def skill_ids_from_doc_paths(paths: Iterable[str]) -> set[str]:
+    """Name the skill bundles a set of document paths belongs to.
+
+    A route lists documents, and the retrospective names skills, so the two
+    could not be compared until one was expressed in the other's terms. A
+    bundle owns everything beneath it -- `SKILL.md` and every reference -- so
+    the id is the directory immediately after the `skills` or `llm-skills`
+    container, whatever depth the document sits at below it.
+    """
+
+    ids: set[str] = set()
+    for raw in paths:
+        parts = [part for part in str(raw).replace("\\", "/").split("/") if part]
+        for index, part in enumerate(parts[:-1]):
+            if part in SKILL_CONTAINER_DIRS:
+                skill_id = normalize_skill_id(parts[index + 1])
+                if skill_id:
+                    ids.add(skill_id)
+                break
+    return ids
+
+
 def canonical_skill_ids(project: Path, rules: Path) -> set[str]:
     """Return IDs backed by canonical rule or project-local skill bundles."""
 

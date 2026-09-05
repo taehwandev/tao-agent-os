@@ -44,6 +44,11 @@ failure-repair and skill-learning automation boundary.
    record the bound observation before continuing; same-closeout maintenance
    cannot start from a deferred observation. A reusable gap may produce at most
    one content-free observation tied to an actually used skill.
+   At least one named skill must be one this run actually loaded: a bundle in
+   the route's `required_docs`, or `retrospective_learning`, which every route
+   uses because every route requires this gate. Name as many further skills as
+   the retrospective genuinely covered; only a list with no loaded skill in it
+   at all is refused, and the refusal names what the run did load.
 6. For a reusable gap, also write the proposal through the `skill-draft` hook
    while this run still holds the context. Records carry only `skill_id`,
    `signal`, and counts; the draft carries the bounded rationale needed to
@@ -104,6 +109,9 @@ failure-repair and skill-learning automation boundary.
 - Prove correction routing requires an explicit completed-result anchor, keeps
   `triage`, `ambiguity`, and read-only `analysis` available for diagnosis, and
   still refuses work routes that would bypass repair.
+- Prove a `skills checked` list naming no skill the route required, and not
+  `retrospective_learning`, is refused, and that one loaded name is enough so a
+  wider retrospective is never punished for the extra names.
 - Prove `observation: recorded` is refused until the current occurrence has a
   matching stored observation for one checked skill, and that this refusal lives
   in finish so the documented gate-then-observation order stays reachable.

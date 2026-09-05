@@ -26,6 +26,7 @@ from agent_finish_gate_cycle_validators import (
     validate_cycle_contract,
 )
 from agent_finish_gate_learning_validators import validate_retrospective_check
+from agent_skill_catalog import skill_ids_from_doc_paths
 from agent_finish_gate_skip_policy import validate_required_gate_not_skipped
 from agent_finish_gate_surface_validators import validate_work_surface_resolution
 from agent_finish_gate_validators import (
@@ -141,10 +142,20 @@ def validate_gate_evidence(
     if PRODUCT_REENTRY_GATE in required:
         failures.extend(validate_product_reentry_evidence(gate_evidence.get(PRODUCT_REENTRY_GATE, "")))
     if RETROSPECTIVE_CHECK_GATE in required:
+        # The route already names the documents this run was required to read,
+        # and `required_docs_for_route` is how the source-docs gate above reads
+        # them. Deriving the loaded skills here keeps the one source of truth
+        # rather than threading a second list down from finish.
+        loaded = (
+            skill_ids_from_doc_paths(required_docs_for_route(route) or [])
+            if route is not None
+            else set()
+        )
         failures.extend(
             validate_retrospective_check(
                 gate_evidence.get(RETROSPECTIVE_CHECK_GATE, ""),
                 allowed_skill_ids=allowed_skill_ids,
+                loaded_skill_ids=loaded,
             )
         )
     if GRAPHIFY_READINESS_GATE in required:
