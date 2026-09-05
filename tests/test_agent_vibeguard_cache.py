@@ -170,7 +170,7 @@ class VibeguardCacheTests(unittest.TestCase):
                     "stdout": "abc123\n",
                     "stderr": "",
                 }
-            if command[:3] == ["git", "status", "--short"]:
+            if command[:2] == ["git", "status"]:
                 return {
                     "command": command,
                     "cwd": str(cwd),
@@ -243,8 +243,9 @@ class VibeguardCacheTests(unittest.TestCase):
                 base = {"command": command, "cwd": str(cwd), "stderr": ""}
                 if command[:3] == ["git", "rev-parse", "--verify"]:
                     return {**base, "returncode": 0, "stdout": "abc123\n"}
-                if command[:3] == ["git", "status", "--short"]:
-                    return {**base, "returncode": 0, "stdout": " M app.py\n"}
+                if command[:2] == ["git", "status"]:
+                    listing = " M app.py\0" if "-z" in command else " M app.py\n"
+                    return {**base, "returncode": 0, "stdout": listing}
                 if command == ["vibeguard", "audit", "."]:
                     audits.append(target.read_text(encoding="utf-8"))
                     return {**base, "returncode": 0, "stdout": "Overall: Ready\n"}
@@ -277,32 +278,103 @@ class VibeguardCacheTests(unittest.TestCase):
             ["SAFE = 1\n", "AWS_SECRET_ACCESS_KEY = 'AKIAEXAMPLE'\n"], audits
         )
 
-    def test_an_unreadable_changed_path_still_changes_the_key(self) -> None:
-        """A path the digest cannot read must not silently drop out of it."""
+    def test_an_unreadable_changed_path_yields_no_key(self) -> None:
+        """A path the digest cannot open is a path the key cannot vouch for.
+
+        This used to record a fixed "unreadable" marker instead. The marker was
+        stable across every edit of the file behind it, so a name git had
+        escaped -- which resolved to nothing on disk -- keyed one verdict for
+        all its contents. No key means no cache read and no write.
+        """
 
         from agent_vibeguard_cache import _dirty_content_digest
 
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
-            absent = _dirty_content_digest(project, " M gone.py\n")
+            absent = _dirty_content_digest(project, " M gone.py\0")
             (project / "gone.py").write_text("x = 1\n", encoding="utf-8")
-            present = _dirty_content_digest(project, " M gone.py\n")
+            present = _dirty_content_digest(project, " M gone.py\0")
 
-        self.assertNotEqual(absent, present)
+        self.assertIsNone(absent)
+        self.assertIsInstance(present, str)
 
     def test_a_renamed_path_is_digested_at_its_destination(self) -> None:
-        """A rename entry names two paths; the bytes live at the second."""
+        """A `-z` rename record is `RM new\\0old\\0`; the bytes live at `new`."""
 
         from agent_vibeguard_cache import _dirty_content_digest
 
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             (project / "new.py").write_text("first\n", encoding="utf-8")
-            before = _dirty_content_digest(project, "R  old.py -> new.py\n")
+            before = _dirty_content_digest(project, "RM new.py\0old.py\0")
             (project / "new.py").write_text("second\n", encoding="utf-8")
-            after = _dirty_content_digest(project, "R  old.py -> new.py\n")
+            after = _dirty_content_digest(project, "RM new.py\0old.py\0")
 
+        self.assertIsInstance(before, str)
         self.assertNotEqual(before, after)
+
+    def test_a_file_whose_name_git_escapes_is_keyed_by_its_content(self) -> None:
+        """Git itself produces the escaping here; nothing in this test fakes it.
+
+        `git status --short` prints a Korean file name as `"\\354\\204\\244..."`,
+        and the previous digest took that spelling as the path. It opened
+        nothing, recorded the fixed unreadable marker, and two different
+        contents of the file shared one key -- the exact hole the digest was
+        added to close, reopened for every non-ASCII name.
+        """
+
+        def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+            done = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+            return {
+                "command": command,
+                "cwd": str(cwd),
+                "returncode": done.returncode,
+                "stdout": done.stdout,
+                "stderr": done.stderr,
+            }
+
+        audits: list[str] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            run_command(["git", "init", "-q", str(project)], project.parent)
+            run_command(["git", "config", "user.email", "t@example.com"], project)
+            run_command(["git", "config", "user.name", "T"], project)
+            target = project / "설정.py"
+            target.write_text("SAFE = 1\n", encoding="utf-8")
+            run_command(["git", "add", "."], project)
+            run_command(["git", "commit", "-qm", "base"], project)
+
+            short = run_command(["git", "status", "--short"], project)
+
+            def vibeguard(command: list[str], cwd: Path) -> dict[str, object]:
+                if command[:1] == ["vibeguard"]:
+                    audits.append(target.read_text(encoding="utf-8"))
+                    return {"command": command, "cwd": str(cwd), "returncode": 0,
+                            "stdout": "Overall: Ready\n", "stderr": ""}
+                return run_command(command, cwd)
+
+            def audit() -> dict:
+                return cached_vibeguard(
+                    project=project,
+                    rules=project,
+                    run_command=vibeguard,
+                    vibeguard_command=lambda _p, _r: ["vibeguard", "audit", "."],
+                    parse_overall=lambda output: "Ready" if "Ready" in output else "unknown",
+                )
+
+            target.write_text("SAFE = 2\n", encoding="utf-8")
+            escaped = run_command(["git", "status", "--short"], project)["stdout"]
+            first = audit()
+            target.write_text("AWS_SECRET_ACCESS_KEY = 'AKIAEXAMPLE'\n", encoding="utf-8")
+            second = audit()
+
+        # The premise: git really does escape the name in the line listing.
+        self.assertIn("\\354", escaped, escaped)
+        self.assertEqual("", short["stdout"])
+        self.assertFalse(first["cached"])
+        self.assertFalse(second["cached"])
+        self.assertEqual(["SAFE = 2\n", "AWS_SECRET_ACCESS_KEY = 'AKIAEXAMPLE'\n"], audits)
 
     def test_vibeguard_cache_invalidates_on_rules_git_state_change(self) -> None:
         calls: list[tuple[Path, list[str]]] = []
@@ -318,7 +390,7 @@ class VibeguardCacheTests(unittest.TestCase):
                     "stdout": f"{cwd.name}-head\n",
                     "stderr": "",
                 }
-            if command[:3] == ["git", "status", "--short"]:
+            if command[:2] == ["git", "status"]:
                 return {
                     "command": command,
                     "cwd": str(cwd),
@@ -381,7 +453,7 @@ class VibeguardCacheTests(unittest.TestCase):
             calls.append(command)
             if command[:3] == ["git", "rev-parse", "--verify"]:
                 return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": "abc\n", "stderr": ""}
-            if command[:3] == ["git", "status", "--short"]:
+            if command[:2] == ["git", "status"]:
                 return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": "", "stderr": ""}
             if command == ["vibeguard", "audit", "."]:
                 return {
@@ -431,7 +503,7 @@ class VibeguardCacheTests(unittest.TestCase):
                     "stdout": "abc\n",
                     "stderr": "",
                 }
-            if command[:3] == ["git", "status", "--short"]:
+            if command[:2] == ["git", "status"]:
                 return {
                     "command": command,
                     "cwd": str(cwd),
@@ -476,7 +548,7 @@ class VibeguardCacheTests(unittest.TestCase):
         def run_command(command: list[str], cwd: Path) -> dict[str, object]:
             if command[:3] == ["git", "rev-parse", "--verify"]:
                 stdout = "abc\n"
-            elif command[:3] == ["git", "status", "--short"]:
+            elif command[:2] == ["git", "status"]:
                 stdout = ""
             elif command == ["vibeguard", "audit", "."]:
                 stdout = "Overall: Ready\n"
@@ -518,7 +590,7 @@ class VibeguardCacheTests(unittest.TestCase):
             calls.append(command)
             if command[:3] == ["git", "rev-parse", "--verify"]:
                 return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": "abc\n", "stderr": ""}
-            if command[:3] == ["git", "status", "--short"]:
+            if command[:2] == ["git", "status"]:
                 return {"command": command, "cwd": str(cwd), "returncode": 0, "stdout": "", "stderr": ""}
             if command == ["vibeguard", "audit", "."]:
                 return {

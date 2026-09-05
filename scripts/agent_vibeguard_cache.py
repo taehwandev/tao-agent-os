@@ -13,10 +13,12 @@ from typing import Any, Callable
 CommandRunner = Callable[[list[str], Path], dict[str, Any]]
 VibeGuardCommand = Callable[[Path, Path], list[str]]
 OverallParser = Callable[[str], Any]
-# Bumped when the key gains an input: a cache written by the previous scheme
-# was keyed on git status alone and cannot be trusted to describe the bytes it
-# audited, so every entry from it is discarded rather than read.
-CACHE_SCHEMA_VERSION = 2
+# Bumped when the key gains an input or changes how one is read. Schema 1 was
+# keyed on git status alone; schema 2 digested changed paths but took their
+# names from the escaped `--short` listing, so a non-ASCII name resolved to
+# nothing and was keyed by a fixed marker. Entries from either cannot be
+# trusted to describe the bytes they audited, so every one is discarded.
+CACHE_SCHEMA_VERSION = 3
 
 
 def skipped_vibeguard(project: Path) -> dict[str, Any]:
@@ -164,16 +166,28 @@ def _git_state(
     status = git_status_result or run_command(["git", "status", "--short", "--untracked-files=all"], path)
     if head.get("returncode") != 0 or status.get("returncode") != 0:
         return None
-    status_text = str(status.get("stdout", ""))
+    # A second listing, NUL-delimited, for the paths the digest has to open.
+    # `--short` quotes and C-escapes any name outside ASCII -- `"\354\204\244"`
+    # for a Korean file -- and a path taken from that text names nothing on disk.
+    # `-z` prints the bytes as they are, so the digest reads the file that git
+    # reported rather than a spelling of it.
+    listing = run_command(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], path
+    )
+    if listing.get("returncode") != 0:
+        return None
+    dirty = _dirty_content_digest(path, str(listing.get("stdout", "")))
+    if dirty is None:
+        return None
     return {
         "head": str(head.get("stdout", "")).strip(),
-        "status": status_text,
-        "dirty_content": _dirty_content_digest(path, status_text),
+        "status": str(status.get("stdout", "")),
+        "dirty_content": dirty,
     }
 
 
-def _dirty_content_digest(path: Path, status_text: str) -> str:
-    """Digest the bytes of every path git reports as changed.
+def _dirty_content_digest(path: Path, status_text: str) -> str | None:
+    """Digest the bytes of every path git reports as changed, or None.
 
     HEAD covers what is committed and the status text covers *which* paths
     differ from it, but not what they now contain: `git status --short` prints
@@ -183,21 +197,31 @@ def _dirty_content_digest(path: Path, status_text: str) -> str:
 
     Only the changed paths are read, so the cost is the size of the edit rather
     than the size of the project -- which is what makes the cache still worth
-    having. A path that cannot be read is recorded as unreadable rather than
-    skipped, because a file the digest cannot account for must still change the
-    key when it appears or disappears.
+    having. `status_text` is the NUL-delimited `-z` listing, because the
+    line-oriented one escapes any name outside ASCII and a path taken from it
+    opens nothing. None means the digest could not account for every path, and
+    the caller treats that as no key at all.
     """
 
     digest = hashlib.sha256()
-    for line in status_text.splitlines():
-        # Porcelain v1: two status columns, a space, then the path. A rename
-        # prints `old -> new`; the destination is what now holds the bytes.
-        entry = line[3:] if len(line) > 3 else ""
-        if not entry:
+    # Porcelain v1 with -z: `XY <path>\0`, and for a rename or copy the record
+    # continues `<old path>\0`, the destination first. The destination is what
+    # now holds the bytes, so it is the one read; the source is consumed and
+    # folded into the key without being opened, since it no longer exists.
+    records = status_text.split("\0")
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if len(record) < 3:
             continue
-        target = entry.split(" -> ")[-1].strip().strip('"')
+        code, target = record[:2], record[3:]
         digest.update(target.encode("utf-8", "surrogateescape"))
         digest.update(b"\0")
+        if code[0] in "RC" and index < len(records):
+            digest.update(records[index].encode("utf-8", "surrogateescape"))
+            digest.update(b"\0from\0")
+            index += 1
         candidate = path / target
         try:
             if candidate.is_dir():
@@ -210,7 +234,13 @@ def _dirty_content_digest(path: Path, status_text: str) -> str:
             else:
                 digest.update(hashlib.sha256(candidate.read_bytes()).digest())
         except OSError:
-            digest.update(b"\0unreadable\0")
+            # A path the digest cannot open is a path the key cannot vouch for.
+            # This used to record a fixed "unreadable" marker instead, and that
+            # marker was stable across every edit of the file behind it -- so a
+            # name git had escaped, which resolved to nothing on disk, keyed one
+            # verdict for all its contents. No key means no cache read and no
+            # cache write, and the audit runs.
+            return None
     return digest.hexdigest()
 
 
