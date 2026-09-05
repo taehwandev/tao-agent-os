@@ -279,6 +279,13 @@ Codex:
   with `prefix_rule=["python3", "/absolute/path/to/tao-agent-os/scripts/<name>.py"]`.
   Do not include changing arguments such as `--project`, `--request`, `--gate-record`,
   `$(pwd)`, or user-provided text in the saved prefix.
+- Treat an exec result that only reports `Script running with cell ID ...` or
+  a session id as transport state, not proof that the escalated command began.
+  For a command expected to finish promptly, wait once for at most 15 seconds;
+  if no output appears, use a read-only process or target-state check before
+  describing it as running. When execution remains unproven, terminate the
+  cell before retrying. Retry only after proving that the first attempt made no
+  side effect, and never automatically retry a non-idempotent external write.
 - `setup-agent-hooks.py` should leave only absolute, parameter-free
   Tao Agent OS script prefix rules in the managed Codex block and remove stale
   Tao Agent OS rules that were saved with `$HOME`, `${HOME}`, `~`, relative

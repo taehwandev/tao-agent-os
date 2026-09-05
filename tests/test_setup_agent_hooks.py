@@ -112,7 +112,7 @@ class SetupAgentHooksTests(unittest.TestCase):
         configure_agy.assert_called_once()
         configure_maintenance.assert_called_once_with(ROOT, True)
 
-    def test_codex_only_setup_refreshes_shared_global_graphify(self) -> None:
+    def test_codex_only_setup_skips_shared_global_graphify(self) -> None:
         with (
             patch.object(
                 sys,
@@ -144,7 +144,7 @@ class SetupAgentHooksTests(unittest.TestCase):
         ):
             setup_agent_hooks_impl.main()
 
-        configure_global.assert_called_once()
+        configure_global.assert_not_called()
         ensure_launcher.assert_called_once_with(ROOT, True)
 
     def test_agy_only_setup_installs_stable_launcher(self) -> None:
@@ -173,11 +173,11 @@ class SetupAgentHooksTests(unittest.TestCase):
 
         ensure_launcher.assert_called_once_with(ROOT, False)
 
-    def test_global_graphify_stays_enabled_for_every_runtime_setup(self) -> None:
-        self.assertTrue(_should_configure_global_graphify({"codex"}))
+    def test_global_graphify_runs_only_for_unscoped_runtime_setup(self) -> None:
+        self.assertFalse(_should_configure_global_graphify({"codex"}))
         self.assertTrue(_should_configure_global_graphify(set()))
-        self.assertTrue(_should_configure_global_graphify({"claude"}))
-        self.assertTrue(_should_configure_global_graphify({"codex", "claude"}))
+        self.assertFalse(_should_configure_global_graphify({"claude"}))
+        self.assertFalse(_should_configure_global_graphify({"codex", "claude"}))
 
     def test_graphify_readiness_reports_leaked_runtime_assets_as_missing_integrations(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from support.runtime_bridge import (
+    CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
     CODEX_DISPATCH_BRIDGE_PHRASE,
     LEGACY_RUNTIME_BRIDGE_BEGIN,
     LEGACY_RUNTIME_BRIDGE_END,
@@ -157,6 +158,36 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
         )
         self.assertNotIn(CODEX_DISPATCH_BRIDGE_PHRASE, claude_block)
         self.assertNotIn(CODEX_DISPATCH_BRIDGE_PHRASE, agy_block)
+
+    def test_codex_approval_wait_is_bounded_and_evidence_first(self) -> None:
+        codex_block = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        claude_block = runtime_bridge_block(ROOT, "Claude", "CLAUDE.md")
+        agy_block = runtime_bridge_block(ROOT, "Antigravity", "AGENTS.md")
+
+        self.assertIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, codex_block)
+        self.assertIn(
+            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
+            runtime_bridge_required_phrases("Codex", "AGENTS.md"),
+        )
+        self.assertIn(
+            "not proof that the command started",
+            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
+        )
+        self.assertIn("at most 15 seconds", CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
+        self.assertIn(
+            "read-only process or target-state evidence",
+            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
+        )
+        self.assertIn(
+            "terminate the cell before any retry",
+            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
+        )
+        self.assertIn(
+            "never automatically retry a non-idempotent external write",
+            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
+        )
+        self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, claude_block)
+        self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, agy_block)
 
     def test_managed_bridge_refresh_preserves_surrounding_runtime_instructions(self) -> None:
         for runtime_name, instruction_file in (

@@ -242,8 +242,8 @@ def _runtime_selected(runtime: str, selected_runtimes: set[str]) -> bool:
 
 
 def _should_configure_global_graphify(selected_runtimes: set[str]) -> bool:
-    """Every selected runtime consumes the same user-level Graphify bundle."""
-    return not selected_runtimes or bool(selected_runtimes)
+    """Keep runtime-scoped repair from mutating the shared Graphify install."""
+    return not selected_runtimes
 
 
 def _has_codex() -> bool:
