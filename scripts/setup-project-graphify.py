@@ -86,6 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--repair-checkout-hook",
+        action="store_true",
+        help="Repair only an existing Graphify checkout block; --check previews changes.",
+    )
+    parser.add_argument(
         "--format",
         choices=("summary", "json"),
         default="summary",
@@ -105,11 +110,14 @@ def validate_arguments(
         parser.error("--repair-document-links supports project targets only")
     if args.repair_graph_integrity and args.global_scope:
         parser.error("--repair-graph-integrity supports project targets only")
+    if args.repair_checkout_hook and args.global_scope:
+        parser.error("--repair-checkout-hook supports project targets only")
     repair_modes = sum(
         (
             args.repair_input_policy,
             args.repair_document_links,
             args.repair_graph_integrity,
+            args.repair_checkout_hook,
         )
     )
     if repair_modes > 1:
@@ -127,6 +135,15 @@ def validate_arguments(
 def configure_project(
     project: Path, platforms: dict[str, object], args: argparse.Namespace
 ) -> dict[str, object]:
+    if args.repair_checkout_hook:
+        from support.graphify_checkout_repair import repair_checkout_hook
+
+        repair = repair_checkout_hook(project, dry_run=args.check)
+        return {
+            "scope": "project", "project": str(project),
+            "checkout_hook": repair, "success": repair["ready"],
+            "readiness": {"ready": repair["ready"]},
+        }
     document_links: dict[str, object] | None = None
     graph_repair: dict[str, object] | None = None
     if args.repair_input_policy:
@@ -185,6 +202,15 @@ def project_success(
 
 def print_repair_summary(report: dict[str, object], args: argparse.Namespace) -> bool:
     readiness = report["readiness"]
+    if args.repair_checkout_hook:
+        repair = report["checkout_hook"]
+        print(
+            f"{'SUCCESS' if repair['ready'] else 'FAIL'} checkout-hook "
+            f"{report['project']} changed={repair['changed']} dry-run={repair['dry_run']}"
+        )
+        if repair.get("reason"):
+            print(f"  {repair['reason']}")
+        return True
     if args.repair_input_policy:
         print(
             f"{'SUCCESS' if report['success'] else 'FAIL'} input-policy "

@@ -99,6 +99,39 @@ change only `.graphifyignore`.
 Initial graph generation stays separate because extraction can involve source
 scope, model/provider selection, time, and cost decisions.
 
+## Explicit Checkout Hook Repair
+
+Graphify owns the templates installed by `graphify hook install`. The installed
+version may skip an existing marker instead of refreshing it. Tao offers a
+separate, opt-in compatibility repair for its recognized checkout block:
+
+```bash
+python3 <TAO_ROOT>/scripts/setup-project-graphify.py \
+  --project <TARGET_REPO> --repair-checkout-hook --check
+python3 <TAO_ROOT>/scripts/setup-project-graphify.py \
+  --project <TARGET_REPO> --repair-checkout-hook
+```
+
+The repair honors `GRAPHIFY_SKIP_HOOK=1`, skips identical HEADs and identical
+trees, and passes the NUL-delimited Git diff paths to the existing extractor.
+An unavailable previous commit retains the full-rebuild fallback. Rebuilds
+use the active checkout rather than a root saved in a copied graph. Upstream
+output selection, interpreter detection, resource limits, and extraction stay
+unchanged; this operation neither builds a graph nor claims graph readiness.
+
+Only the recognized Graphify checkout block changes. The original hook is
+preserved once beside it as `post-checkout.tao-before-repair`, and unrelated
+hook bytes and executable permissions remain intact. Unknown or modified
+templates, symlink hooks, and external `core.hooksPath` targets are refused.
+Git's shared hook directory means an explicit repair from a linked worktree
+also applies to its sibling checkouts. Preview before applying it.
+
+Repeated repairs are idempotent. If upstream replaces its managed block,
+preview this command again; unsupported versions require a compatibility
+review rather than blind patching. Default setup and `--check` never install
+or repair hooks implicitly. To roll back, restore the saved hook only after
+checking that later unrelated edits would not be lost.
+
 ## Graph Location
 
 Run Graphify from the target root with the local output boundary:
