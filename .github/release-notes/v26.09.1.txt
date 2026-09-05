@@ -1,0 +1,87 @@
+# Tao Agent OS v26.09.1
+
+_2026-08-17 → 2026-09-05 · 169 commits since [v26.08.4](https://github.com/taehwandev/tao-agent-os/releases/tag/v26.08.4)_
+
+This release makes routine agent work lighter to carry and faster to finish. Claude, Codex, and Antigravity now expose the status that matters while a session is running, and the workflow stops reloading guidance, Git state, and document indexes it already knows.
+
+The largest practical change is visible in repeated work. Against `v26.08.4`, a representative commit-and-PR task now loads 77% less instruction context, and merged branch/worktree cleanup loads 83% less. The safety decisions remain; the unrelated reading and repeated setup are what disappeared.
+
+## Quota and run status at a glance
+
+- **Claude** draws the remaining quota as fixed-width 5-hour and 7-day gauges, so the bar empties with the budget instead of presenting usage as if it were availability ([#89](https://github.com/taehwandev/tao-agent-os/pull/89), [#90](https://github.com/taehwandev/tao-agent-os/pull/90)).
+- **Antigravity/AGY** renders the available quota and current Tao run progress in its status line ([#91](https://github.com/taehwandev/tao-agent-os/pull/91)).
+- **Codex** setup enables the native quota status items that the runtime exposes, without replacing existing status-line configuration ([#98](https://github.com/taehwandev/tao-agent-os/pull/98)).
+- The shared status renderer also shows the session's starting workspace and Tao run progress. Quota colour follows the terminal palette and is never the only warning signal ([#92](https://github.com/taehwandev/tao-agent-os/pull/92), [#94](https://github.com/taehwandev/tao-agent-os/pull/94)).
+
+The unified setup owns these runtime integrations. New installations receive the current wiring automatically; existing installations can use the check-and-refresh step under **Operator action** below.
+
+## Measured context reduction
+
+The comparison below uses the exact UTF-8 byte size of the instruction and required-document context selected by `v26.08.4` and the current release candidate. Token figures use a transparent engineering estimate of 4 UTF-8 bytes per token; byte counts and percentages are exact, while model-specific billed tokens will differ.
+
+| Trigger | `v26.08.4` | `v26.09.1` candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| Commit + pull request | 122,858 bytes | 28,084 bytes | 77.1% · ≈23,694 tokens |
+| Merged branch/worktree cleanup | 122,594 bytes | 20,668 bytes | 83.1% · ≈25,482 tokens |
+| Base `AGENTS.md` load | 55,655 bytes | 13,814 bytes | 75.2% · ≈10,460 tokens |
+| Graphify entrypoint | 40,199 bytes | 8,172 bytes | 79.7% · ≈8,007 tokens |
+| Repeated route advisory after the first turn | 10,262 bytes | 160 bytes | 98.4% · ≈2,526 tokens per turn |
+
+These rows are per-trigger measurements and are not additive. In a 50-turn Claude session, the route-advisory change alone removes about 123,750 estimated tokens after the first turn ([#99](https://github.com/taehwandev/tao-agent-os/pull/99)).
+
+The reduction comes from several separate changes:
+
+- The root agent instructions now keep the rules every task needs and move command mechanics behind the runtime-integration guidance that owns them ([#101](https://github.com/taehwandev/tao-agent-os/pull/101)).
+- Commit and PR routing retains its compact contract and adds only the documents named by an extra concern, instead of falling back to unrelated branch and worktree guidance ([#125](https://github.com/taehwandev/tao-agent-os/pull/125)).
+- Graphify loads its query contract for architecture and dependency questions, while the full build procedure stays available on demand. It also reads the newest valid graph location instead of rebuilding or ignoring the graph that exists ([#106](https://github.com/taehwandev/tao-agent-os/pull/106), [#110](https://github.com/taehwandev/tao-agent-os/pull/110)).
+
+## Common paths do less work
+
+Merged branch cleanup now has its own route. It keeps ownership, protected-branch, merge, worktree-state, approval, and reporting checks, but no longer enters an implementation lifecycle for an operation that produces no source diff. The fixed cleanup path skips semantic document search and batches the inspection evidence for one target ([#116](https://github.com/taehwandev/tao-agent-os/pull/116), [#118](https://github.com/taehwandev/tao-agent-os/pull/118)).
+
+Other hot paths now reuse or avoid work instead of making it faster by repetition:
+
+- Git reads are bounded, repository walks prune ignored directories at traversal time, and document graphs are reused between hooks ([#30](https://github.com/taehwandev/tao-agent-os/pull/30), [#37](https://github.com/taehwandev/tao-agent-os/pull/37), [#47](https://github.com/taehwandev/tao-agent-os/pull/47)).
+- Wikimap refreshes are skipped when the corpus or active concern cannot affect the result ([#101](https://github.com/taehwandev/tao-agent-os/pull/101), [#112](https://github.com/taehwandev/tao-agent-os/pull/112)).
+- VibeGuard audit reuse is keyed to content, and checkout preparation avoids redundant rebuild and audit queries ([#124](https://github.com/taehwandev/tao-agent-os/pull/124), [#127](https://github.com/taehwandev/tao-agent-os/pull/127), [#128](https://github.com/taehwandev/tao-agent-os/pull/128)).
+
+## Continuation and cross-runtime handoff
+
+Continuation can resume one exact run across concurrent sessions instead of guessing from whichever packet was written last. Checkpoints now preserve the work state a resumed session needs, reject unusable run directories, and distinguish a legitimate no-change task from an abandoned mutation ([#28](https://github.com/taehwandev/tao-agent-os/pull/28), [#40](https://github.com/taehwandev/tao-agent-os/pull/40), [#41](https://github.com/taehwandev/tao-agent-os/pull/41), [#115](https://github.com/taehwandev/tao-agent-os/pull/115)).
+
+Codex, Claude, and Antigravity can also pass a bounded, project-bound brief through the local mailbox. The mailbox stores no daemon or external service and does not wake an idle runtime; the target receives the brief on its next normal task ([#73](https://github.com/taehwandev/tao-agent-os/pull/73)).
+
+## Gates report what actually happened
+
+The protected-checkout and lifecycle gates were tightened around the decisions they make:
+
+- Claude shell inspection asks only for the dangerous cases, preserves worktree isolation without recurring prompt noise, and fails closed for operator shapes, Git option abbreviations, environment injection, computed text, and hidden targets ([#70](https://github.com/taehwandev/tao-agent-os/pull/70), [#71](https://github.com/taehwandev/tao-agent-os/pull/71), [#100](https://github.com/taehwandev/tao-agent-os/pull/100)).
+- Review can attest committed ranges, repository hygiene, ignored local configuration, and final Graphify artifacts instead of treating every result as a dirty working tree ([#31](https://github.com/taehwandev/tao-agent-os/pull/31), [#123](https://github.com/taehwandev/tao-agent-os/pull/123)).
+- Mutation checks judge the process exit code, and run/lesson maintenance keeps bounded evidence with explicit dry-run and apply modes ([#68](https://github.com/taehwandev/tao-agent-os/pull/68)).
+- Gate failures now name the rejected command, path, phrase, or repair loop rather than reporting a nearby implementation detail ([#111](https://github.com/taehwandev/tao-agent-os/pull/111), [#114](https://github.com/taehwandev/tao-agent-os/pull/114), [#120](https://github.com/taehwandev/tao-agent-os/pull/120), [#129](https://github.com/taehwandev/tao-agent-os/pull/129)).
+
+## Learning and documentation
+
+The retrospective path now reports queued, staged, completed, and uncurated skill-learning work without making an unrelated historical backlog block the current run. It also refuses to claim a retrospective for skills the run never loaded and labels retained observations as history rather than unfinished curation ([#130](https://github.com/taehwandev/tao-agent-os/pull/130), [#132](https://github.com/taehwandev/tao-agent-os/pull/132), [#133](https://github.com/taehwandev/tao-agent-os/pull/133)).
+
+The public workflow guide now includes bilingual flowcharts for analysis, change, commit, and cleanup, with decision branches and bounded retry paths ([#131](https://github.com/taehwandev/tao-agent-os/pull/131)). Documentation also gained a concrete evidence ladder for technical explanations and Android feature-UI ownership rules ([#87](https://github.com/taehwandev/tao-agent-os/pull/87), [#88](https://github.com/taehwandev/tao-agent-os/pull/88)).
+
+## Compatibility and operator action
+
+- No database migration, dependency update, or intentional public API break is included.
+- Protected-checkout users may see a newly denied command or a targeted approval prompt for ambiguous shell forms that were previously misclassified. This is intentional fail-closed hardening.
+- New installations get the current Claude, Codex, and Antigravity integration through the unified setup. For an existing installation, run:
+
+  ```text
+  <TAO_LAUNCHER> setup-agent-hooks --check
+  <TAO_LAUNCHER> setup-agent-hooks
+  ```
+
+  Run the second command only when the check reports missing or stale managed setup. Existing user-owned status-line configuration is preserved.
+- No data rollback is required. A source rollback should use an immutable prior release revision and then rerun the setup check; prior release tags must not be moved.
+
+## Verification
+
+The current tree at `f0304ee4` passes `python3 -m unittest discover tests` — 2,383 tests, OK, with 1 skipped. `python3 scripts/workflow.py validate` also passes all 177 workflow references, 365 Markdown frontmatter/link checks, and 27 route contracts. The final VibeGuard audit reports no findings.
+
+**Full Changelog:** https://github.com/taehwandev/tao-agent-os/compare/v26.08.4...v26.09.1
