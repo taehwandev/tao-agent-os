@@ -263,8 +263,76 @@ def _normalize_gate_record(payload: Any) -> dict[str, Any]:
         "status": status,
         "source": str(payload.get("source") or "manual"),
         "evidence": str(payload.get("evidence") or payload.get("gate_evidence") or ""),
-        "fields": {str(key): str(value) for key, value in fields.items()},
+        "fields": _normalize_gate_record_fields(gate, fields),
     }
+
+
+def _normalize_gate_record_fields(gate: str, fields: dict[Any, Any]) -> dict[str, str]:
+    """Keep field values strings instead of coercing whatever JSON type arrived.
+
+    `str(value)` accepted every JSON type and stored a Python repr. A
+    documentation record that passed `"target": ["docs/a.md"]` became the value
+    `"['docs/a.md']"`, and required_doc_target_failures then reported
+    "documentation target embeds route required_docs but is not one exact
+    route-relative path" -- a message about path structure for what was really a
+    wrong-typed field, because the bracket and quote are not path characters in
+    its standalone-token pattern. `true` became `"True"`, which no lowercase
+    enum comparison downstream matches. Rejecting at the boundary keeps one
+    documented shape and names the real error where the caller can fix it.
+    """
+
+    normalized: dict[str, str] = {}
+    for key, value in fields.items():
+        if value is None:
+            # canonical_gate_fields already drops None values, so a null that
+            # survived here as the string "None" would be non-empty enough to
+            # pass the required-field check in missing_structured_gate_fields
+            # and land that placeholder in the ledger. Dropping it keeps both
+            # paths on the same answer: a null field is an absent field.
+            continue
+        if not isinstance(value, str):
+            kind = _json_type_name(value)
+            raise ValueError(
+                f"gate record for {gate} has non-string field {key}: received "
+                f"JSON {kind}; {_json_field_guidance(kind)}"
+            )
+        normalized[str(key)] = value
+    return normalized
+
+
+def _json_type_name(value: Any) -> str:
+    """Name the received type the way the caller wrote it, not the Python way.
+
+    The caller hand-wrote JSON for --gate-record or --gate-json, so `bool` and
+    `list` would send them looking for a Python value they never typed.
+    """
+
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def _json_field_guidance(kind: str) -> str:
+    """Spell out the join only for the array, which is the misleading case.
+
+    An array is the mistake that reached finish disguised as a path-shape
+    error, so it is worth teaching the replacement value. Offering that same
+    list advice for a `count: 2` sends the reader hunting for a bracket they
+    never typed, so every other type stops at naming itself.
+    """
+
+    if kind == "array":
+        return (
+            'gate field values must be strings, so pass "a.md, b.md" '
+            'rather than ["a.md", "b.md"]'
+        )
+    return "gate field values must be strings, so send the value as a quoted JSON string"
 
 
 def _validate_records_before_write(
