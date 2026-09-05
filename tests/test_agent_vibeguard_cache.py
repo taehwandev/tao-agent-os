@@ -208,7 +208,8 @@ class VibeguardCacheTests(unittest.TestCase):
                 vibeguard_command=command,
                 parse_overall=parse,
             )
-            state["status"] = " M scripts/agent-hook.py\n"
+            (project / "app.py").write_text("changed\n", encoding="utf-8")
+            state["status"] = " M app.py\0"
             third = cached_vibeguard(
                 project=project,
                 rules=rules,
@@ -222,6 +223,68 @@ class VibeguardCacheTests(unittest.TestCase):
         self.assertFalse(first["cached"])
         self.assertTrue(second["cached"])
         self.assertFalse(third["cached"])
+        status_calls = [command for command in calls if command[:2] == ["git", "status"]]
+        self.assertEqual(3, len(status_calls))
+        self.assertTrue(all("-z" in command for command in status_calls))
+
+    def test_supplied_short_status_does_not_replace_current_nul_listing(self) -> None:
+        from agent_vibeguard_cache import _git_state
+
+        calls: list[list[str]] = []
+        listing = " M app.py\0"
+
+        def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+            calls.append(command)
+            if command[:2] == ["git", "rev-parse"]:
+                return {"returncode": 0, "stdout": "abc\n"}
+            self.assertEqual(
+                ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], command
+            )
+            return {"returncode": 0, "stdout": listing}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "app.py").write_text("same bytes\n", encoding="utf-8")
+            state = _git_state(project, run_command, {"returncode": 0, "stdout": ""})
+            # Staging changes status without changing bytes. Identity must come
+            # from the fresh listing even if the caller repeats stale context.
+            listing = "M  app.py\0"
+            staged = _git_state(project, run_command, {"returncode": 0, "stdout": ""})
+
+        self.assertEqual(" M app.py\0", state["status"])
+        self.assertEqual(state["dirty_content"], staged["dirty_content"])
+        self.assertNotEqual(state, staged)
+        self.assertEqual(4, len(calls))  # HEAD plus one listing for each state.
+
+    def test_failed_listing_or_unreadable_path_never_reuses_or_writes_cache(self) -> None:
+        for result in (
+            {"returncode": 1, "stdout": ""},
+            {"returncode": 0, "stdout": " M missing.py\0"},
+        ):
+            with self.subTest(result=result), tempfile.TemporaryDirectory() as temp_dir:
+                calls: list[list[str]] = []
+
+                def run_command(command: list[str], cwd: Path) -> dict[str, object]:
+                    calls.append(command)
+                    if command[:2] == ["git", "rev-parse"]:
+                        return {"returncode": 0, "stdout": "abc\n"}
+                    if command[:2] == ["git", "status"]:
+                        return result
+                    return {"returncode": 0, "stdout": "Overall: Ready\n", "stderr": ""}
+
+                project = Path(temp_dir)
+                with patch("agent_vibeguard_cache._read_cache") as read_cache, patch(
+                    "agent_vibeguard_cache._write_cache"
+                ) as write_cache:
+                    audit = cached_vibeguard(
+                        project=project, rules=project, run_command=run_command,
+                        vibeguard_command=lambda _p, _r: ["vibeguard", "audit", "."],
+                        parse_overall=lambda output: "Ready",
+                    )
+                read_cache.assert_not_called()
+                write_cache.assert_not_called()
+                self.assertFalse(audit["cached"])
+                self.assertEqual(1, calls.count(["vibeguard", "audit", "."]))
 
     def test_a_second_edit_of_the_same_file_is_audited_again(self) -> None:
         """The key has to see the bytes, not only which paths differ.
@@ -431,7 +494,8 @@ class VibeguardCacheTests(unittest.TestCase):
                 vibeguard_command=command,
                 parse_overall=parse,
             )
-            states["rules"] = " M common/rules.md\n"
+            (rules / "rules.md").write_text("changed\n", encoding="utf-8")
+            states["rules"] = " M rules.md\0"
             third = cached_vibeguard(
                 project=project,
                 rules=rules,

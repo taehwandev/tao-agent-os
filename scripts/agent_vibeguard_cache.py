@@ -18,7 +18,9 @@ OverallParser = Callable[[str], Any]
 # names from the escaped `--short` listing, so a non-ASCII name resolved to
 # nothing and was keyed by a fixed marker. Entries from either cannot be
 # trusted to describe the bytes they audited, so every one is discarded.
-CACHE_SCHEMA_VERSION = 3
+# Schema 4 uses the same NUL-delimited listing for status identity and content,
+# replacing schema 3's separate line-oriented status query.
+CACHE_SCHEMA_VERSION = 4
 
 
 def skipped_vibeguard(project: Path) -> dict[str, Any]:
@@ -163,14 +165,13 @@ def _git_state(
     git_status_result: dict[str, Any] | None,
 ) -> dict[str, str] | None:
     head = run_command(["git", "rev-parse", "--verify", "HEAD"], path)
-    status = git_status_result or run_command(["git", "status", "--short", "--untracked-files=all"], path)
-    if head.get("returncode") != 0 or status.get("returncode") != 0:
+    if head.get("returncode") != 0 or (
+        git_status_result is not None and git_status_result.get("returncode") != 0
+    ):
         return None
-    # A second listing, NUL-delimited, for the paths the digest has to open.
-    # `--short` quotes and C-escapes any name outside ASCII -- `"\354\204\244"`
-    # for a Korean file -- and a path taken from that text names nothing on disk.
-    # `-z` prints the bytes as they are, so the digest reads the file that git
-    # reported rather than a spelling of it.
+    # One current listing owns both identity and the paths to open. A caller's
+    # line-oriented status remains accepted as context, but may be stale and
+    # cannot safely supply paths because it C-escapes non-ASCII names.
     listing = run_command(
         ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], path
     )
@@ -181,7 +182,7 @@ def _git_state(
         return None
     return {
         "head": str(head.get("stdout", "")).strip(),
-        "status": str(status.get("stdout", "")),
+        "status": str(listing.get("stdout", "")),
         "dirty_content": dirty,
     }
 
