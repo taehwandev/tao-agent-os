@@ -38,6 +38,7 @@ from agent_gate_evidence import (
 )
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_review_attestation import REVIEW_HOOK_GATE
+from agent_skill_backlog import format_skill_backlog, skill_backlog_summary
 from agent_skill_followup import skill_followup_failures
 
 
@@ -136,6 +137,12 @@ def print_result(output_path: Path, required_gates: list[str], overall: str, res
         print(f"Retrospective lesson candidate: {lesson.get('relative_path')}")
     elif result["retrospective_required"]:
         print(f"Retrospective lesson candidate: {lesson.get('reason', 'not_created')}")
+    # Finish is where a run's learning is judged, and until now it judged only
+    # the candidate this run raised. A queue drained by nobody is the other half
+    # of the same question, so closeout says how much is waiting.
+    backlog_line = format_skill_backlog(skill_backlog_summary(state_home()))
+    if backlog_line:
+        print(backlog_line)
     print("Gate signals:")
     for gate_signal in result["gate_signals"]:
         print(

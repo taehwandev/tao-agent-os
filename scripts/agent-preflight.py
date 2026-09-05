@@ -14,7 +14,8 @@ from typing import Any
 from agent_execution_capsule import create_preflight_snapshot
 from agent_execution_capsule_state import atomic_write_json
 from agent_route_state import request_fingerprint
-from agent_global_lessons import lesson_summary
+from agent_global_lessons import lesson_summary, state_home
+from agent_skill_backlog import format_skill_backlog, skill_backlog_summary
 from agent_runtime_session import runtime_session
 from agent_hook_gate_records import reset_and_record_preflight_gate
 from agent_preflight_runtime import (
@@ -616,6 +617,9 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
             f"({top_recurrence['promotion_status']}, lesson {top_recurrence['lesson_id']})"
         )
     print(lessons_line)
+    backlog_line = format_skill_backlog(skill_backlog_summary(state_home()))
+    if backlog_line:
+        print(backlog_line)
     for warning in hook_warnings:
         print(f"WARN: {warning}", file=sys.stderr)
     for failure in failures:
