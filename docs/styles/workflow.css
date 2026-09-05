@@ -1,0 +1,105 @@
+/* Route diagram: use the site's existing palette, with no extra assets. */
+#routing { scroll-margin-top: 100px; }
+#workflow-map { color: var(--ink); min-width: 0; }
+#workflow-map ol { list-style: none; margin: 0; padding: 0; }
+.workflow-entry { display: flex; flex-wrap: wrap; gap: 12px 32px; }
+.workflow-entry li { position: relative; font-weight: 500; }
+.workflow-entry li + li::before { content: "→"; position: absolute; left: -24px; color: var(--muted); }
+.workflow-decision { margin: 12px 0 28px; color: var(--muted); }
+.workflow-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+.workflow-choice {
+  appearance: none;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  padding: 10px 18px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.workflow-choice[aria-pressed="true"] { color: var(--bg); background: var(--ink); border-color: var(--ink); }
+.workflow-choice:hover:not([aria-pressed="true"]) { background: var(--bg-pre); }
+.workflow-choice:focus-visible, .workflow-exception summary:focus-visible, .workflow-source:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 4px;
+}
+.workflow-summary { font-weight: 500; margin-bottom: 10px; max-width: 76ch; }
+.workflow-example { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 32px; }
+.workflow-example span { color: var(--muted); }
+.workflow-example q { color: var(--ink); }
+#workflow-map .workflow-steps { display: grid; gap: 18px; margin-top: 20px; }
+.workflow-step { position: relative; padding-left: 38px; min-width: 0; }
+.workflow-step .workflow-number { position: absolute; left: 0; top: 10px; }
+.workflow-number { color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.workflow-step h3 { font: inherit; font-weight: 500; margin: 10px 0 8px; overflow-wrap: anywhere; }
+.workflow-step p { color: var(--muted); overflow-wrap: anywhere; }
+.workflow-outcome { margin-top: 32px; padding-left: 18px; border-left: 2px solid var(--cyan); }
+.workflow-outcome h3 { font: inherit; font-weight: 500; margin-bottom: 6px; }
+.workflow-outcome p { max-width: 85ch; }
+.workflow-exception { margin: 22px 0 12px; max-width: 85ch; }
+.workflow-exception summary { cursor: pointer; font-weight: 500; padding: 8px 0; }
+.workflow-exception p { padding: 8px 0; color: var(--muted); }
+.workflow-source { color: var(--cyan); text-underline-offset: 4px; }
+.workflow-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 28px; color: var(--muted); }
+.workflow-legend code { color: var(--ink); overflow-wrap: anywhere; }
+
+.workflow-chart { max-width: 780px; margin: 0 auto 24px; }
+.flowchart-key { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 24px; font-size: 13px; }
+.flowchart-key span { display: inline-flex; align-items: center; gap: 8px; }
+.flowchart-key span::before { content: ''; width: 20px; height: 12px; border: 1px solid var(--muted); }
+.flowchart-key .flowchart-key-terminal::before { border-radius: 20px; }
+.flowchart-key .flowchart-key-decision::before { width: 12px; transform: rotate(45deg); }
+.flowchart-canvas {
+  position: relative;
+  margin-top: 24px;
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.flowchart-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.flowchart-edge { fill: none; stroke: var(--muted); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.flowchart-edge.retry { stroke: var(--cyan); stroke-dasharray: 5 4; }
+.flowchart-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: var(--bg);
+  border: 1px solid var(--muted);
+  padding: 8px 12px;
+  box-sizing: border-box;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.flowchart-terminal { border-radius: 40px; }
+.flowchart-decision { border: 0; background: var(--ink); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.flowchart-decision::before {
+  content: ''; position: absolute; inset: 2px;
+  background: var(--bg);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.flowchart-decision .flowchart-node-label { position: relative; max-width: 62%; }
+.flowchart-arrow, .flowchart-edge-label { position: absolute; transform: translate(-50%, -50%); }
+.flowchart-arrow { color: var(--muted); font-size: 10px; line-height: 1; }
+.flowchart-edge-label { padding: 2px 5px; background: var(--bg); font: 12px 'JetBrains Mono', monospace; white-space: nowrap; }
+.flowchart-edge-label.retry { color: var(--ink); }
+.flowchart-recovery-note { position: absolute; left: 61%; top: 582px; width: 34%; text-align: center; font-size: 12px; background: var(--bg); }
+.flowchart-accessible { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.workflow-stage-details { border-top: 1px solid var(--line); padding-top: 16px; }
+.workflow-stage-details summary { cursor: pointer; font-weight: 500; padding: 8px 0; }
+@media (max-width: 700px) {
+  .flowchart-node { font-size: 12px; padding-inline: 5px; }
+  .flowchart-decision .flowchart-node-label { max-width: 70%; }
+  .flowchart-edge-label { font-size: 11px; padding-inline: 2px; }
+  .flowchart-key { gap: 12px; font-size: 12px; }
+}
+@media (max-width: 520px) {
+  .workflow-choice { flex: 1 1 calc(50% - 8px); padding-inline: 10px; }
+  .workflow-entry { flex-direction: column; gap: 18px; padding-left: 24px !important; }
+  .workflow-entry li + li::before { content: "↓"; left: -24px; top: 0; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
