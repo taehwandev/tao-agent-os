@@ -285,6 +285,12 @@ delegation plan before worker execution. Existing incomplete ledgers remain a
 finish failure, but finish reports their full missing-field set at once so the
 single repair cycle does not uncover a second hidden layer.
 
+Gate record `fields` values must be JSON strings. The hook rejects an array,
+object, number, or boolean before writing the ledger, naming the gate, the
+field, and the received type instead of storing a coerced rendering of it. A
+JSON `null` reads as an absent field, so a required field supplied as `null`
+fails the same missing-field check as one that was never sent.
+
 A later complete record for the same gate is a valid correction for a legacy
 incomplete ledger entry. Once merge selects that complete replacement, it must
 clear the older missing-field diagnostic; obsolete omissions must not consume
