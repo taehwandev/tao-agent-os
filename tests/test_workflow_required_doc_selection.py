@@ -216,6 +216,61 @@ class RequiredDocMembershipTests(unittest.TestCase):
             route["required_docs"],
         )
 
+    def test_an_outside_concern_adds_its_own_docs_and_not_the_tier_walk(self) -> None:
+        """Naming a risk is answered with that risk, not with the whole policy.
+
+        A concern outside the publication family used to drop the compact route
+        and fall through to the budgeted tier walk. One `--concern verification`
+        then returned 11 documents where 3 were needed, and six of the eight it
+        added came from the walk rather than the concern: branch-strategy twice,
+        worktree-hygiene, the review-and-commit reference. The caller asked
+        about verification and was handed branch strategy.
+        """
+
+        base = resolve_docs(
+            "commit", None, ["commit", "pull-request"],
+            request_classified=True, request_text="커밋하고 PR 만들어줘",
+        )["required_docs"]
+        with_concern = resolve_docs(
+            "commit", None, ["commit", "pull-request", "verification"],
+            request_classified=True, request_text="커밋하고 PR 만들어줘",
+        )["required_docs"]
+
+        added = [doc for doc in with_concern if doc not in base]
+        self.assertEqual(base, with_concern[: len(base)])
+        # Exactly what the `verification` concern names, resolved to references.
+        self.assertEqual(
+            [
+                "common/skills/verification-policy/references/current-guidance.md",
+                "common/skills/testing/references/current-guidance.md",
+                "common/skills/scenario-driven-testing/references/current-guidance.md",
+                "common/skills/definition-of-done/references/current-guidance.md",
+            ],
+            added,
+        )
+        for unrelated in ("branch-strategy", "worktree-hygiene"):
+            with self.subTest(unrelated=unrelated):
+                self.assertFalse(
+                    any(unrelated in doc for doc in with_concern), with_concern
+                )
+
+    def test_a_publication_concern_still_adds_nothing(self) -> None:
+        """The commit reference already covers branch, push and PR checks."""
+
+        docs = resolve_docs(
+            "commit", None, ["commit", "branch", "push", "pull-request"],
+            request_classified=True, request_text="커밋하고 푸시하고 PR",
+        )["required_docs"]
+
+        self.assertEqual(
+            [
+                OPERATING_SKILL,
+                REVIEW_AND_COMMIT_ENTRYPOINT,
+                "common/skills/commit-workflow/references/current-guidance.md",
+            ],
+            docs,
+        )
+
     def test_commit_route_keeps_release_guidance_for_a_tag_concern(self) -> None:
         route = resolve_docs(
             "commit",
