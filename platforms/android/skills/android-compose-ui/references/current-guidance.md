@@ -356,6 +356,12 @@ Performance claims should use release-like evidence whenever practical:
 - Use `rememberUpdatedState` only to provide the latest callback or value to a
   long-lived effect without restarting it. Do not read it eagerly inside
   `remember { ... }`.
+- A long-lived effect is not the trigger by itself; a callback that can change
+  while it runs is. Show what changes before wrapping. A bound method reference
+  such as `viewModel::onEvent` is equal across recompositions when its receiver
+  is, and strong skipping memoizes lambdas passed to composables, so neither
+  has anything to update. Wrapping anyway is noise the next reader must
+  disprove, and in a sample it teaches the habit.
 - Never use a remembered boolean event flag as a one-off effect queue. Emit a
   callback, command, event flow, or route effect from the state holder.
 
