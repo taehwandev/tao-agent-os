@@ -212,8 +212,12 @@ its own `SaveableStateProvider`,
 `rememberViewModelStoreNavEntryDecorator()` is what gives each entry its own
 `ViewModelStore`; without it, entries share one store and a per-key ViewModel is
 not per-key. It ships in `androidx.lifecycle:lifecycle-viewmodel-navigation3`,
-a dependency separate from the navigation3 runtime, so a missing decorator and a
-missing dependency look the same at the call site.
+a dependency separate from the navigation3 runtime. The two mistakes fail at
+different times and are diagnosed differently: an absent dependency makes the
+function an unresolved reference and the module stops compiling, while a present
+dependency whose decorator was never added to `entryDecorators` compiles and
+then shares one store at runtime. Check the dependency and the registration as
+two separate things.
 
 The `NavKey` type belongs to the navigation library. When the public contract
 must stay free of it, keep a plain Kotlin value in `api` and let an app adapter
@@ -242,7 +246,8 @@ Verification for a Navigation 3 entry packet:
 - prove each key reaching one host has exactly one `entry<Key>`
 - prove `rememberSaveableStateHolderNavEntryDecorator()` is first wherever a
   ViewModel store decorator is used
-- prove a per-key ViewModel is not shared between two entries of different keys
+- prove a per-key ViewModel is not shared between two entries of different keys,
+  which is a runtime check and not answered by the module compiling
 
 For Activity-backed entries:
 

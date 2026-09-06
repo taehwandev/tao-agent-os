@@ -192,6 +192,27 @@ it is testing its neighbour, not its subject:
 - When a fix removes wording or behaviour, assert its absence too. An additive
   fix leaves the wrong thing sitting beside the new one.
 
+### A Sourced Fact Does Not Carry Its Inference
+
+The same shape appears in prose. A sentence often holds two claims: a fact read
+off a source, and an inference about what that fact means in practice. Checking
+the source discharges the first and nothing else, but it *feels* like the
+sentence was verified.
+
+A skill card shipped this pair in one sentence: that a decorator lives in a
+separate artifact, read off the vendor's page, and that forgetting the artifact
+and forgetting to register the decorator "look the same at the call site",
+which nothing sourced. The second was false — an absent dependency is an
+unresolved reference that stops compilation, while an unregistered decorator
+compiles and changes only runtime behaviour. A reader would have hunted a
+runtime symptom while the build was already red.
+
+Claims about *when* or *how* a mistake surfaces need their own derivation:
+compile time or run time, error text or wrong behaviour, first call or hundredth.
+The cheapest check is to name each mistake's failure mode separately. If they
+cannot be named separately, the claim that they are indistinguishable has not
+been earned — and if they can, the claim is usually wrong.
+
 ### Fix Every Copy Of The Rule
 
 A fix that passes its own test and changes nothing means the rule it edited was
