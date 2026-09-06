@@ -151,6 +151,99 @@ registry immediately index exact keys and reject duplicate registrations. Never
 depend on `Set` iteration order or silently choose the first matching entry.
 Missing and duplicate entry keys need explicit failure behavior and tests.
 
+## Navigation 3 Entry Provider Contract
+
+When the project uses Navigation 3, do not hand-roll the registry above. The
+library owns the contribution seam and fixes its shape. A feature contributes
+entries through an extension on `EntryProviderScope<NavKey>`:
+
+```kotlin
+// androidx.navigation3.runtime.EntryProviderScope
+// androidx.navigation3.runtime.NavKey
+
+fun EntryProviderScope<NavKey>.profileEntries(
+    onResult: (ProfileResult) -> Unit,
+) {
+    entry<ProfileKey> { key ->
+        ProfileRoute(key = key, onResult = onResult)
+    }
+}
+```
+
+`entry<Key>` performs the key dispatch, so the duplicate-key indexing the
+hand-rolled registry needs is the library's job here. Collect contributions as
+function values rather than as entry objects:
+
+```kotlin
+@Module
+@InstallIn(ActivityRetainedComponent::class)
+object ProfileNavigationModule {
+    @IntoSet
+    @Provides
+    fun provideProfileEntries(): EntryProviderScope<NavKey>.() -> Unit = {
+        profileEntries(onResult = {})
+    }
+}
+```
+
+A result callback that depends on host state does not belong in this provider.
+Pass it where the host composes `entryProvider`, not through the DI graph.
+
+The host supplies `backStack`, `onBack`, `entryDecorators`, and `entryProvider`.
+`onBack` takes no argument:
+
+```kotlin
+NavDisplay(
+    backStack = backStack,
+    onBack = { backStack.removeLastOrNull() },
+    entryDecorators = listOf(
+        rememberSaveableStateHolderNavEntryDecorator(),
+        rememberViewModelStoreNavEntryDecorator(),
+    ),
+    entryProvider = entryProvider {
+        profileEntries(onResult = ::onProfileResult)
+    },
+)
+```
+
+Decorator order is a contract, not a style choice. Unless a decorator supplies
+its own `SaveableStateProvider`,
+`rememberSaveableStateHolderNavEntryDecorator()` must be first in the list.
+`rememberViewModelStoreNavEntryDecorator()` is what gives each entry its own
+`ViewModelStore`; without it, entries share one store and a per-key ViewModel is
+not per-key. It ships in `androidx.lifecycle:lifecycle-viewmodel-navigation3`,
+a dependency separate from the navigation3 runtime, so a missing decorator and a
+missing dependency look the same at the call site.
+
+The `NavKey` type belongs to the navigation library. When the public contract
+must stay free of it, keep a plain Kotlin value in `api` and let an app adapter
+convert it; either way the key must not reference `Activity`, `Intent`,
+`NavController`, or concrete screen content.
+
+### Module Naming Against The Official Guide
+
+The official modularization guide places the key in `api` and both the
+`NavEntry` and its content in `impl`. This skill keeps content in `ui` and
+reserves `impl` for the optional Activity/Intent adapter. The names differ; the
+dependency direction does not:
+
+```text
+official guide: impl(content) -> api
+this skill:     impl(Activity, optional) -> ui(content) -> api
+```
+
+Do not migrate a project only to rename modules. Check instead that the key
+contract imports no content, and that any Activity adapter sits outside the
+screen content rather than beside it.
+
+Verification for a Navigation 3 entry packet:
+
+- compile the feature's entry extension against `api + ui` with no `impl`
+- prove each key reaching one host has exactly one `entry<Key>`
+- prove `rememberSaveableStateHolderNavEntryDecorator()` is first wherever a
+  ViewModel store decorator is used
+- prove a per-key ViewModel is not shared between two entries of different keys
+
 For Activity-backed entries:
 
 - Keep route/request data and stable lookup keys in the API boundary.
