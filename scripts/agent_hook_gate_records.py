@@ -18,6 +18,7 @@ from agent_gate_evidence import (
     bind_gate_evidence_to_capsule,
     canonical_gate_fields,
     missing_structured_gate_fields,
+    merge_gate_evidence_from_ledger,
     parse_field,
     record_gate_evidence,
     record_many_gate_evidence,
@@ -120,14 +121,38 @@ def gate_batch_hook(args: argparse.Namespace) -> int:
     details.extend(f"recorded gate: {entry['gate']}" for entry in entries[:8])
     if len(entries) > 8:
         details.append(f"recorded gates truncated: {len(entries) - 8} more")
+    progress = _gate_progress(args)
+    if progress["remaining_gates"] is None:
+        details.append("Remaining route gates: unavailable; inspect the ledger before finish.")
+    else:
+        details.append(f"Remaining route gates: {progress['remaining_gates']}")
+        details.append("Ledger snapshot only; finish still validates evidence and freshness.")
     return finish_with_result(
         "gate-batch",
         True,
         details,
         args.output,
-        {"gate_evidence": entries},
+        {"gate_evidence": entries, "gate_progress": progress},
         args.repair_cycle,
     )
+
+
+def _gate_progress(args: argparse.Namespace) -> dict[str, Any]:
+    """Report the bound ledger after writing; never turn a report failure into a retry."""
+    try:
+        path = preflight_evidence_path(args)
+        preflight = json.loads(path.read_text(encoding="utf-8"))
+        route = preflight["route"]
+        gates = route["gates"]
+        if not isinstance(gates, list) or not all(isinstance(g, str) for g in gates):
+            raise ValueError("invalid route gates")
+        evidence, diagnostics = merge_gate_evidence_from_ledger(route=route, evidence_path=path)
+        if diagnostics["warnings"]:
+            return {"remaining_gates": None, "ledger_complete": False}
+        remaining = [gate for gate in gates if not evidence.get(gate)]
+        return {"remaining_gates": remaining, "ledger_complete": not remaining}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {"remaining_gates": None, "ledger_complete": False}
 
 
 def _gate_failure(

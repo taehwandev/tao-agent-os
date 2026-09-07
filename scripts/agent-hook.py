@@ -327,7 +327,8 @@ def _gate_batch_guidance_lines(gates: list[str]) -> list[str]:
         return []
     return [
         "Performance: record two or more simultaneously-ready agent-owned gates in one "
-        "gate-batch; one invocation writes one strong continuation checkpoint. Keep "
+        "gate-batch; its remaining-gates snapshot avoids a separate ledger query. "
+        "One invocation writes one strong continuation checkpoint. Keep "
         "gates separate when they become ready in different phases or after a repeated "
         "batch validation failure."
     ]

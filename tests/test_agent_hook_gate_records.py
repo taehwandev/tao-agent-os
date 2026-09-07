@@ -17,7 +17,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from agent_gate_evidence import read_gate_evidence_ledger, reset_gate_evidence_ledger
-from agent_hook_gate_records import _normalize_gate_record, gate_batch_hook, gate_hook
+from agent_hook_gate_records import _gate_progress, _normalize_gate_record, gate_batch_hook, gate_hook
 from agent_run_registry import register_run
 
 # The join advice belongs to the array rejection alone. Asserting its absence
@@ -26,6 +26,37 @@ ARRAY_HINT = 'pass "a.md, b.md" rather than ["a.md", "b.md"]'
 
 
 class GateRecordInvocationTests(unittest.TestCase):
+    def test_batch_reports_remaining_gates_without_a_second_query(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            evidence.parent.mkdir()
+            preflight = {"project": str(project), "rules": str(ROOT),
+                         "route": {"command": "analysis", "gates": ["investigate", "report"]}}
+            evidence.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence, preflight)
+            args = SimpleNamespace(project=project, rules=ROOT, evidence=evidence,
+                                   output=None, repair_cycle=0, gate_json=None, hook="gate-batch")
+            for gate, remaining in (("investigate", "['report']"), ("report", "[]")):
+                args.gate_record = [json.dumps({"gate": gate, "evidence": "Observed scoped result."})]
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(0, gate_batch_hook(args))
+                self.assertIn(f"Remaining route gates: {remaining}", output.getvalue())
+                self.assertIn("finish still validates", output.getvalue())
+
+    def test_progress_does_not_treat_failure_or_unreadable_state_as_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "preflight.json"
+            path.write_text(json.dumps({"route": {"gates": ["report"]}}), encoding="utf-8")
+            args = SimpleNamespace(evidence=path)
+            with patch("agent_hook_gate_records.merge_gate_evidence_from_ledger",
+                       return_value=({}, {"warnings": [], "failed_gates": {"report": {}}})):
+                self.assertEqual({"remaining_gates": ["report"], "ledger_complete": False},
+                                 _gate_progress(args))
+            path.write_text("broken JSON", encoding="utf-8")
+            self.assertEqual({"remaining_gates": None, "ledger_complete": False}, _gate_progress(args))
+
     def test_invocation_error_releases_repair_attempt_for_each_gate_hook(self) -> None:
         """Pre-write rejection must leave the single repair retry available."""
 
