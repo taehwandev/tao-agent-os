@@ -360,6 +360,13 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
         # phrases are the contract; stating them here costs one line each and
         # saves the refusal that teaches them.
         lines.extend(f"    wording -- {hint}" for hint in gate_wording_hints(gate))
+        if gate == "retrospective check":
+            lines.append(
+                "    efficiency: no_waste|unmeasured|improvement_needed; include efficiency_evidence. "
+                "For improvement_needed include efficiency_cause, efficiency_reduction, "
+                "efficiency_verification and use reusable_gap with existing same-closeout maintenance. "
+                "Reuse current evidence; do not add discovery or weaken required checks."
+            )
     return lines
 
 

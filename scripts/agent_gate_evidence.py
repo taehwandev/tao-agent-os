@@ -721,11 +721,17 @@ def _render_retrospective_check(
 ) -> tuple[str, list[str]]:
     """Render recorded evidence for the 'retrospective check' gate."""
 
+    efficiency = "".join(
+        f"; {name.replace('_', ' ')}: {fields[name]}"
+        for name in ("efficiency", "efficiency_evidence", "efficiency_cause",
+                     "efficiency_reduction", "efficiency_verification")
+        if fields.get(name)
+    )
     return (
         "retrospective check; "
         f"skills checked: {fields['skills_checked']}; "
         f"outcome: {fields['outcome']}; "
-        f"observation: {fields['observation']}",
+        f"observation: {fields['observation']}{efficiency}",
         [],
     )
 

@@ -111,6 +111,24 @@ def validate_retrospective_check(
             failures.extend(
                 _unloaded_skill_failures(normalized_skills, loaded_skill_ids)
             )
+    failures.extend(_efficiency_failures(text, outcome))
+    return failures
+
+
+def _efficiency_failures(text: str, outcome: str) -> list[str]:
+    """Validate opt-in causal assessment without invalidating historical ledgers."""
+
+    assessment = _field(text, "efficiency")
+    labels = ("efficiency evidence", "efficiency cause", "efficiency reduction", "efficiency verification")
+    if not assessment and not any(_field(text, label) for label in labels):
+        return []
+    if assessment not in {"no_waste", "unmeasured", "improvement_needed"}:
+        return ["retrospective efficiency must be no_waste, unmeasured, or improvement_needed"]
+    required = labels if assessment == "improvement_needed" else labels[:1]
+    missing = [label for label in required if not _field(text, label)]
+    failures = ["retrospective efficiency requires " + ", ".join(missing)] if missing else []
+    if assessment == "improvement_needed" and outcome != "reusable_gap":
+        failures.append("retrospective efficiency improvement_needed requires reusable_gap and same-closeout maintenance")
     return failures
 
 
