@@ -83,6 +83,10 @@ work, use the installed absolute Tao launcher and:
 9. Immediately before finish, compare the route gate list with the ledger and
    record all missing gates. Run `finish` once before the final report,
    commit, release, or handoff.
+   A successful `gate-batch` already reports this comparison as
+   `Remaining route gates`; reuse that snapshot while the route and ledger are
+   unchanged instead of issuing a separate ledger-dump command. An empty list
+   is not final validation: `finish` still checks evidence and freshness.
 
 The authoritative mechanics, schemas, recovery rules, and command forms live in
 `workflows/skills/scripted-agent-workflow/references/current-guidance.md` and
