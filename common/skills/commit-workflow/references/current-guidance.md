@@ -32,7 +32,13 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   separate security, tag, deployment, migration, generated-file, or other
   high-risk guidance only when that concern is actually present;
 - reuse current review, test, and safety evidence only while it is bound to the
-  unchanged staged or worktree state it covered;
+  unchanged staged or worktree state it covered. In the existing checkpoint,
+  distinguish known rules and verification from fresh staged-scope, review-binding,
+  branch/remote and PR checks; do not add an inventory command. Reuse complete
+  unchanged document readings still in context; read again only for changed bytes,
+  unavailable context or an unresolved in-scope question. For uncertain paths use
+  `rg --files` or quoted `rg -g` filters instead of speculative shell globs;
+  after a no-match, correct the path/anchor rather than repeating that expansion;
 - run one start, inspect the unstaged scope for obvious blockers, stage the
   exact commit unit, run one lightweight review against that final staged
   state, complete the staged-diff/readiness checks, and run one read-only

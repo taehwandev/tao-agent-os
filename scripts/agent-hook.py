@@ -283,11 +283,22 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         lines.extend(f"  {doc}" for doc in docs)
         lines.append(
             "Reading boundary: reference docs are on demand, not a recursive reading "
-            "queue. Expand only for an observed owner, failed check, or explicit "
-            "required dependency relevant to the requested change."
+            "queue. Reuse a complete reading only while unchanged and available in "
+            "current context; otherwise read it. Expand only for an unresolved "
+            "in-scope question. Discover uncertain paths with rg --files or quoted "
+            "rg -g filters, not speculative shell globs; no-match is not a retry cue."
         )
         lines.append("Checkpoint input: checkpoint --work-template prints minimal JSON; "
                      "--work-shape describes optional fields.")
+    if route.get("command") in {"commit", "git_commit"}:
+        lines.append(
+            "Commit reuse: distinguish already-known context from fresh checks in "
+            "the existing checkpoint; no separate inventory call. Reuse unchanged "
+            "rules and verification for the exact covered diff. Fresh checks: staged "
+            "scope, review binding, branch/remote and PR state. Changed bytes or "
+            "missing context require the relevant read/check; prior approval does "
+            "not authorize new external writes."
+        )
     if required:
         lines.append(f"Required hooks: {required}")
     if conditional:
