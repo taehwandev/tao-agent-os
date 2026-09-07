@@ -31,7 +31,8 @@ explicit caps, staging, and verification before canonical writes:
 ## 1. Evaluate Before Finish
 
 After task verification and review, ask one bounded question: would a future
-agent materially benefit from changing one skill actually used in this task?
+agent materially benefit from changing one skill actually used in this task,
+including a rule that caused avoidable reading, repeated analysis or calls?
 
 - If no, record `outcome: no_reusable_gap` and `observation: not_needed` on the
   required `retrospective check` gate. Do not create a separate observation.
@@ -68,6 +69,43 @@ skills_checked: <used skill id(s) or none>
 outcome: <no_reusable_gap|reusable_gap|no_skill_used>
 observation: <not_needed|recorded>
 ```
+
+### Bounded Efficiency Assessment
+
+Include `efficiency` and `efficiency_evidence` in this same gate, not another
+hook call. Use `no_waste` for no observed avoidable work, `unmeasured` when
+evidence is insufficient, or `improvement_needed` for a justified reusable
+reduction. Historical records without these fields remain valid.
+
+Use only observations already available in the current task: an optional read
+without a decision it served, repeated analysis after the owner and check were
+known, an unchanged-result requery, or a measured selection-count difference.
+Do not reread transcripts, scan history, add per-read receipts, run broad
+benchmarks, or infer model/thinking latency from elapsed time. Required checks
+and authorized waits are not waste merely because they take time.
+
+For `improvement_needed`, record `outcome: reusable_gap` and the additional
+fields `efficiency_cause`, `efficiency_reduction`, `efficiency_verification`:
+name the owning decision rule and observed trigger, the exact action to remove
+or narrow, and the nearest falsifying comparison/check. Carry this causal chain
+into the existing bounded draft. Use the existing signal vocabulary, such as
+`ambiguous_decision` for unclear optional-read selection; no new observation
+store or background loop is needed.
+
+Prefer replacing or shortening the owning rule over adding another checklist.
+Apply at most one bounded causal improvement through review, staging and live
+maintenance verification, within current write authority. A code/router change
+outside that authority requires a scoped task; a skill draft cannot authorize
+it. Do not remove applicable required documents, safety gates or tests to meet
+a speed target. Existing guidance already covering an isolated execution lapse
+may justify `no_change`; do not manufacture a canonical edit.
+
+Verify the removed read/call or reduced candidate count with the closest check
+and preserve its behavioral/safety counterexample. Report what that comparison
+proves, not an unmeasured end-to-end speedup. At the next normal task where the
+same rule applies, use its existing evidence to check recurrence; revise only
+on a new observed gap. Do not recursively review the improvement in this same
+closeout or drain unrelated backlog.
 
 ## Observation Schema
 

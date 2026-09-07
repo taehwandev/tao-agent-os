@@ -34,6 +34,9 @@ failure-repair and skill-learning automation boundary.
    the user explicitly starts a runtime migration task.
 4. After task verification and review, but before finish, inspect the skills
    actually loaded and applied and complete the required `retrospective check`.
+   Include the bounded efficiency assessment in `references/skill-feedback.md`:
+   identify needless reads, repeated analysis or calls from existing evidence,
+   then correct their cause through the same maintenance flow, not a new loop.
 5. Record the exact fields `skills_checked`, `outcome`, and `observation`.
    Every named skill must resolve to a canonical Tao Agent OS bundle or an
    allowlisted project-local bundle; normalize hyphens to underscores when
