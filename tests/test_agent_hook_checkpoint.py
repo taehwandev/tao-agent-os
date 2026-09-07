@@ -49,6 +49,34 @@ def _stdin(payload: dict) -> io.TextIOWrapper:
 
 
 class CheckpointCommandTests(unittest.TestCase):
+    def test_template_cannot_silently_discard_a_requested_checkpoint(self) -> None:
+        parser = agent_hook.build_parser()
+        args = parser.parse_args([
+            "checkpoint", "--work-template", "--checkpoint-kind", "decision",
+        ])
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            agent_hook._run_checkpoint_hook(parser, args)
+        self.assertEqual(2, raised.exception.code)
+
+    def test_template_is_read_only_json_and_can_be_submitted_without_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            before = fixture.packet()
+            output = io.StringIO()
+            parser = agent_hook.build_parser()
+            args = parser.parse_args(["checkpoint", "--work-template"])
+            with redirect_stdout(output), patch.object(
+                agent_hook_checkpoint, "run_binding_path",
+                side_effect=AssertionError("template must not resolve run state"),
+            ):
+                self.assertEqual(0, agent_hook._run_checkpoint_hook(parser, args))
+            work = json.loads(output.getvalue())
+            self.assertEqual(before, fixture.packet())
+            work["objective"] = "Complete the bounded change"
+            with patch.object(sys, "stdin", _stdin(work)), redirect_stdout(io.StringIO()):
+                self.assertEqual(0, agent_hook_checkpoint.checkpoint_hook(_args(fixture)))
+            self.assertEqual(work["objective"], fixture.packet()["work"]["objective"])
+
     def test_semantic_checkpoint_reads_only_the_closed_work_object_from_stdin(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = RuntimeFixture(directory)
@@ -91,6 +119,8 @@ class CheckpointCommandTests(unittest.TestCase):
             self.assertEqual(before, fixture.packet())
             self.assertNotIn("do-not-print", output.getvalue())
             self.assertIn("unknown_field", output.getvalue())
+            self.assertIn("--work-template", output.getvalue())
+            self.assertIn("Do not fabricate", output.getvalue())
 
     def test_parser_exposes_the_provider_neutral_checkpoint_command(self) -> None:
         parser = agent_hook.build_parser()

@@ -24,6 +24,7 @@ from workflow_doc_resolution import (  # noqa: E402
     resolve_guidance_docs,
 )
 from workflow_route import (  # noqa: E402
+    COMMANDS,
     CORE_REQUIRED_DOCS,
     MAX_REQUIRED_DOCS,
     resolve_docs,
@@ -143,6 +144,91 @@ class EntrypointResolutionTests(unittest.TestCase):
 
 
 class RequiredDocMembershipTests(unittest.TestCase):
+    def test_keyword_neighbor_does_not_join_verified_owner_reading(self) -> None:
+        owner = "common/skills/asset-lifecycle/SKILL.md"
+        neighbor = "common/skills/branch-cleanup/SKILL.md"
+        matches = [
+            {"type": "request_intent", "docs": [neighbor], "required_priority": 0},
+            {"type": "path_surface", "paths": ["src/assets.py"], "docs": [owner]},
+        ]
+        with patch("workflow_route.infer_surface_docs", return_value=([neighbor, owner], matches)), \
+             patch("workflow_route.expand_doc_matches", return_value=[]):
+            route = resolve_docs("prd", None, [], request_classified=True)
+        self.assertTrue(set(resolve_guidance_docs(ROOT, [owner])).issubset(route["required_docs"]))
+        self.assertTrue(set(resolve_guidance_docs(ROOT, [neighbor])).isdisjoint(route["required_docs"]))
+        self.assertIn(neighbor, route["reference_docs"])
+        self.assertFalse(matches[0]["required_eligible"])
+        self.assertEqual("verified_owner_path", matches[1]["selection_reason"])
+
+    def test_search_hit_cannot_promote_its_required_neighbor(self) -> None:
+        from workflow_search import SearchOutcome
+        source = "common/skills/branch-cleanup/SKILL.md"
+        neighbor = "common/skills/asset-lifecycle/SKILL.md"
+        required_dependency = "common/skills/secure-development-baseline/SKILL.md"
+        edges = [
+            {"path": neighbor, "source": source, "relation": "frontmatter:requires"},
+            {"path": required_dependency, "source": OPERATING_SKILL,
+             "relation": "frontmatter:requires"},
+        ]
+        with patch("workflow_route.infer_surface_docs", return_value=([], [])), \
+             patch("workflow_route.search_docs_outcome", return_value=SearchOutcome(
+                 results=[{"path": source}], backend="fixture")), \
+             patch("workflow_route.expand_doc_matches", return_value=edges):
+            route = resolve_docs("prd", None, [], request_classified=True,
+                                 request_text="Clarify the existing requirement")
+        self.assertNotIn(neighbor, route["required_docs"])
+        self.assertIn(neighbor, route["reference_docs"])
+        self.assertIn(required_dependency, route["required_docs"])
+
+    def test_explicit_surface_priority_is_not_demoted_with_keyword_candidates(self) -> None:
+        from workflow_doc_surfaces import required_surface_docs
+        matches = [{"type": "request_intent", "docs": ["required.md"],
+                    "required_priority": 100}]
+        self.assertEqual(["required.md"], required_surface_docs(matches))
+        self.assertEqual("explicit_required_priority", matches[0]["selection_reason"])
+
+    def test_focused_routes_do_not_fill_spare_slots_with_generic_intake(self) -> None:
+        limits = {"docs": 30000, "prd": 16000, "task": 31000}
+        for command, budget in limits.items():
+            with self.subTest(command=command):
+                route = resolve_docs(command, None, [], request_classified=True)
+                self.assertLess(sum(doc_size(ROOT, p) for p in route["required_docs"]), budget)
+                self.assertIn("workflows/skills/ambiguity-gate/SKILL.md", route["required_docs"])
+                for detail in (
+                    "common/skills/task-intake-effort-routing/references/current-guidance.md",
+                    "workflows/skills/ambiguity-gate/references/current-guidance.md",
+                ):
+                    self.assertNotIn(detail, route["required_docs"])
+                    reachable = resolve_guidance_docs(
+                        ROOT, [*route["reference_docs"], *route["required_docs"]]
+                    )
+                    self.assertIn(detail, reachable)
+
+    def test_focused_routes_still_require_explicit_risk_guidance(self) -> None:
+        from workflow_route import _named_concern_docs
+        expected = _named_concern_docs(None, ["security"])
+        self.assertTrue(expected)
+        for command in ("docs", "prd", "task"):
+            with self.subTest(command=command):
+                route = resolve_docs(command, None, ["security"], request_classified=True)
+                self.assertTrue(set(expected).issubset(route["required_docs"]))
+
+    def test_focused_route_preserves_a_directly_matched_detail(self) -> None:
+        detail = "workflows/skills/ambiguity-gate/references/current-guidance.md"
+        required = route_required_docs("prd", None, [], (), surface_docs=[detail])
+        self.assertIn(detail, required)
+
+    def test_every_route_delivers_the_shared_reading_contract_without_extra_reads(self) -> None:
+        for command in COMMANDS:
+            with self.subTest(command=command):
+                required = route_required_docs(command, None, [], ())
+                self.assertIn(OPERATING_SKILL, required)
+                self.assertEqual(1, required.count(OPERATING_SKILL))
+                self.assertNotIn(
+                    "common/skills/agent-operating-skill/references/current-guidance.md",
+                    required,
+                )
+
     def test_analysis_short_circuits_to_operating_entrypoint_only(self) -> None:
         """A bounded investigation must not pay the full document-read cost."""
         self.assertEqual(

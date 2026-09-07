@@ -48,6 +48,23 @@ def _surface_text(path: Path) -> str:
     )
 
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
+    def test_existing_runtime_bridge_gets_reading_rule_without_user_content_loss(self) -> None:
+        for runtime, filename in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"),
+                                  ("Antigravity", "AGENTS.md")):
+            with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / filename
+                current = runtime_bridge_block(ROOT, runtime, filename)
+                old = "\n".join(line for line in current.split("\n")
+                                if "Need-Driven Reading Contract" not in line)
+                target.write_text("User-owned rule\n" + old, encoding="utf-8")
+                kwargs = dict(block=current,
+                              required_phrases=runtime_bridge_required_phrases(runtime, filename))
+                self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+                self.assertEqual("User-owned rule\n" + old, target.read_text())
+                self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+                self.assertEqual("User-owned rule\n" + current, target.read_text())
+                self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
+
     def test_all_runtime_bridges_share_start_and_capsule_contract(self) -> None:
         for runtime_name, instruction_file in (
             ("Codex", "AGENTS.md"),

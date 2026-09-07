@@ -35,6 +35,24 @@ agent_hook = _load_agent_hook()
 
 
 class AgentHookSummaryTests(unittest.TestCase):
+    def test_start_shows_required_manifest_without_expanding_reference_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "preflight.json"
+            evidence.write_text(json.dumps({"route": {
+                "required_docs": ["required/one.md", "required/two.md"],
+                "reference_docs": ["unrelated/three.md"],
+                "hooks": [{"hook": "review", "required": True}],
+                "gates": ["handoff"],
+            }}), encoding="utf-8")
+            summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+        self.assertIn("Read first (2 required docs):", summary)
+        self.assertIn("required/one.md", summary)
+        self.assertIn("required/two.md", summary)
+        self.assertNotIn("unrelated/three.md", summary)
+        self.assertIn("not a recursive reading queue", summary)
+        self.assertIn("Required hooks:", summary)
+        self.assertIn("Closeout gate reminder:", summary)
+
     def test_review_rejects_an_unwritable_output_parent_before_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as project_directory:
             project = Path(project_directory)
