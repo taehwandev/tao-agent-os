@@ -35,6 +35,34 @@ agent_hook = _load_agent_hook()
 
 
 class AgentHookSummaryTests(unittest.TestCase):
+    def test_commit_reuse_is_scoped_and_never_reads_candidate_documents(self) -> None:
+        for command in ("commit", "git_commit", "feature"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                evidence = Path(directory) / "preflight.json"
+                evidence.write_text(json.dumps({"route": {
+                    "command": command,
+                    "required_docs": ["missing-required.md"],
+                    "reference_docs": ["unrelated-reference.md"],
+                }}), encoding="utf-8")
+                original = Path.read_text
+                reads = []
+
+                def read_only_manifest(path, *args, **kwargs):
+                    reads.append(path)
+                    return original(path, *args, **kwargs)
+
+                with patch.object(Path, "read_text", read_only_manifest):
+                    summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+                self.assertEqual([evidence], reads)
+                self.assertIn("missing-required.md", summary)
+                self.assertNotIn("unrelated-reference.md", summary)
+                self.assertIn("unchanged and available", summary)
+                self.assertIn("rg --files", summary)
+                self.assertEqual(command in {"commit", "git_commit"}, "Commit reuse:" in summary)
+                if command != "feature":
+                    self.assertIn("Changed bytes or missing context", summary)
+                    self.assertIn("prior approval does not authorize", summary)
+
     def test_start_shows_required_manifest_without_expanding_reference_reading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             evidence = Path(directory) / "preflight.json"
