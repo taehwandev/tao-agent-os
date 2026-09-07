@@ -116,10 +116,30 @@ required document. Graphify owns target-code architecture and relationship
 analysis. An empty search is a terminal no-match outcome; a missing required
 document is an invalid manifest and stops work.
 
+Apply the Need-Driven Reading Contract in
+`common/skills/agent-operating-skill/SKILL.md` before optional document discovery.
+It governs reference-link selection, reuse, stopping, and incidental scope;
+it does not waive applicable required instructions.
+
+Document retrieval is not read authorization. Once owner paths are verified,
+keyword-only surface matches remain reference candidates unless backed by an
+owner path or explicit `required_priority` rule. Before owner resolution,
+specific request-intent routing remains available for discovery. Route evidence records eligibility and
+the selection reason. A graph `requires` edge may promote a dependency only
+from an already selected source, never from an incidental search hit. Required
+dependencies are not dropped to satisfy the optional selection budget.
+
+For `docs`, `prd`, and `task`, mandatory selection keeps the command workflow,
+guaranteed gate contracts, explicit concerns, and matched surface/platform
+guidance. It does not fill spare slots with generic intake or discipline
+references after routing. Those references remain available for concrete
+unresolved questions; explicit risk guidance remains required.
+
 Generated pointer `SKILL.md` entrypoints normally resolve to
 `references/current-guidance.md`. An entrypoint with substantive rules stays
 alongside its reference. Read `reference_docs` on demand when the task touches
-them even if the required-doc budget did not promote them.
+them and an unresolved in-scope question requires them, even if the required-doc
+budget did not promote them.
 
 PRDs, specs, and ARDs follow
 `common/skills/doc-conventions/SKILL.md`; report their output path.

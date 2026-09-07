@@ -105,6 +105,28 @@ def _append_request_match(
     return docs
 
 
+def required_surface_docs(matches: list[dict[str, object]]) -> list[str]:
+    """Separate retrieval matches from evidence that permits required reading."""
+    selected: list[str] = []
+    has_owner = any(m.get("type") == "path_surface" and m.get("paths") for m in matches)
+    for match in matches:
+        owner = match.get("type") == "path_surface" and bool(match.get("paths"))
+        priority = match.get("required_priority", 0)
+        explicit = isinstance(priority, int) and not isinstance(priority, bool) and priority > 0
+        intent_fallback = not has_owner and match.get("type") == "request_intent"
+        eligible = owner or explicit or intent_fallback
+        match["required_eligible"] = eligible
+        match["selection_reason"] = (
+            "verified_owner_path" if owner else
+            "explicit_required_priority" if explicit else
+            "request_intent_without_resolved_owner" if intent_fallback else
+            "keyword_candidate_without_owner_evidence"
+        )
+        if eligible:
+            selected.extend(str(doc) for doc in match.get("docs", []))
+    return unique(selected)
+
+
 def _required_priority(rule: dict[str, Any]) -> int:
     value = rule.get("required_priority", 0)
     return value if isinstance(value, int) and not isinstance(value, bool) else 0

@@ -35,11 +35,18 @@ def add_checkpoint_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="print the work object's fields, limits and enums, and do nothing else",
     )
+    checkpoint.add_argument(
+        "--work-template", action="store_true",
+        help="print a minimal JSON work object without reading stdin or writing state",
+    )
 
 
 def checkpoint_hook(args: argparse.Namespace) -> int:
     """Write one strict checkpoint; failures never permit a mutation to start."""
 
+    if getattr(args, "work_template", False):
+        print(json.dumps({"objective": "Describe the bounded task outcome"}, indent=2))
+        return 0
     if getattr(args, "work_shape", False):
         # Asked for, rather than printed by every start in every session. The
         # schema is nine unchanging lines; a reader needs them once.
@@ -73,7 +80,15 @@ def checkpoint_hook(args: argparse.Namespace) -> int:
         rules = ", ".join(
             f"{item['rule']}@{item['pointer']}" for item in error.failures
         )
-        return _result(args, False, f"checkpoint refused: {rules}")
+        return _result(
+            args, False,
+            f"checkpoint refused: {rules}\n"
+            "Use checkpoint --work-template for minimal JSON, or --work-shape "
+            "for optional fields. Keep scope paths repository-relative; evidence "
+            "hashes must be real SHA-256 values, not result labels. A post_mutation "
+            "requires a recorded pre_mutation and must omit verification entirely. "
+            "Do not fabricate past mutation or verification evidence.",
+        )
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         return _result(args, False, f"checkpoint unavailable: {type(error).__name__}")
     return finish_with_result(

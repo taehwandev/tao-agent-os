@@ -8,15 +8,47 @@ type: ai-generated
 
 Use when routed to `common/skills/agent-operating-skill/SKILL.md` or when work needs this Tao Agent OS guidance area.
 
+## Need-Driven Reading Contract
+
+This is the shared reading rule for every Tao route and runtime. Apply it before
+following this or another Tao document's reference links.
+
+1. Read the target's applicable instructions and the route's `required_docs`.
+   Preserve explicit applicable safety, platform, and verification dependencies;
+   a reading budget never permits skipping a requirement.
+2. Treat `reference_docs`, related-skill lists, routing tables, graph neighbors,
+   and bare links as candidates, not a recursive reading queue. A topic appearing
+   in the task is not by itself a reason to read every document about that topic.
+   After successful routing, do not read `index.md` or another broad catalog to
+   repeat document selection. Use a narrow lookup only for a concrete unresolved
+   requirement; use the catalog fallback only when routing is unavailable.
+3. Before an optional read, identify the unresolved question, why this document
+   can answer it, and which in-scope decision or check depends on the answer.
+   If none exists, do not read it. Keep this rationale in the existing work
+   summary when useful; do not add a per-document hook, receipt, or gate.
+4. Select the smallest relevant document first. Read selected instruction files
+   completely, but do not automatically follow their optional links. Reuse a
+   complete reading still available in context when the document is unchanged;
+   re-read if its contents changed or the needed instructions are unavailable.
+5. Stop optional discovery when the requested outcome, change owner, applicable
+   constraints, and nearest verification are known. Reopen it only for a new
+   concrete blocker, failed check, or changed requirement. An empty search is not
+   permission to broaden the task or repeat equivalent searches.
+6. Do not turn incidental findings into implementation scope. Keep unrelated
+   cleanup, architecture changes, and environment tuning outside this task.
+   If required selection itself is excessive, report the specific selection
+   conflict and repair its owner only with task authority; do not silently omit
+   required guidance or start an unrequested library-wide cleanup.
+
 ## Read
 
-- `references/current-guidance.md` for the detailed guidance for this skill.
-- Related `SKILL.md` entrypoints named by the reference before loading their detailed references.
+- `references/current-guidance.md` when the active lifecycle has an unresolved
+  procedure or evidence requirement not answered by this entrypoint or route.
 
 ## Process
 
 1. Read this entrypoint first to confirm this guidance area applies.
-2. Open `references/current-guidance.md` only when the task actually touches this area.
+2. Apply the Need-Driven Reading Contract to additional context selection.
 3. Follow the reference's decision rules, stop conditions, and verification requirements before editing, reviewing, or reporting completion.
 
 ## Do Not

@@ -22,8 +22,9 @@ Use this before implementation, review, refactoring, debugging, documentation, o
    lower-level diagnostic or compatibility fallbacks only.
 6. After start, read the route's `required_docs` / `Read First` docs before editing,
    reviewing, coding, or running project-specific work. Treat `reference_docs`
-   as lazy context and open one only when the current task touches that concern,
-   platform, gate, or verification path. The router owns required-document
+   as lazy context under the Need-Driven Reading Contract in `../SKILL.md`:
+   open one to answer a concrete unresolved in-scope question, not merely because
+   its topic appears in the task. The router owns required-document
    selection; agents consume that manifest directly without a second
    confirmation hook, receipt, or finish gate.
    A required gate cannot pass by recording a skip, not-applicable,
@@ -75,7 +76,8 @@ Use this before implementation, review, refactoring, debugging, documentation, o
 12. For work-producing routes, record a cycle contract before editing: cycle
     type, input/source scope, allowed and forbidden changes, acceptance or
     verification method, stop condition, and checkpoint or next cycle.
-13. Use `index.md` to load only relevant Tao Agent OS cards.
+13. Consume the selected route rather than reading `index.md` again. Use that
+    catalog only as the documented fallback when routing is unavailable.
 14. Use the route manifest's `parallel_execution.phases` before treating gates
     as a serial checklist. Parallelize independent read-only orientation when
     the runtime supports it: selected document reads, file searches, stack
@@ -127,8 +129,8 @@ Before editing:
 - Check stack manifests, lockfiles, and config before running commands, adding dependencies, or using framework-specific APIs.
 - Read the route's `Read First` / `required_docs` docs before code,
   implementation, review, or edit work. Do not load `Reference On Demand` docs
-  unless the current task touches that concern, platform, gate, or verification
-  path. Do not add a duplicate document-confirmation command after routing.
+  without a concrete unresolved question under the entrypoint's Need-Driven
+  Reading Contract. Do not add a duplicate document-confirmation command after routing.
 - For feature, product, build, release, or other behavior-changing work, search
   and open repo-local PRD/spec/ARD/source-of-truth docs before implementation.
   Finish evidence must say whether those docs were found and read, or whether

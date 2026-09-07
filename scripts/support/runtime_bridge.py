@@ -188,6 +188,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         "- Before project work, open the project-root instruction file for the active runtime.",
         f"- {runtime_name} reads {instruction_file}.",
         "- Read project-root instructions before Tao Agent OS shared guidance.",
+        "- Apply the Need-Driven Reading Contract in common/skills/agent-operating-skill/SKILL.md: optional documents require an unresolved in-scope question; stop discovery when the owner, constraints, and nearest verification are known. Preserve applicable required instructions.",
         f"- {RUNTIME_START_BRIDGE_PHRASE}",
         "- Use the route/search output from that start hook for the user's current request; route/search owns natural-language document discovery.",
         "- Do not wait for the user to name document keywords; use request artifacts and paths as candidates, then verify the change-owning work surface with bounded read-only repository evidence before task-specific reading or edits.",

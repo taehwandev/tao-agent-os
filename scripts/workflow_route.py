@@ -40,7 +40,7 @@ from workflow_gate_policy import (
 )
 from workflow_graphify_route import graphify_route_context
 from workflow_doc_resolution import doc_size, resolve_guidance_docs
-from workflow_doc_surfaces import infer_surface_docs
+from workflow_doc_surfaces import infer_surface_docs, required_surface_docs
 from workflow_parallel import parallel_execution_plan
 from workflow_search import SearchOutcome, search_docs_outcome
 from workflow_skill_paths import canonical_doc_path
@@ -201,6 +201,7 @@ def _resolve_documents(
         search_seed_docs: list[str] = []
         doc_graph_matches: list[dict[str, object]] = []
         graph_required: list[str] = []
+        selected_sources = route_required_docs(command, platform, concerns, profile.docs, [])
     else:
         surface_docs, surface_matches = infer_surface_docs(
             command=command,
@@ -216,14 +217,25 @@ def _resolve_documents(
             )
         )
         search_seed_docs = [str(item["path"]) for item in search_outcome.results]
+        eligible_surface_docs = required_surface_docs(surface_matches)
+        selected_sources = route_required_docs(
+            command, platform, concerns, profile.docs, eligible_surface_docs
+        )
         doc_graph_matches = expand_doc_matches(
             ROOT,
-            unique([*surface_docs, *search_seed_docs]),
+            unique([*selected_sources, *surface_docs, *search_seed_docs]),
             max_depth=1,
             max_docs=24,
             relation_prefixes=("frontmatter:", "markdown:", "compat:"),
         )
-        graph_required = graph_required_docs(doc_graph_matches)
+        # A requires edge is authoritative only when its source was selected.
+        # Search hits do not get to make their own dependencies mandatory.
+        graph_required = graph_required_docs(
+            match for match in doc_graph_matches
+            if str(match.get("relation", "")).startswith("frontmatter:requires")
+            and set(resolve_guidance_docs(ROOT, [str(match["source"])]))
+            & set(selected_sources)
+        )
     graph_docs = [str(match["path"]) for match in doc_graph_matches]
     docs.extend(surface_docs)
     docs.extend(search_seed_docs)
@@ -238,9 +250,7 @@ def _resolve_documents(
             docs.extend(PLATFORM_CONCERNS.get((platform, concern), ()))
 
     routed_docs = unique(canonical_doc_path(doc) for doc in docs)
-    required_docs = route_required_docs(
-        command, platform, concerns, profile.docs, [*surface_docs, *graph_required]
-    )
+    required_docs = unique([*selected_sources, *graph_required])
     # Every routed document stays reachable in exactly one of the two lists.
     # Filtering out entrypoints whose reference was promoted would read better,
     # but it breaks the invariant that `required_docs | reference_docs` covers
@@ -303,7 +313,10 @@ def _route_notes(
             notes.append("Request classification evidence was provided to the route command.")
     if documents.reference:
         notes.append(
-            "Read `required_docs` before work; treat `reference_docs` as on-demand context only when the current task touches that concern."
+            "Read `required_docs` before work. Apply the Need-Driven Reading Contract "
+            "in common/skills/agent-operating-skill/SKILL.md to optional reference "
+            "reads: name an unresolved in-scope question and stop when the owner, "
+            "constraints, and nearest verification are known."
         )
     notes.extend(_surface_notes(command, documents.surface_matches))
     notes.extend(
@@ -550,6 +563,10 @@ DETAIL_REQUIRED_COMMANDS = {
     MULTI_AGENT_REFERENCE: {"multi-agent"},
 }
 
+# These routes already completed intake at start. Keep their own workflow and
+# request-specific guidance, not the generic gate/disciplines tier walk.
+FOCUSED_READING_COMMANDS = {"docs", "prd", "task"}
+
 REVIEW_HOOK_GATE_DOCS = (
     GUARANTEED_GATE_DOCS["review hook"],
     "common/skills/code-review/SKILL.md",
@@ -617,7 +634,12 @@ def _route_required_docs(
     gates = set(route_gates(command))
     selected = _unbudgeted_required_docs(platform, concerns, gates)
     tiers = _required_doc_tiers(command, platform, profile_docs, surface_docs, gates)
-    return _select_within_budget(command, tiers, selected)
+    selected = _select_within_budget(command, tiers, selected)
+    if command in FOCUSED_READING_COMMANDS:
+        # This compact gate contract must not crowd out an owner-specific
+        # entrypoint's actual reference at the selection boundary.
+        selected = unique([*selected, "workflows/skills/ambiguity-gate/SKILL.md"])
+    return selected
 
 
 def _compact_required_docs(
@@ -716,6 +738,12 @@ def _required_doc_tiers(
 
     # 4. The platform card set the route selected.
     tiers.append(list(PLATFORMS[platform]) if platform else [])
+
+    if command in FOCUSED_READING_COMMANDS:
+        # Keep the concise ambiguity evidence contract. Full question-drill
+        # guidance remains available on demand; explicit concerns are selected
+        # separately, before this budget, and cannot be demoted here.
+        return tiers
 
     # 5. What the route will enforce: the gates it runs, mapped to the documents
     #    that define their evidence contracts.

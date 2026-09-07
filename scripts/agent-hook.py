@@ -277,6 +277,17 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     required = [hook.get("hook") for hook in hooks if hook.get("required")]
     conditional = [hook.get("hook") for hook in hooks if not hook.get("required")]
     lines: list[str] = []
+    docs = route.get("required_docs") or []
+    if docs:
+        lines.append(f"Read first ({len(docs)} required docs):")
+        lines.extend(f"  {doc}" for doc in docs)
+        lines.append(
+            "Reading boundary: reference docs are on demand, not a recursive reading "
+            "queue. Expand only for an observed owner, failed check, or explicit "
+            "required dependency relevant to the requested change."
+        )
+        lines.append("Checkpoint input: checkpoint --work-template prints minimal JSON; "
+                     "--work-shape describes optional fields.")
     if required:
         lines.append(f"Required hooks: {required}")
     if conditional:
@@ -1322,7 +1333,14 @@ def _run_checkpoint_hook(
 ) -> int:
     # `--work-shape` writes no checkpoint; it answers what one must contain, so
     # the start hook can name it instead of reprinting it every session.
-    if not args.checkpoint_kind and not getattr(args, "work_shape", False):
+    if getattr(args, "work_template", False) and any((
+        args.checkpoint_kind, args.work_stdin, args.work_shape, args.mutation_kind,
+        args.mutation_path, args.phase, args.last_completed,
+    )):
+        parser.error("--work-template cannot be combined with checkpoint inputs")
+    if not args.checkpoint_kind and not (
+        getattr(args, "work_shape", False) or getattr(args, "work_template", False)
+    ):
         parser.error("checkpoint requires --checkpoint-kind")
     if args.mutation_kind and args.checkpoint_kind != "pre_mutation":
         parser.error("--mutation-kind is only valid for pre_mutation")
