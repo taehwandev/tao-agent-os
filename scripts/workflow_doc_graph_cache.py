@@ -1,8 +1,8 @@
 """Reusing a built document graph, and knowing when it may not be reused.
 
 Owner: the document graph's persistence boundary.
-Allowed imports: the standard library, and the surface-rules constant that
-names the second input. This module must not import the builder it caches, or
+Allowed imports: the standard library, the read-only lookup policy, and the
+surface-rules constant that names the second input. This module must not import the builder it caches, or
 the two would be a cycle; it reads the builder's source as bytes instead.
 Callers/tests: ``workflow_doc_graph_build``; coverage lives in
 ``tests/test_workflow_doc_graph_cache.py``.
@@ -35,6 +35,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from workflow_doc_surfaces import RULES_FILE
+from workflow_gate_policy import READ_ONLY_LOOKUP
 
 CACHE_GENERATIONS = 3
 BUILDER_ENTRY_POINT = "workflow_doc_graph_build"
@@ -170,6 +171,8 @@ def read_cached_graph(root: Path, key: str) -> dict[str, list[dict[str, object]]
 def write_cached_graph(root: Path, key: str, graph: dict[str, list[dict[str, object]]]) -> None:
     """Store this generation, and keep the cache from growing without bound."""
 
+    if READ_ONLY_LOOKUP.get():
+        return
     directory = _cache_directory(root)
     if not key or directory is None:
         return

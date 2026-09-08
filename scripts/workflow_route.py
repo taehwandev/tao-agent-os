@@ -64,6 +64,15 @@ SOURCE_DRIVEN_REFERENCE = (
 
 CORE_REQUIRED_DOCS = (OPERATING_SKILL,)
 
+LOOKUP_READING_GUIDANCE = (
+    "Lookup reading: keep downstream document recommendations in lookup mode. "
+    "Read the directly answering definition or contract and only callers/mappers needed "
+    "to resolve that question. Inspecting UI or a module does not authorize implementation "
+    "guidance or an additional UI investigation. Module, technology and keyword matches "
+    "remain reference candidates; preserve explicit required instructions and dependencies. "
+    "Stop discovery when the answer is supported; do not repeat unchanged recommendations."
+)
+
 CODE_WORK_REQUIRED_DOCS = (
     "common/skills/llm-coding-discipline/SKILL.md",
     "common/skills/code-conventions/SKILL.md",
@@ -221,9 +230,26 @@ def _resolve_documents(
         selected_sources = route_required_docs(
             command, platform, concerns, profile.docs, eligible_surface_docs
         )
+        if command == "analysis":
+            # Owner discovery is not implementation intent. Explicit required
+            # rules still augment the compact lookup reading contract.
+            for match in surface_matches:
+                priority = match.get("required_priority", 0)
+                explicit = type(priority) is int and priority > 0
+                match["required_eligible"] = explicit
+                match["selection_reason"] = (
+                    "explicit_required_priority" if explicit else "lookup_reference_candidate"
+                )
+                if explicit:
+                    selected_sources = unique([
+                        *selected_sources,
+                        *resolve_guidance_docs(ROOT, match.get("docs", [])),
+                    ])
+        graph_seeds = (selected_sources if command == "analysis" else
+                       unique([*selected_sources, *surface_docs, *search_seed_docs]))
         doc_graph_matches = expand_doc_matches(
             ROOT,
-            unique([*selected_sources, *surface_docs, *search_seed_docs]),
+            graph_seeds,
             max_depth=1,
             max_docs=24,
             relation_prefixes=("frontmatter:", "markdown:", "compat:"),
@@ -437,6 +463,7 @@ def resolve_docs(
     notes.extend(graphify_context["notes"])
 
     route = {
+        "lifecycle_version": 2,
         "root": str(ROOT),
         "command": command,
         "platform": platform,
@@ -468,6 +495,8 @@ def resolve_docs(
         "missing": missing,
         "blocking": blocking,
     }
+    if command == "analysis":
+        route["reading_scope"] = {"mode": "lookup", "guidance": LOOKUP_READING_GUIDANCE}
     if surface_paths:
         route["surface_paths"] = surface_paths
     if surface_matches:

@@ -10,17 +10,25 @@ Use after implementation, before handing off or committing.
 
 ## Read
 
-- `common/skills/code-review/SKILL.md`
-- `common/skills/change-size-policy/SKILL.md`
-- `common/skills/worktree-hygiene/SKILL.md`
-- `workflows/skills/development-cycle/SKILL.md` for side-effect audit questions
-- matching platform review card
-- `common/skills/commit-workflow/SKILL.md`
-- `common/skills/branch-strategy/SKILL.md` when branch creation, branch naming, PR source
-  branch, or push target is in scope
+These are conditional references, not a mandatory reading queue. Keep the
+route's required manifest and applicable project requirements. For commit/push/PR
+follow-ups, the routed commit card already owns ordinary staged-diff, branch,
+remote, authority, and publication checks. Reuse complete unchanged readings in
+context; do not rediscover development guidance just because a diff exists.
+
+- `common/skills/code-review/SKILL.md` for an unresolved review method or finding
+- `common/skills/change-size-policy/SKILL.md` when observed diff size or coupling
+  leaves a commit-split decision unresolved
+- `common/skills/worktree-hygiene/SKILL.md` for an ownership or worktree conflict
+- `workflows/skills/development-cycle/SKILL.md` for an unresolved side-effect question
+- matching platform review card for a concrete platform concern not already covered
+- `common/skills/commit-workflow/SKILL.md` when its routed guidance is not already loaded
+- `common/skills/branch-strategy/SKILL.md` for a new branch decision or an unresolved
+  source/target ambiguity; an existing verified PR source alone does not require it
 - `common/skills/commit-review/SKILL.md` when reviewing existing commits
 - `common/skills/generated-files-policy/SKILL.md` when generated files, lockfiles, or snapshots changed
-- `common/skills/api-contract-compatibility/SKILL.md` when API, route, DTO, event, webhook, or fixture contracts changed
+- `common/skills/api-contract-compatibility/SKILL.md` when a changed contract has an
+  unresolved compatibility question, not merely because a DTO occurs in the diff
 - `common/skills/release-deployment/SKILL.md` when packaging, deployment, signing, migration rollout, or release config changed
 
 ## Steps

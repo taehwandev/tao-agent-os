@@ -44,9 +44,21 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   state, complete the staged-diff/readiness checks, and run one read-only
   finish; do not rerun the full implementation route or full test suite solely
   because the user asked to commit; and
-- if the diff needs a fix, its verification is stale, or a high-risk surface is
-  unresolved, stop the commit route and open the matching work route. Do not
-  hide implementation inside commit preparation.
+- if a check blocks publication, distinguish a task-caused defect from
+  pre-existing debt or an execution/access failure before choosing recovery.
+  A failed check and a work route are not source-change authority. Do not
+  switch to implementation, migrate unrelated code, change a baseline, or
+  waive a guard merely to complete a commit/push/PR request. Open a work route
+  only when the current user scope authorizes that fix; otherwise report the
+  blocker and request only the missing authority. Do not hide implementation
+  inside commit preparation.
+
+Carry an explicit approval forward for the identical pending action, target
+and effect; do not ask the same question again because the user says to
+continue. Reconfirm only when scope, target, risk, or an applicable fresh-approval
+requirement changes. Record a bounded exception as that exception, not as
+permission for other fixes or future bypasses. Do not retry an unchanged known
+failure until the relevant condition or approved execution path changes.
 
 This is a scope reduction, not a safety exemption. The final diff, evidence
 freshness, secrets boundary, repo-local rules, and commit readiness still apply.
@@ -54,8 +66,9 @@ freshness, secrets boundary, repo-local rules, and commit readiness still apply.
 ## Read
 
 - Repo-local commit, branch, signing, and generated-file rules.
-- `common/skills/branch-strategy/SKILL.md` when creating, checking, naming, pushing, or
-  opening PRs from work branches.
+- `common/skills/branch-strategy/SKILL.md` only for a new branch decision or an
+  unresolved source/target ambiguity. Checking an existing branch or publishing
+  it does not itself require another branch-strategy reading.
 - Current `git status --short --untracked-files=all`.
 - Final diff for every file to be committed.
 - Verification output for the changed boundary.

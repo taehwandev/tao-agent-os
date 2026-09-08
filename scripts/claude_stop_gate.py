@@ -283,9 +283,6 @@ def gate_enabled() -> bool:
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
-    # Already blocked once for this stop; blocking again would loop forever.
-    if payload.get("stop_hook_active"):
-        return allow()
     try:
         cwd = Path(payload.get("cwd") or os.getcwd()).resolve()
     except OSError:
@@ -294,6 +291,12 @@ def decide(payload: dict) -> int:
     if not session_id:
         return allow()
     for root in session_projects(session_id, find_project_root(cwd)):
+        from agent_run_interruption import record_turn_boundary
+        if record_turn_boundary(root, "claude", session_id):
+            continue
+        # Preserve the legacy once-per-stop guard after versioned handling.
+        if payload.get("stop_hook_active"):
+            continue
         if session_finished(root, session_id):
             continue
         if not has_unreported_edits(root, session_id):

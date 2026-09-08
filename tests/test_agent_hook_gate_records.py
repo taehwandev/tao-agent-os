@@ -57,6 +57,48 @@ class GateRecordInvocationTests(unittest.TestCase):
             path.write_text("broken JSON", encoding="utf-8")
             self.assertEqual({"remaining_gates": None, "ledger_complete": False}, _gate_progress(args))
 
+    def test_missing_evidence_is_an_invocation_error_for_each_gate_hook(self) -> None:
+        """A nonexistent explicit path is a caller mistake, not a repair checkpoint."""
+
+        hooks = (("gate", gate_hook), ("gate-batch", gate_batch_hook))
+        for hook_name, hook in hooks:
+            with self.subTest(hook=hook_name), tempfile.TemporaryDirectory() as temp_dir:
+                project = Path(temp_dir)
+                evidence_path = project / "missing" / "preflight.json"
+                output_path = project / f"{hook_name}-result.json"
+                record = {
+                    "gate": "risk review",
+                    "evidence": "missing evidence path",
+                    "source": "manual",
+                    "status": "SUCCESS",
+                }
+                args = SimpleNamespace(
+                    evidence=evidence_path,
+                    project=project,
+                    rules=ROOT,
+                    hook=hook_name,
+                    field=[],
+                    gate_name="risk review",
+                    gate_evidence="missing evidence path",
+                    source="manual",
+                    status="SUCCESS",
+                    gate_record=[json.dumps(record)],
+                    gate_json=None,
+                    output=output_path,
+                    repair_cycle=0,
+                )
+                stdout = io.StringIO()
+
+                with redirect_stdout(stdout):
+                    result = hook(args)
+
+                payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(1, result)
+            self.assertIn("invocation request:", stdout.getvalue())
+            self.assertNotIn("recovery request:", stdout.getvalue())
+            self.assertEqual("fix_invocation_and_rerun", payload["policy"]["next_action"])
+
     def test_invocation_error_releases_repair_attempt_for_each_gate_hook(self) -> None:
         """Pre-write rejection must leave the single repair retry available."""
 

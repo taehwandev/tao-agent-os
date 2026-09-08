@@ -48,7 +48,15 @@ source-of-truth repo, selected mode, write scope, and cross-repo verification.
 
 For implementation, review, refactoring, debugging, documentation, and planning,
 read `common/skills/agent-operating-skill/SKILL.md` first. For multi-step
-work, use the installed absolute Tao launcher and:
+work requiring a tracked lifecycle, use the installed absolute Tao launcher.
+Read-only lookup, explanation, and status instead inspect bounded direct evidence
+and answer without start, fingerprint, mailbox, checkpoint, gate, review, or
+finish calls. Applicable project instructions and source contracts still apply;
+this exception does not waive a target project's explicit workflow. Do not create
+task state or refresh indexes merely to answer. A lookup that expands into an
+edit must enter the writable lifecycle before that edit.
+
+For tracked work:
 
 ```text
 <TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <route> --request "<CURRENT_REQUEST>" --intent-envelope <JSON_OR_PATH> --runtime-session-id <OPAQUE_ID>
@@ -112,6 +120,15 @@ Read-only `analysis` is intrinsically non-mutating. `start --read-only` on
 another route makes the same whole-run claim; finish rejects any worktree
 movement. Do not use it to bypass VibeGuard.
 
+Compatibility `start --command analysis` without existing evidence validates its
+read-only intake and returns stateless guidance. Explicit legacy evidence retains
+its original lifecycle. Newly routed work carries lifecycle version 2: the Stop
+boundary retains unfinished work as `blocked` or `interrupted` without demanding
+another model turn. These outcomes are resumable, never completion, verification,
+or commit readiness. Preserve partial changes and unresolved effects; revalidate
+ownership, scope, and authority before resuming. Never reinterpret an unknown
+lifecycle version as a legacy run.
+
 ## Documents And Search
 
 The route owns natural-language guidance discovery. Wikimap results are
@@ -124,6 +141,14 @@ Apply the Need-Driven Reading Contract in
 `common/skills/agent-operating-skill/SKILL.md` before optional document discovery.
 It governs reference-link selection, reuse, stopping, and incidental scope;
 it does not waive applicable required instructions.
+
+For `analysis`, carry the route's `reading_scope` into any downstream document
+recommendation. A field lookup, configuration check, or function explanation
+needs its answering definition/contract and only the callers needed to resolve
+the question. Module or UI ownership does not turn that lookup into implementation
+or authorize a separate UI investigation. Preserve explicit required instructions
+and dependencies; stop once the answer is supported instead of repeating unchanged
+recommendations. Implementation routes retain their own required guidance.
 
 Document retrieval is not read authorization. Once owner paths are verified,
 keyword-only surface matches remain reference candidates unless backed by an

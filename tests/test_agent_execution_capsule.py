@@ -1636,6 +1636,21 @@ class ExecutionCapsuleTests(unittest.TestCase):
         self.assertTrue(json.loads(checked.stdout)["reusable"])
         self.assertFalse(list(self.evidence_path.parent.glob("*.tmp")))
 
+    def test_atomic_json_write_does_not_require_hidden_temporary_files(self) -> None:
+        destination = self.root / "state" / "record.json"
+        original_write_bytes = Path.write_bytes
+
+        def reject_hidden_entry(path: Path, data: bytes) -> int:
+            if path.name.startswith("."):
+                raise PermissionError(1, "Operation not permitted")
+            return original_write_bytes(path, data)
+
+        with patch.object(Path, "write_bytes", new=reject_hidden_entry):
+            capsule_state.atomic_write_json(destination, {"status": "ready"})
+
+        self.assertEqual({"status": "ready"}, json.loads(destination.read_text(encoding="utf-8")))
+        self.assertEqual([], list(destination.parent.glob("*.tmp")))
+
     def _write_ledger(self) -> Path:
         ledger_path = gate_evidence_path_for_preflight(self.evidence_path)
         ledger_path.write_text(json.dumps(self._ledger_payload()), encoding="utf-8")

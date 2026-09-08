@@ -86,6 +86,8 @@ def gate_hook(args: argparse.Namespace) -> int:
         return _gate_failure(args, "gate", error, invocation_error=True)
     except GateEvidenceAccessError as error:
         return _gate_failure(args, "gate", error, invocation_error=True)
+    except FileNotFoundError as error:
+        return _gate_failure(args, "gate", error, invocation_error=True)
     except PermissionError as error:
         return _gate_failure(args, "gate", error, invocation_error=True)
     except OSError as error:
@@ -112,6 +114,8 @@ def gate_batch_hook(args: argparse.Namespace) -> int:
     except ValueError as error:
         return _gate_failure(args, "gate-batch", error, invocation_error=True)
     except GateEvidenceAccessError as error:
+        return _gate_failure(args, "gate-batch", error, invocation_error=True)
+    except FileNotFoundError as error:
         return _gate_failure(args, "gate-batch", error, invocation_error=True)
     except PermissionError as error:
         return _gate_failure(args, "gate-batch", error, invocation_error=True)

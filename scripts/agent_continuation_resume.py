@@ -22,6 +22,7 @@ from agent_continuation_claim import (
     FREE_HOLDER_STATES,
     TERMINAL_RUN_STATES,
     claim_resume,
+    stopped_session_matches,
 )
 from agent_continuation_drift import verify_drift
 from agent_continuation_store import (
@@ -407,6 +408,9 @@ def _packet_entry(
 ) -> dict[str, Any]:
     binding_path = continuation_path(project, entry["run_id"]).parent / packet["binding"]["filename"]
     binding = read_json_object(binding_path)
+    if stopped_session_matches({"state": entry["run_state"]}, binding):
+        entry["holder_state"] = "same_session_stopped"
+        entry["holder"] = "free"
     rules_root = _rules_root(binding, rules, project)
     drift = verify_drift(
         project,

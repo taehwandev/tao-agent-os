@@ -35,6 +35,65 @@ agent_hook = _load_agent_hook()
 
 
 class AgentHookSummaryTests(unittest.TestCase):
+    def test_lookup_scope_is_delivered_without_runtime_or_extra_reads(self) -> None:
+        from workflow_route import LOOKUP_READING_GUIDANCE
+        payload = {"route": {"command": "analysis", "reading_scope": {
+            "mode": "lookup", "guidance": LOOKUP_READING_GUIDANCE}}}
+        with patch.object(Path, "read_text", return_value=json.dumps(payload)) as read:
+            summary = "\n".join(agent_hook._hook_summary_from_preflight(Path("manifest.json")))
+        read.assert_called_once()
+        self.assertIn(LOOKUP_READING_GUIDANCE, summary)
+        self.assertIn("downstream document recommendations in lookup mode", summary)
+        self.assertIn("preserve explicit required instructions", summary)
+
+    def test_permission_evidence_reaches_codex_on_every_route(self) -> None:
+        for runtime in ("codex", "claude", None):
+            for command in ("task", "commit", "analysis"):
+                with self.subTest(runtime=runtime, command=command):
+                    payload = {"route": {"command": command},
+                               "runtime_session": {"runtime": runtime}}
+                    with patch.object(Path, "read_text", return_value=json.dumps(payload)) as read:
+                        summary = "\n".join(agent_hook._hook_summary_from_preflight(Path("manifest.json")))
+                    read.assert_called_once()
+                    self.assertEqual(runtime == "codex", "Permission evidence:" in summary)
+                    if runtime == "codex":
+                        self.assertIn("DNS/name-resolution errors alone do not prove sandbox denial", summary)
+                        self.assertIn("never instruct the user to approve an unconfirmed dialog", summary)
+
+    def test_analysis_transition_and_checkpoint_limit_need_only_the_manifest(self) -> None:
+        for command in ("analysis", "workflow-setup"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                evidence = Path(directory) / "preflight.json"
+                evidence.write_text(json.dumps({"route": {
+                    "command": command,
+                    "required_docs": ["already-read.md"],
+                    "reference_docs": ["not-needed.md"],
+                }}), encoding="utf-8")
+                original = Path.read_text
+                reads = []
+
+                def read_manifest(path, *args, **kwargs):
+                    reads.append(path)
+                    return original(path, *args, **kwargs)
+
+                with patch.object(Path, "read_text", read_manifest):
+                    summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+                self.assertEqual([evidence], reads)
+                self.assertIn(f"{agent_hook.MAX_TEXT} Unicode characters", summary)
+                self.assertEqual(command == "analysis", "Analysis transition:" in summary)
+                if command == "analysis":
+                    self.assertIn("finish this read-only run before starting a writing route", summary)
+                    self.assertIn("bound failure-repair lifecycle", summary)
+
+    def test_structured_hints_explain_rejected_shapes_without_document_reads(self) -> None:
+        with patch.object(Path, "read_text", side_effect=AssertionError("unexpected document read")):
+            summary = "\n".join(agent_hook._structured_gate_field_lines(
+                ["retrospective check", "work surface resolution"]
+            ))
+        self.assertIn("canonical skill slugs such as agent_operating_skill, not file paths", summary)
+        self.assertIn("include a skill actually loaded by this run", summary)
+        self.assertIn("literal -> separator from anchor to verified owner", summary)
+
     def test_commit_reuse_is_scoped_and_never_reads_candidate_documents(self) -> None:
         for command in ("commit", "git_commit", "feature"):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
@@ -59,9 +118,14 @@ class AgentHookSummaryTests(unittest.TestCase):
                 self.assertIn("unchanged and available", summary)
                 self.assertIn("rg --files", summary)
                 self.assertEqual(command in {"commit", "git_commit"}, "Commit reuse:" in summary)
+                self.assertEqual(command in {"commit", "git_commit"}, "Publication scope:" in summary)
                 if command != "feature":
                     self.assertIn("Changed bytes or missing context", summary)
                     self.assertIn("prior approval does not authorize", summary)
+                    self.assertIn("a failed check is not source-change authority", summary)
+                    self.assertIn("do not switch to implementation", summary)
+                    self.assertIn("approved identical pending action without reconfirming", summary)
+                    self.assertIn("unless scope, target, risk or required approval freshness changed", summary)
 
     def test_start_shows_required_manifest_without_expanding_reference_reading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

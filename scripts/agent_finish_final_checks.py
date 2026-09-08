@@ -174,20 +174,27 @@ def record_successful_review_workflow_validation(
         }
     except (OSError, RuntimeError, ValueError):
         return
-    atomic_write_json(
-        review_validation_path(project),
-        {
-            "schema_version": REVIEW_VALIDATION_SCHEMA_VERSION,
-            "preflight_evidence": evidence,
-            "project_git": project_git,
-            "rules_git": rules_git,
-            "workflow_validate": {"returncode": 0},
-            "diff_check": {
-                "returncode": 0,
-                "review_scope": review_scope.strip(),
+    try:
+        atomic_write_json(
+            review_validation_path(project),
+            {
+                "schema_version": REVIEW_VALIDATION_SCHEMA_VERSION,
+                "preflight_evidence": evidence,
+                "project_git": project_git,
+                "rules_git": rules_git,
+                "workflow_validate": {"returncode": 0},
+                "diff_check": {
+                    "returncode": 0,
+                    "review_scope": review_scope.strip(),
+                },
             },
-        },
-    )
+        )
+    except OSError:
+        # This project-level record only caches workflow validation for finish.
+        # The run-bound review attestation remains the authoritative evidence,
+        # so a sandbox that permits the run directory but not the shared .tao
+        # root must not turn a successful review into a structural failure.
+        return
 
 
 def reusable_review_workflow_validation(project: Path, rules: Path) -> dict[str, Any] | None:

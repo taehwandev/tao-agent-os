@@ -22,6 +22,8 @@ from agent_gate_evidence import (
     resync_gate_evidence_ledger,
 )
 from agent_execution_capsule_state import git_states_for_paths
+from agent_continuation_fields import MAX_TEXT
+from support.runtime_bridge import CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE
 from agent_finish_gate_validators import gate_wording_hints
 from agent_handoff_hook import handoff_hook
 from agent_hook_continuation import (
@@ -136,6 +138,8 @@ def _preflight_arguments(args: argparse.Namespace) -> list[str]:
         command.extend(["--platform", platform])
     for concern in args.concern:
         command.extend(["--concern", concern])
+    for path in getattr(args, "surface_path", []):
+        command.extend(["--surface-path", path])
     if args.read_only:
         command.append("--read-only")
     if args.evidence:
@@ -277,6 +281,11 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     required = [hook.get("hook") for hook in hooks if hook.get("required")]
     conditional = [hook.get("hook") for hook in hooks if not hook.get("required")]
     lines: list[str] = []
+    reading_scope = route.get("reading_scope") or {}
+    if reading_scope.get("mode") == "lookup" and reading_scope.get("guidance"):
+        lines.append(str(reading_scope["guidance"]))
+    if (payload.get("runtime_session") or {}).get("runtime") == "codex":
+        lines.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
     docs = route.get("required_docs") or []
     if docs:
         lines.append(f"Read first ({len(docs)} required docs):")
@@ -288,8 +297,14 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "in-scope question. Discover uncertain paths with rg --files or quoted "
             "rg -g filters, not speculative shell globs; no-match is not a retry cue."
         )
-        lines.append("Checkpoint input: checkpoint --work-template prints minimal JSON; "
-                     "--work-shape describes optional fields.")
+        lines.append(f"Checkpoint input: objective is limited to {MAX_TEXT} Unicode characters; "
+                     "checkpoint --work-template prints minimal JSON; --work-shape describes optional fields.")
+    if route.get("command") == "analysis":
+        lines.append(
+            "Analysis transition: finish this read-only run before starting a writing route "
+            "when the user expands the task. A later finish does not close this run. "
+            "A failed gate still requires the bound failure-repair lifecycle; do not silently cancel it."
+        )
     if route.get("command") in {"commit", "git_commit"}:
         lines.append(
             "Commit reuse: distinguish already-known context from fresh checks in "
@@ -298,6 +313,13 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "scope, review binding, branch/remote and PR state. Changed bytes or "
             "missing context require the relevant read/check; prior approval does "
             "not authorize new external writes."
+        )
+        lines.append(
+            "Publication scope: a failed check is not source-change authority; "
+            "do not switch to implementation or waive a guard without matching scope. "
+            "Continue an approved identical pending action without reconfirming "
+            "unless scope, target, risk or required approval freshness changed. "
+            "Do not retry an unchanged known failure."
         )
     if required:
         lines.append(f"Required hooks: {required}")
@@ -371,7 +393,13 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
         # phrases are the contract; stating them here costs one line each and
         # saves the refusal that teaches them.
         lines.extend(f"    wording -- {hint}" for hint in gate_wording_hints(gate))
+        if gate == "work surface resolution":
+            lines.append("    evidence chain: include the literal -> separator from anchor to verified owner.")
         if gate == "retrospective check":
+            lines.append(
+                "    skills_checked: use canonical skill slugs such as agent_operating_skill, "
+                "not file paths; include a skill actually loaded by this run."
+            )
             lines.append(
                 "    efficiency: no_waste|unmeasured|improvement_needed; include efficiency_evidence. "
                 "For improvement_needed include efficiency_cause, efficiency_reduction, "
@@ -1045,6 +1073,8 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="declare a non-mutating analysis run and skip VibeGuard audits",
     )
+    start.add_argument("--surface-path", action="append", default=[],
+                       help="repository-verified owner path for guidance routing")
     start.add_argument("--platform", action="append", default=[])
     start.add_argument(
         "--concern",
@@ -1573,6 +1603,11 @@ def _name_timing_sink(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
+    from agent_lookup_start import lookup_start
+
+    lookup_result = lookup_start(args)
+    if lookup_result is not None:
+        return lookup_result
     if args.hook == "fingerprint":
         # Answered entirely from the arguments: no evidence path, no worker
         # boundary, and no heartbeat -- a registry write here would turn the
