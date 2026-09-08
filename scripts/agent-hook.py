@@ -22,6 +22,7 @@ from agent_gate_evidence import (
     resync_gate_evidence_ledger,
 )
 from agent_execution_capsule_state import git_states_for_paths
+from agent_continuation_fields import MAX_TEXT
 from agent_finish_gate_validators import gate_wording_hints
 from agent_handoff_hook import handoff_hook
 from agent_hook_continuation import (
@@ -288,8 +289,14 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "in-scope question. Discover uncertain paths with rg --files or quoted "
             "rg -g filters, not speculative shell globs; no-match is not a retry cue."
         )
-        lines.append("Checkpoint input: checkpoint --work-template prints minimal JSON; "
-                     "--work-shape describes optional fields.")
+        lines.append(f"Checkpoint input: objective is limited to {MAX_TEXT} Unicode characters; "
+                     "checkpoint --work-template prints minimal JSON; --work-shape describes optional fields.")
+    if route.get("command") == "analysis":
+        lines.append(
+            "Analysis transition: finish this read-only run before starting a writing route "
+            "when the user expands the task. A later finish does not close this run. "
+            "A failed gate still requires the bound failure-repair lifecycle; do not silently cancel it."
+        )
     if route.get("command") in {"commit", "git_commit"}:
         lines.append(
             "Commit reuse: distinguish already-known context from fresh checks in "
@@ -371,7 +378,13 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
         # phrases are the contract; stating them here costs one line each and
         # saves the refusal that teaches them.
         lines.extend(f"    wording -- {hint}" for hint in gate_wording_hints(gate))
+        if gate == "work surface resolution":
+            lines.append("    evidence chain: include the literal -> separator from anchor to verified owner.")
         if gate == "retrospective check":
+            lines.append(
+                "    skills_checked: use canonical skill slugs such as agent_operating_skill, "
+                "not file paths; include a skill actually loaded by this run."
+            )
             lines.append(
                 "    efficiency: no_waste|unmeasured|improvement_needed; include efficiency_evidence. "
                 "For improvement_needed include efficiency_cause, efficiency_reduction, "
