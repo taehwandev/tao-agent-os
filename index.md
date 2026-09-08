@@ -8,6 +8,16 @@ type: ai-generated
 
 Pick the smallest relevant document set. Repo-local guidance wins over this shared library.
 
+## Reading Boundary
+
+This is a fallback catalog, not an additional startup requirement. After
+successful routing, do not read this index to repeat document selection: use
+the returned `required_docs` and open `reference_docs` only for an unresolved
+in-scope question. The links below are candidates, not mandatory reading.
+When the router is unavailable, follow the project entrypoint's approved
+fallback procedure and search only the relevant section. Read or edit the
+catalog itself only when that is the task.
+
 ## Common
 
 - Agent operating baseline: `common/skills/agent-operating-skill/SKILL.md`

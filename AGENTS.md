@@ -282,8 +282,11 @@ Refresh this managed block only when `vibeguard audit .` reports stale guardrail
 
 ## Supporting Map
 
-Use `index.md` or the workflow router for narrow selection. Common entrypoints
-include:
+Use the workflow router for narrow selection. After successful routing, do not
+read `index.md` to repeat document selection. It is a fallback catalog, not an
+additional startup requirement; use it only when the router is unavailable and
+the user approves that fallback, or when the task is explicitly about the catalog.
+The following pointers are optional candidates, not a reading queue:
 
 - `common/skills/stack-discovery/SKILL.md`
 - `common/skills/llm-coding-discipline/SKILL.md`
