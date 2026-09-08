@@ -125,6 +125,14 @@ Apply the Need-Driven Reading Contract in
 It governs reference-link selection, reuse, stopping, and incidental scope;
 it does not waive applicable required instructions.
 
+For `analysis`, carry the route's `reading_scope` into any downstream document
+recommendation. A field lookup, configuration check, or function explanation
+needs its answering definition/contract and only the callers needed to resolve
+the question. Module or UI ownership does not turn that lookup into implementation
+or authorize a separate UI investigation. Preserve explicit required instructions
+and dependencies; stop once the answer is supported instead of repeating unchanged
+recommendations. Implementation routes retain their own required guidance.
+
 Document retrieval is not read authorization. Once owner paths are verified,
 keyword-only surface matches remain reference candidates unless backed by an
 owner path or explicit `required_priority` rule. Before owner resolution,

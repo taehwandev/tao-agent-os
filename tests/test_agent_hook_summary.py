@@ -35,6 +35,17 @@ agent_hook = _load_agent_hook()
 
 
 class AgentHookSummaryTests(unittest.TestCase):
+    def test_lookup_scope_is_delivered_without_runtime_or_extra_reads(self) -> None:
+        from workflow_route import LOOKUP_READING_GUIDANCE
+        payload = {"route": {"command": "analysis", "reading_scope": {
+            "mode": "lookup", "guidance": LOOKUP_READING_GUIDANCE}}}
+        with patch.object(Path, "read_text", return_value=json.dumps(payload)) as read:
+            summary = "\n".join(agent_hook._hook_summary_from_preflight(Path("manifest.json")))
+        read.assert_called_once()
+        self.assertIn(LOOKUP_READING_GUIDANCE, summary)
+        self.assertIn("downstream document recommendations in lookup mode", summary)
+        self.assertIn("preserve explicit required instructions", summary)
+
     def test_permission_evidence_reaches_codex_on_every_route(self) -> None:
         for runtime in ("codex", "claude", None):
             for command in ("task", "commit", "analysis"):

@@ -144,6 +144,49 @@ class EntrypointResolutionTests(unittest.TestCase):
 
 
 class RequiredDocMembershipTests(unittest.TestCase):
+    def test_lookup_does_not_expand_incidental_implementation_candidates(self) -> None:
+        from workflow_search import SearchOutcome
+        candidate = "common/skills/code-conventions/SKILL.md"
+        cases = (("android", "Does the API response have a default image?"),
+                 ("web", "Where is the retry setting defined?"),
+                 (None, "Explain what this function returns."))
+        for platform, request in cases:
+            with self.subTest(request=request):
+                matches = [{"type": "path_surface", "paths": ["src/owner.py"],
+                            "docs": [candidate]}]
+                with patch("workflow_route.infer_surface_docs", return_value=([candidate], matches)), \
+                     patch("workflow_route.search_docs_outcome", return_value=SearchOutcome(
+                         results=[{"path": candidate}], backend="fixture")), \
+                     patch("workflow_route.expand_doc_matches", return_value=[]) as graph:
+                    route = resolve_docs("analysis", platform, [], request_text=request)
+                self.assertEqual([OPERATING_SKILL], route["required_docs"])
+                self.assertEqual([OPERATING_SKILL], graph.call_args.args[1])
+                self.assertIn(candidate, route["reference_docs"])
+                self.assertFalse(matches[0]["required_eligible"])
+                self.assertEqual("lookup", route["reading_scope"]["mode"])
+
+    def test_lookup_preserves_explicit_required_rule_and_its_dependency(self) -> None:
+        required = "common/skills/secure-development-baseline/SKILL.md"
+        dependency = "common/skills/api-contract-compatibility/SKILL.md"
+        matches = [{"type": "request_intent", "docs": [required], "required_priority": 100}]
+        edges = [{"path": dependency, "source": required, "relation": "frontmatter:requires"}]
+        with patch("workflow_route.infer_surface_docs", return_value=([required], matches)), \
+             patch("workflow_route.expand_doc_matches", return_value=edges):
+            route = resolve_docs("analysis", None, [])
+        self.assertTrue(set(resolve_guidance_docs(ROOT, [required])).issubset(route["required_docs"]))
+        self.assertIn(dependency, route["required_docs"])
+        self.assertTrue(matches[0]["required_eligible"])
+
+    def test_implementation_still_expands_owner_candidates(self) -> None:
+        owner = "common/skills/asset-lifecycle/SKILL.md"
+        matches = [{"type": "path_surface", "paths": ["src/assets.py"], "docs": [owner]}]
+        with patch("workflow_route.infer_surface_docs", return_value=([owner], matches)), \
+             patch("workflow_route.expand_doc_matches", return_value=[]) as graph:
+            route = resolve_docs("feature", None, [])
+        self.assertIn(owner, graph.call_args.args[1])
+        self.assertTrue(set(resolve_guidance_docs(ROOT, [owner])).issubset(route["required_docs"]))
+        self.assertNotIn("reading_scope", route)
+
     def test_keyword_neighbor_does_not_join_verified_owner_reading(self) -> None:
         owner = "common/skills/asset-lifecycle/SKILL.md"
         neighbor = "common/skills/branch-cleanup/SKILL.md"

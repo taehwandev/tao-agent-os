@@ -279,6 +279,9 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     required = [hook.get("hook") for hook in hooks if hook.get("required")]
     conditional = [hook.get("hook") for hook in hooks if not hook.get("required")]
     lines: list[str] = []
+    reading_scope = route.get("reading_scope") or {}
+    if reading_scope.get("mode") == "lookup" and reading_scope.get("guidance"):
+        lines.append(str(reading_scope["guidance"]))
     if (payload.get("runtime_session") or {}).get("runtime") == "codex":
         lines.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
     docs = route.get("required_docs") or []
