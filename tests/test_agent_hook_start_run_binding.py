@@ -487,6 +487,12 @@ class HeartbeatPlacementTests(unittest.TestCase):
             ):
                 parse.return_value = Namespace(
                     hook=hook,
+                    # The real parser gives `start` a `--command` default, and
+                    # `lookup_start` reads it once the hook is `start`. Patching
+                    # `_parse_args` bypasses that default, so a Namespace built
+                    # here without it raises AttributeError before any hook runs
+                    # and this test stops measuring heartbeats at all.
+                    command="task",
                     project=Path("/tmp/project"),
                     rules=ROOT,
                     evidence=None,

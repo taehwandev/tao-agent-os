@@ -212,18 +212,27 @@ class StructuredGateFieldAdvertisement(unittest.TestCase):
     def test_every_field_carrying_gate_in_the_route_is_listed(self):
         gates = sorted(gate for gate, fields in self.requirements.items() if fields)
         rendered = self.lines(gates)
-        # Counted by gate line rather than by total line: gates whose evidence
-        # is judged by substring match now carry their accepted wording under
-        # them, so the block is one line per gate plus that advice.
+        # Counted by indent, not by prefix. A gate line is indented two spaces
+        # and its advice four, which is the renderer's own structure. Listing
+        # the advice prefixes instead made this test stale the moment a gate
+        # gained a second kind of advice: `wording --` was the only one when it
+        # was written, and `evidence chain`, `skills_checked` and `efficiency`
+        # were then counted as gates.
         gate_lines = [
-            line
-            for line in rendered[1:]
-            if not line.strip().startswith("wording --")
+            line for line in rendered[1:]
+            if len(line) - len(line.lstrip(" ")) == 2
+        ]
+        advice_lines = [
+            line for line in rendered[1:]
+            if len(line) - len(line.lstrip(" ")) > 2
         ]
         self.assertEqual(len(gate_lines), len(gates))
-        self.assertEqual(len(rendered), len(gate_lines) + 1 + sum(
-            len(gate_wording_hints(gate)) for gate in gates
-        ))
+        # Nothing in the block is unaccounted for: header, one line per gate,
+        # and advice hanging under a gate.
+        self.assertEqual(len(rendered), 1 + len(gate_lines) + len(advice_lines))
+        self.assertGreaterEqual(
+            len(advice_lines), sum(len(gate_wording_hints(gate)) for gate in gates)
+        )
         for gate in gates:
             self.assertTrue(
                 any(line.strip().startswith(f"{gate}:") for line in rendered[1:]),
