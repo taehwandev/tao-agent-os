@@ -24,6 +24,13 @@ CODEX_DISPATCH_BRIDGE_PHRASE = (
     "required. A matching parent profile or unavailable parent profile information both stay in the "
     "current process or use a native worker; neither condition starts a fresh Codex process."
 )
+CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE = (
+    "Permission evidence: reuse user approval for the identical action and target; "
+    "request required sandbox escalation through the tool, not another conversational approval. "
+    "DNS/name-resolution errors alone do not prove sandbox denial. A pending tool result alone "
+    "does not prove that an approval dialog is visible or awaiting a user click. State the observed "
+    "error and what remains unverified; never instruct the user to approve an unconfirmed dialog."
+)
 CODEX_APPROVAL_WAIT_BRIDGE_PHRASE = (
     "A Codex exec result that only reports `Script running with cell ID ...` or a session id is "
     "transport state, not proof that the command started or that approval was rejected. Keep only "
@@ -180,6 +187,7 @@ def runtime_bridge_required_phrases(runtime_name: str, instruction_file: str) ->
     if runtime_name == "Codex":
         phrases.append(CODEX_DISPATCH_BRIDGE_PHRASE)
         phrases.append(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
+        phrases.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
     return phrases
 
 
@@ -188,7 +196,8 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
     native_delegation_phrase = [f"- {native_delegation}"] if native_delegation else []
     dispatch_phrase = [f"- {CODEX_DISPATCH_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
     approval_wait_phrase = (
-        [f"- {CODEX_APPROVAL_WAIT_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
+        [f"- {CODEX_APPROVAL_WAIT_BRIDGE_PHRASE}",
+         f"- {CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
     )
     return "\n".join([
         RUNTIME_BRIDGE_BEGIN,

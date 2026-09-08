@@ -23,6 +23,7 @@ from agent_gate_evidence import (
 )
 from agent_execution_capsule_state import git_states_for_paths
 from agent_continuation_fields import MAX_TEXT
+from support.runtime_bridge import CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE
 from agent_finish_gate_validators import gate_wording_hints
 from agent_handoff_hook import handoff_hook
 from agent_hook_continuation import (
@@ -278,6 +279,8 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     required = [hook.get("hook") for hook in hooks if hook.get("required")]
     conditional = [hook.get("hook") for hook in hooks if not hook.get("required")]
     lines: list[str] = []
+    if (payload.get("runtime_session") or {}).get("runtime") == "codex":
+        lines.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
     docs = route.get("required_docs") or []
     if docs:
         lines.append(f"Read first ({len(docs)} required docs):")

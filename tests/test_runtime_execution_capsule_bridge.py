@@ -23,6 +23,7 @@ from support.runtime_bridge import (
     RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE,
     RUNTIME_NATIVE_DELEGATION_PHRASES,
     RUNTIME_READING_BRIDGE_PHRASE,
+    CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE,
     RUNTIME_START_BRIDGE_PHRASE,
     merge_runtime_bridge,
     runtime_bridge_block,
@@ -49,6 +50,15 @@ def _surface_text(path: Path) -> str:
     )
 
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
+    def test_codex_bridge_requires_observed_permission_evidence(self) -> None:
+        phrase = CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE
+        self.assertIn(phrase, runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+        self.assertIn(phrase, runtime_bridge_block(ROOT, "Codex", "AGENTS.md"))
+        self.assertNotIn(phrase, runtime_bridge_block(ROOT, "Claude", "CLAUDE.md"))
+        self.assertIn("request required sandbox escalation through the tool", phrase)
+        self.assertIn("DNS/name-resolution errors alone do not prove sandbox denial", phrase)
+        self.assertIn("never instruct the user to approve an unconfirmed dialog", phrase)
+
     def test_unmarked_legacy_instructions_cannot_hide_missing_reading_contract(self) -> None:
         for runtime, filename in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"),
                                   ("Antigravity", "AGENTS.md")):

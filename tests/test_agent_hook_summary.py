@@ -35,6 +35,20 @@ agent_hook = _load_agent_hook()
 
 
 class AgentHookSummaryTests(unittest.TestCase):
+    def test_permission_evidence_reaches_codex_on_every_route(self) -> None:
+        for runtime in ("codex", "claude", None):
+            for command in ("task", "commit", "analysis"):
+                with self.subTest(runtime=runtime, command=command):
+                    payload = {"route": {"command": command},
+                               "runtime_session": {"runtime": runtime}}
+                    with patch.object(Path, "read_text", return_value=json.dumps(payload)) as read:
+                        summary = "\n".join(agent_hook._hook_summary_from_preflight(Path("manifest.json")))
+                    read.assert_called_once()
+                    self.assertEqual(runtime == "codex", "Permission evidence:" in summary)
+                    if runtime == "codex":
+                        self.assertIn("DNS/name-resolution errors alone do not prove sandbox denial", summary)
+                        self.assertIn("never instruct the user to approve an unconfirmed dialog", summary)
+
     def test_analysis_transition_and_checkpoint_limit_need_only_the_manifest(self) -> None:
         for command in ("analysis", "workflow-setup"):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
