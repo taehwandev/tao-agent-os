@@ -112,9 +112,24 @@ track `.agents/shared/worktree-policy.json` with this closed contract:
 {
   "schema_version": 1,
   "require_linked_worktree": true,
-  "protected_branches": ["develop", "main"]
+  "protected_branches": ["develop", "main"],
+  "require_workflow_entry": true
 }
 ```
+
+`require_workflow_entry` is the one optional key; the waiver described below is
+what it turns off, and it defaults to absent so an existing declaration keeps
+its current behaviour. Every other key is required, and the contract stays
+closed in both directions: an unrecognised key is a malformed declaration that
+falls back to the default policy rather than an extra that is ignored.
+
+This file is also an opt-in signal by itself, and it is the only one a linked
+worktree carries. The state directory is written by a run, so a freshly created
+worktree of a governed repository has none until it has already complied, and
+the marker-file token depends on the runtime's product name appearing in the
+entry document's prose, which an ordinary documentation edit can remove. A
+repository that tracks this file has declared governance in a file every one of
+its worktrees checks out.
 
 Runtime adapters must treat this declaration as an executable boundary, not as
 advisory prose. Discrete file edits and Bash commands that are not provably
@@ -126,6 +141,28 @@ leaves a second unfinished lifecycle behind. Do not auto-create a worktree from
 the pretool hook: branch, base, ticket, path, and ignored local-file copy
 decisions belong to the repository workflow. After selecting the linked
 worktree, run `start` with that path as the project root before any mutating tool.
+
+### The Preflight Waiver Inside A Compliant Worktree
+
+Isolation and workflow entry are two separate protections, and by default
+satisfying the first waives the second. Once the session is in a compliant
+linked worktree of a repository that declares this policy, the gate stops
+requiring run evidence for mutations there. Requiring both made the policy
+unusable: a compliant worktree still could not be written to until preflight
+evidence existed, so the cheapest way to get work done was to turn the gate off
+and lose the isolation with it. The waiver is earned by the declared policy and
+never by its absence -- a repository that declares nothing has proved nothing
+and still needs the run.
+
+The consequence has to be read plainly, because it is not what the surrounding
+denials suggest. In a repository that declares only `require_linked_worktree`,
+an agent can be sent into a worktree by this gate and then complete a whole
+task there -- edits, commits, and a pull request -- without `start`, `gate`, or
+`finish` ever being required. Feeling this gate is not evidence that the
+lifecycle is being enforced. A repository that wants both declares
+`"require_workflow_entry": true`, which drops the waiver and puts mutations in a
+compliant worktree back behind workflow entry; `start` itself stays reachable
+there, and the shared-repository prompt is unaffected either way.
 
 Two environment variables bridge and override this declaration, and both must
 stay rare and explicit. During a transition window where the tracked

@@ -67,6 +67,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         has_unresolvable_expansion,
         path_arguments,
         raw_path_arguments,
+        policy_requires_workflow_entry,
         worktree_denial,
         worktree_policy,
         COMPUTED_TEXT,
@@ -126,6 +127,11 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def worktree_policy(root: Path) -> dict | None:
         return None
+
+    def policy_requires_workflow_entry(root: Path) -> bool:
+        # A broken install has read no declaration, so it cannot claim the
+        # repository asked for the stricter path.
+        return False
 
     def worktree_denial(root: Path, cause: str = "") -> str | None:
         return None
@@ -361,10 +367,20 @@ def opts_in(path: Path) -> bool:
 
     The global install lives in a ``.tao`` too, so directory existence alone
     would classify ``$HOME`` as a project -- see support.global_state.
+
+    The tracked worktree policy counts because it is the one opt-in signal that
+    a linked worktree carries. The state directory is written by a run, so a
+    fresh worktree has none until it has already complied, and the marker-file
+    token depends on the runtime's product name appearing in prose, so an
+    ordinary documentation edit can drop it. A repository that declares the
+    policy has declared governance in a tracked file, and every worktree of it
+    checks that file out.
     """
     if is_host_config_dir(path):
         return False
     if is_project_state_dir(path / STATE_DIR):
+        return True
+    if (path / WORKTREE_POLICY_PATH).is_file():
         return True
     for name in OPT_IN_FILES:
         candidate = path / name
@@ -1679,7 +1695,7 @@ def decide(payload: dict) -> int:
             worktree_reason,
             syntax_is_simple=syntax_is_simple,
         )
-    if worktree_policy_satisfied(root):
+    if worktree_policy_satisfied(root) and not policy_requires_workflow_entry(root):
         hazard = shared_repository_hazard(tokens, protected_branch_names(root))
         if hazard:
             return ask(
@@ -1697,6 +1713,16 @@ def decide(payload: dict) -> int:
                 "This is an ordinary Git command inside the isolated linked worktree."
             )
         return allow()
+    # A repository that asked for both keeps the hazard prompt it would have
+    # had under the waiver: workflow entry answers whether the run exists, not
+    # whether this command is about to reach another repository.
+    if worktree_policy_satisfied(root):
+        hazard = shared_repository_hazard(tokens, protected_branch_names(root))
+        if hazard:
+            return ask(
+                "This worktree isolates ordinary file edits, but this Git command "
+                f"{hazard}. Allow it only if that is what you meant."
+            )
     return _isolated_checkout_verdict(payload, tool, root, cwd)
 
 

@@ -24,6 +24,13 @@ from support.stable_launcher import stable_launcher_path  # noqa: F401
 BASH_TOOLS = {"Bash"}
 WORKTREE_POLICY_PATH = Path(".agents/shared/worktree-policy.json")
 WORKTREE_POLICY_SCHEMA_VERSION = 1
+# The contract stays closed so an unknown key is a malformed declaration rather
+# than a silently ignored one, but the closed set is now two sets: a policy
+# written before the optional key existed must keep validating unchanged.
+WORKTREE_POLICY_REQUIRED_KEYS = frozenset(
+    {"schema_version", "require_linked_worktree", "protected_branches"}
+)
+WORKTREE_POLICY_OPTIONAL_KEYS = frozenset({"require_workflow_entry"})
 REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
 MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
 
@@ -87,7 +94,10 @@ def worktree_policy(root: Path) -> dict | None:
         return default_worktree_policy()
     if not isinstance(parsed, dict):
         return default_worktree_policy()
-    if set(parsed) != {"schema_version", "require_linked_worktree", "protected_branches"}:
+    keys = set(parsed)
+    if not WORKTREE_POLICY_REQUIRED_KEYS <= keys:
+        return default_worktree_policy()
+    if not keys <= (WORKTREE_POLICY_REQUIRED_KEYS | WORKTREE_POLICY_OPTIONAL_KEYS):
         return default_worktree_policy()
     branches = parsed.get("protected_branches")
     valid = (
@@ -96,8 +106,32 @@ def worktree_policy(root: Path) -> dict | None:
         and isinstance(branches, list)
         and bool(branches)
         and all(isinstance(branch, str) and branch.strip() for branch in branches)
+        and all(
+            isinstance(parsed[name], bool)
+            for name in WORKTREE_POLICY_OPTIONAL_KEYS
+            if name in parsed
+        )
     )
     return parsed if valid else default_worktree_policy()
+
+
+def policy_requires_workflow_entry(root: Path) -> bool:
+    """Whether this repository refuses the compliant-worktree preflight waiver.
+
+    Isolation and workflow entry are separate protections, and satisfying the
+    linked-worktree policy waives the second one so a compliant checkout stays
+    writable without a run. That waiver is why a repository can declare
+    isolation and still see no ``start`` for a whole task.
+
+    A repository opts back into the run requirement by declaring it, so the
+    default stays the waiver and no existing checkout changes behaviour when
+    this lands. The absent key reads as False for the same reason the waiver
+    exists: turning the requirement on everywhere at once is what makes an
+    operator switch the gate off instead.
+    """
+
+    policy = worktree_policy(root)
+    return bool(policy and policy.get("require_workflow_entry") is True)
 
 
 def current_branch(root: Path) -> str:

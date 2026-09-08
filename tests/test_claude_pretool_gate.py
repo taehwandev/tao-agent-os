@@ -2598,5 +2598,159 @@ class SessionProjectIndexFollowsStateHomeTests(unittest.TestCase):
             self.assertIn(project, roots)
 
 
+class DeclaredPolicyGovernsLinkedWorktreesTests(unittest.TestCase):
+    """The tracked policy is the opt-in signal a linked worktree carries.
+
+    The state directory is written by a run and the marker token depends on the
+    runtime's product name surviving in prose, so a fresh worktree of a
+    governed repository could be governed by neither.
+    """
+
+    def _worktree(self, base: Path) -> Path:
+        """A linked worktree that declares the policy and nothing else.
+
+        Deliberately no ``.tao`` and no opt-in token: those are the two signals
+        this case exists because a worktree does not have.
+        """
+
+        project = base / "wt"
+        project.mkdir(parents=True)
+        _require_linked_worktree(project, linked=True)
+        return project
+
+    def test_declared_policy_alone_makes_a_worktree_a_governed_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._worktree(Path(tmp))
+
+            self.assertFalse((project / ".tao").exists())
+            self.assertFalse((project / "AGENTS.md").exists())
+            self.assertTrue(gate.opts_in(project))
+            self.assertEqual(project, gate.find_project_root(project))
+
+    def test_compliant_worktree_keeps_the_preflight_waiver_by_default(self) -> None:
+        """Absent the new key, behaviour is exactly what it was.
+
+        The waiver is what keeps a compliant checkout writable without a run;
+        turning it off for every repository at once is what makes an operator
+        disable the gate instead.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._worktree(Path(tmp))
+            self.assertFalse(worktree_gate.policy_requires_workflow_entry(project))
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(project),
+                    "session_id": "waived",
+                    "tool_input": {"file_path": str(project / "src.py")},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def _require_entry(self, project: Path) -> None:
+        policy = project / gate.WORKTREE_POLICY_PATH
+        declared = json.loads(policy.read_text(encoding="utf-8"))
+        declared["require_workflow_entry"] = True
+        policy.write_text(json.dumps(declared), encoding="utf-8")
+
+    def test_declaring_the_requirement_denies_an_edit_with_no_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._worktree(Path(tmp))
+            self._require_entry(project)
+            self.assertTrue(worktree_gate.policy_requires_workflow_entry(project))
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(project),
+                    "session_id": "no-run",
+                    "tool_input": {"file_path": str(project / "src.py")},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertIn("preflight", _reason(out).lower())
+
+    def test_an_unknown_policy_key_still_fails_closed(self) -> None:
+        """An unrecognised key is malformed, not an ignored extra.
+
+        Falling back to the default policy keeps isolation; it must not be a
+        way to smuggle the requirement on or off.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._worktree(Path(tmp))
+            policy = project / gate.WORKTREE_POLICY_PATH
+            declared = json.loads(policy.read_text(encoding="utf-8"))
+            declared["require_workflow_entry"] = True
+            declared["invented_key"] = True
+            policy.write_text(json.dumps(declared), encoding="utf-8")
+
+            self.assertEqual(
+                worktree_gate.default_worktree_policy(),
+                worktree_gate.worktree_policy(project),
+            )
+            self.assertFalse(worktree_gate.policy_requires_workflow_entry(project))
+
+    def test_a_non_boolean_requirement_is_malformed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._worktree(Path(tmp))
+            policy = project / gate.WORKTREE_POLICY_PATH
+            declared = json.loads(policy.read_text(encoding="utf-8"))
+            declared["require_workflow_entry"] = "yes"
+            policy.write_text(json.dumps(declared), encoding="utf-8")
+
+            self.assertEqual(
+                worktree_gate.default_worktree_policy(),
+                worktree_gate.worktree_policy(project),
+            )
+            self.assertFalse(worktree_gate.policy_requires_workflow_entry(project))
+
+    def test_the_requirement_still_lets_start_through(self) -> None:
+        """The remedy the denial names has to remain reachable.
+
+        A requirement that also blocks `start` leaves the session with no move
+        that satisfies it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._worktree(Path(tmp))
+            self._require_entry(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "starting",
+                    "tool_input": {
+                        "command": f"{gate.stable_launcher_path()} start --project {project}"
+                    },
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_the_requirement_keeps_the_shared_repository_prompt(self) -> None:
+        """Workflow entry answers a different question than reach does."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._worktree(Path(tmp))
+            self._require_entry(project)
+            with patch.object(worktree_gate, "current_branch", return_value="feature"):
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "hazard",
+                        "tool_input": {"command": "git push --force origin develop"},
+                    }
+                )
+
+        self.assertEqual(0, code)
+        self.assertIn("Allow it only if that is what you meant", _reason(out))
+
+
 if __name__ == "__main__":
     unittest.main()
