@@ -479,6 +479,16 @@ def check_read_only_execution(
                 if intrinsically_read_only
                 else "read-only skips VibeGuard; rerun the lifecycle without --read-only"
             )
+            command = str((preflight.get("route") or {}).get("command") or "")
+            if not intrinsically_read_only and command:
+                from workflow_effect_policy import route_minimum_effect
+
+                if route_minimum_effect(command) == "read":
+                    recovery = (
+                        f"route `{command}` is intrinsically read-only; preserve changes "
+                        "and start an authorized writable route before further writes; "
+                        "if concurrent work caused drift, refresh the read-only evidence"
+                    )
             failures.append(
                 f"read-only execution was declared but the {root} root changed after start; "
                 f"{attribution}{recovery}"

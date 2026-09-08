@@ -58,6 +58,26 @@ def approval(**overrides):
 
 
 class EnvelopeSchemaTests(unittest.TestCase):
+    def test_retrospective_maintenance_is_local_write_not_a_read_escape(self) -> None:
+        self.assertEqual("local_write", route_minimum_effect("retrospective"))
+        self.assertEqual([], effect_decision("retrospective", envelope()))
+        self.assertEqual([], effect_decision(
+            "retrospective", envelope(), tool_effect="local_write"
+        ))
+        self.assertTrue(effect_decision("retrospective", envelope(), tool_effect="git_write"))
+        self.assertTrue(effect_decision("analysis", envelope()))
+
+    def test_read_routes_reject_declared_or_tool_writes_before_execution(self) -> None:
+        for command, floor in ROUTE_MINIMUM_EFFECT.items():
+            if floor != "read":
+                continue
+            with self.subTest(command=command):
+                self.assertEqual([], effect_decision(command, envelope(requested_effects=["read"])))
+                for effect in ("local_write", "git_write", "external_write", "destructive"):
+                    for declared, tool in ((effect, "read"), ("read", effect)):
+                        failures = effect_decision(command, envelope(requested_effects=[declared]), tool_effect=tool)
+                        self.assertTrue(any("writable route" in failure for failure in failures), failures)
+
     def test_a_well_formed_envelope_is_accepted(self) -> None:
         self.assertEqual([], validate_envelope(envelope()))
 

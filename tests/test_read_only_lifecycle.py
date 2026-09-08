@@ -36,6 +36,22 @@ from agent_execution_capsule_state import git_states_for_paths
 
 
 class ReadOnlyLifecycleTests(unittest.TestCase):
+    def test_retrospective_is_writable_unless_explicitly_read_only(self) -> None:
+        self.assertFalse(agent_preflight.effective_read_only("retrospective", False))
+        self.assertFalse(agent_finish.effective_read_only({}, {"command": "retrospective"}))
+        self.assertTrue(agent_preflight.effective_read_only("retrospective", True))
+        self.assertTrue(agent_finish.effective_read_only(
+            {"execution_mode": {"read_only": True}}, {"command": "retrospective"}
+        ))
+
+    def test_every_read_floor_is_intrinsically_read_only_at_both_boundaries(self) -> None:
+        from workflow_effect_policy import ROUTE_MINIMUM_EFFECT
+
+        for command, effect in ROUTE_MINIMUM_EFFECT.items():
+            with self.subTest(command=command):
+                self.assertEqual(effect == "read", agent_preflight.effective_read_only(command, False))
+                self.assertEqual(effect == "read", agent_finish.effective_read_only({}, {"command": command}))
+
     def test_analysis_preflight_is_intrinsically_read_only(self) -> None:
         self.assertTrue(agent_preflight.effective_read_only("analysis", False))
         self.assertTrue(agent_preflight.effective_read_only("product", True))
@@ -173,6 +189,38 @@ class ReadOnlyClaimEnforcementTests(unittest.TestCase):
             )
 
         self.assertEqual([], failures)
+
+    def test_read_floor_without_explicit_flag_rejects_real_file_drift(self) -> None:
+        from workflow_effect_policy import ROUTE_MINIMUM_EFFECT
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            target = self._init_repository(project)
+            state, _ = git_states_for_paths(project, project)
+            target.write_text("unexpected edit\n", encoding="utf-8")
+            for command, effect in ROUTE_MINIMUM_EFFECT.items():
+                if effect != "read":
+                    continue
+                with self.subTest(command=command):
+                    preflight = self._preflight(state, project)
+                    preflight["route"] = {"command": command}
+                    preflight["execution_mode"] = {"read_only": False}
+                    failures: list[str] = []
+                    check_read_only_execution(
+                        preflight, project, failures,
+                        read_only=agent_finish.effective_read_only(preflight, preflight["route"]),
+                    )
+                    self.assertTrue(any("changed after start" in failure for failure in failures))
+                    self.assertIn("authorized writable route", failures[0])
+
+    def test_legacy_read_route_without_snapshot_fails_closed(self) -> None:
+        preflight = {"route": {"command": "review"}}
+        failures: list[str] = []
+        check_read_only_execution(
+            preflight, ROOT, failures,
+            read_only=agent_finish.effective_read_only(preflight, preflight["route"]),
+        )
+        self.assertIn("missing its strong start-time workspace fingerprint", failures[0])
 
     def test_same_bytes_with_changed_metadata_keeps_the_read_only_claim(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

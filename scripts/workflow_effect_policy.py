@@ -22,7 +22,6 @@ ROUTE_MINIMUM_EFFECT = {
     "ambiguity": "read",
     "analysis": "read",
     "docs-review": "read",
-    "retrospective": "read",
     "review": "read",
     "triage": "read",
     "plan": "read",
@@ -36,6 +35,9 @@ ROUTE_MINIMUM_EFFECT = {
     "prd": "local_write",
     "product": "local_write",
     "refactor": "local_write",
+    # Failure repair and same-run skill maintenance include canonical edits.
+    # Reflection without edits belongs to analysis, not this repair workflow.
+    "retrospective": "local_write",
     "spec": "local_write",
     "task": "local_write",
     "test": "local_write",
@@ -111,6 +113,12 @@ def effect_decision(
     failures: list[str] = []
     failures.extend(_binding_failures(envelope, request_fingerprint, runtime_session_id))
     effect = effective_effect(command, envelope, tool_effect=tool_effect)
+    if route_minimum_effect(command) == "read" and effect != "read":
+        failures.append(
+            f"read-only route `{command}` cannot execute `{effect}`; "
+            "start an authorized writable route before the action so its "
+            "source, safety and verification gates apply"
+        )
     # Prohibiting an effect prohibits everything at least as dangerous.
     # Comparing names for equality let a request that forbade external_write
     # proceed at destructive, which is strictly worse than what it refused.
