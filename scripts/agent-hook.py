@@ -306,6 +306,13 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "missing context require the relevant read/check; prior approval does "
             "not authorize new external writes."
         )
+        lines.append(
+            "Publication scope: a failed check is not source-change authority; "
+            "do not switch to implementation or waive a guard without matching scope. "
+            "Continue an approved identical pending action without reconfirming "
+            "unless scope, target, risk or required approval freshness changed. "
+            "Do not retry an unchanged known failure."
+        )
     if required:
         lines.append(f"Required hooks: {required}")
     if conditional:

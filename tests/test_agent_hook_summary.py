@@ -93,9 +93,14 @@ class AgentHookSummaryTests(unittest.TestCase):
                 self.assertIn("unchanged and available", summary)
                 self.assertIn("rg --files", summary)
                 self.assertEqual(command in {"commit", "git_commit"}, "Commit reuse:" in summary)
+                self.assertEqual(command in {"commit", "git_commit"}, "Publication scope:" in summary)
                 if command != "feature":
                     self.assertIn("Changed bytes or missing context", summary)
                     self.assertIn("prior approval does not authorize", summary)
+                    self.assertIn("a failed check is not source-change authority", summary)
+                    self.assertIn("do not switch to implementation", summary)
+                    self.assertIn("approved identical pending action without reconfirming", summary)
+                    self.assertIn("unless scope, target, risk or required approval freshness changed", summary)
 
     def test_start_shows_required_manifest_without_expanding_reference_reading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
