@@ -22,6 +22,7 @@ from support.runtime_bridge import (
     RUNTIME_FINISH_BRIDGE_PHRASE,
     RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE,
     RUNTIME_NATIVE_DELEGATION_PHRASES,
+    RUNTIME_READING_BRIDGE_PHRASE,
     RUNTIME_START_BRIDGE_PHRASE,
     merge_runtime_bridge,
     runtime_bridge_block,
@@ -48,6 +49,26 @@ def _surface_text(path: Path) -> str:
     )
 
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
+    def test_unmarked_legacy_instructions_cannot_hide_missing_reading_contract(self) -> None:
+        for runtime, filename in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"),
+                                  ("Antigravity", "AGENTS.md")):
+            with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / filename
+                current = runtime_bridge_block(ROOT, runtime, filename)
+                legacy = "\n".join(
+                    line for line in current.splitlines()
+                    if line not in (RUNTIME_BRIDGE_BEGIN, RUNTIME_BRIDGE_END)
+                    and RUNTIME_READING_BRIDGE_PHRASE not in line
+                ) + "\n"
+                target.write_text(legacy, encoding="utf-8")
+                kwargs = dict(block=current,
+                              required_phrases=runtime_bridge_required_phrases(runtime, filename))
+                self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+                self.assertEqual(legacy, target.read_text())
+                self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+                self.assertEqual(legacy + current, target.read_text())
+                self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
+
     def test_existing_runtime_bridge_gets_reading_rule_without_user_content_loss(self) -> None:
         for runtime, filename in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"),
                                   ("Antigravity", "AGENTS.md")):
@@ -87,6 +108,14 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                 )
                 self.assertIn("exact gate list", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn("never call finish to discover", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("exit status", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("successful gate command result", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("before dependent edits, gates, review, or finish", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("pending, rejected, or failed result stops", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("Remaining route gates", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn(RUNTIME_READING_BRIDGE_PHRASE, required)
+                self.assertLess(block.index(RUNTIME_READING_BRIDGE_PHRASE),
+                                block.index(RUNTIME_START_BRIDGE_PHRASE))
                 self.assertIn(RUNTIME_CONTINUATION_BRIDGE_PHRASE, required)
                 self.assertIn(RUNTIME_CONTINUATION_BRIDGE_PHRASE, block)
                 self.assertIn("--work-stdin", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
@@ -191,6 +220,19 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
             CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
         )
         self.assertIn("at most 15 seconds", CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
+        for required_boundary in (
+            "or that approval was rejected",
+            "one pending equivalent request",
+            "do not issue repeated equivalent polling or approval calls",
+            "execution condition has changed and evidence proves",
+            "first attempt made no side effect",
+            "Do not ask again for user authorization already given",
+            "preserve required sandbox approval",
+            "only with direct actor evidence",
+            "not a delayed command or changed target state alone",
+        ):
+            with self.subTest(boundary=required_boundary):
+                self.assertIn(required_boundary, CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
         self.assertIn(
             "read-only process or target-state evidence",
             CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,

@@ -26,12 +26,16 @@ CODEX_DISPATCH_BRIDGE_PHRASE = (
 )
 CODEX_APPROVAL_WAIT_BRIDGE_PHRASE = (
     "A Codex exec result that only reports `Script running with cell ID ...` or a session id is "
-    "transport state, not proof that the command started. For an escalated command expected to "
-    "finish promptly, if no output appears, wait once for at most 15 seconds, then use read-only "
-    "process or target-state evidence; never claim hooks or tests are running without that evidence. "
-    "If execution is still unproven, terminate the cell before any retry. Retry only after proving "
-    "the first attempt made no side effect, and never automatically retry a non-idempotent external "
-    "write."
+    "transport state, not proof that the command started or that approval was rejected. Keep only "
+    "one pending equivalent request; do not issue repeated equivalent polling or approval calls. "
+    "For an escalated command expected to finish promptly, if no output appears, wait once for "
+    "at most 15 seconds, then use read-only process or target-state evidence; never claim hooks or "
+    "tests are running without that evidence. If execution is still unproven, terminate the cell "
+    "before any retry. Retry only after the execution condition has changed and evidence proves "
+    "the first attempt made no side effect; never automatically retry a non-idempotent external write. "
+    "Do not ask again for user authorization already given; preserve required sandbox approval. "
+    "Attribute a target change to an actor only with direct actor evidence, not a delayed command "
+    "or changed target state alone."
 )
 RUNTIME_NATIVE_DELEGATION_PHRASES = {
     "Codex": (
@@ -93,7 +97,17 @@ RUNTIME_FINISH_BRIDGE_PHRASE = (
 RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE = (
     "Immediately before finish, compare the active route's exact gate list with the gate ledger "
     "and record every missing gate through agent-hook.py gate or gate-batch; never call finish "
-    "to discover which gates are missing."
+    "to discover which gates are missing. Require a successful gate command result and exit status "
+    "before dependent edits, gates, review, or finish; a pending, rejected, or failed result stops "
+    "that dependent sequence. Reuse a successful "
+    "batch's Remaining route gates snapshot while the route and ledger are unchanged."
+)
+RUNTIME_READING_BRIDGE_PHRASE = (
+    "Apply the Need-Driven Reading Contract in common/skills/agent-operating-skill/SKILL.md. "
+    "Read required_docs; reference_docs and links are candidates, not a recursive reading queue. "
+    "Reuse complete, unchanged readings still available in context. Read an optional document "
+    "only for an unresolved in-scope question, and stop discovery when the owner, constraints, "
+    "and nearest verification are known. Preserve applicable required instructions."
 )
 RUNTIME_CONTINUATION_BRIDGE_PHRASE = (
     "When the active run has continuation support, write one bounded semantic checkpoint through "
@@ -140,6 +154,7 @@ RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES = [
     "If the runtime starts outside the target repo or the target repo is not explicit, run Tao Agent OS agent-entry.py or project-discover.py before project work.",
     "If project discovery returns ambiguous or not_found, ask the user for the target project before routing, editing, testing, committing, or reporting completion.",
     "Before project work, open the project-root instruction file for the active runtime.",
+    RUNTIME_READING_BRIDGE_PHRASE,
     RUNTIME_START_BRIDGE_PHRASE,
     *RUNTIME_BRIDGE_GRAPH_PHRASES,
     *RUNTIME_CAPSULE_BRIDGE_PHRASES,
@@ -188,7 +203,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         "- Before project work, open the project-root instruction file for the active runtime.",
         f"- {runtime_name} reads {instruction_file}.",
         "- Read project-root instructions before Tao Agent OS shared guidance.",
-        "- Apply the Need-Driven Reading Contract in common/skills/agent-operating-skill/SKILL.md: optional documents require an unresolved in-scope question; stop discovery when the owner, constraints, and nearest verification are known. Preserve applicable required instructions.",
+        f"- {RUNTIME_READING_BRIDGE_PHRASE}",
         f"- {RUNTIME_START_BRIDGE_PHRASE}",
         "- Use the route/search output from that start hook for the user's current request; route/search owns natural-language document discovery.",
         "- Do not wait for the user to name document keywords; use request artifacts and paths as candidates, then verify the change-owning work surface with bounded read-only repository evidence before task-specific reading or edits.",
