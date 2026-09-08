@@ -384,16 +384,39 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
     return {
         "normalized": normalized,
         "lowered": lowered,
+        # Deliberately a fullmatch: the whole request must be cleanup and
+        # nothing else, so a sentence that also asks for other work falls
+        # through to a route that carries the gates that work needs. What the
+        # grammar spells is therefore the whole recall budget, and three real
+        # phrasings sat outside it -- each one routed to `task` or `ambiguity`
+        # and collected nineteen gates for a one-second git operation.
         "has_branch_cleanup_action": bool(
             re.fullmatch(
                 r"(?:(?:please\s+)?(?:clean[ -]?up|delete|remove|prune)\s+"
                 r"(?:(?:the|all|merged|stale|local|remote)\s+)*"
                 r"(?:(?:branch|worktree)(?:\s+`?[a-z0-9_./-]+`?)?|branches|worktrees)"
-                r"(?:\s+(?:and|,)\s+(?:(?:their|merged|stale|local|remote)\s+)*"
+                # A second clause may repeat the verb: "remove the stale
+                # worktree and delete the merged branch" is one cleanup, not two
+                # kinds of work, and only the noun was allowed after `and`.
+                r"(?:\s+(?:and|,)\s+"
+                r"(?:(?:clean[ -]?up|delete|remove|prune)\s+)?"
+                r"(?:(?:the|all|their|merged|stale|local|remote)\s+)*"
                 r"(?:branch(?:es)?|worktrees?))*|"
+                # Korean nominalises the adjective as often as it attaches it
+                # straight to the noun: "머지된거", "머지된 것들" carry no
+                # `브랜치`/`워크트리` of their own, and the object is what the
+                # rest of the sentence is about.
                 r"(?:(?:머지된|병합된|로컬|원격|남은)\s*)*"
-                r"(?:브랜치|워크트리)(?:(?:와|과|랑|하고|/|,|\s+및)\s*(?:브랜치|워크트리))*"
-                r"(?:도|을|를)?\s*(?:정리|삭제|제거)\s*(?:해줘|해주세요|해줄래))[.!]?",
+                r"(?:(?:것들?|거)\s*)?"
+                r"(?:(?:브랜치|워크트리)"
+                r"(?:(?:와|과|랑|하고|/|,|\s+및)\s*(?:브랜치|워크트리))*"
+                # A connector can close the object rather than join another:
+                # "머지된거 워크트리랑 정리해줘" ends the list with `랑`.
+                r"(?:와|과|랑|하고)?\s*)?"
+                # `지워줘` inflects the stem, so `지우` never appears in the
+                # text the matcher sees.
+                r"(?:도|을|를)?\s*(?:정리|삭제|제거|지워|지우)\s*"
+                r"(?:해줘|해주세요|해줄래|줘|주세요))[.!]?",
                 lowered,
             )
             and not _matches(RISKY_PATTERNS, re.sub(r"\bdelete\b", "", lowered))

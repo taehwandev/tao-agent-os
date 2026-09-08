@@ -29,6 +29,37 @@ class WorkflowRequestIntakeTests(unittest.TestCase):
                 self.assertEqual("cleanup", result["route_shape"])
                 self.assertEqual("triage", result["recommended_route"])
 
+    def test_cleanup_phrasings_outside_the_first_grammar_still_reach_cleanup(self) -> None:
+        """Each of these was routed to `task` or `ambiguity` and collected
+        nineteen gates for a one-second git operation, because the grammar is a
+        fullmatch and did not spell them. They differ from the accepted set by
+        one construction each: a Korean nominaliser, a connector that closes
+        the object list rather than joining another noun, an inflected verb
+        stem, and a second verb after `and`.
+        """
+
+        for request in (
+            "머지된거 워크트리랑 정리해줘",
+            "머지된 것들 정리해줘",
+            "머지된 브랜치 지워줘",
+            "remove the stale worktree and delete the merged branch",
+        ):
+            with self.subTest(request=request):
+                self.assertEqual("cleanup", classify_request(request)["route_shape"])
+
+    def test_widened_cleanup_grammar_still_needs_a_cleanup_object(self) -> None:
+        """The nominaliser carries no object of its own, so accepting it must
+        not let any short imperative through.
+        """
+
+        for request in (
+            "머지된 것들 구현해줘",
+            "남은거 테스트해줘",
+            "이거 정리해줘",
+        ):
+            with self.subTest(request=request):
+                self.assertNotEqual("cleanup", classify_request(request)["route_shape"])
+
     def test_cleanup_does_not_capture_code_questions_or_bare_continuations(self) -> None:
         for request in (
             "코드 정리해줘", "Review branch cleanup logic",
