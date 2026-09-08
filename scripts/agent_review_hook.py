@@ -17,6 +17,7 @@ from agent_finish_final_checks import record_successful_review_workflow_validati
 from agent_inprocess import run_workflow_validate
 from agent_review_boundary import format_boundary_note_requirements, missing_boundary_note_fields
 from agent_review_attestation import ReviewAttestation
+from agent_review_reuse import ReviewReuse
 from agent_review_commit_range import create_commit_snapshot, resolve_commit_range_subject
 from agent_review_structure import REVIEW_ADDED_LINE_LIMIT, structure_review
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
@@ -308,12 +309,11 @@ def _run_review_checks(
     status_before_lines: list[str],
     full_status_before_lines: list[str],
     local_config_scope: bool,
+    reused_checks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run every check the review attests, appending to `failures`.
 
-    This is the half of the hook that does the work, as against the half that
-    decides whether there is work to do. It returns the structure report, which
-    the verdict reads and which it also records in `checks`.
+    Return the structure report for the verdict and record it in `checks`.
     """
 
     snapshot: Any | None = None
@@ -326,18 +326,21 @@ def _run_review_checks(
                 run_command,
             )
             checks["commit_snapshot"] = snapshot_check
-        structure = structure_review(
-            args.project,
-            args.max_source_file_lines,
-            args.max_function_lines,
-            run_command,
-            None if review_subject["kind"] == "commit-range" else review_paths,
-            max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
-            source_project=source_project,
-            review_commits=(review_subject["base_sha"], review_subject["head_sha"])
-            if review_subject["kind"] == "commit-range"
-            else None,
-        )
+        if reused_checks is not None:
+            structure = reused_checks["structure_review"]
+        else:
+            structure = structure_review(
+                args.project,
+                args.max_source_file_lines,
+                args.max_function_lines,
+                run_command,
+                None if review_subject["kind"] == "commit-range" else review_paths,
+                max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
+                source_project=source_project,
+                review_commits=(review_subject["base_sha"], review_subject["head_sha"])
+                if review_subject["kind"] == "commit-range"
+                else None,
+            )
     except (OSError, RuntimeError, ValueError) as error:
         failures.append(f"commit snapshot materialization failed: {error}")
         structure = unavailable_structure_review(str(error))
@@ -365,6 +368,11 @@ def _run_review_checks(
     else:
         diff_check = run_command(diff_check_command(review_paths, review_subject), args.project)
     checks["diff_check"] = diff_check
+    if review_subject["kind"] == "working-tree" and not status_before.get("review_only"):
+        staged = run_command(["git", "diff", "--cached", "--check", "--", *review_paths], args.project)
+        checks["staged_diff_check"] = staged
+        if staged["returncode"] != 0:
+            failures.append("git diff --cached --check failed")
     if diff_check["returncode"] != 0:
         failures.append("git diff --check failed")
 
@@ -376,7 +384,10 @@ def _run_review_checks(
         failures,
         review_subject=review_subject,
     )
-    record_review_workflow_validation(args, checks, failures)
+    if reused_checks is None:
+        record_review_workflow_validation(args, checks, failures)
+    else:
+        checks["workflow_validate"] = reused_checks["workflow_validate"]
     record_review_vibeguard(
         args,
         run_command,
@@ -411,6 +422,7 @@ def _review_verdict(
     review_scope: str,
     finish_with_result: FinishWithResult,
     on_invocation_error: Callable[[], None] | None,
+    reuse: ReviewReuse | None = None,
 ) -> int:
     """Record the attestation and answer with it."""
 
@@ -437,6 +449,8 @@ def _review_verdict(
                 review_scope,
             )
             record_review_gate(args, checks)
+            if reuse is not None:
+                reuse.publish(checks)
         except OSError as error:
             failures.append(f"review attestation failed: {error}")
             attestation_invocation_failure = True
@@ -461,6 +475,8 @@ def _review_verdict(
             str(getattr(args, "allow_vibeguard_review", "") or "").strip(),
         )
     )
+    if not failures and (checks.get("review_checks") or {}).get("source_attestation"):
+        details.append("structure and workflow checks reused from a matching review attestation; current diff, base, VibeGuard, and stability checked")
     return finish_with_result(
         "review",
         not failures,
@@ -548,6 +564,8 @@ def review_hook(
 
     record_review_input_evidence(args, checks, failures)
 
+    reuse = ReviewReuse(args, review_paths, review_subject)
+    reused_checks = reuse.load()
     structure = _run_review_checks(
         args,
         checks,
@@ -563,7 +581,9 @@ def review_hook(
         status_before_lines=status_before_lines,
         full_status_before_lines=full_status_before_lines,
         local_config_scope=local_config_scope,
+        reused_checks=reused_checks,
     )
+    reuse.complete(checks, failures)
 
     return _review_verdict(
         args,
@@ -573,6 +593,7 @@ def review_hook(
         review_scope,
         finish_with_result,
         on_invocation_error,
+        reuse=reuse,
     )
 
 

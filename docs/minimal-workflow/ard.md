@@ -93,6 +93,26 @@ inputs cannot be reused automatically. Preserve independent results whose inputs
 did not change. One final snapshot comparison prevents mutation during checking
 from producing a valid receipt for stale bytes.
 
+### Commit review check reuse
+
+The existing review hook can reuse its machine-produced structure and workflow
+validation results on a `commit` or `git_commit` follow-up. No extra agent call
+is required. A bounded latest receipt is derived from the successful review
+attestation; it is an optimization, not a second authoritative ledger.
+
+The match covers the exact project, HEAD, changed file contents and modes,
+review scope, rules and checker inputs, and review limits. Staging identical
+working bytes does not itself change those inputs. Partial staging, changed
+files, changed rules, missing or malformed provenance, and unsupported review
+subjects fall back to ordinary checks. Capture inputs before checking and
+compare them afterward before preserving a reusable result.
+
+Authority, prerequisite gates, the current diff and base, safety checks, and
+final worktree stability remain current-run checks. Reused results are named
+in the current attestation. This does not cache arbitrary test commands or
+turn an agent-authored test summary into execution evidence. The proposed
+single-call commit readiness interface remains separate future work.
+
 ## Migration and falsifying checks
 
 1. Accept PRD/ARD through the product decision boundary before implementing new

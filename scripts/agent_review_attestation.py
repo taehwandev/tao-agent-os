@@ -39,12 +39,9 @@ class ReviewAttestation:
 
     @staticmethod
     def path(evidence_path: Path) -> Path:
-        name = (
-            "review-attestation.json"
-            if evidence_path.name == "preflight.json"
-            else f"{evidence_path.stem}-review-attestation.json"
-        )
-        return evidence_path.parent / name
+        if evidence_path.name == "preflight.json":
+            return evidence_path.with_name("review-attestation.json")
+        return evidence_path.with_name(f"{evidence_path.stem}-review-attestation.json")
 
     @staticmethod
     def local_config_subject(project: Path, review_paths: list[str]) -> dict[str, Any]:
@@ -110,7 +107,11 @@ class ReviewAttestation:
                 "worktree_unchanged": True,
             },
         }
+        if checks.get("review_checks") is not None:
+            payload["review_checks"] = dict(checks["review_checks"])
         payload["attestation_id"] = _attestation_id(payload)
+        if "review_checks" in payload and _record_shape_failures(payload):
+            raise ValueError("review hook check provenance is invalid")
         atomic_write_json(ReviewAttestation.path(evidence_path), payload)
         return payload
 
@@ -442,6 +443,17 @@ def _record_shape_failures(record: dict[str, Any]) -> list[str]:
         if set(record) != legacy_keys:
             return ["review hook attestation schema fields are invalid"]
         expected_keys = legacy_keys
+    if "review_checks" in record and schema_version == SCHEMA_VERSION:
+        expected_keys.add("review_checks")
+        receipt = record["review_checks"]
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != {"snapshot_sha256", "results_sha256", "source_attestation"}
+            or not is_sha256(receipt.get("snapshot_sha256"))
+            or not is_sha256(receipt.get("results_sha256"))
+            or not (receipt.get("source_attestation") == "" or is_sha256(receipt.get("source_attestation")))
+        ):
+            return ["review hook check provenance is invalid"]
     if set(record) != expected_keys:
         return ["review hook attestation schema fields are invalid"]
     if schema_version not in {1, 2, SCHEMA_VERSION} or record.get("status") != "SUCCESS":
