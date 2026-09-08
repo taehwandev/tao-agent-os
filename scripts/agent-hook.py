@@ -138,6 +138,8 @@ def _preflight_arguments(args: argparse.Namespace) -> list[str]:
         command.extend(["--platform", platform])
     for concern in args.concern:
         command.extend(["--concern", concern])
+    for path in getattr(args, "surface_path", []):
+        command.extend(["--surface-path", path])
     if args.read_only:
         command.append("--read-only")
     if args.evidence:
@@ -1071,6 +1073,8 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="declare a non-mutating analysis run and skip VibeGuard audits",
     )
+    start.add_argument("--surface-path", action="append", default=[],
+                       help="repository-verified owner path for guidance routing")
     start.add_argument("--platform", action="append", default=[])
     start.add_argument(
         "--concern",
@@ -1599,6 +1603,11 @@ def _name_timing_sink(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = build_parser()
     args = _parse_args(parser)
+    from agent_lookup_start import lookup_start
+
+    lookup_result = lookup_start(args)
+    if lookup_result is not None:
+        return lookup_result
     if args.hook == "fingerprint":
         # Answered entirely from the arguments: no evidence path, no worker
         # boundary, and no heartbeat -- a registry write here would turn the

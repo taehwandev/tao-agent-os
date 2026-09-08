@@ -66,8 +66,9 @@ freshness, secrets boundary, repo-local rules, and commit readiness still apply.
 ## Read
 
 - Repo-local commit, branch, signing, and generated-file rules.
-- `common/skills/branch-strategy/SKILL.md` when creating, checking, naming, pushing, or
-  opening PRs from work branches.
+- `common/skills/branch-strategy/SKILL.md` only for a new branch decision or an
+  unresolved source/target ambiguity. Checking an existing branch or publishing
+  it does not itself require another branch-strategy reading.
 - Current `git status --short --untracked-files=all`.
 - Final diff for every file to be committed.
 - Verification output for the changed boundary.

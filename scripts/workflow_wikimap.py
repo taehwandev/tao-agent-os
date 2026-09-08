@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Sequence
 from support.project_tree import PRUNED_DIRECTORIES, iter_project_files
 from support.stage_timing import stage
+from workflow_gate_policy import READ_ONLY_LOOKUP
 
 
 WIKIMAP_VERSION = "1.0.0"
@@ -87,7 +88,14 @@ def search_wikimap(root: Path, queries: Sequence[str], max_results: int) -> Wiki
     if error:
         return WikimapSearchResult(results=[], error=error)
 
-    error = _ensure_index(str(root))
+    if READ_ONLY_LOOKUP.get():
+        signature = _corpus_signature(root)
+        error = (
+            "" if signature and _index_receipt(root) == signature else
+            "read-only lookup requires an existing current index; using local fallback"
+        )
+    else:
+        error = _ensure_index(str(root))
     if error:
         return WikimapSearchResult(results=[], error=error)
 

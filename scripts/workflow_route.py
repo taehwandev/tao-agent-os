@@ -463,6 +463,7 @@ def resolve_docs(
     notes.extend(graphify_context["notes"])
 
     route = {
+        "lifecycle_version": 2,
         "root": str(ROOT),
         "command": command,
         "platform": platform,

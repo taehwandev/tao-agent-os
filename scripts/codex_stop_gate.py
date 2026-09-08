@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Codex Stop gate for exact-session Tao Agent OS closeout.
+"""Versioned Codex Stop handling for an exact Tao runtime session.
 
-An active run proves that this Codex session started project work and has not
-yet passed the provider-neutral finish lifecycle. The first Stop continues the
-turn with an actionable closeout request. If the continued turn still has the
-same active run, stop it explicitly instead of creating an infinite hook loop.
+Version 2 retains unfinished work without forcing another turn or claiming
+completion. Legacy runs keep their original closeout request and bounded retry.
 
 The gate deliberately does not inspect prompts, transcripts, diffs, or the last
 assistant message. Retrospective and reusable-skill decisions remain owned by
@@ -21,6 +19,7 @@ from pathlib import Path
 try:
     from agent_project_search import instruction_files, project_markers
     from agent_runtime_session import resolve_runtime_evidence
+    from agent_run_interruption import record_turn_boundary
     from support.global_state import prefer_git_root
     from support.setup_config_files import read_json
     from support.stable_launcher import stable_launcher_path
@@ -29,6 +28,7 @@ except ImportError:  # pragma: no cover - only a broken installation reaches thi
     project_markers = None
     prefer_git_root = None
     resolve_runtime_evidence = None
+    record_turn_boundary = None
     read_json = None
     stable_launcher_path = None
 
@@ -102,6 +102,9 @@ def decide(payload: dict) -> int:
         root, {"runtime": "codex", "session_id": session_id}
     )
     if evidence is None:
+        return allow()
+
+    if record_turn_boundary is not None and record_turn_boundary(root, "codex", session_id, evidence):
         return allow()
 
     reason = closeout_reason(root, evidence)

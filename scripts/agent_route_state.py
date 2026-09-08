@@ -20,6 +20,8 @@ def route_fingerprint(route: dict[str, Any]) -> str:
         "reference_docs": route.get("reference_docs") or [],
         "gates": route.get("gates") or [],
     }
+    if "lifecycle_version" in route:
+        stable["lifecycle_version"] = route["lifecycle_version"]
     payload = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

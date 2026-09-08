@@ -13,9 +13,11 @@ from agent_continuation_packet import ContinuationPacketError
 from agent_continuation_store import continuation_path, read_continuation_packet, write_continuation_packet
 from agent_execution_capsule_state import atomic_write_json, git_states_for_paths, read_json_object
 from agent_run_owner import process_owner
+from agent_route_state import route_fingerprint
+from agent_runtime_session import runtime_session
 from agent_run_registry import read_registry_state, registry_path, resume_holder_state
 from agent_state_lock import project_state_lock, state_lock
-FREE_HOLDER_STATES = ("dead_proven", "unproven_expired")
+FREE_HOLDER_STATES = ("dead_proven", "unproven_expired", "same_session_stopped")
 TERMINAL_RUN_STATES = ("completed", "cancelled")
 HOLDER_REFUSALS = {"live": "live_owner_refused", "unproven_wait": "owner_unproven_wait"}
 
@@ -64,7 +66,18 @@ def _reserve(
         packet, binding, binding_path, packet_refusal = _bound_packet(project, run_id)
         if packet_refusal:
             return packet_refusal
+        version = (binding.get("route") or {}).get("lifecycle_version", 1)
+        if type(version) is not int or version not in (1, 2):
+            return _refusal("unsupported_lifecycle", run_id)
+        stopped = run.get("state") in {"blocked", "interrupted"}
+        if stopped and (
+            version != 2
+            or run.get("route_fingerprint") != route_fingerprint(binding.get("route") or {})
+        ):
+            return _refusal("invalid_packet", run_id)
         holder = resume_holder_state(run, stale_after_seconds=stale_after_seconds)
+        if stopped_session_matches(run, binding):
+            holder = "same_session_stopped"
         if int(run.get("resume_generation") or 0) != int(expected_generation):
             return _refusal("claim_lost", run_id, holder_state=holder)
         if holder in HOLDER_REFUSALS:
@@ -314,3 +327,15 @@ def _refusal(
         "packet": None,
         "failures": failures or [],
     }
+
+
+def stopped_session_matches(run: dict[str, Any], binding: dict[str, Any]) -> bool:
+    """A stopped live process may reclaim only its own exact runtime session."""
+    session = runtime_session()
+    return (
+        run.get("state") in {"blocked", "interrupted"}
+        and bool(session.get("session_id"))
+        and binding.get("runtime_session") == session
+        and type((binding.get("route") or {}).get("lifecycle_version")) is int
+        and (binding.get("route") or {}).get("lifecycle_version") == 2
+    )

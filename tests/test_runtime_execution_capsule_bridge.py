@@ -23,6 +23,7 @@ from support.runtime_bridge import (
     RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE,
     RUNTIME_NATIVE_DELEGATION_PHRASES,
     RUNTIME_READING_BRIDGE_PHRASE,
+    RUNTIME_LOOKUP_BRIDGE_PHRASE,
     CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE,
     RUNTIME_START_BRIDGE_PHRASE,
     merge_runtime_bridge,
@@ -50,6 +51,20 @@ def _surface_text(path: Path) -> str:
     )
 
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
+    def test_installed_bridges_exempt_stateless_lookup_before_tracked_lifecycle(self) -> None:
+        for runtime, filename in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md")):
+            with self.subTest(runtime=runtime):
+                block = runtime_bridge_block(ROOT, runtime, filename)
+                self.assertIn(RUNTIME_LOOKUP_BRIDGE_PHRASE,
+                              runtime_bridge_required_phrases(runtime, filename))
+                self.assertLess(block.index(RUNTIME_LOOKUP_BRIDGE_PHRASE),
+                                block.index(RUNTIME_START_BRIDGE_PHRASE))
+                self.assertIn("without start, fingerprint, mailbox, checkpoint, gate, review, or finish",
+                              RUNTIME_LOOKUP_BRIDGE_PHRASE)
+                self.assertIn("does not authorize edits", RUNTIME_LOOKUP_BRIDGE_PHRASE)
+                self.assertIn("neither outcome is completion or commit readiness",
+                              RUNTIME_LOOKUP_BRIDGE_PHRASE)
+
     def test_codex_bridge_requires_observed_permission_evidence(self) -> None:
         phrase = CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE
         self.assertIn(phrase, runtime_bridge_required_phrases("Codex", "AGENTS.md"))

@@ -37,6 +37,8 @@ RUN_STATES = frozenset(
         "completed",
         "cancelled",
         "reconcile_required",
+        "blocked",
+        "interrupted",
     }
 )
 TRANSFER_CANCELLABLE_RUN_STATES = frozenset(

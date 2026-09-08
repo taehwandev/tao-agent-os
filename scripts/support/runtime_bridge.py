@@ -77,8 +77,19 @@ LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE = (
     "or API and never creates a daemon, watcher, polling loop, background process, or external service. "
     "An idle target remains idle until its next normal prompt."
 )
+RUNTIME_LOOKUP_BRIDGE_PHRASE = (
+    "For read-only lookup, explanation, or status, inspect bounded direct evidence and answer "
+    "without start, fingerprint, mailbox, checkpoint, gate, review, or finish calls. Read applicable "
+    "project instructions and needed source documents; do not refresh indexes or create task state "
+    "just to answer. This exception does not authorize edits or waive a target project's explicit "
+    "workflow. If compatibility tooling calls start --command analysis without existing evidence, "
+    "it validates the read-only intake and returns stateless guidance. Existing tracked runs keep "
+    "their pinned lifecycle. For new lifecycle version 2 runs, a Stop boundary may retain blocked "
+    "or interrupted work without forcing another turn; neither outcome is completion or commit "
+    "readiness. Report unfinished work accurately and revalidate scope and authority on resume."
+)
 RUNTIME_START_BRIDGE_PHRASE = (
-    "For multi-step work, run Tao Agent OS agent-hook.py start once; do not separately repeat "
+    "For multi-step work requiring a tracked lifecycle, run Tao Agent OS agent-hook.py start once; do not separately repeat "
     "workflow list, classify, route, or preflight. Always pass --request with the real user request. "
     "A work route additionally requires --intent-envelope and --runtime-session-id: build the "
     "envelope from the full conversation, bind it to the exact request fingerprint and the current "
@@ -98,8 +109,9 @@ RUNTIME_START_BRIDGE_PHRASE = (
     "exact request and workflow command; that flag never replaces the envelope."
 )
 RUNTIME_FINISH_BRIDGE_PHRASE = (
-    "For multi-step work, run Tao Agent OS agent-hook.py finish before final report, commit, "
-    "release, or handoff; direct agent-finish-check.py is a lower-level fallback only."
+    "For tracked work claiming completion, run Tao Agent OS agent-hook.py finish before final "
+    "report, commit, release, or handoff; direct agent-finish-check.py is a lower-level fallback "
+    "only. Stateless lookup has no finish; blocked or interrupted work must not claim completion."
 )
 RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE = (
     "Immediately before finish, compare the active route's exact gate list with the gate ledger "
@@ -162,6 +174,7 @@ RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES = [
     "If project discovery returns ambiguous or not_found, ask the user for the target project before routing, editing, testing, committing, or reporting completion.",
     "Before project work, open the project-root instruction file for the active runtime.",
     RUNTIME_READING_BRIDGE_PHRASE,
+    RUNTIME_LOOKUP_BRIDGE_PHRASE,
     RUNTIME_START_BRIDGE_PHRASE,
     *RUNTIME_BRIDGE_GRAPH_PHRASES,
     *RUNTIME_CAPSULE_BRIDGE_PHRASES,
@@ -213,6 +226,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         f"- {runtime_name} reads {instruction_file}.",
         "- Read project-root instructions before Tao Agent OS shared guidance.",
         f"- {RUNTIME_READING_BRIDGE_PHRASE}",
+        f"- {RUNTIME_LOOKUP_BRIDGE_PHRASE}",
         f"- {RUNTIME_START_BRIDGE_PHRASE}",
         "- Use the route/search output from that start hook for the user's current request; route/search owns natural-language document discovery.",
         "- Do not wait for the user to name document keywords; use request artifacts and paths as candidates, then verify the change-owning work surface with bounded read-only repository evidence before task-specific reading or edits.",

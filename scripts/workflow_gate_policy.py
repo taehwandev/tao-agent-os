@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 from agent_skill_state import CURRENT_TASK_REVIEW_THRESHOLD
+
+READ_ONLY_LOOKUP: ContextVar[bool] = ContextVar("read_only_lookup", default=False)
 
 
 WORK_PRODUCING_COMMANDS = {
