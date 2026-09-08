@@ -34,7 +34,10 @@ def _intake_gate_decision(
         route = "product" if has_broad else "none"
         reason = _direct_question_reason(has_broad)
         return route, False, "answer_first", reason
-    if has_risky and not has_broad and not (has_exact or has_scoped):
+    if (
+        has_risky and not has_broad and not (has_exact or has_scoped)
+        and not flags.get("has_branch_cleanup_action")
+    ):
         flags["clarity"] = "risky-unclear"
         flags["effort"] = "deep"
         return (
@@ -79,6 +82,19 @@ def _explicit_action_decision(
             "The user explicitly reports that a previously completed result was wrong "
             "and asks to correct that same result; repair the failed closeout before "
             "resuming the original work.",
+        )
+    if (
+        flags.get("has_branch_cleanup_action")
+        and not flags["has_commit_action"]
+        and not flags["has_release_action"]
+        and not flags["has_test_action"]
+        and not flags["has_workflow_setup_action"]
+    ):
+        flags["clarity"] = "clear-scoped"
+        flags["effort"] = "quick"
+        return (
+            "cleanup", False, "work",
+            "The request removes Git branches or worktrees; use the existing cleanup safety contract.",
         )
     if review_only_request:
         flags["clarity"] = "clear-scoped"

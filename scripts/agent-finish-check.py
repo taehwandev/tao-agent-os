@@ -40,6 +40,7 @@ from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_review_attestation import REVIEW_HOOK_GATE
 from agent_skill_backlog import format_skill_backlog, skill_backlog_summary
 from agent_skill_followup import skill_followup_failures
+from workflow_effect_policy import route_minimum_effect
 
 
 def build_parser(tao_root: Path) -> argparse.ArgumentParser:
@@ -349,7 +350,7 @@ def effective_read_only(
 ) -> bool:
     return bool(
         (preflight.get("execution_mode") or {}).get("read_only")
-        or route.get("command") == "analysis"
+        or route_minimum_effect(str(route.get("command") or "")) == "read"
     )
 
 

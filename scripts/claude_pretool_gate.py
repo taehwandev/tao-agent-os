@@ -534,6 +534,31 @@ def session_evidence(root: Path, session_id: str) -> Path | None:
     )
 
 
+def _read_run_mutation_denial(roots: list[Path], session_id: str, kind: str) -> str | None:
+    """Honor an active read contract even when isolation waives workflow entry."""
+    if kind == "workflow_start":
+        return None  # Starting a properly authorized replacement is the remedy.
+    from workflow_effect_policy import route_minimum_effect
+
+    for root in roots:
+        evidence = session_evidence(root, session_id)
+        if evidence is None:
+            continue  # Existing entry policy still decides runs without evidence.
+        try:
+            payload = json.loads(evidence.read_text(encoding="utf-8"))
+            command = str(payload.get("route", {}).get("command") or "")
+            explicit = payload.get("execution_mode", {}).get("read_only")
+        except (OSError, ValueError, AttributeError, TypeError):
+            return "Active run evidence cannot be read; refresh workflow entry before writing."
+        if explicit or route_minimum_effect(command) == "read":
+            return (
+                f"Active route `{command}` is read-only; start an authorized writable "
+                "route before this mutating tool call. Worktree isolation does not "
+                "waive the read-only contract."
+            )
+    return None
+
+
 def is_run_local_continuation_evidence(project: Path, evidence: Path | None) -> bool:
     reader = _run_evidence_reader()
     if reader is None:
@@ -1649,6 +1674,11 @@ def decide(payload: dict) -> int:
         return _ungoverned_project_verdict(cwd, tokens)
     if tool in BASH_TOOLS and bash_kind == "read_only":
         return allow()
+    read_denial = _read_run_mutation_denial(
+        roots, str(payload.get("session_id") or ""), bash_kind
+    )
+    if read_denial:
+        return deny(read_denial)
     if tool in BASH_TOOLS and bash_kind == "bootstrap":
         # The hazard list is consulted here too. Nothing Git classifies as
         # bootstrap is destructive today -- `fetch` and `worktree add` are the

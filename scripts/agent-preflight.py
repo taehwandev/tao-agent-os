@@ -41,6 +41,7 @@ from workflow_classified_exemption import (
 from workflow_intent_dual_run import route_intake_decision
 from workflow_intent_envelope import read_approval_record, read_intent_envelope
 from workflow_request import infer_concerns_from_request
+from workflow_effect_policy import route_minimum_effect
 from workflow_route import resolve_docs
 
 
@@ -510,7 +511,7 @@ def collect_failures(
 
 
 def effective_read_only(command: str, requested: bool) -> bool:
-    return requested or command == "analysis"
+    return requested or route_minimum_effect(command) == "read"
 
 
 def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:

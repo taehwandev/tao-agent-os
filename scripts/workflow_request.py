@@ -246,6 +246,8 @@ def _route_shape(answer_only: bool, normalized: str, lowered: str) -> tuple[str,
 
     if answer_only:
         return "none", "answer_first"
+    if re.fullmatch(r"정리(?:도)?\s*(?:해줘|해주세요)[.!]?", normalized):
+        return "triage", "clarify_first"
     try:
         flags = _request_flags(normalized, lowered)
         decided, _drill, mode, _reason = classification_decision(flags)
@@ -382,6 +384,22 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
     return {
         "normalized": normalized,
         "lowered": lowered,
+        "has_branch_cleanup_action": bool(
+            re.fullmatch(
+                r"(?:(?:please\s+)?(?:clean[ -]?up|delete|remove|prune)\s+"
+                r"(?:(?:the|all|merged|stale|local|remote)\s+)*"
+                r"(?:(?:branch|worktree)(?:\s+`?[a-z0-9_./-]+`?)?|branches|worktrees)"
+                r"(?:\s+(?:and|,)\s+(?:(?:their|merged|stale|local|remote)\s+)*"
+                r"(?:branch(?:es)?|worktrees?))*|"
+                r"(?:(?:머지된|병합된|로컬|원격|남은)\s*)*"
+                r"(?:브랜치|워크트리)(?:(?:와|과|랑|하고|/|,|\s+및)\s*(?:브랜치|워크트리))*"
+                r"(?:도|을|를)?\s*(?:정리|삭제|제거)\s*(?:해줘|해주세요|해줄래))[.!]?",
+                lowered,
+            )
+            and not _matches(RISKY_PATTERNS, re.sub(r"\bdelete\b", "", lowered))
+            and not re.search(r"\b(?:code|logic|script|docs|implementation)\b|코드|로직|문서", lowered)
+            and not re.search(r"\b(?:do not|don't|never|without)\b|하지\s*마|말고", lowered)
+        ),
         "has_exact": has_exact,
         "has_scoped": has_scoped,
         "has_broad": has_broad,

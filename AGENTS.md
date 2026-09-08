@@ -116,9 +116,26 @@ ambiguous, unresolved, or blocker-open stays on `triage` or `ambiguity`.
 Weak markers such as “classified”, “done”, or generic “clarified” do not prove
 scope resolution.
 
-Read-only `analysis` is intrinsically non-mutating. `start --read-only` on
-another route makes the same whole-run claim; finish rejects any worktree
-movement. Do not use it to bypass VibeGuard.
+Every route whose minimum effect is `read` is intrinsically non-mutating.
+Before a writing action, start a matching writable route with current scope
+and authority; a higher declared or tool effect does not upgrade a read route's
+frozen gate manifest. Finish rejects workspace drift on all read-floor routes,
+including legacy evidence without an explicit read-only flag. `start --read-only`
+on another route makes the same whole-run claim. Do not bypass VibeGuard.
+`retrospective` has a `local_write` floor because its existing repair and
+same-closeout maintenance contract includes canonical document edits. Use
+`analysis` for reflection without edits; an explicit `--read-only` claim still
+prevents writes even on `retrospective`.
+
+For merged-branch and worktree removal, select `cleanup`, not `task` or
+`code-simplify`. For a terse follow-up such as "정리도해줘", resolve the exact
+Git targets from the current conversation before selecting `cleanup`; the bare
+phrase or continuation scope alone grants no deletion authority. Mixed code
+changes and cleanup are separate action scopes, not a shortcut into cleanup.
+The Claude PreToolUse adapter rejects mutating tools for an active read-only
+run before worktree-entry waivers; read-only commands retain their fast path
+and workflow start remains available for a legitimate route transition. This
+adapter does not imply native pre-tool enforcement in other runtimes.
 
 Compatibility `start --command analysis` without existing evidence validates its
 read-only intake and returns stateless guidance. Explicit legacy evidence retains

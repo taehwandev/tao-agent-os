@@ -16,6 +16,38 @@ from workflow_request import classify_request, infer_concerns_from_request
 
 
 class WorkflowRequestIntakeTests(unittest.TestCase):
+    def test_branch_cleanup_shape_does_not_grant_authority(self) -> None:
+        for request in (
+            "머지된 브랜치와 워크트리 정리해줘",
+            "Clean up merged branches and worktrees",
+            "Delete merged remote branches",
+            "Delete merged branch fix/example",
+            "Remove the merged worktree",
+        ):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertEqual("cleanup", result["route_shape"])
+                self.assertEqual("triage", result["recommended_route"])
+
+    def test_cleanup_does_not_capture_code_questions_or_bare_continuations(self) -> None:
+        for request in (
+            "코드 정리해줘", "Review branch cleanup logic",
+            "브랜치 정리가 뭐야?", "정리도해줘",
+            "Do not delete branches; review them",
+            "Fix branch cleanup code",
+            "Clean up merged branches and delete the production database",
+            "Clean up merged branches and remove all project files",
+            "브랜치 정리해줘 그리고 운영 데이터도 삭제해줘",
+            "Clean up merged branches; deploy the app",
+        ):
+            with self.subTest(request=request):
+                self.assertNotEqual("cleanup", classify_request(request)["route_shape"])
+
+    def test_bare_cleanup_does_not_default_to_task_or_infer_authority(self) -> None:
+        result = classify_request("정리도해줘", continuation_scope="Merged branches and worktrees")
+        self.assertEqual("triage", result["route_shape"])
+        self.assertEqual("triage", result["recommended_route"])
+
     def test_natural_language_never_selects_a_work_route(self) -> None:
         requests = (
             "코드 정리해줘",

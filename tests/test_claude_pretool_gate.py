@@ -78,7 +78,10 @@ def _require_linked_worktree(project: Path, *, linked: bool = False) -> None:
     )
 
 
-def _write_preflight(project: Path, session_id: str | None = None) -> None:
+def _write_preflight(
+    project: Path, session_id: str | None = None, *,
+    command: str = "task", read_only: bool = False,
+) -> None:
     """Write preflight evidence the way `start` does, stamped with its session."""
     if session_id is None:
         (project / ".tao" / "preflight.json").write_text("{}", encoding="utf-8")
@@ -86,7 +89,7 @@ def _write_preflight(project: Path, session_id: str | None = None) -> None:
     session = {"runtime": "claude", "session_id": session_id}
     if resolve_runtime_evidence(project, session) is not None:
         return
-    route = {"command": "task", "gates": ["finish"], "required_docs": []}
+    route = {"command": command, "gates": ["finish"], "required_docs": []}
     intake = {"request": "test request", "request_classified": False}
     run_id = uuid.uuid4().hex
     evidence = project / ".tao" / "runs" / run_id / "preflight.json"
@@ -99,6 +102,7 @@ def _write_preflight(project: Path, session_id: str | None = None) -> None:
         "route": route,
         "request_intake": intake,
         "runtime_session": session,
+        "execution_mode": {"read_only": read_only},
         "execution_snapshot": {
             "schema_version": PREFLIGHT_SNAPSHOT_SCHEMA_VERSION,
             "route_fingerprint": route_fingerprint(route),
@@ -180,6 +184,79 @@ STOP_DECISION = "deny"
 
 
 class ClaudePreToolGateTests(unittest.TestCase):
+    def test_retrospective_edits_allowed_unless_explicit_read_only(self) -> None:
+        for read_only in (False, True):
+            with self.subTest(read_only=read_only), tempfile.TemporaryDirectory() as tmp:
+                project = _opt_in_project(Path(tmp))
+                _write_preflight(project, "maintenance", command="retrospective", read_only=read_only)
+                _, out = _decide({"tool_name": "Edit", "cwd": str(project),
+                                  "tool_input": {"file_path": str(project / "AGENTS.md")},
+                                  "session_id": "maintenance"})
+                if read_only:
+                    self.assertIn("read-only", _reason(out))
+                else:
+                    self.assertEqual("", out)
+
+    def test_active_read_run_denies_edit_and_bash_even_with_worktree_waiver(self) -> None:
+        from workflow_effect_policy import ROUTE_MINIMUM_EFFECT
+
+        for command, effect in ROUTE_MINIMUM_EFFECT.items():
+            if effect != "read":
+                continue
+            for linked in (False, True):
+                with self.subTest(command=command, linked=linked), tempfile.TemporaryDirectory() as tmp:
+                    project = _opt_in_project(Path(tmp))
+                    _write_preflight(project, "read-session", command=command)
+                    if linked:
+                        _require_linked_worktree(project, linked=True)
+                    for tool, tool_input in (
+                        ("Edit", {"file_path": str(project / "source.py")}),
+                        ("Write", {"file_path": str(project / "source.py")}),
+                        ("Bash", {"command": "echo changed > source.py"}),
+                    ):
+                        _, out = _decide({"tool_name": tool, "tool_input": tool_input,
+                                          "cwd": str(project), "session_id": "read-session"})
+                        self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+                        self.assertIn("authorized writable", _reason(out))
+                    self.assertFalse((project / "source.py").exists())
+
+    def test_explicit_read_only_task_also_denies_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project, "read-task", read_only=True)
+            _, out = _decide({"tool_name": "Edit", "cwd": str(project), "session_id": "read-task"})
+            self.assertIn("read-only", _reason(out))
+
+    def test_read_run_can_start_writable_route_but_not_use_bootstrap_to_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project, "read-transition", command="review")
+            base = {"tool_name": "Bash", "cwd": str(project), "session_id": "read-transition"}
+            _, start_out = _decide({**base, "tool_input": {
+                "command": f"{gate.stable_launcher_path()} start --project {project}"
+            }})
+            self.assertEqual("", start_out)
+            _, write_out = _decide({**base, "tool_input": {"command": "git worktree add ../task"}})
+            self.assertIn("authorized writable", _reason(write_out))
+
+    def test_unreadable_active_evidence_does_not_allow_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            evidence = project / "broken.json"
+            evidence.write_text("not json", encoding="utf-8")
+            with patch.object(gate, "session_evidence", return_value=evidence):
+                _, out = _decide({"tool_name": "Edit", "cwd": str(project), "session_id": "read"})
+            self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertIn("cannot be read", _reason(out))
+
+    def test_read_only_command_does_not_load_mutation_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            with patch.object(gate, "_read_run_mutation_denial", side_effect=AssertionError("not a mutation")):
+                _, out = _decide({"tool_name": "Bash", "cwd": str(project),
+                                  "tool_input": {"command": "git status --short"}, "session_id": "read"})
+            self.assertEqual("", out)
+
     def test_bash_outside_tao_project_is_allowed(self) -> None:
         code, out = _decide({"tool_name": "Bash", "cwd": "/tmp", "session_id": "s"})
         self.assertEqual(0, code)
@@ -1772,6 +1849,9 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project)
+            (project / "preflight.json").write_text(
+                json.dumps({"route": {"command": "task"}}), encoding="utf-8"
+            )
             with (
                 patch.dict(os.environ, {gate.MAIN_CHECKOUT_OVERRIDE_ENV: "1"}),
                 patch.object(gate, "workflow_entry_allows", return_value=True),
