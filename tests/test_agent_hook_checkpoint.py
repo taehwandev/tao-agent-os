@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import agent_hook_checkpoint
+from agent_continuation_fields import MAX_SHORT_TEXT, MAX_TEXT
 from test_agent_runtime_session import RuntimeFixture
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -49,6 +50,38 @@ def _stdin(payload: dict) -> io.TextIOWrapper:
 
 
 class CheckpointCommandTests(unittest.TestCase):
+    def test_overlong_prose_reports_canonical_limits_without_writing_or_echoing(self) -> None:
+        for field, limit in (("objective", MAX_TEXT), ("non_goals", MAX_SHORT_TEXT)):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                fixture = RuntimeFixture(directory)
+                before = fixture.packet()
+                value = "가" * (limit + 1)
+                work = {field: [value] if field == "non_goals" else value}
+                output = io.StringIO()
+                with patch.object(sys, "stdin", _stdin(work)), redirect_stdout(output):
+                    code = agent_hook_checkpoint.checkpoint_hook(_args(fixture))
+
+                self.assertNotEqual(0, code)
+                self.assertEqual(before, fixture.packet())
+                self.assertIn(f"prose_too_long@/work/{field}", output.getvalue())
+                self.assertIn(f"{MAX_TEXT} Unicode characters", output.getvalue())
+                self.assertIn(f"{MAX_SHORT_TEXT} for each non_goals entry", output.getvalue())
+                self.assertNotIn(value, output.getvalue())
+
+    def test_prose_accepts_unicode_characters_at_the_canonical_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            work = {
+                "objective": "가" * MAX_TEXT,
+                "non_goals": ["나" * MAX_SHORT_TEXT],
+            }
+            with patch.object(sys, "stdin", _stdin(work)), redirect_stdout(io.StringIO()):
+                code = agent_hook_checkpoint.checkpoint_hook(_args(fixture))
+
+            self.assertEqual(0, code)
+            self.assertEqual(work["objective"], fixture.packet()["work"]["objective"])
+            self.assertEqual(work["non_goals"], fixture.packet()["work"]["non_goals"])
+
     def test_template_cannot_silently_discard_a_requested_checkpoint(self) -> None:
         parser = agent_hook.build_parser()
         args = parser.parse_args([

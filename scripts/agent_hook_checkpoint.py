@@ -8,6 +8,7 @@ import sys
 from typing import Any
 
 from agent_continuation_checkpoint import CHECKPOINT_KINDS, write_continuation_checkpoint
+from agent_continuation_fields import MAX_SHORT_TEXT, MAX_TEXT
 from agent_continuation_packet import (
     MAX_PACKET_BYTES,
     MUTATION_KINDS,
@@ -80,9 +81,17 @@ def checkpoint_hook(args: argparse.Namespace) -> int:
         rules = ", ".join(
             f"{item['rule']}@{item['pointer']}" for item in error.failures
         )
+        prose_hint = ""
+        if any(item["rule"] == "prose_too_long" for item in error.failures):
+            prose_hint = (
+                f"Shorten the rejected prose to at most {MAX_TEXT} Unicode characters "
+                f"per field ({MAX_SHORT_TEXT} for each non_goals entry), not bytes. "
+                "Resubmit the bounded summary without truncating its meaning.\n"
+            )
         return _result(
             args, False,
             f"checkpoint refused: {rules}\n"
+            f"{prose_hint}"
             "Use checkpoint --work-template for minimal JSON, or --work-shape "
             "for optional fields. Keep scope paths repository-relative; evidence "
             "hashes must be real SHA-256 values, not result labels. A post_mutation "
