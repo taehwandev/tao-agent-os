@@ -418,6 +418,7 @@ def _review_verdict(
     # review finding: recording it as one would leave a failure in the ledger
     # that the agent cannot clear by fixing the diff.
     invocation_failure = review_input_invocation_failure(failures)
+    attestation_invocation_failure = False
     if invocation_failure and on_invocation_error is not None:
         on_invocation_error()
     if not failures:
@@ -436,12 +437,18 @@ def _review_verdict(
                 review_scope,
             )
             record_review_gate(args, checks)
-        except (OSError, RuntimeError, TypeError, ValueError) as error:
+        except OSError as error:
+            failures.append(f"review attestation failed: {error}")
+            attestation_invocation_failure = True
+            if on_invocation_error is not None:
+                on_invocation_error()
+        except (RuntimeError, TypeError, ValueError) as error:
             failures.append(f"review attestation failed: {error}")
             record_review_failure(args, failures)
     elif not invocation_failure:
         record_review_failure(args, failures)
 
+    invocation_failure = invocation_failure or attestation_invocation_failure
     details = (
         review_input_invocation_failure_details(failures, structure, review_scope)
         if invocation_failure

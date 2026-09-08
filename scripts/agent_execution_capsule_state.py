@@ -235,7 +235,11 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    temporary_path = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    # The state already lives below an ignored/private runtime directory.
+    # Keeping the sibling temporary file non-hidden preserves atomic replace
+    # while remaining writable in sandboxes that reject newly created hidden
+    # entries outside their primary workspace root.
+    temporary_path = path.parent / f"{path.name}.{uuid.uuid4().hex}.tmp"
     try:
         temporary_path.write_bytes(encoded)
         try:

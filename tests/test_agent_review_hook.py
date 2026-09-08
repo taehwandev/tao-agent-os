@@ -53,6 +53,7 @@ from agent_preflight_runtime import (
     _claude_spill_warnings,
 )
 from agent_review_hook import (
+    _review_verdict,
     record_review_failure,
     record_review_gate,
     record_review_prerequisite_readiness,
@@ -392,6 +393,77 @@ class ReviewHookTests(unittest.TestCase):
             )
             self.assertEqual(1, invocation_rollbacks)
             record_failure.assert_not_called()
+
+    def test_review_attestation_permission_denial_is_an_invocation_error(self) -> None:
+        args = SimpleNamespace(
+            project=ROOT,
+            rules=ROOT,
+            evidence=ROOT / ".tao" / "preflight.json",
+            output=None,
+            repair_cycle=0,
+            allow_vibeguard_review="",
+        )
+        checks = {
+            "workflow_validate": {"returncode": 0},
+            "diff_check": {"returncode": 0},
+            "vibeguard": {"overall": "Ready"},
+        }
+        structure = {
+            "scope": "changed development files",
+            "checked_paths": [],
+        }
+        result_payload: dict[str, object] = {}
+        invocation_rollbacks = 0
+
+        def rollback_repair_attempt() -> None:
+            nonlocal invocation_rollbacks
+            invocation_rollbacks += 1
+
+        def finish_with_result(
+            name: str,
+            success: bool,
+            details: list[str],
+            output: Path | None,
+            payload: dict[str, object],
+            repair_cycle: int,
+            invocation_error: bool = False,
+        ) -> int:
+            result_payload.update(
+                name=name,
+                success=success,
+                details=details,
+                invocation_error=invocation_error,
+            )
+            return 0 if success else 1
+
+        with (
+            patch(
+                "agent_review_hook.record_successful_review_workflow_validation",
+                side_effect=PermissionError(1, "Operation not permitted"),
+            ),
+            patch("agent_review_hook.record_review_failure") as record_failure,
+        ):
+            result = _review_verdict(
+                args,
+                checks,
+                [],
+                structure,
+                "pathspec: scripts/agent_review_hook.py",
+                finish_with_result,
+                rollback_repair_attempt,
+            )
+
+        self.assertEqual(1, result)
+        self.assertFalse(result_payload["success"])
+        self.assertTrue(result_payload["invocation_error"])
+        self.assertEqual(1, invocation_rollbacks)
+        self.assertTrue(
+            any(
+                "review attestation failed" in detail
+                for detail in result_payload["details"]
+            )
+        )
+        record_failure.assert_not_called()
 
     def test_review_hook_accepts_complete_pre_review_gate_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

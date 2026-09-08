@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,30 @@ def initialize_repository(project: Path) -> None:
 
 
 class AgentReviewValidationStateTests(unittest.TestCase):
+
+    def test_review_validation_cache_permission_denial_is_best_effort(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project = Path(temporary_directory)
+            initialize_repository(project)
+            evidence_path = project / ".tao" / "runs" / "review" / "preflight.json"
+            evidence_path.parent.mkdir(parents=True)
+            evidence_path.write_text(
+                json.dumps({"route": {"command": "refactor"}}),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "agent_finish_final_checks.atomic_write_json",
+                side_effect=PermissionError(1, "Operation not permitted"),
+            ):
+                record_successful_review_workflow_validation(
+                    project=project,
+                    rules=project,
+                    evidence_path=evidence_path,
+                    validate={"returncode": 0},
+                    diff_check={"returncode": 0},
+                    review_scope="pathspec: scripts/agent_finish_final_checks.py",
+                )
 
     def test_review_validation_uses_ignored_tao_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
