@@ -49,6 +49,21 @@ BRANCH_CLEANUP_REFERENCE = (
 
 
 class EntrypointResolutionTests(unittest.TestCase):
+    def test_normal_routes_never_require_the_full_navigation_catalog(self) -> None:
+        for command in ("analysis", "cleanup", "commit", "docs", "task", "bugfix"):
+            with self.subTest(command=command):
+                route = resolve_docs(command, None, [])
+                self.assertEqual([], route["missing"])
+                self.assertNotIn("index.md", route["required_docs"])
+                self.assertIn(OPERATING_SKILL, route["required_docs"])
+
+    def test_entry_navigation_does_not_recommend_duplicate_catalog_reading(self) -> None:
+        entry = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        catalog = (ROOT / "index.md").read_text(encoding="utf-8")
+        self.assertNotIn("Use `index.md` or the workflow router", entry)
+        self.assertIn("fallback catalog, not an", entry)
+        self.assertIn("not an additional startup requirement", catalog)
+
     def test_pointer_vote_excludes_project_runtime_skill_copies(self) -> None:
         """Generated runtime state cannot outvote repository-owned guidance."""
 
