@@ -91,6 +91,18 @@ class ReviewReuseTests(unittest.TestCase):
         self.assertEqual(commit.reused['attestation_id'], attestation['review_checks']['source_attestation'])
         self.assertNotIn('tests', attestation['review_checks'])
 
+    def test_publication_does_not_recapture_and_late_edits_still_miss(self):
+        source = self.cache()
+        failures = []
+        source.complete(self.checks, failures)
+        self.assertEqual([], failures)
+        record_review_gate(self.source, self.checks)
+        (self.project / 'source.py').write_text('value = 99\n')
+        with patch.object(source, 'capture', side_effect=AssertionError('redundant capture')):
+            source.publish(self.checks)
+        self.assertTrue(source.path.is_file())
+        self.assertIsNone(self.cache(self.staged_commit()).load())
+
     def test_unstaged_and_partially_staged_file_sets_miss(self):
         self.publish()
         args = self.args('commit', 'b' * 32)

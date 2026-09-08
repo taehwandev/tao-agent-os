@@ -78,8 +78,8 @@ class ReviewReuse:
         if not checks.get('review_checks') or self.before is None:
             return
         try:
-            if self.capture() != self.before:
-                return
+            # This is a derived cache, not current-run proof. complete() already
+            # checked stability; a later change makes the consumer snapshot miss.
             attestation = self.read(ReviewAttestation.path(self.evidence))
             if attestation.get('review_checks') != checks['review_checks']:
                 return

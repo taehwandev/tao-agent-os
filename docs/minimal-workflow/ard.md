@@ -106,6 +106,9 @@ working bytes does not itself change those inputs. Partial staging, changed
 files, changed rules, missing or malformed provenance, and unsupported review
 subjects fall back to ordinary checks. Capture inputs before checking and
 compare them afterward before preserving a reusable result.
+Publishing the derived cache does not scan those inputs a third time: the next
+consumer must match its freshly captured inputs against the recorded snapshot.
+A change after verification therefore makes the cache miss, not grant readiness.
 
 Authority, prerequisite gates, the current diff and base, safety checks, and
 final worktree stability remain current-run checks. Reused results are named
