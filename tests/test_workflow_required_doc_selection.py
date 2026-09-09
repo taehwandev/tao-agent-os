@@ -159,6 +159,31 @@ class EntrypointResolutionTests(unittest.TestCase):
 
 
 class RequiredDocMembershipTests(unittest.TestCase):
+    def test_verified_owner_lookup_skips_catalog_search_and_optional_queue(self) -> None:
+        with patch("workflow_route.search_docs_outcome") as search:
+            route = resolve_docs(
+                "analysis", None, [],
+                request_text="Explain the return value of classify_request in scripts/workflow_request.py",
+                surface_paths=["scripts/workflow_request.py"],
+            )
+        search.assert_not_called()
+        self.assertEqual([OPERATING_SKILL], route["required_docs"])
+        self.assertEqual([], route["reference_docs"])
+        self.assertEqual("owner-lookup", route["document_search"]["backend"])
+        self.assertEqual("resolved", route["document_search"]["status"])
+        self.assertFalse(route["missing"])
+
+    def test_request_path_alone_and_implementation_still_search(self) -> None:
+        from workflow_search import SearchOutcome
+        for command, paths in (("analysis", []), ("feature", ["scripts/workflow_request.py"])):
+            with self.subTest(command=command), patch(
+                "workflow_route.search_docs_outcome",
+                return_value=SearchOutcome(results=[], backend="fixture"),
+            ) as search:
+                resolve_docs(command, None, [], request_text="Inspect scripts/workflow_request.py",
+                             surface_paths=paths)
+                search.assert_called_once()
+
     def test_lookup_does_not_expand_incidental_implementation_candidates(self) -> None:
         from workflow_search import SearchOutcome
         candidate = "common/skills/code-conventions/SKILL.md"
@@ -187,7 +212,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
         edges = [{"path": dependency, "source": required, "relation": "frontmatter:requires"}]
         with patch("workflow_route.infer_surface_docs", return_value=([required], matches)), \
              patch("workflow_route.expand_doc_matches", return_value=edges):
-            route = resolve_docs("analysis", None, [])
+            route = resolve_docs("analysis", None, [], surface_paths=["scripts/workflow_request.py"])
         self.assertTrue(set(resolve_guidance_docs(ROOT, [required])).issubset(route["required_docs"]))
         self.assertIn(dependency, route["required_docs"])
         self.assertTrue(matches[0]["required_eligible"])

@@ -197,6 +197,10 @@ def _resolve_documents(
     """
 
     base_gates = route_gates(command)
+    # surface_paths are repository-verified owners, never raw request paths.
+    # Once a lookup has that anchor, searching the guidance catalog again only
+    # creates unrelated reading candidates. Explicit policy selection still runs.
+    owner_lookup = command == "analysis" and any(path.strip() for path in surface_paths)
     docs: list[str] = [*CORE_DOCS, *profile.docs]
     docs.extend(automatic_docs(command))
     docs.extend(
@@ -219,13 +223,14 @@ def _resolve_documents(
             request_text=request_text,
             surface_paths=surface_paths,
         )
-        search_outcome = (
-            search_docs_outcome(ROOT, request_text, max_results=12)
-            if request_text.strip()
-            else SearchOutcome(
+        if owner_lookup:
+            search_outcome = SearchOutcome(results=[], backend="owner-lookup")
+        elif request_text.strip():
+            search_outcome = search_docs_outcome(ROOT, request_text, max_results=12)
+        else:
+            search_outcome = SearchOutcome(
                 results=[], backend="wikimap", backend_version=WIKIMAP_VERSION
             )
-        )
         search_seed_docs = [str(item["path"]) for item in search_outcome.results]
         eligible_surface_docs = required_surface_docs(surface_matches)
         selected_sources = route_required_docs(
@@ -263,12 +268,21 @@ def _resolve_documents(
             and set(resolve_guidance_docs(ROOT, [str(match["source"])]))
             & set(selected_sources)
         )
+        if owner_lookup:
+            # Keep mandatory sources/dependencies and explicit concerns below;
+            # do not offer the generic catalog or incidental graph neighbors as
+            # a second reading queue after the code owner has been resolved.
+            docs = list(selected_sources)
+            surface_docs = []
+            doc_graph_matches = [
+                match for match in doc_graph_matches if str(match["path"]) in graph_required
+            ]
     graph_docs = [str(match["path"]) for match in doc_graph_matches]
     docs.extend(surface_docs)
     docs.extend(search_seed_docs)
     docs.extend(graph_docs)
 
-    if platform:
+    if platform and not owner_lookup:
         docs.extend(PLATFORMS[platform])
 
     for concern in concerns:
@@ -387,6 +401,13 @@ def _document_search_notes(
         return [
             "Skipped natural-language document search for the fixed cleanup route; "
             "its branch-cleanup contract owns the complete safety decision."
+        ]
+    if search_outcome.backend == "owner-lookup":
+        return [
+            "Skipped broad document search for a repository-verified lookup owner. "
+            "Read the answering code/contract and only necessary callers; retain "
+            "explicit required guidance and dependencies. Reopen discovery only "
+            "for an unresolved question, not to fill an optional reading queue."
         ]
 
     notes: list[str] = []
@@ -552,6 +573,12 @@ def _document_resolution(
             "status": "resolved",
             "terminal": True,
             "reason": "The fixed cleanup route uses its deterministic safety contract.",
+        }
+    if search_outcome.backend == "owner-lookup":
+        return {
+            "status": "resolved",
+            "terminal": True,
+            "reason": "A verified lookup owner makes broad document search unnecessary; required guidance is preserved.",
         }
     if not search_seed_docs:
         source = "Wikimap" if search_outcome.backend == "wikimap" else "local recovery search"
