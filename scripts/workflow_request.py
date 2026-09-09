@@ -173,7 +173,9 @@ def _is_opted_out(concern: str, normalized: str) -> bool:
     )
 
 
-def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, object]:
+def classify_request(
+    text: str, *, continuation_scope: str = "", conversation_first: bool = False,
+) -> dict[str, object]:
     normalized = " ".join(text.strip().split())
     # Matched against the junction-normalized text, echoed as the user wrote it.
     # Hangul is a word character, so `\bproduction\b` does not match
@@ -183,7 +185,7 @@ def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, ob
     # the other consumer of the same tables.
     matched = _match_text(normalized)
     lowered = matched.lower()
-    _normalize_continuation_scope(continuation_scope)
+    context = _normalize_continuation_scope(continuation_scope)
     direct_question = _matches(DIRECT_QUESTION_PATTERNS, lowered)
     imperative_correction = _matches(
         IMPERATIVE_CORRECTION_ACTION_PATTERNS, lowered, re.IGNORECASE
@@ -200,30 +202,83 @@ def classify_request(text: str, *, continuation_scope: str = "") -> dict[str, ob
     if requires_code_authoring(matched) and model_tier == "fast":
         model_tier = "balanced"
     shape, shape_mode = _route_shape(answer_only, matched, lowered)
+    response_mode, reason = _intake_next_step(
+        answer_only, shape, shape_mode, context, lowered, conversation_first,
+    )
+    needs_question = response_mode == "clarify_first"
     return {
         "request": normalized,
-        "clarity": ANSWER_ONLY_CLARITY if answer_only else "vague-action",
+        "clarity": {
+            "answer_first": ANSWER_ONLY_CLARITY,
+            "prepare_intent": "clear-scoped",
+            "resolve_context": "context-dependent",
+        }.get(response_mode, "vague-action"),
         "effort": effort,
         "model_tier": model_tier,
         "model_selection": _model_selection(model_tier, effort),
         "recommended_route": "none" if answer_only else "triage",
         "route_shape": shape,
         "shape_response_mode": shape_mode,
-        "grill_me": not answer_only,
-        "question_drill": not answer_only,
-        "response_mode": "answer_first" if answer_only else "clarify_first",
+        "grill_me": needs_question,
+        "question_drill": needs_question,
+        "response_mode": response_mode,
         "continuation_scope_used": False,
-        "reason": (
-            "The request is a direct question, so answer it before starting work."
-            if answer_only
-            else "Natural-language intake cannot authorize work; supply a current, session-bound intent envelope."
-        ),
+        "reason": reason,
         "notes": [
             "Answer direct user questions before routing or editing.",
             "Use triage without an intent envelope.",
+            "Missing intake evidence is not a missing user requirement. Reuse confirmed conversation scope; ask only for a remaining material unknown.",
+            "After owner and risk checks, use small-change for eligible local corrections; request wording alone cannot prove eligibility.",
             "Use repo-local instructions before editing.",
         ],
     }
+
+
+def _intake_next_step(
+    answer_only: bool, shape: str, shape_mode: str, context: str, request: str,
+    conversation_first: bool = False,
+) -> tuple[str, str]:
+    """Separate agent preparation from user clarification, never grant work.
+
+    Context presence only asks the runtime to resolve its existing conversation.
+    Neither these advisory modes nor the context establish scope or authority;
+    route_intake_decision still requires the bound envelope for every work route.
+    """
+    if answer_only:
+        return "answer_first", "Answer the question using bounded evidence and the existing conversation."
+    if _matches(GRILL_ME_REQUEST_PATTERNS, request):
+        return "clarify_first", "The user explicitly requested the question drill."
+    if context:
+        return "resolve_context", (
+            "Resolve the current request against prior scope before asking again. "
+            "Reuse confirmed requirements, respect changed instructions, and ask only "
+            "for unresolved targets, acceptance criteria or required fresh authority. "
+            "Context is not approval; prepare a current bound intent envelope before work."
+        )
+    # A plausible feature route is not proof its acceptance criteria are known.
+    # Only exact anchors or inspectable operation shapes skip the question cue
+    # without prior context; broader requests retain their existing discovery.
+    if shape_mode == "work" and (
+        _matches(EXACT_PATTERNS, request, re.IGNORECASE)
+        or shape in {"review", "test", "commit", "cleanup"}
+    ):
+        return "prepare_intent", (
+            "Inspect the named target and prepare a current, session-bound intent "
+            "envelope from the request and conversation. Its absence alone is not "
+            "a reason to ask the user to repeat requirements."
+        )
+    if conversation_first:
+        # Prompt hooks see one message, not the agent's conversation. Absence
+        # of scope in the hook is not proof it is absent from that conversation.
+        return "resolve_context", (
+            "Check the existing conversation and bounded repository evidence first. "
+            "If a material target, requirement or authority is still missing, ask "
+            "only for that gap. This advice establishes neither scope nor approval."
+        )
+    return "clarify_first", (
+        "Resolve the missing scope from the conversation and bounded inspection; "
+        "ask only for material unknowns that remain. Work still requires a bound intent envelope."
+    )
 
 
 def _route_shape(answer_only: bool, normalized: str, lowered: str) -> tuple[str, str]:
