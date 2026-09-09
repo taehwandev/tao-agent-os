@@ -56,6 +56,10 @@ this exception does not waive a target project's explicit workflow. Do not creat
 task state or refresh indexes merely to answer. A lookup that expands into an
 edit must enter the writable lifecycle before that edit.
 
+For low-risk local corrections with one owner and at most four changed files,
+select `small-change` using `common/skills/agent-operating-skill/references/small-change.md`. Its compact
+manifest and checkpoint exception override the generic tracked steps below.
+
 For tracked work:
 
 ```text

@@ -110,6 +110,7 @@ COMMAND_REQUIRED_DOCS = {
 }
 
 REVIEW_HOOK_REQUIRED_COMMANDS = {
+    "small-change",
     "build",
     "bugfix",
     "code-simplify",
@@ -460,6 +461,12 @@ def resolve_docs(
     )
     graphify_readiness = graphify_context["readiness"]
     blocking = list(graphify_context["blocking"])
+    if command == "small-change" and set(concerns) & {
+        "security", "auth", "agent-credentials", "permissions", "persistence", "database",
+        "migration", "api", "dependency", "dependencies", "release", "deploy", "deployment",
+        "billing", "payment", "architecture", "infrastructure",
+    }:
+        blocking.append("small-change excludes risk-sensitive concerns; select the matching full route")
     notes.extend(graphify_context["notes"])
 
     route = {
@@ -703,6 +710,10 @@ def _compact_required_docs(
     # walk's, not the concern's: branch-strategy twice, worktree-hygiene, the
     # review-and-commit reference. The caller asked about verification and was
     # handed branch strategy, which is the opposite of honouring the signal.
+    if command == "small-change":
+        return unique([OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT,
+                       "common/skills/agent-operating-skill/references/small-change.md",
+                       *_named_concern_docs(platform, concerns)])
     if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
         commit_docs = resolve_guidance_docs(
             ROOT, ["common/skills/commit-workflow/SKILL.md"]
@@ -918,7 +929,8 @@ def route_hooks(command: str) -> list[dict[str, object]]:
         {
             "hook": "finish",
             "required": True,
-            "when": "after retrospective check and before final report, commit, release, or handoff",
+            "when": ("after verification and review, before final report" if command == "small-change"
+                     else "after retrospective check and before final report, commit, release, or handoff"),
             "command": (
                 f"{launcher} finish "
                 "--project <TARGET_REPO> --rules <TAO_ROOT> "

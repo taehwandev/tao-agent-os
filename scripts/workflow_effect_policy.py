@@ -19,6 +19,7 @@ from workflow_intent_envelope import EFFECT_RANK, highest_effect, validate_envel
 # review-shaped routes read; ordinary code routes write locally; commit routes
 # touch history; shipping routes reach outside the machine.
 ROUTE_MINIMUM_EFFECT = {
+    "small-change": "local_write",
     "ambiguity": "read",
     "analysis": "read",
     "docs-review": "read",
@@ -113,6 +114,8 @@ def effect_decision(
     failures: list[str] = []
     failures.extend(_binding_failures(envelope, request_fingerprint, runtime_session_id))
     effect = effective_effect(command, envelope, tool_effect=tool_effect)
+    if command == "small-change" and EFFECT_RANK[effect] > EFFECT_RANK["local_write"]:
+        failures.append("small-change permits only local writes; start a matching full route for Git or external effects")
     if route_minimum_effect(command) == "read" and effect != "read":
         failures.append(
             f"read-only route `{command}` cannot execute `{effect}`; "

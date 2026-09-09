@@ -576,7 +576,7 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertLess(route["gates"].index(AGENTIC_RUN_STATE_GATE), route["gates"].index("implementation"))
         self.assertLess(route["gates"].index(CYCLE_CONTRACT_GATE), route["gates"].index("implementation"))
         self.assertLess(route["gates"].index(AGENTIC_RUN_STATE_GATE), route["gates"].index(CYCLE_CONTRACT_GATE))
-        self.assertEqual(set(COMMANDS), RETROSPECTIVE_CHECK_COMMANDS)
+        self.assertEqual(set(COMMANDS) - {"small-change"}, RETROSPECTIVE_CHECK_COMMANDS)
         self.assertIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
         self.assertLess(route["gates"].index("review hook"), route["gates"].index(RETROSPECTIVE_CHECK_GATE))
         self.assertLess(route["gates"].index(RETROSPECTIVE_CHECK_GATE), route["gates"].index("handoff"))

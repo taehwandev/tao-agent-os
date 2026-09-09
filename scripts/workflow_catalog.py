@@ -31,6 +31,16 @@ CORE_DOCS = (
 
 
 COMMANDS: Dict[str, Profile] = {
+    "small-change": Profile(
+        docs=("common/skills/agent-operating-skill/references/small-change.md",),
+        gates=("work surface resolution", "source docs", "tests", "review hook"),
+        notes=(
+            "Use after direct evidence proves one local owner, at most four changed files "
+            "within existing structural review limits. Keep source contracts, focused tests and review. "
+            "Escalate before broadening scope or changing permissions, security, persistence, "
+            "public contracts, dependencies, deployment or external state.",
+        ),
+    ),
     "triage": Profile(
         docs=(
             "workflows/skills/request-triage/SKILL.md",
@@ -309,6 +319,7 @@ SPILL_ACTION_LABELS: Dict[str, Tuple[str, str]] = {
 
 
 SPILL_ROUTE_LABELS: Dict[str, Tuple[str, str]] = {
+    "small-change": ("code_generation", "implement"),
     "analysis": ("analysis", "summarize"),
     "ambiguity": ("analysis", "classify"),
     "bugfix": ("debugging", "implement"),

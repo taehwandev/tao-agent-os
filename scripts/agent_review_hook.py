@@ -654,6 +654,9 @@ def record_review_prerequisite_readiness(
         return
 
     route = preflight.get("route") or {}
+    if route.get("command") == "small-change":
+        # These are route limits, not caller-overridable review preferences.
+        args.max_changed_paths = min(args.max_changed_paths, 4)
     route_gates = [gate for gate in route.get("gates") or [] if isinstance(gate, str)]
     if "review hook" not in route_gates:
         checks["review_prerequisite_gates"] = []

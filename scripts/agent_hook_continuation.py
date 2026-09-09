@@ -105,6 +105,8 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
     bound correctly, and useless to resume.
     """
 
+    if getattr(args, "command", "") == "small-change":
+        return []
     binding_path = run_binding_path(args)
     if binding_path is None:
         return []
