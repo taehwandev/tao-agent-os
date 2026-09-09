@@ -251,6 +251,11 @@ ORDINARY_GIT_SUBCOMMANDS = frozenset(
         "worktree",
     }
 )
+# The steps the lifecycle names after finish: "before final report, commit,
+# release, or handoff". Deliberately not the ordinary-Git set, which also holds
+# `clean`, `reset`, `rm` and `rebase` -- a settled run may publish the diff it
+# attested, never rewrite or destroy the tree it attested.
+PUBLICATION_GIT_SUBCOMMANDS = frozenset({"add", "commit", "push", "tag"})
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cjs", ".dart", ".go", ".h", ".hpp",
     ".java", ".js", ".jsx", ".kt", ".kts", ".m", ".mjs", ".mm", ".php", ".py",
@@ -534,6 +539,51 @@ def session_evidence(root: Path, session_id: str) -> Path | None:
     )
 
 
+def finished_session_evidence(root: Path, session_id: str) -> Path | None:
+    """Evidence of a run this session finished successfully.
+
+    A run reaches ``completed`` from exactly one place: a ``finish`` that
+    passed. So this is not "some old run existed", it is "this session's work
+    was attested" -- which is the state the lifecycle puts a session in right
+    before it commits.
+    """
+
+    if not session_id:
+        return None
+    reader = _run_evidence_reader()
+    if reader is None:
+        return None
+    return reader.resolve_runtime_evidence(
+        root,
+        {"runtime": "claude", "session_id": session_id},
+        frozenset({"completed"}),
+    )
+
+
+def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> bool:
+    """Whether this is the commit or push that a successful finish authorized.
+
+    The lifecycle requires finish before commit, and finish settles the run. So
+    the ordinary git command that follows it has no active binding left and was
+    refused -- the contract's own order made its last step unreachable, and the
+    only way through was to open a second run for work the first had already
+    attested.
+
+    The allowance is deliberately narrow. It covers publishing subcommands
+    only, so an edit after finish still needs a new run: finish attested one
+    diff, and letting the worktree move afterwards would leave that attestation
+    describing something that no longer exists. Freshness still applies, so an
+    abandoned session cannot come back days later to push on a stale finish.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return False
+    subcommand, _arguments = git_subcommand(tokens)
+    if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
+        return False
+    return evidence_is_fresh(finished_session_evidence(root, session_id))
+
+
 def _read_run_mutation_denial(roots: list[Path], session_id: str, kind: str) -> str | None:
     """Honor an active read contract even when isolation waives workflow entry."""
     if kind == "workflow_start":
@@ -809,7 +859,14 @@ def _ungoverned_project_verdict(cwd: Path, tokens: list[str]) -> int:
     return allow()
 
 
-def _isolated_checkout_verdict(payload: dict, tool: str, root: Path, cwd: Path) -> int:
+def _isolated_checkout_verdict(
+    payload: dict,
+    tool: str,
+    root: Path,
+    cwd: Path,
+    tokens: list[str] | None = None,
+    syntax_is_simple: bool = False,
+) -> int:
     """Answer a call the worktree policy has already cleared.
 
     Isolation is one question and workflow entry is another: this one asks
@@ -821,6 +878,15 @@ def _isolated_checkout_verdict(payload: dict, tool: str, root: Path, cwd: Path) 
 
     session_id = str(payload.get("session_id") or "")
     if not workflow_entry_allows(root, session_id):
+        if (
+            tool in BASH_TOOLS
+            and syntax_is_simple
+            and publishes_finished_work(root, session_id, tokens or [])
+        ):
+            return _approve(
+                "This is the ordinary Git command that a successful finish "
+                "authorized for this session."
+            )
         return deny(deny_reason(root, session_id, tool))
     sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
     if sprawl_reason:
@@ -1753,7 +1819,7 @@ def decide(payload: dict) -> int:
                 "This worktree isolates ordinary file edits, but this Git command "
                 f"{hazard}. Allow it only if that is what you meant."
             )
-    return _isolated_checkout_verdict(payload, tool, root, cwd)
+    return _isolated_checkout_verdict(payload, tool, root, cwd, tokens, syntax_is_simple)
 
 
 def main() -> int:

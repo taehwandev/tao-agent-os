@@ -81,8 +81,9 @@ def is_run_local_continuation_evidence(
 def resolve_runtime_evidence(
     project: Path,
     session: dict[str, str] | None = None,
+    states: "frozenset[str] | None" = None,
 ) -> Path | None:
-    """Resolve one exact active run from its runtime session binding.
+    """Resolve one exact run in ``states`` from its runtime session binding.
 
     The registry intentionally stores no local path.  Continuation-capable runs
     use their opaque run id as the directory name.  Other project-local evidence
@@ -92,6 +93,10 @@ def resolve_runtime_evidence(
     worker evidence path narrows an isolated worker to its own claim.  Without
     that binding, worker evidence is outside the parent session's candidate
     scope.
+
+    ``states`` defaults to the active set.  Resolution is otherwise identical,
+    so a caller that needs a settled run's evidence gets the same exact binding
+    rather than a looser scan.
     """
 
     project = project.resolve()
@@ -100,7 +105,11 @@ def resolve_runtime_evidence(
     session_id = str(identity.get("session_id") or "")
     if not runtime or not session_id:
         return None
-    bindings = active_run_bindings(project)
+    bindings = (
+        active_run_bindings(project)
+        if states is None
+        else active_run_bindings(project, states)
+    )
     if not bindings:
         return None
     worker_scope, worker_evidence = _worker_evidence_scope(project)

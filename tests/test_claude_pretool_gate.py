@@ -35,7 +35,7 @@ from support.setup_config_files import read_json
 from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
 from agent_route_state import request_fingerprint, route_fingerprint
-from agent_run_registry import register_run
+from agent_run_registry import register_run, transition_run
 from agent_runtime_session import resolve_runtime_evidence
 import claude_worktree_gate as worktree_gate
 
@@ -2830,6 +2830,118 @@ class DeclaredPolicyGovernsLinkedWorktreesTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertIn("Allow it only if that is what you meant", _reason(out))
+
+
+class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
+    """The lifecycle orders finish before commit, and finish settles the run.
+
+    Requiring workflow entry for the commit therefore refused the last step of
+    the contract's own order, and the only way through was to open a second run
+    for work the first had already attested.
+    """
+
+    SESSION = "finished-session"
+
+    def _finished_project(self, base: Path, *, state: str = "completed") -> Path:
+        project = _opt_in_project(base)
+        _write_preflight(project, self.SESSION)
+        _require_linked_worktree(project, linked=True)
+        policy = project / gate.WORKTREE_POLICY_PATH
+        declared = json.loads(policy.read_text(encoding="utf-8"))
+        declared["require_workflow_entry"] = True
+        policy.write_text(json.dumps(declared), encoding="utf-8")
+        evidence = resolve_runtime_evidence(
+            project, {"runtime": "claude", "session_id": self.SESSION}
+        )
+        assert evidence is not None
+        transition_run(project, evidence, state)
+        return project
+
+    def _decide(self, project: Path, command: str) -> tuple[int, str]:
+        return _decide(
+            {
+                "tool_name": "Bash",
+                "cwd": str(project),
+                "session_id": self.SESSION,
+                "tool_input": {"command": command},
+            }
+        )
+
+    def test_the_run_is_no_longer_bound_once_it_is_finished(self) -> None:
+        """The premise: this is why the commit was refused at all."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            self.assertFalse(gate.workflow_entry_allows(project, self.SESSION))
+            self.assertIsNotNone(gate.finished_session_evidence(project, self.SESSION))
+
+    def test_finish_lets_its_own_commit_and_push_through(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            for command in ("git add -u", "git commit -m subject", "git push origin work"):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertIn("a successful finish", _reason(out))
+
+    def test_finish_does_not_reopen_editing(self) -> None:
+        """Finish attested one diff; moving the tree would outdate it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            code, out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(project),
+                    "session_id": self.SESSION,
+                    "tool_input": {"file_path": str(project / "src.py")},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertIn("preflight", _reason(out).lower())
+
+    def test_finish_does_not_authorize_rewriting_or_destroying_the_tree(self) -> None:
+        """Publishing the attested diff is not the same as changing it.
+
+        Each of these stops for its own reason -- the destructive ones are
+        caught by the shared-repository prompt before workflow entry is even
+        asked. What matters here is the one thing they must never be: silently
+        approved as this session's publication.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            for command in ("git clean -xfd", "git reset --hard HEAD~1", "git rm -r ."):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertNotEqual("", out, "the call must not pass unremarked")
+                    self.assertNotIn("a successful finish", _reason(out))
+
+    def test_a_run_that_did_not_finish_still_refuses_the_commit(self) -> None:
+        """Only `completed` proves a finish passed; `failed` is the same hook losing."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp), state="failed")
+            code, out = self._decide(project, "git commit -m subject")
+
+        self.assertEqual(0, code)
+        self.assertIn("preflight", _reason(out).lower())
+
+    def test_a_stale_finish_does_not_publish(self) -> None:
+        """An abandoned session cannot come back days later on its old finish."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            with patch.object(gate, "max_age_seconds", return_value=0):
+                code, out = self._decide(project, "git commit -m subject")
+
+        self.assertEqual(0, code)
+        self.assertIn("preflight", _reason(out).lower())
 
 
 if __name__ == "__main__":

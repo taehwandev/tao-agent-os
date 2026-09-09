@@ -459,8 +459,10 @@ def active_runs(project: Path) -> list[dict[str, Any]]:
         return [run for run in payload["runs"] if run.get("state") in ACTIVE_RUN_STATES]
 
 
-def active_run_bindings(project: Path) -> dict[str, dict[str, Any]]:
-    """Return the latest active run for each content-free evidence key.
+def active_run_bindings(
+    project: Path, states: "frozenset[str]" = ACTIVE_RUN_STATES
+) -> dict[str, dict[str, Any]]:
+    """Return the latest run in ``states`` for each content-free evidence key.
 
     Runtime evidence discovery may inspect several candidate files, but it must
     not reopen and rescan the registry once per candidate.  Build the exact
@@ -470,6 +472,11 @@ def active_run_bindings(project: Path) -> dict[str, dict[str, Any]]:
     A transient ``claiming`` record is intentionally absent: preflight has not
     committed its evidence yet, so publishing it as a runtime binding would let
     an interrupted start create a false active session or an ambiguous match.
+
+    ``states`` defaults to the active set, which is what a session binding means
+    everywhere else.  A caller asking about a settled run passes its own set;
+    the latest-record-wins selection above is what makes that answer exact
+    rather than a match against some older record for the same evidence.
     """
 
     path = registry_path(project)
@@ -489,7 +496,7 @@ def active_run_bindings(project: Path) -> dict[str, dict[str, Any]]:
         return {
             key: run
             for key, run in latest.items()
-            if run.get("state") in ACTIVE_RUN_STATES
+            if run.get("state") in states
         }
 
 
