@@ -63,7 +63,15 @@ class ReviewReuse:
     def complete(self, checks: dict[str, Any], failures: list[str]) -> None:
         if self.before is None:
             return
-        if self.capture() != self.before:
+        after = self.capture()
+        if after != self.before:
+            checks['review_snapshot_stability'] = {
+                'status': 'FAIL',
+                'snapshot_available': after is not None,
+                'changed_fields': sorted(
+                    key for key in self.before if after is not None and self.before[key] != after.get(key)
+                ),
+            }
             failures.append('reviewed bytes changed while the review hook was running')
             return
         if failures:

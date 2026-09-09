@@ -175,6 +175,27 @@ class ReviewReuseTests(unittest.TestCase):
         cache.complete(self.checks, failures)
         self.assertIn('reviewed bytes changed', failures[0])
         self.assertNotIn('review_checks', self.checks)
+        self.assertEqual(['files', 'rules_sha256'], self.checks['review_snapshot_stability']['changed_fields'])
+
+    def test_unavailable_snapshot_remains_fail_closed_with_bounded_diagnostic(self):
+        cache = self.cache()
+        failures = []
+        with patch.object(cache, 'capture', return_value=None):
+            cache.complete(self.checks, failures)
+        self.assertEqual(['reviewed bytes changed while the review hook was running'], failures)
+        self.assertEqual({'status': 'FAIL', 'snapshot_available': False, 'changed_fields': []},
+                         self.checks['review_snapshot_stability'])
+        self.assertNotIn('review_checks', self.checks)
+
+    def test_rules_only_drift_is_distinguished_without_exposing_content(self):
+        cache = self.cache()
+        after = dict(cache.before, rules_sha256='changed')
+        failures = []
+        with patch.object(cache, 'capture', return_value=after):
+            cache.complete(self.checks, failures)
+        self.assertEqual(['rules_sha256'], self.checks['review_snapshot_stability']['changed_fields'])
+        self.assertNotIn('review_checks', self.checks)
+        self.assertEqual(1, len(failures))
 
     def test_symlink_target_changes_cannot_reuse_review(self):
         self.publish()
