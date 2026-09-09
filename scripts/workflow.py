@@ -434,6 +434,15 @@ def print_route(args: argparse.Namespace) -> int:
     )
     if advisory:
         route["advisory"] = True
+        advice = getattr(args, "_auto_intake_advice", None)
+        if advice:
+            # Preparation advice must reach the prompt consumer, but is not
+            # request_classification and cannot satisfy an intake gate.
+            route["intake_advice"] = advice
+            route["notes"].append(
+                f"Intake advice (not authorization): {advice['response_mode']} / "
+                f"{advice['clarity']}. {advice['reason']}"
+            )
         notes = route.get("notes")
         if isinstance(notes, list):
             notes.append(
@@ -683,20 +692,29 @@ def _resolve_auto_command(args: argparse.Namespace) -> None:
     if getattr(args, "command", None) != AUTO_COMMAND:
         return
     args.command = "triage"
-    prompt = ""
-    try:
-        payload = json.loads(_hook_payload_text(args) or "{}")
-        if isinstance(payload, dict):
-            candidate = payload.get("prompt") or payload.get("request") or ""
-            prompt = candidate if isinstance(candidate, str) else ""
-    except Exception:
-        return
+    # Explicit current intake wins over the hook payload, which can be older.
+    prompt = getattr(args, "request", None) or ""
+    if not prompt:
+        try:
+            payload = json.loads(_hook_payload_text(args) or "{}")
+            if isinstance(payload, dict):
+                candidate = payload.get("prompt") or payload.get("request") or ""
+                prompt = candidate if isinstance(candidate, str) else ""
+        except Exception:
+            return
     if not prompt.strip():
         return
     try:
         # route_shape, not recommended_route: intake must not select a work
         # route, but the prompt hook may pick a manifest by shape.
-        recommended = str(classify_request(prompt).get("route_shape") or "")
+        classification = classify_request(
+            prompt, continuation_scope=getattr(args, "continuation_scope", "") or "",
+            conversation_first=True,
+        )
+        recommended = str(classification.get("route_shape") or "")
+        args._auto_intake_advice = {
+            key: classification[key] for key in ("response_mode", "clarity", "grill_me", "reason")
+        }
     except Exception:
         return
     if recommended in COMMANDS:

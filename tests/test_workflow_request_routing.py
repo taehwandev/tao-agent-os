@@ -93,9 +93,17 @@ class WorkflowRequestIntakeTests(unittest.TestCase):
         for request in requests:
             with self.subTest(request=request):
                 classification = classify_request(request)
-                self.assertEqual("clarify_first", classification["response_mode"])
+                self.assertNotEqual("work", classification["response_mode"])
                 self.assertEqual("triage", classification["recommended_route"])
-                self.assertTrue(classification["grill_me"])
+
+    def test_clear_request_needs_intake_preparation_not_repeated_questions(self) -> None:
+        for request in ("Fix scripts/workflow.py line 10", "Review the current diff",
+                        "Can you fix scripts/workflow.py?"):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertEqual("prepare_intent", result["response_mode"])
+                self.assertFalse(result["grill_me"])
+                self.assertEqual("triage", result["recommended_route"])
 
     def test_commit_push_pr_follow_up_keeps_the_commit_route_shape(self) -> None:
         classification = classify_request(
@@ -120,7 +128,7 @@ class WorkflowRequestIntakeTests(unittest.TestCase):
     def test_action_shaped_questions_are_not_answer_only(self) -> None:
         classification = classify_request("Can you fix scripts/workflow.py?")
 
-        self.assertEqual("clarify_first", classification["response_mode"])
+        self.assertEqual("prepare_intent", classification["response_mode"])
         self.assertEqual("triage", classification["recommended_route"])
 
 

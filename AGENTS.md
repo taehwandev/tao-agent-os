@@ -109,6 +109,26 @@ diagnostics, not replacements for the start, review hook, and finish hook.
 
 ## Request And Continuation Safety
 
+Keep the user's requested outcome across follow-ups. Before asking a question,
+reuse confirmed targets, constraints and acceptance criteria from the current
+conversation, then inspect bounded evidence for facts the agent can determine.
+Missing agent-generated intake evidence is not a missing user requirement.
+`prepare_intent` and `resolve_context` are advisory preparation states, never
+work authorization; they do not waive an envelope, risk checks or fresh approval.
+Ask only for a remaining material ambiguity, conflicting instruction or missing
+authority. Do not ask the user to repeat a settled requirement or approve the
+same authorized action again. Current scope changes override prior context.
+
+For an authorized correction, continue into the correction rather than ending
+with an apology, explanation of what should have happened, or another offer to
+do the same work. Check the requested observable outcome, not just test totals:
+reproduce the reported case before a fix and verify it afterward. When intake
+or routing changes, include the actual follow-up wording and prior scope in
+tests, not only a preselected route. Preserve negative authority and ambiguity
+controls. Report any unmet requirement explicitly; passing unrelated tests or
+completing gates is not proof the requested result works. This adds no new gate
+or mandatory document read.
+
 For terse follow-ups, keep `--request` equal to the user's current words and
 put bounded prior target context in `--continuation-scope`. The fingerprint
 must cover both plus classification flags exactly. Continuation scope never
