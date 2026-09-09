@@ -291,8 +291,28 @@ class LessonStoreTests(unittest.TestCase):
         self.assertFalse(hasattr(agent_finish_check, "process_finish_learning"))
         self.assertTrue(hasattr(agent_finish_check, "process_skill_followup"))
 
+    # The one route outside the reflection set, and the reason it is outside.
+    #
+    # `small-change` is the bounded fast path: one owner, at most four files,
+    # local writes only, blocked outright on auth, api, security, architecture
+    # and deployment concerns, and it still keeps `tests` and `review hook`.
+    # Reflection is not separable from its cost here -- adding the gate also
+    # turns on `skill_feedback` and the five skill hooks, which is the
+    # same-closeout maintenance chain the route exists to avoid. Carrying that
+    # chain would make the fast path as expensive as the route it replaces, and
+    # the work would go back to `task` and its nineteen gates.
+    #
+    # This is a real trade: bounded work is no longer visible to the loop that
+    # turns a recurring gap into a skill-document change. It is accepted for
+    # this route only, and stated here so a second exemption cannot be added by
+    # editing a set.
+    REFLECTION_EXEMPT_COMMANDS = {"small-change"}
+
     def test_every_route_requires_reflection_but_skill_feedback_hook_stays_optional(self) -> None:
-        self.assertEqual(set(COMMANDS), RETROSPECTIVE_CHECK_COMMANDS)
+        self.assertEqual(
+            set(COMMANDS) - self.REFLECTION_EXEMPT_COMMANDS,
+            RETROSPECTIVE_CHECK_COMMANDS,
+        )
         for command in sorted(RETROSPECTIVE_CHECK_COMMANDS):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
@@ -309,6 +329,27 @@ class LessonStoreTests(unittest.TestCase):
                 hooks = [hook for hook in route["hooks"] if hook["hook"] == SKILL_FEEDBACK_HOOK]
                 self.assertEqual(1, len(hooks))
                 self.assertFalse(hooks[0]["required"])
+
+    def test_the_reflection_exemption_is_earned_by_the_bounds_that_justify_it(self) -> None:
+        """The exemption above is defensible only while the route stays narrow.
+
+        Written as one test so removing a bound fails here rather than quietly
+        widening what may skip reflection.
+        """
+
+        for command in sorted(self.REFLECTION_EXEMPT_COMMANDS):
+            with self.subTest(command=command):
+                route = resolve_docs(command, None, [], request_classified=True)
+                self.assertNotIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
+                # It keeps the checks that catch a bad change in the moment.
+                self.assertIn("tests", route["gates"])
+                self.assertIn("review hook", route["gates"])
+                # And it refuses the concerns whose lessons are worth keeping.
+                for concern in ("auth", "api", "security", "architecture", "deployment"):
+                    self.assertTrue(
+                        resolve_docs(command, None, [concern])["blocking"],
+                        f"{command} must escalate on {concern} to earn its exemption",
+                    )
 
 
 if __name__ == "__main__":
