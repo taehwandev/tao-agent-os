@@ -135,14 +135,17 @@ RUNTIME_CONTROL_HOOKS = frozenset(
         "repair-verify",
         "resume",
         "review",
-        "skill-curate",
-        "skill-draft",
-        "skill-feedback",
-        "skill-maintenance",
-        "skill-review",
     }
 )
+RUNTIME_WRITE_HOOKS = frozenset({"skill-curate", "skill-draft", "skill-feedback", "skill-maintenance", "skill-review"})
 WORKFLOW_START_HOOK = "start"
+# The lifecycle hooks are their own kind rather than ordinary bootstrap. They
+# write run evidence, never the project, and they are how a run records what it
+# found, closes, or escalates. Classified as bootstrap they were caught by the
+# read-only contract along with `git worktree add`, which left a read-only run
+# unable to reach `finish`, `cancel`, or the `fingerprint` its own escalation
+# needs -- the remedy the refusal named required commands that refusal refused.
+RUNTIME_CONTROL_KIND = "runtime_control"
 # The declaration is injected by the parent hook environment, rather than read
 # from agent-writable state. Each entry binds one canonical script path to its
 # exact content. An operator revokes it by removing the environment declaration
@@ -184,15 +187,27 @@ def strip_env_assignments(tokens: list[str]) -> list[str] | None:
 
 
 def runtime_control_kind(tokens: list[str]) -> str | None:
+    # -B only disables bytecode writes; never strip -c, -m or arbitrary options.
+    if tokens and _python_interpreter(tokens[0]):
+        while len(tokens) > 1 and tokens[1] == "-B":
+            tokens = [tokens[0], *tokens[2:]]
+    # Output options may write arbitrary paths. Reject both assignment syntax
+    # and abbreviated spellings conservatively before a lifecycle exemption.
+    writes_output = any(token.startswith("--") and token != "--"
+                        and "--output".startswith(token.partition("=")[0]) for token in tokens)
     executable_path = Path(tokens[0]).expanduser()
     try:
         executable_path = executable_path.resolve()
     except (OSError, ValueError):
         return None
     if executable_path == stable_launcher_path().expanduser().resolve() and len(tokens) > 1:
+        if writes_output:
+            return "mutating"
         if tokens[1] == WORKFLOW_START_HOOK:
             return "workflow_start"
-        return "bootstrap" if tokens[1] in RUNTIME_CONTROL_HOOKS else None
+        if tokens[1] in RUNTIME_WRITE_HOOKS:
+            return "bootstrap"
+        return RUNTIME_CONTROL_KIND if tokens[1] in RUNTIME_CONTROL_HOOKS else None
     # Two tokens is enough for the installer, which takes no subcommand. The
     # hook below needs a third, and says so itself.
     #
@@ -236,9 +251,13 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     expected = here.with_name("agent-hook.py")
     if script != expected or len(tokens) <= 2:
         return None
+    if writes_output:
+        return "mutating"
     if tokens[2] == WORKFLOW_START_HOOK:
         return "workflow_start"
-    return "bootstrap" if tokens[2] in RUNTIME_CONTROL_HOOKS else None
+    if tokens[2] in RUNTIME_WRITE_HOOKS:
+        return "bootstrap"
+    return RUNTIME_CONTROL_KIND if tokens[2] in RUNTIME_CONTROL_HOOKS else None
 
 
 def read_only_python_scripts() -> dict[Path, str]:
@@ -671,7 +690,7 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
         return "read_only"
     # Ordered strictest first, so the weakest allowance any part needs is the
     # one the whole command gets.
-    for kind in ("mutating", "workflow_start", "bootstrap"):
+    for kind in ("mutating", "bootstrap", "workflow_start", RUNTIME_CONTROL_KIND):
         if kind in kinds:
             return kind
     return "read_only"

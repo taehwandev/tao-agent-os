@@ -10,6 +10,7 @@ from pathlib import Path
 # Command classification is a separate owner; the gate keeps only the policy.
 # These re-exports are the module's public surface for the pretool gate.
 from claude_bash_readonly import (  # noqa: F401
+    RUNTIME_CONTROL_KIND,
     bash_command,
     bash_command_kind,
     bash_invocation,

@@ -2944,5 +2944,135 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertIn("preflight", _reason(out).lower())
 
 
+class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
+    """A read contract must not also remove the way out of the run.
+
+    The read denial is consulted before the bootstrap branch and exempted only
+    `start`, so every other lifecycle hook was refused while a read-only run
+    was active. Each of those is how such a run ends or escalates: `finish` and
+    `cancel` close it, `gate` records what it found, and `fingerprint` is what
+    an escalation needs before `start` will accept an intent envelope. The
+    remedy the denial named therefore required commands the same denial
+    refused, and the run could not be closed at all.
+    """
+
+    SESSION = "read-run"
+
+    def _read_run(self, base: Path, command: str = "triage") -> Path:
+        project = _opt_in_project(base)
+        _write_preflight(project, self.SESSION, command=command)
+        return project
+
+    def _bash(self, project: Path, command: str) -> tuple[int, str]:
+        return _decide(
+            {
+                "tool_name": "Bash",
+                "cwd": str(project),
+                "session_id": self.SESSION,
+                "tool_input": {"command": command},
+            }
+        )
+
+    def test_every_lifecycle_hook_stays_available_to_a_read_only_run(self) -> None:
+        launcher = gate.stable_launcher_path()
+        hooks = (
+            "finish", "cancel", "gate", "gate-batch", "fingerprint",
+            "checkpoint", "review", "handoff", "resume", "repair-verify",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._read_run(Path(tmp))
+
+            for hook in hooks:
+                with self.subTest(hook=hook):
+                    code, out = self._bash(project, f"{launcher} {hook} --project {project}")
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out, f"{hook} must not be refused by the read contract")
+
+    def test_the_escalation_the_denial_names_is_reachable(self) -> None:
+        """fingerprint then start is the whole escape route; both must pass."""
+
+        launcher = gate.stable_launcher_path()
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._read_run(Path(tmp))
+
+            for hook in ("fingerprint", "start"):
+                with self.subTest(hook=hook):
+                    code, out = self._bash(project, f"{launcher} {hook} --project {project}")
+                    self.assertEqual(0, code)
+                    self.assertEqual("", out)
+
+    def test_a_read_only_run_still_refuses_an_ordinary_mutation(self) -> None:
+        """The contract itself is unchanged; only its escape hatch is restored."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._read_run(Path(tmp))
+
+            _, bash_out = self._bash(project, "echo changed > source.py")
+            self.assertIn("read-only", _reason(bash_out))
+
+            _, edit_out = _decide(
+                {
+                    "tool_name": "Edit",
+                    "cwd": str(project),
+                    "session_id": self.SESSION,
+                    "tool_input": {"file_path": str(project / "source.py")},
+                }
+            )
+            self.assertIn("read-only", _reason(edit_out))
+            self.assertFalse((project / "source.py").exists())
+
+
+    def test_lifecycle_hook_cannot_hide_bootstrap_or_source_mutation(self) -> None:
+        launcher = gate.stable_launcher_path()
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._read_run(Path(tmp))
+            for hook in ("fingerprint", "finish", "start"):
+                for separator in (";", "&&", "|", "||"):
+                    for reverse in (False, True):
+                        parts = [f"{launcher} {hook} --project {project}", "git worktree add ../new"]
+                        if reverse:
+                            parts.reverse()
+                        with self.subTest(hook=hook, separator=separator, reverse=reverse):
+                            _, out = self._bash(project, f" {separator} ".join(parts))
+                            self.assertIn("read-only", _reason(out))
+            for hook in ("skill-curate", "skill-draft", "skill-feedback", "skill-maintenance", "skill-review"):
+                with self.subTest(hook=hook):
+                    _, out = self._bash(project, f"{launcher} {hook} --project {project}")
+                    self.assertIn("read-only", _reason(out))
+
+    def test_direct_python_fingerprint_and_read_only_pipe_remain_available(self) -> None:
+        script = Path(gate.__file__).with_name("agent-hook.py")
+        launcher = gate.stable_launcher_path()
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._read_run(Path(tmp))
+            for command in (
+                f"python3 {script} fingerprint --project {project}",
+                f"{launcher} fingerprint --project {project} | tail -5",
+                f"{launcher} fingerprint --project {project} && {launcher} start --project {project}",
+            ):
+                with self.subTest(command=command):
+                    _, out = self._bash(project, command)
+                    self.assertEqual("", out)
+
+
+    def test_output_options_never_inherit_read_run_exemption(self) -> None:
+        launcher = gate.stable_launcher_path()
+        script = Path(gate.__file__).with_name("agent-hook.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._read_run(Path(tmp))
+            for prefix in (str(launcher), f"python3 -B {script}"):
+                for hook in ("fingerprint", "finish", "start"):
+                    for output in ("--output source.py", "--output=source.py", "--out source.py"):
+                        with self.subTest(prefix=prefix, hook=hook, output=output):
+                            _, out = self._bash(project, f"{prefix} {hook} --project {project} {output}")
+                            self.assertIn("read-only", _reason(out))
+            for hook in ("fingerprint", "start"):
+                _, out = self._bash(project, f"python3 -B {script} {hook} --project {project}")
+                self.assertEqual("", out)
+            for option in ("-c", "-m", "-i"):
+                _, out = self._bash(project, f"python3 {option} {script} fingerprint --project {project}")
+                self.assertIn("read-only", _reason(out))
+
+
 if __name__ == "__main__":
     unittest.main()

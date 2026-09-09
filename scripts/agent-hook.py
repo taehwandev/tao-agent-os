@@ -1501,6 +1501,8 @@ def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace)
     writes no state, so it stays callable before any lifecycle exists.
     """
 
+    if args.output is not None:
+        parser.error("fingerprint is stdout-only; --output is not supported")
     if not args.request:
         parser.error("fingerprint requires --request with the exact current user request")
     fingerprint = request_fingerprint(

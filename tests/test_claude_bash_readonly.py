@@ -190,7 +190,8 @@ class CompoundShellCommandTests(unittest.TestCase):
             "workflow_start",
         )
         self.assertEqual(
-            self._kind(f"TAO_HOOK_SOFT_FAIL=1 {launcher} finish"), "bootstrap"
+            self._kind(f"TAO_HOOK_SOFT_FAIL=1 {launcher} finish"),
+            bash_readonly.RUNTIME_CONTROL_KIND,
         )
         self.assertEqual(
             self._kind("CLAUDE_CODE_SESSION_ID=abc123 grep needle notes.txt"),
@@ -201,12 +202,18 @@ class CompoundShellCommandTests(unittest.TestCase):
         )
 
     def test_fingerprint_hook_is_runtime_control(self) -> None:
-        """The envelope bootstrap helper must be callable before any start."""
+        """The envelope bootstrap helper must be callable before any start.
+
+        Its own kind, not the bootstrap one it used to share with
+        `git worktree add`: the read-only contract refuses that allowance, and
+        refusing it here left an escalating run unable to build the envelope
+        `start` demands.
+        """
 
         launcher = str(worktree_gate.stable_launcher_path())
         self.assertEqual(
             self._kind(f'{launcher} fingerprint --request "do the thing"'),
-            "bootstrap",
+            bash_readonly.RUNTIME_CONTROL_KIND,
         )
 
     def test_chained_runtime_control_hook_does_not_bootstrap(self) -> None:
@@ -227,14 +234,17 @@ class CompoundShellCommandTests(unittest.TestCase):
             "bootstrap",
         )
         launcher = str(worktree_gate.stable_launcher_path())
-        self.assertEqual(self._kind(f"{launcher} finish | tail -20"), "bootstrap")
+        self.assertEqual(
+            self._kind(f"{launcher} finish | tail -20"),
+            bash_readonly.RUNTIME_CONTROL_KIND,
+        )
 
-    def test_workflow_start_is_the_strictest_allowance_in_a_chain(self) -> None:
+    def test_bootstrap_write_is_not_hidden_by_workflow_start(self) -> None:
         launcher = str(worktree_gate.stable_launcher_path())
         self.assertEqual(self._kind(f"{launcher} start --project . | tail -5"), "workflow_start")
         self.assertEqual(
             self._kind(f"git fetch origin && {launcher} start --project ."),
-            "workflow_start",
+            "bootstrap",
         )
 
     def test_cd_prefix_still_names_the_directory_for_a_pipeline(self) -> None:

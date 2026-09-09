@@ -35,6 +35,33 @@ agent_hook = _load_agent_hook()
 
 
 class AgentHookSummaryTests(unittest.TestCase):
+
+    def test_fingerprint_output_never_overwrites_or_creates_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            existing = root / "source.py"
+            existing.write_text("original = True\n")
+            for flag in ("--output", "--out", "--output="):
+                for target in (existing, root / "new" / "result.json"):
+                    options = [flag + str(target)] if flag.endswith("=") else [flag, str(target)]
+                    with self.subTest(flag=flag, target=target.name):
+                        result = subprocess.run(
+                            [sys.executable, "-B", str(SCRIPTS / "agent-hook.py"), "fingerprint",
+                             "--project", str(root), "--request", "probe", *options],
+                            capture_output=True, text=True,
+                        )
+                        self.assertNotEqual(0, result.returncode)
+                        self.assertIn("unrecognized arguments" if flag == "--out" else "stdout-only", result.stderr)
+                        self.assertEqual("original = True\n", existing.read_text())
+                        self.assertFalse((root / "new").exists())
+            result = subprocess.run(
+                [sys.executable, "-B", str(SCRIPTS / "agent-hook.py"), "fingerprint",
+                 "--project", str(root), "--request", "probe"], capture_output=True, text=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("request fingerprint:", result.stdout)
+            self.assertFalse((root / ".tao").exists())
+
     def test_lookup_scope_is_delivered_without_runtime_or_extra_reads(self) -> None:
         from workflow_route import LOOKUP_READING_GUIDANCE
         payload = {"route": {"command": "analysis", "reading_scope": {

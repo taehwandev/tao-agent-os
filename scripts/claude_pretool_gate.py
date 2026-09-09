@@ -61,6 +61,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         WORKTREE_POLICY_PATH,
         bash_command,
         bash_command_kind,
+        RUNTIME_CONTROL_KIND,
         bash_invocation,
         copy_source_token_indices,
         git_common_dir,
@@ -124,6 +125,8 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
         return "mutating"
+
+    RUNTIME_CONTROL_KIND = "runtime_control"
 
     def worktree_policy(root: Path) -> dict | None:
         return None
@@ -585,9 +588,17 @@ def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> b
 
 
 def _read_run_mutation_denial(roots: list[Path], session_id: str, kind: str) -> str | None:
-    """Honor an active read contract even when isolation waives workflow entry."""
-    if kind == "workflow_start":
-        return None  # Starting a properly authorized replacement is the remedy.
+    """Honor an active read contract even when isolation waives workflow entry.
+
+    The lifecycle hooks are exempt alongside `start`, because they write run
+    evidence rather than the project, and they are how a run records what it
+    found, closes, or escalates. Refusing them made this refusal's own remedy
+    unreachable: escalating needs `fingerprint` before `start` will accept an
+    intent envelope, and ending needs `finish` or `cancel`, so a read-only run
+    could neither reach a writable route nor close itself.
+    """
+    if kind in {"workflow_start", RUNTIME_CONTROL_KIND}:
+        return None  # Reaching an authorized route, or ending this one, is the remedy.
     from workflow_effect_policy import route_minimum_effect
 
     for root in roots:
@@ -1745,7 +1756,7 @@ def decide(payload: dict) -> int:
     )
     if read_denial:
         return deny(read_denial)
-    if tool in BASH_TOOLS and bash_kind == "bootstrap":
+    if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:
         # The hazard list is consulted here too. Nothing Git classifies as
         # bootstrap is destructive today -- `fetch` and `worktree add` are the
         # whole set -- so this changes no verdict now. It is the ordering that
