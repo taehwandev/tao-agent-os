@@ -147,6 +147,40 @@ def route_doc(path: str) -> str:
 
 
 class VibeguardCacheTests(unittest.TestCase):
+    def test_environment_repair_rechecks_warning_with_unchanged_git(self) -> None:
+        for structured in (False, True):
+            with self.subTest(structured=structured), tempfile.TemporaryDirectory() as tmp:
+                project = Path(tmp)
+                verdict = "Needs review"
+                audits = []
+
+                def run(command, cwd):
+                    output = "abc\n" if command[:2] == ["git", "rev-parse"] else ""
+                    if command[0] == "vibeguard":
+                        audits.append(verdict)
+                        output = verdict
+                    return {"returncode": 0, "stdout": output, "stderr": ""}
+
+                def audit():
+                    return cached_vibeguard(
+                        project=project, rules=project, run_command=run,
+                        vibeguard_command=lambda p, r: ["vibeguard", "audit", "."],
+                        parse_overall=lambda out: {"status": out.strip()} if structured else out.strip(),
+                    )
+
+                self.assertFalse(audit()["cached"])
+                cache_path = project / ".tao" / "vibeguard-cache.json"
+                self.assertFalse(cache_path.exists())
+                verdict = "Ready"
+                self.assertFalse(audit()["cached"])
+                self.assertTrue(audit()["cached"])
+                # Previously persisted zero-exit warnings must also be rejected.
+                cached = json.loads(cache_path.read_text())
+                cached["result"]["stdout"] = "Needs review"
+                cache_path.write_text(json.dumps(cached))
+                self.assertFalse(audit()["cached"])
+                self.assertEqual(["Needs review", "Ready", "Ready"], audits)
+
     def setUp(self) -> None:
         self._old_state_home = os.environ.get("TAO_STATE_HOME")
 

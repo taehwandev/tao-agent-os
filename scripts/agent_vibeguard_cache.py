@@ -57,9 +57,12 @@ def cached_vibeguard(
             and cached_result.get("returncode") == 0
         ):
             result = _result_with_overall(cached_result, parse_overall)
-            result["cached"] = True
-            result["cache"] = {"hit": True, "path": str(_cache_path(project))}
-            return result
+            # Environment repairs can leave Git unchanged. A zero exit code
+            # also covers Needs review, which must not pin a repaired warning.
+            if _ready(result["overall"]):
+                result["cached"] = True
+                result["cache"] = {"hit": True, "path": str(_cache_path(project))}
+                return result
 
     result = run_command(command, project)
     result["overall"] = parse_overall(result["stdout"] + "\n" + result["stderr"])
@@ -72,12 +75,16 @@ def cached_vibeguard(
     )
     result["cached"] = False
     result["cache"] = {"hit": False, "path": str(_cache_path(project))}
-    if signature and result.get("returncode") == 0:
+    if signature and result.get("returncode") == 0 and _ready(result["overall"]):
         try:
             _write_cache(project, signature, _cacheable_result(result))
         except OSError as error:
             result["cache"]["write_error"] = type(error).__name__
     return result
+
+
+def _ready(overall: Any) -> bool:
+    return (overall.get("status") if isinstance(overall, dict) else overall) == "Ready"
 
 
 def _retry_with_changed_only_when_blocked_paths_are_ignored(
