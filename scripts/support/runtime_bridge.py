@@ -34,16 +34,25 @@ CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE = (
 CODEX_APPROVAL_WAIT_BRIDGE_PHRASE = (
     "A Codex exec result that only reports `Script running with cell ID ...` or a session id is "
     "transport state, not proof that the command started or that approval was rejected. Keep only "
-    "one pending equivalent request; do not issue repeated equivalent polling or approval calls. "
-    "For an escalated command expected to finish promptly, if no output appears, wait once for "
-    "at most 15 seconds, then use read-only process or target-state evidence; never claim hooks or "
-    "tests are running without that evidence. If execution is still unproven, terminate the cell "
-    "before any retry. Retry only after the execution condition has changed and evidence proves "
-    "the first attempt made no side effect; never automatically retry a non-idempotent external write. "
-    "Do not ask again for user authorization already given; preserve required sandbox approval. "
+    "one pending equivalent request. Resume that request with the matching wait tool; sequential "
+    "waits are not duplicate execution or renewed approval requests. Use bounded waits compatible "
+    "with runtime guidance and keep the user informed. A quiet wait interval is not a failure "
+    "deadline: do not cancel or hand the task to the user solely because output is absent. "
+    "Use available read-only process or target-state evidence when needed; unchanged files or an "
+    "unavailable process listing alone do not prove denial or non-execution. Cancel only for a "
+    "user stop, an explicit failure/timeout, or evidence that the request cannot progress. Before "
+    "retrying a cancelled request, confirm it is no longer pending and reconcile possible side "
+    "effects. Use a supported recovery path within existing authority and required sandbox "
+    "approval; never automatically retry a non-idempotent external write. A real denial must be "
+    "handled through the permitted approval path, never bypassed with another tool. Do not ask "
+    "again for user authorization already given. Keep agent-executable recovery with the agent; "
+    "request a user action only for a verified user-only prerequisite and name that prerequisite. "
+    "Pending transport alone does not establish inability to complete the task; do not end with "
+    "an unsupported cannot-do conclusion or instructions for the user to run the same command. "
     "Attribute a target change to an actor only with direct actor evidence, not a delayed command "
     "or changed target state alone."
 )
+
 RUNTIME_NATIVE_DELEGATION_PHRASES = {
     "Codex": (
         "For an eligible split, use Codex native subagents or parallel workers; the parent owns "
@@ -220,6 +229,7 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         "",
         f"- Shared Tao Agent OS root: `{root}`",
         "- Start every task by identifying the current project root.",
+        "- Scope isolation to code changes against an existing published repository baseline when the target project requires worktrees. Initial project setup, folder/repository administration, and read-only work do not require a task worktree merely because they operate in a Git directory. Worktree isolation does not grant filesystem permission or replace required authorization. Continue a living session's bound task without claiming it again; resume only stopped or interrupted work in the verified target project.",
         "- If the runtime starts outside the target repo or the target repo is not explicit, run Tao Agent OS agent-entry.py or project-discover.py before project work.",
         "- If project discovery returns ambiguous or not_found, ask the user for the target project before routing, editing, testing, committing, or reporting completion.",
         "- Before project work, open the project-root instruction file for the active runtime.",

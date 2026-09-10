@@ -85,7 +85,29 @@ behavior, risk, scope, acceptance criteria, or verification.
 
 ## Approval Requests
 
-Ask for explicit approval before destructive work, external writes, credential
+Distinguish agent verification from user approval. Instructions to check or
+confirm the current branch, base, diff, remote, or task ownership mean inspect
+the available evidence yourself; they do not mean ask the user for permission.
+A non-default branch or detached HEAD alone is not a reason to ask. Determine
+the task-owned changes and appropriate branch from repository evidence first.
+
+Reuse explicit authorization already present in the conversation for the same
+action and target. A request to commit and create a PR authorizes the necessary
+task branch creation, staging of task-owned changes, commit, push to the verified
+repository, and PR creation. Complete the required checks and proceed without
+asking the user to approve each intermediate step. This does not authorize
+unrelated changes, branch deletion, force-push, merge, or deployment.
+
+Ask only when inspection and existing context leave a material ambiguity or
+missing authority, such as competing target repositories, unclear ownership of
+changes to include, or a destructive operation outside the request. Explain the
+specific unresolved issue. Preserve required sandbox escalation through the
+runtime tool; it is separate from asking the same conversational question again.
+If an applicable rule explicitly requires fresh user confirmation, name that
+rule and explain why existing authorization does not satisfy it.
+
+Obtain explicit approval, unless already authorized for the same scope, before
+destructive work, external writes, credential
 changes, deploys, package publishes, migrations, paid usage increases, or
 network/package execution that is not already trusted by repo-local policy.
 

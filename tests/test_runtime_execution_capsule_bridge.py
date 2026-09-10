@@ -244,34 +244,43 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
             "not proof that the command started",
             CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
         )
-        self.assertIn("at most 15 seconds", CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
         for required_boundary in (
             "or that approval was rejected",
             "one pending equivalent request",
-            "do not issue repeated equivalent polling or approval calls",
-            "execution condition has changed and evidence proves",
-            "first attempt made no side effect",
+            "sequential waits are not duplicate execution",
+            "do not cancel or hand the task to the user solely because output is absent",
+            "reconcile possible side effects",
             "Do not ask again for user authorization already given",
-            "preserve required sandbox approval",
+            "required sandbox approval",
+            "verified user-only prerequisite",
+            "never bypassed with another tool",
             "only with direct actor evidence",
             "not a delayed command or changed target state alone",
+            "never automatically retry a non-idempotent external write",
         ):
             with self.subTest(boundary=required_boundary):
                 self.assertIn(required_boundary, CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
-        self.assertIn(
-            "read-only process or target-state evidence",
-            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
-        )
-        self.assertIn(
-            "terminate the cell before any retry",
-            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
-        )
-        self.assertIn(
-            "never automatically retry a non-idempotent external write",
-            CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
-        )
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, claude_block)
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, agy_block)
+
+    def test_codex_refresh_replaces_premature_cancellation_rule_idempotently(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "AGENTS.md"
+            current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+            stale = current.replace(
+                CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
+                "Wait once for at most 15 seconds; terminate the cell before any retry.",
+            )
+            prefix = "# Personal rules\nPreserve already authorized commit and PR work.\n"
+            suffix = "# Unrelated integration\nKeep this configuration.\n"
+            target.write_text(prefix + stale + suffix)
+            kwargs = dict(block=current, required_phrases=runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+            self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+            self.assertEqual(prefix + stale + suffix, target.read_text())
+            self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+            self.assertEqual(prefix + current + suffix, target.read_text())
+            self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
+            self.assertEqual(prefix + current + suffix, target.read_text())
 
     def test_managed_bridge_refresh_preserves_surrounding_runtime_instructions(self) -> None:
         for runtime_name, instruction_file in (

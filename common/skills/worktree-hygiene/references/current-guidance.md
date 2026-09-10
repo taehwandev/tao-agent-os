@@ -14,6 +14,15 @@ start from a clean tree.
 User-owned changes are part of the environment. Preserve them unless the user
 explicitly asks to remove or replace them.
 
+Worktree isolation is a code-development boundary, not a general filesystem
+permission rule. Apply it to changes against an existing published repository
+baseline when the target project requires isolation. Initial project setup,
+folder/repository administration, and read-only lookup do not require a task
+worktree merely because they operate in a Git directory. Reading context outside
+a worktree does not authorize writing there; runtime filesystem permissions and
+user authorization remain separate from isolation. Load the isolation procedure
+when that workflow applies, not as an entry gate for every task.
+
 ## Before Editing
 
 - Check the current diff or status when edits, commits, reviews, or releases are
@@ -105,8 +114,11 @@ overlapping `owned_scope` with another concurrent writer.
 
 ## Repo-Declared Root-Session Isolation
 
-A repository that requires every root agent task to use a linked worktree may
-track `.agents/shared/worktree-policy.json` with this closed contract:
+The following is an explicitly declared stricter repository policy, not the
+shared default above. Do not infer it from Git membership or install it merely
+to perform initial setup or repository administration. A repository opting into
+root-session isolation may track `.agents/shared/worktree-policy.json` with this
+closed contract:
 
 ```json
 {

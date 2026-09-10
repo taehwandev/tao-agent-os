@@ -250,12 +250,18 @@ Codex:
   `<TARGET_REPO>/.tao/worktrees` directory in the Tao-owned `tao-workspace`
   permission profile. Extend `:workspace` so Codex keeps its normal protected
   path controls while generated linked worktrees become writable without a
-  repeated approval prompt.
+  repeated approval prompt when the user selects that profile. Installing
+  worktree support must not set or replace `default_permissions`: filesystem
+  access policy belongs to the user, not to the isolation workflow.
 - Preserve unrelated `~/.codex/config.toml` settings and existing workspace
-  roots. If a different default permission profile or legacy
-  `approval_policy`/`sandbox_mode` owns the config, stop instead of overwriting
-  that policy. A Codex-scoped target setup must not create or alter Claude
-  project settings.
+  roots, including `default_permissions`, `approval_policy`, `sandbox_mode`, and
+  legacy workspace settings. Their presence does not prevent maintaining the
+  optional Tao profile. Reject conflicts inside that profile, such as an
+  explicitly denied requested root or a different base profile. Broader project
+  access requires its own user-authorized roots; never infer parent-directory
+  access from a request to set up worktrees. Existing Tao default selections are
+  preserved, not silently migrated. A Codex-scoped target setup must not create
+  or alter Claude project settings.
 - Use `<TAO_LAUNCHER> start` once for multi-step work; do not run a second
   classify, route, or preflight sequence after it succeeds.
 - Keep the managed Codex `Stop` closeout hook enabled when the optional

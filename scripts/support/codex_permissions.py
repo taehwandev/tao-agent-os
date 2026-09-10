@@ -16,7 +16,7 @@ def merge_codex_worktree_roots(
     roots: list[Path],
     dry_run: bool,
 ) -> str:
-    """Add exact Tao worktree roots without weakening Codex workspace protections."""
+    """Add an optional Tao profile without selecting the user's permission policy."""
 
     original = target.read_text(encoding="utf-8") if target.exists() else ""
     root_strings = list(dict.fromkeys(str(root.expanduser().resolve()) for root in roots))
@@ -35,22 +35,6 @@ def merge_codex_worktree_roots(
 
 
 def _permission_ownership_conflicts(text: str, roots: list[str]) -> bool:
-    top_level = _top_level_text(text)
-    if re.search(
-        r"(?m)^[ \t]*(?:approval_policy|sandbox_mode)[ \t]*=",
-        top_level,
-    ):
-        return True
-    if _section(text, "sandbox_workspace_write"):
-        return True
-
-    default_assignments = _assignment_count(top_level, "default_permissions")
-    defaults = _quoted_values(top_level, "default_permissions")
-    if default_assignments != len(defaults):
-        return True
-    if len(defaults) > 1 or (defaults and defaults[0] != TAO_WORKSPACE_PROFILE):
-        return True
-
     profile = _section(text, f"permissions.{TAO_WORKSPACE_PROFILE}")
     if profile:
         body = text[profile[0] : profile[1]]
@@ -79,9 +63,6 @@ def _permission_ownership_conflicts(text: str, roots: list[str]) -> bool:
 
 def _ensure_workspace_profile(text: str) -> str:
     updated = text
-    if not _quoted_values(_top_level_text(updated), "default_permissions"):
-        updated = f'default_permissions = "{TAO_WORKSPACE_PROFILE}"\n' + updated
-
     profile = _section(updated, f"permissions.{TAO_WORKSPACE_PROFILE}")
     if not profile:
         return _append_block(
@@ -135,11 +116,6 @@ def _assignment_count(text: str, key: str) -> int:
     return len(
         re.findall(rf"(?m)^[ \t]*{re.escape(key)}[ \t]*=", text)
     )
-
-
-def _top_level_text(text: str) -> str:
-    first_table = _TABLE_HEADER.search(text)
-    return text[: first_table.start()] if first_table else text
 
 
 def _toml_key(value: str) -> str:
