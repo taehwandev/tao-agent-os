@@ -38,6 +38,12 @@ Prefer read-only checks first. Use mutating, network, destructive, deployment,
 publish, credential, or external-state tools only when the task requires them
 and approval or repo-local policy allows them.
 
+## Optional Device Verification
+
+When a task needs real device or emulator evidence, consult
+[host-driven device MCP guidance](device-mcp.md). This reference is optional;
+do not add device startup or document reading to unrelated work.
+
 ## Agent And AI CLIs
 
 Tool aliases, preferred agent CLIs, model providers, and usage telemetry tools
