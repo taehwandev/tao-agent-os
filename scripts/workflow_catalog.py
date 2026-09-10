@@ -302,7 +302,7 @@ COMMANDS: Dict[str, Profile] = {
     ),
     "retrospective": Profile(
         docs=("workflows/skills/retrospective-learning/SKILL.md",),
-        gates=("trigger", "lesson", "promotion check", "doc update"),
+        gates=("trigger", "lesson", "promotion check", "documentation"),
     ),
 }
 COMMANDS["git_commit"] = COMMANDS["commit"]

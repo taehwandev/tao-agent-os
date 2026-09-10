@@ -129,7 +129,10 @@ REVIEW_ACTION_PATTERNS = (
 )
 
 RELEASE_ACTION_PATTERNS = (
-    r"\b(deploy|deployment|release|publish|ship|tag|push)\b",
+    r"\b(deploy|deployment|release|publish|ship|tag)\b",
+    r"\bpush\b.{0,40}\b(?:prod|production|staging|store|distribution|firebase|testflight|play console)\b",
+    r"(?:푸시|푸쉬).{0,40}(?:프로덕션|스테이징|스토어|배포|테스터)",
+    r"(?:프로덕션|스테이징|스토어|배포|테스터).{0,40}(?:푸시|푸쉬)",
     r"\bgithub release\b",
     r"\bappcast\b",
     # The verbs that finish a release, not only the ones that start it. A
@@ -147,7 +150,6 @@ RELEASE_ACTION_PATTERNS = (
     r"\broll ?out\b",
     "배포",
     "릴리스",
-    "푸쉬",
     "태그",
     "승격",
     "롤아웃",
@@ -215,6 +217,7 @@ COMMIT_ACTION_PATTERNS = (
     r"\bmake a commit\b",
     r"\bcreate a commit\b",
     r"\bcommit message\b",
+    r"\b(?:pull request|pr)\b",
     # Korean particles and verb endings attach directly to nouns, so word
     # boundaries reject actionable forms such as "커밋하라고". Keep a
     # left-side guard so "미커밋" does not become a commit action signal, and

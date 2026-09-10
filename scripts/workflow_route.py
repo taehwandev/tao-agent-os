@@ -482,6 +482,16 @@ def resolve_docs(
     )
     graphify_readiness = graphify_context["readiness"]
     blocking = list(graphify_context["blocking"])
+    concern_set = set(concerns)
+    if (
+        command in {"release", "ship"}
+        and concern_set & {"pull-request", "push"}
+        and not concern_set & {"release", "shipping", "deploy", "deployment", "tag"}
+    ):
+        blocking.append(
+            "branch push and pull-request publication use the lightweight `commit` route; "
+            "`release` and `ship` are reserved for release artifacts, deployment, tags, or rollout"
+        )
     if command == "small-change" and set(concerns) & {
         "security", "auth", "agent-credentials", "permissions", "persistence", "database",
         "migration", "api", "dependency", "dependencies", "release", "deploy", "deployment",

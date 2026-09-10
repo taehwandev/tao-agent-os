@@ -1549,6 +1549,26 @@ class FinishGatePolicyTests(unittest.TestCase):
 
         self.assertEqual([], failures)
 
+    def test_source_docs_korean_no_unresolved_issues_is_not_an_empty_manifest_claim(self) -> None:
+        route = {
+            "command": "commit",
+            "required_docs": ["AGENTS.md"],
+            "gates": [SOURCE_DOCS_GATE],
+        }
+        failures = validate_gate_evidence(
+            {
+                SOURCE_DOCS_GATE: (
+                    "before implementation read every route required_docs entry directly; "
+                    "AGENTS.md; 필수 문서를 모두 읽고 적용했으며 미해결 항목은 없음; "
+                    "searched source-of-truth docs; applied takeaway: use the commit route"
+                )
+            },
+            [SOURCE_DOCS_GATE],
+            route=route,
+        )
+
+        self.assertEqual([], failures)
+
     def test_source_docs_route_validation_requires_the_actual_manifest_entries(self) -> None:
         route = {
             "command": "workflow-setup",

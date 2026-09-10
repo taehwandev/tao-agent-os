@@ -106,12 +106,26 @@ class WorkflowRequestIntakeTests(unittest.TestCase):
                 self.assertEqual("triage", result["recommended_route"])
 
     def test_commit_push_pr_follow_up_keeps_the_commit_route_shape(self) -> None:
-        classification = classify_request(
-            "커밋하고 푸시한 뒤 develop 대상 PR까지 생성해줘"
-        )
+        for request in (
+            "커밋하고 푸시한 뒤 develop 대상 PR까지 생성해줘",
+            "커밋 + pr 해줘",
+            "현재 브랜치 push하고 PR 만들어줘",
+            "현재 브랜치 푸쉬하고 PR 만들어줘",
+        ):
+            with self.subTest(request=request):
+                classification = classify_request(request)
+                self.assertEqual("commit", classification["route_shape"])
+                self.assertEqual("work", classification["shape_response_mode"])
 
-        self.assertEqual("commit", classification["route_shape"])
-        self.assertEqual("work", classification["shape_response_mode"])
+    def test_push_to_a_release_destination_still_uses_release_shape(self) -> None:
+        for request in (
+            "push the signed build to production",
+            "서명된 빌드를 프로덕션으로 푸시해줘",
+        ):
+            with self.subTest(request=request):
+                classification = classify_request(request)
+                self.assertEqual("release", classification["route_shape"])
+                self.assertEqual("work", classification["shape_response_mode"])
 
     def test_direct_questions_remain_answer_first(self) -> None:
         for request in (

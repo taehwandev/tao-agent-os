@@ -422,6 +422,35 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertIn(required_doc("common/skills/release-versioning/SKILL.md"), route["required_docs"])
         self.assertNotIn(required_doc("common/skills/release-versioning/SKILL.md"), route["reference_docs"])
 
+    def test_pull_request_concern_cannot_use_release_or_ship_without_release_scope(self) -> None:
+        for command in ("release", "ship"):
+            with self.subTest(command=command):
+                route = resolve_docs(
+                    command,
+                    None,
+                    ["pull-request", "commit"],
+                    request_classified=True,
+                )
+                self.assertTrue(
+                    any("lightweight `commit` route" in item for item in route["blocking"])
+                )
+
+        release_route = resolve_docs(
+            "release",
+            None,
+            ["pull-request", "release"],
+            request_classified=True,
+        )
+        self.assertFalse(
+            any("lightweight `commit` route" in item for item in release_route["blocking"])
+        )
+
+    def test_retrospective_uses_the_receipt_aware_documentation_gate(self) -> None:
+        route = resolve_docs("retrospective", None, [], request_classified=True)
+
+        self.assertIn("documentation", route["gates"])
+        self.assertNotIn("doc update", route["gates"])
+
     def test_tag_concern_requires_release_and_git_safety_skill_docs(self) -> None:
         expected_docs = (
             "common/skills/commit-workflow/SKILL.md",

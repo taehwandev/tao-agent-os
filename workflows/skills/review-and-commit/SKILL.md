@@ -47,6 +47,9 @@ it is required for the current decision, not to rebuild a development library.
 
 - Do not look for legacy flat compatibility paths; load this skill bundle as the canonical context-loading target.
 - Do not load broad references for unrelated work just because this skill was nearby in the route.
+- Do not select `release` or `ship` for an ordinary branch push or pull request.
+  Those publication follow-ups stay on the lightweight `commit` route unless
+  the request also names a release artifact, deployment, tag, or rollout.
 
 ## Verification
 
