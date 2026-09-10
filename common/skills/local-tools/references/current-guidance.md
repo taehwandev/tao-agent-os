@@ -40,9 +40,10 @@ and approval or repo-local policy allows them.
 
 ## Optional Device Verification
 
-When a task needs real device or emulator evidence, consult
-[host-driven device MCP guidance](device-mcp.md). This reference is optional;
-do not add device startup or document reading to unrelated work.
+When a task requires Android device or emulator verification, automatically
+apply [device MCP preparation](device-mcp.md): reuse a healthy registration or
+prepare the operator-configured tool once. Keep this conditional; source-only
+lookups, ordinary commits and unit tests do not start device setup.
 
 ## Agent And AI CLIs
 

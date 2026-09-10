@@ -570,5 +570,37 @@ class KoreanReleaseScopeSignalTests(unittest.TestCase):
         self.assertEqual("code-simplify", classify_request("리팩터링해줘")["route_shape"])
 
 
+
+
+class DeviceMcpRoutingTests(unittest.TestCase):
+    def test_on_device_requests_select_device_preparation(self):
+        for request in (
+            "실기기로 키보드 포커스 검증해줘",
+            "에뮬레이터에서 화면 이동 테스트해줘",
+            "안드로이드 UI 테스트 실행해줘",
+            "verify navigation on an android device",
+            "run mobile UI tests",
+        ):
+            with self.subTest(request=request):
+                self.assertIn("device-testing", infer_concerns_from_request(request))
+
+    def test_source_and_unit_work_do_not_prepare_devices(self):
+        for request in (
+            "안드로이드 API 응답 필드 조회해줘",
+            "Android mapper unit tests",
+            "커밋하고 문서 정리해줘",
+            "에뮬레이터 없이 단위 테스트만 실행해줘",
+        ):
+            with self.subTest(request=request):
+                self.assertNotIn("device-testing", infer_concerns_from_request(request))
+
+    def test_device_concern_routes_directly_to_compact_contract(self):
+        from workflow_concern_docs import CONCERNS
+        self.assertEqual(
+            ("common/skills/local-tools/references/device-mcp.md",),
+            CONCERNS["device-testing"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

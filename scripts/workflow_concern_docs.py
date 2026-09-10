@@ -165,6 +165,7 @@ CONCERNS: Dict[str, Tuple[str, ...]] = {
         "common/skills/browser-runtime-testing/SKILL.md",
     ),
     "performance": ("common/skills/performance-verification/SKILL.md",),
+    "device-testing": ("common/skills/local-tools/references/device-mcp.md",),
     "browser-testing": ("common/skills/browser-runtime-testing/SKILL.md", "common/skills/ui-visual-verification/SKILL.md"),
     "devtools": ("common/skills/browser-runtime-testing/SKILL.md",),
     "persistence": ("common/skills/data-persistence-sync/SKILL.md",),
