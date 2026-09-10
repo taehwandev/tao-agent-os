@@ -91,7 +91,13 @@ owner solely to mirror Figma structure.
 
 Run the target repository's narrowest approved build, test, preview, or render
 checks, followed by an implementation screenshot comparison at the same state,
-viewport, density, and font scale. Report:
+viewport, density, and font scale. Take that screenshot from the running app
+through the device MCP in `common/skills/local-tools/references/device-mcp.md`,
+and follow the Figma parity gate in
+`common/skills/ui-visual-verification/references/current-guidance.md`. Comparing
+the frame against source geometry instead — path maths, token values, a preview
+render — is not the screenshot comparison this step asks for; say so plainly
+rather than reporting a parity number computed that way. Report:
 
 - selected toolkit and evidence for it
 - included, reused, excluded, and unresolved frames

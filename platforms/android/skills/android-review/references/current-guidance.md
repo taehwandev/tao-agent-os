@@ -116,6 +116,17 @@ Use for Android app, Compose/ViewModel, permission, and UI flow review.
 - Instrumented: AndroidJUnitRunner for framework-dependent behavior.
 - UI: Compose UI Test or Espresso for screen interactions.
 - Screenshot: Paparazzi or screenshot tests if the repo uses them.
+- Device observation: the host-driven device MCP in
+  `common/skills/local-tools/references/device-mcp.md` for a running screen —
+  screenshot and UI hierarchy from the built app, and the taps, swipes and text
+  entry that reach a state the other tools cannot reach.
+  Reach for it from the diff, not from the request's wording: a change to a
+  rendered surface — Compose screen or component, drawable, theme or token,
+  animation or transition, insets — is what makes device evidence the check,
+  and asking the user to say "on a real device" first is not a precondition.
+  Preview, unit and screenshot tests stay the cheaper first checks and settle
+  most of these; the device answers what they cannot — the assembled screen in
+  the app, with real data, insets and navigation.
 - Flow: Turbine or equivalent for stream behavior when configured.
 - Performance: Macrobenchmark or baseline profile for startup and critical flows when configured.
 - Runtime performance: trace, log timing, profiler, or focused manual evidence

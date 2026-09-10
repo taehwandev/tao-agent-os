@@ -44,7 +44,9 @@ affects navigation, commands, permissions, persistence, or cross-surface state.
 Use repo-local tooling first. Common evidence sources include:
 
 - Web: Playwright, Testing Library, axe, browser screenshots, geometry checks.
-- Android: Compose UI Test, Espresso, screenshot or layout inspection.
+- Android: Compose UI Test, Espresso, screenshot or layout inspection, and the
+  host-driven device MCP in `common/skills/local-tools/references/device-mcp.md`
+  when the surface has to be captured from the running app.
 - iOS: XCUITest, accessibility inspector, previews, screenshot checks.
 - Desktop/application: platform smoke tests, WebDriver/Playwright when
   applicable, screenshot checks, menu/tray/window interaction smoke.
@@ -73,7 +75,11 @@ blocking check rather than optional polish.
 
 - Capture the full, uncropped surface on the requested device and flavor. The
   card boundary, surrounding inset, next section, system chrome, and relevant
-  state must be visible.
+  state must be visible. Capture it from the running app through the platform's
+  device tooling; on Android that is the device MCP above. Computing geometry
+  from the source — path maths on a vector, measured token values, a rendered
+  preview — is a different claim than this gate makes and does not satisfy it,
+  because it cannot show the surrounding inset, chrome or state.
 - Compare the implementation with the exact frame side by side or by overlay.
   Record outer bounds, outer-edge insets, media ratio, title line count and
   ellipsis, title/footer gap, icon and button size, metadata slot separation,
