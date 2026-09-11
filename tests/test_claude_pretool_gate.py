@@ -2136,7 +2136,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _write_preflight(project, "s7")
-            _age_preflight(project, gate.DEFAULT_MAX_AGE_SECONDS + 60, "s7")
+            _age_preflight(project, gate.max_age_seconds() + 60, "s7")
 
             code, out = _decide(
                 {"tool_name": "Write", "cwd": str(project), "session_id": "s7"}
@@ -2223,7 +2223,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             self.assertIn("another session is not reusable", _reason(foreign))
 
             _write_preflight(project, "s1")
-            _age_preflight(project, gate.DEFAULT_MAX_AGE_SECONDS + 60, "s1")
+            _age_preflight(project, gate.max_age_seconds() + 60, "s1")
             _, stale = _decide(payload)
             self.assertIn("older than the freshness window", _reason(stale))
 
