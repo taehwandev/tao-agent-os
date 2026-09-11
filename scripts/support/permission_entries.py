@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from support.setup_config_files import quote
@@ -222,14 +223,33 @@ def _tao_python_scripts(scripts_dir: Path) -> list[Path]:
 
 
 def _legacy_tao_python_scripts(scripts_dir: Path) -> list[Path]:
-    """All paths emitted by the former recursive permission generator."""
+    """All paths emitted by the former recursive permission generator.
+
+    The walk prunes rather than filters, because the excluded directories are
+    the expensive and unstable ones. `.tao` is the reason both matter: it holds
+    run evidence and task worktrees, so it repeats every script under paths that
+    are deleted with their task, and the maintenance job prunes finished runs
+    while this walk is in progress. A directory listed in its parent and gone by
+    the time the walk descends into it used to raise FileNotFoundError out of
+    the entire install, so one vanished directory costs only itself here.
+    """
     project_root = scripts_dir.parent
-    exclude_dirs = {".git", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".wikimap"}
+    exclude_dirs = {
+        ".git",
+        ".pytest_cache",
+        ".tao",
+        ".venv",
+        ".wikimap",
+        "__pycache__",
+        "node_modules",
+        "venv",
+    }
     scripts: list[Path] = []
-    for path in project_root.rglob("*.py"):
-        if any(part in exclude_dirs for part in path.parts):
-            continue
-        scripts.append(path)
+    for parent, dirnames, filenames in os.walk(project_root, onerror=lambda error: None):
+        dirnames[:] = [name for name in dirnames if name not in exclude_dirs]
+        scripts.extend(
+            Path(parent) / name for name in filenames if name.endswith(".py")
+        )
     removed = [scripts_dir / name for name in STALE_PERMISSION_ENTRYPOINTS]
     return sorted({*scripts, *removed})
 
