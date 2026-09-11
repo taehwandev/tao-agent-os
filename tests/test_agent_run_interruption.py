@@ -83,6 +83,23 @@ class RunInterruptionTests(unittest.TestCase):
                 self.assertFalse(list((run.project / '.tao').rglob('finish.json')))
                 self.assertFalse(list((run.project / '.tao').rglob('*.finished')))
 
+    def test_stop_retains_authorized_work_that_records_no_action(self):
+        # No recorded action is indistinguishable from a legitimate wait on a
+        # question or declined approval, or from unrecorded work: never force a resume.
+        for runtime, adapter in [('codex', codex_stop_gate), ('claude', claude_stop_gate)]:
+            with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
+                run = Run(directory, runtime)
+                run.binding['route']['request_classification'] = {'response_mode': 'work', 'intent_envelope': {
+                    'authority': 'envelope', 'schema_valid': True, 'effective_effect': 'local_write', 'failures': []}}
+                run.evidence.write_text(json.dumps(run.binding))
+                run.checkpoint('scoped')
+                output = io.StringIO()
+                with patch.object(adapter, 'find_project_root', return_value=run.project), redirect_stdout(output):
+                    self.assertEqual(0, adapter.decide({'cwd': str(run.project), 'session_id': 'bound-session'}))
+                self.assertEqual('', output.getvalue())
+                self.assertEqual('interrupted', run.state())
+                self.assertEqual([], active_runs(run.project))
+
     def test_no_run_stop_creates_no_state(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
