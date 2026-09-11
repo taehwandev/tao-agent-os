@@ -176,6 +176,9 @@ class RoutedDocuments(NamedTuple):
     search_outcome: SearchOutcome
     search_seed_docs: list[str]
     graph_matches: list[dict[str, object]]
+    # Required docs that exist only because an explicit `requires` edge named
+    # them, so the route note can say whether the graph changed the reading set.
+    graph_promoted: list[str]
     resolution: dict[str, object]
 
 
@@ -187,6 +190,7 @@ def _resolve_documents(
     profile: object,
     request_text: str,
     surface_paths: list[str],
+    advisory: bool = False,
 ) -> RoutedDocuments:
     """Gather every document this route gets from, in the order they compose.
 
@@ -194,6 +198,12 @@ def _resolve_documents(
     paths infer, then the search seeds, then what the graph reaches from both.
     Each stage may only add; the split into required and reference happens once,
     at the end, so no stage can quietly promote its own candidates.
+
+    An advisory route resolves the same documents but splits them differently:
+    it satisfies no gate, so the documents a route requires *because of its
+    gates* are demoted to `reference_docs` and `tao-hook start` requires them
+    when the real route runs. The full selection still seeds the graph and the
+    missing-document check, so the two routes reach the same documents.
     """
 
     base_gates = route_gates(command)
@@ -216,6 +226,8 @@ def _resolve_documents(
         doc_graph_matches: list[dict[str, object]] = []
         graph_required: list[str] = []
         selected_sources = route_required_docs(command, platform, concerns, profile.docs, [])
+        advisory_sources = selected_sources
+        advisory_graph_required: list[str] = []
     else:
         surface_docs, surface_matches = infer_surface_docs(
             command=command,
@@ -236,6 +248,14 @@ def _resolve_documents(
         selected_sources = route_required_docs(
             command, platform, concerns, profile.docs, eligible_surface_docs
         )
+        advisory_sources = (
+            route_required_docs(
+                command, platform, concerns, profile.docs, eligible_surface_docs,
+                advisory=True,
+            )
+            if advisory
+            else selected_sources
+        )
         if command == "analysis":
             # Owner discovery is not implementation intent. Explicit required
             # rules still augment the compact lookup reading contract.
@@ -247,10 +267,9 @@ def _resolve_documents(
                     "explicit_required_priority" if explicit else "lookup_reference_candidate"
                 )
                 if explicit:
-                    selected_sources = unique([
-                        *selected_sources,
-                        *resolve_guidance_docs(ROOT, match.get("docs", [])),
-                    ])
+                    explicit_docs = resolve_guidance_docs(ROOT, match.get("docs", []))
+                    selected_sources = unique([*selected_sources, *explicit_docs])
+                    advisory_sources = unique([*advisory_sources, *explicit_docs])
         graph_seeds = (selected_sources if command == "analysis" else
                        unique([*selected_sources, *surface_docs, *search_seed_docs]))
         doc_graph_matches = expand_doc_matches(
@@ -262,11 +281,23 @@ def _resolve_documents(
         )
         # A requires edge is authoritative only when its source was selected.
         # Search hits do not get to make their own dependencies mandatory.
-        graph_required = graph_required_docs(
-            match for match in doc_graph_matches
+        requires_matches = [
+            (match, set(resolve_guidance_docs(ROOT, [str(match["source"])])))
+            for match in doc_graph_matches
             if str(match.get("relation", "")).startswith("frontmatter:requires")
-            and set(resolve_guidance_docs(ROOT, [str(match["source"])]))
-            & set(selected_sources)
+        ]
+        graph_required = graph_required_docs(
+            match for match, sources in requires_matches if sources & set(selected_sources)
+        )
+        # An advisory route requires only what its own required sources require;
+        # a demoted gate document's dependencies are demoted with it.
+        advisory_graph_required = (
+            graph_required_docs(
+                match for match, sources in requires_matches
+                if sources & set(advisory_sources)
+            )
+            if advisory
+            else graph_required
         )
         if owner_lookup:
             # Keep mandatory sources/dependencies and explicit concerns below;
@@ -291,14 +322,24 @@ def _resolve_documents(
             docs.extend(PLATFORM_CONCERNS.get((platform, concern), ()))
 
     routed_docs = unique(canonical_doc_path(doc) for doc in docs)
-    required_docs = unique([*selected_sources, *graph_required])
+    full_required = unique([*selected_sources, *graph_required])
+    if advisory:
+        required_docs = unique([*advisory_sources, *advisory_graph_required])
+        graph_promoted = [
+            doc for doc in advisory_graph_required if doc not in advisory_sources
+        ]
+    else:
+        required_docs = full_required
+        graph_promoted = [doc for doc in graph_required if doc not in selected_sources]
     # Every routed document stays reachable in exactly one of the two lists.
     # Filtering out entrypoints whose reference was promoted would read better,
     # but it breaks the invariant that `required_docs | reference_docs` covers
-    # everything the router resolved, which callers rely on.
+    # everything the router resolved, which callers rely on. The full required
+    # set is part of that: a document an advisory route demoted may be a
+    # resolved reference that no routed entrypoint names directly.
+    manifest_docs = unique([*routed_docs, *full_required])
     required_set = set(required_docs)
-    reference_docs = [doc for doc in routed_docs if doc not in required_set]
-    manifest_docs = unique([*routed_docs, *required_docs])
+    reference_docs = [doc for doc in manifest_docs if doc not in required_set]
     missing = [doc for doc in manifest_docs if not (ROOT / doc).exists()]
     return RoutedDocuments(
         routed=routed_docs,
@@ -309,6 +350,7 @@ def _resolve_documents(
         search_outcome=search_outcome,
         search_seed_docs=search_seed_docs,
         graph_matches=doc_graph_matches,
+        graph_promoted=graph_promoted,
         resolution=_document_resolution(
             search_outcome=search_outcome,
             search_seed_docs=search_seed_docs,
@@ -365,9 +407,15 @@ def _route_notes(
             documents.search_seed_docs, documents.resolution, documents.search_outcome
         )
     )
-    if documents.graph_matches:
+    if documents.graph_promoted:
         notes.append(
             "Expanded related candidate docs from the local document graph; explicit `requires_docs` edges become required docs."
+        )
+    elif documents.graph_matches:
+        # Claiming an edge promoted something when none did sends a reader
+        # looking in `required_docs` for a graph document that is not there.
+        notes.append(
+            "Expanded related candidate docs from the local document graph; no `requires_docs` edge promoted a required doc, so these neighbors stay on-demand reference candidates."
         )
     return notes
 
@@ -440,6 +488,7 @@ def resolve_docs(
     request_text: str = "",
     surface_paths: Optional[list[str]] = None,
     project_root: Path | None = None,
+    advisory: bool = False,
 ) -> dict[str, object]:
     profile = COMMANDS[command]
     documents = _resolve_documents(
@@ -449,6 +498,7 @@ def resolve_docs(
         profile=profile,
         request_text=request_text,
         surface_paths=surface_paths or [],
+        advisory=advisory,
     )
     routed_docs = documents.routed
     required_docs = documents.required
@@ -680,17 +730,23 @@ def route_required_docs(
     concerns: list[str],
     profile_docs: tuple[str, ...],
     surface_docs: list[str] | None = None,
+    *,
+    advisory: bool = False,
 ) -> list[str]:
     """Select the documents a route requires, and report what selecting cost.
 
     Profiling a start put 88 ms here, second only to the wikimap, and almost
     all of it in reading and normalising document bodies to decide which are
     pointer entrypoints. None of it was visible in the recorded stages.
+
+    `advisory` selects for a route that satisfies no gate: the core contract,
+    the command's own documents, and what the caller or request named, but
+    none of the documents that exist to define gate evidence.
     """
 
     with stage("required_docs"):
         return _route_required_docs(
-            command, platform, concerns, profile_docs, surface_docs
+            command, platform, concerns, profile_docs, surface_docs, advisory=advisory
         )
 
 
@@ -700,15 +756,21 @@ def _route_required_docs(
     concerns: list[str],
     profile_docs: tuple[str, ...],
     surface_docs: list[str] | None = None,
+    *,
+    advisory: bool = False,
 ) -> list[str]:
     compact = _compact_required_docs(command, platform, concerns)
     if compact is not None:
+        # A compact set is the command's whole reading contract, already small;
+        # it has no separate gate tier to withhold.
         return compact
     gates = set(route_gates(command))
-    selected = _unbudgeted_required_docs(platform, concerns, gates)
-    tiers = _required_doc_tiers(command, platform, profile_docs, surface_docs, gates)
+    selected = _unbudgeted_required_docs(platform, concerns, gates, advisory=advisory)
+    tiers = _required_doc_tiers(
+        command, platform, profile_docs, surface_docs, gates, advisory=advisory
+    )
     selected = _select_within_budget(command, tiers, selected)
-    if command in FOCUSED_READING_COMMANDS:
+    if command in FOCUSED_READING_COMMANDS and not advisory:
         # This compact gate contract must not crowd out an owner-specific
         # entrypoint's actual reference at the selection boundary.
         selected = unique([*selected, "workflows/skills/ambiguity-gate/SKILL.md"])
@@ -790,6 +852,8 @@ def _required_doc_tiers(
     profile_docs: tuple[str, ...],
     surface_docs: list[str] | None,
     gates: set[str],
+    *,
+    advisory: bool = False,
 ) -> list[list[str]]:
     """The priority order the budget is spent down, most specific first."""
 
@@ -822,6 +886,12 @@ def _required_doc_tiers(
         # separately, before this budget, and cannot be demoted here.
         return tiers
 
+    if advisory:
+        # An advisory route enforces nothing, so the evidence contracts of the
+        # gates it lists and the code-work discipline for the work it does not
+        # start stay reference docs until `tao-hook start` routes for real.
+        return tiers
+
     # 5. What the route will enforce: the gates it runs, mapped to the documents
     #    that define their evidence contracts.
     gate_docs = list(automatic_docs(command))
@@ -836,7 +906,11 @@ def _required_doc_tiers(
 
 
 def _unbudgeted_required_docs(
-    platform: Optional[str], concerns: list[str], gates: set[str]
+    platform: Optional[str],
+    concerns: list[str],
+    gates: set[str],
+    *,
+    advisory: bool = False,
 ) -> list[str]:
     """What every route gets before the budget starts counting."""
 
@@ -851,8 +925,10 @@ def _unbudgeted_required_docs(
     # substantive entrypoints that state the machine-checked evidence and
     # decision rules; work-surface resolution keeps its detailed reference
     # because its generated entrypoint carries no owner-proof procedure.
+    # An advisory route runs none of those gates, so it guarantees none of them.
     guaranteed = [
-        doc for gate, doc in GUARANTEED_GATE_DOCS.items() if gate in gates
+        doc for gate, doc in GUARANTEED_GATE_DOCS.items()
+        if gate in gates and not advisory
     ]
     selected.extend(
         doc

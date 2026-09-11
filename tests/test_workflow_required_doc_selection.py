@@ -640,6 +640,123 @@ class RequiredDocMembershipTests(unittest.TestCase):
                 self.assertTrue(route["required_docs"])
 
 
+TRIAGE_GATE_DOCS = (
+    "common/skills/product-spec-to-implementation/references/current-guidance.md",
+    "workflows/skills/retrospective-learning/SKILL.md",
+)
+
+
+class AdvisoryRequiredDocsTests(unittest.TestCase):
+    """An advisory route satisfies no gate, so it does not require gate contracts.
+
+    The prompt hook's triage listing required both documents above only because
+    the route lists `alignment brief` and `retrospective check`. Those gates run
+    under `tao-hook start`, whose non-advisory route still requires them.
+    """
+
+    def test_advisory_triage_demotes_gate_driven_docs_to_reference(self) -> None:
+        route = resolve_docs("triage", None, [], advisory=True)
+
+        self.assertIn(OPERATING_SKILL, route["required_docs"])
+        self.assertIn(
+            "workflows/skills/request-triage/references/current-guidance.md",
+            route["required_docs"],
+        )
+        for doc in TRIAGE_GATE_DOCS:
+            with self.subTest(doc=doc):
+                self.assertNotIn(doc, route["required_docs"])
+                self.assertIn(doc, route["reference_docs"])
+
+    def test_non_advisory_triage_still_requires_gate_driven_docs(self) -> None:
+        full = resolve_docs("triage", None, [], request_classified=True)
+        advisory = resolve_docs("triage", None, [], advisory=True)
+
+        self.assertEqual(
+            [*advisory["required_docs"], *TRIAGE_GATE_DOCS], full["required_docs"]
+        )
+        self.assertEqual(full["docs"], advisory["docs"])
+        self.assertEqual(full["gates"], advisory["gates"])
+
+    def test_advisory_split_covers_every_document_the_full_route_covers(self) -> None:
+        for command in ("triage", "task", "release", "bugfix", "prd", "analysis"):
+            with self.subTest(command=command):
+                full = resolve_docs(command, None, [], request_classified=True)
+                advisory = resolve_docs(command, None, [], advisory=True)
+                required = set(advisory["required_docs"])
+                reference = set(advisory["reference_docs"])
+
+                self.assertFalse(required & reference)
+                self.assertEqual(
+                    set(full["required_docs"]) | set(full["reference_docs"]),
+                    required | reference,
+                )
+                self.assertEqual(full["missing"], advisory["missing"])
+
+    def test_advisory_keeps_caller_named_concern_docs(self) -> None:
+        from workflow_route import _named_concern_docs
+
+        expected = _named_concern_docs(None, ["security"])
+        route = resolve_docs("task", None, ["security"], advisory=True)
+
+        self.assertTrue(set(expected).issubset(route["required_docs"]))
+
+    def test_a_demoted_gate_doc_takes_its_required_dependency_with_it(self) -> None:
+        core_dependency = "common/skills/secure-development-baseline/SKILL.md"
+        gate_dependency = "common/skills/asset-lifecycle/SKILL.md"
+        edges = [
+            {"path": core_dependency, "source": OPERATING_SKILL,
+             "relation": "frontmatter:requires"},
+            {"path": gate_dependency, "source": TRIAGE_GATE_DOCS[1],
+             "relation": "frontmatter:requires"},
+        ]
+        with patch("workflow_route.expand_doc_matches", return_value=edges):
+            full = resolve_docs("triage", None, [], request_classified=True)
+            advisory = resolve_docs("triage", None, [], advisory=True)
+
+        self.assertIn(gate_dependency, full["required_docs"])
+        self.assertIn(core_dependency, advisory["required_docs"])
+        self.assertNotIn(gate_dependency, advisory["required_docs"])
+        self.assertIn(gate_dependency, advisory["reference_docs"])
+
+
+class GraphNoteTests(unittest.TestCase):
+    """The graph note must not claim a promotion that did not happen."""
+
+    PROMOTED = "explicit `requires_docs` edges become required docs"
+    ON_DEMAND = "these neighbors stay on-demand reference candidates"
+
+    def test_a_requires_edge_that_promoted_a_doc_is_named(self) -> None:
+        dependency = "common/skills/secure-development-baseline/SKILL.md"
+        edges = [{"path": dependency, "source": OPERATING_SKILL,
+                  "relation": "frontmatter:requires"}]
+        with patch("workflow_route.expand_doc_matches", return_value=edges):
+            route = resolve_docs("prd", None, [], request_classified=True)
+        notes = " ".join(route["notes"])
+
+        self.assertIn(dependency, route["required_docs"])
+        self.assertIn(self.PROMOTED, notes)
+        self.assertNotIn(self.ON_DEMAND, notes)
+
+    def test_neighbors_without_a_promotion_are_called_on_demand(self) -> None:
+        neighbor = "common/skills/asset-lifecycle/SKILL.md"
+        edges = [{"path": neighbor, "source": OPERATING_SKILL,
+                  "relation": "markdown:link"}]
+        with patch("workflow_route.expand_doc_matches", return_value=edges):
+            route = resolve_docs("prd", None, [], request_classified=True)
+        notes = " ".join(route["notes"])
+
+        self.assertIn(neighbor, route["reference_docs"])
+        self.assertIn(self.ON_DEMAND, notes)
+        self.assertNotIn(self.PROMOTED, notes)
+
+    def test_no_graph_match_adds_no_graph_note(self) -> None:
+        with patch("workflow_route.expand_doc_matches", return_value=[]):
+            route = resolve_docs("prd", None, [], request_classified=True)
+        notes = " ".join(route["notes"])
+
+        self.assertNotIn("local document graph", notes)
+
+
 class EmptyManifestBranchTests(unittest.TestCase):
     """A route that legitimately requires nothing must still be satisfiable."""
 

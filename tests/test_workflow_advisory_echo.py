@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -18,6 +19,8 @@ from workflow_advisory_echo import (  # noqa: E402
     hook_session_id,
     record_delivery,
 )
+from workflow_output import render_advisory_markdown, render_markdown  # noqa: E402
+from workflow_route import resolve_docs  # noqa: E402
 
 
 class AdvisoryRouteIsDeliveredOncePerSessionTests(unittest.TestCase):
@@ -204,6 +207,77 @@ class AdvisoryRouteCommandLineTests(unittest.TestCase):
         self.assertIn("Command: `release`", first)
         self.assertIn("`release`", second)
         self.assertIn("already received it", second)
+
+
+class AdvisoryListingIsCompactTests(unittest.TestCase):
+    """The prompt hook injects this listing; only what orients the agent stays.
+
+    Before the compact renderer the triage listing was 10,835 bytes, and about
+    560 of them were the documents to read and the gate names. Hook templates,
+    the parallel plan and the gate ledger serve gate execution, which an
+    advisory route never performs; `tao-hook start` prints them for real.
+    """
+
+    GATE_MANIFEST_SECTIONS = (
+        "## Required Hooks",
+        "## Parallel Execution",
+        "## Gate Execution Ledger",
+        "## Retrospective Check and Skill Learning",
+        "## Agent Contract",
+    )
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.project = Path(self.temporary_directory.name)
+        (self.project / ".tao").mkdir()
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def _route(self, payload: str, *flags: str) -> str:
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "workflow.py"), "route", "triage",
+             "--project", str(self.project), *flags],
+            input=payload, capture_output=True, text=True, check=False,
+        ).stdout
+
+    def test_both_advisory_markdown_paths_leave_the_gate_manifest_to_start(self) -> None:
+        for flags in (("--advisory",), ("--advisory", "--hook-stdin")):
+            with self.subTest(flags=flags):
+                output = self._route('{"session_id": "compact"}', *flags)
+
+                self.assertIn("## Read First", output)
+                self.assertIn("## Gates", output)
+                self.assertIn("## Notes", output)
+                self.assertIn("tao-hook start", output)
+                for section in self.GATE_MANIFEST_SECTIONS:
+                    self.assertNotIn(section, output)
+                self.assertLess(len(output.encode("utf-8")), 3000)
+
+    def test_the_repeat_receipt_names_the_digest_of_the_printed_listing(self) -> None:
+        first = self._route('{"session_id": "digest"}', "--advisory", "--hook-stdin")
+        second = self._route('{"session_id": "digest"}', "--advisory", "--hook-stdin")
+
+        digest = hashlib.sha256(first.encode("utf-8")).hexdigest()[:12]
+        self.assertIn(digest, second)
+
+    def test_missing_documents_and_blocking_conditions_are_never_dropped(self) -> None:
+        route = resolve_docs("triage", None, [], advisory=True)
+        route["missing"] = ["missing-guidance.md"]
+        route["blocking"] = ["a blocker the agent must see"]
+
+        output = render_advisory_markdown(route)
+
+        self.assertIn("## Missing Documents\n- `missing-guidance.md`", output)
+        self.assertIn("## Blocking Conditions\n- a blocker the agent must see", output)
+
+    def test_the_non_advisory_route_keeps_its_full_manifest(self) -> None:
+        route = resolve_docs("triage", None, [], request_classified=True)
+
+        output = render_markdown(route)
+
+        for section in ("## Reference On Demand", *self.GATE_MANIFEST_SECTIONS):
+            self.assertIn(section, output)
 
 
 if __name__ == "__main__":

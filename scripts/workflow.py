@@ -45,7 +45,7 @@ from workflow_request import (
     print_classification,
 )
 from workflow_advisory_echo import already_delivered, hook_session_id, record_delivery
-from workflow_output import print_markdown, render_markdown
+from workflow_output import print_markdown, render_advisory_markdown
 from workflow_route import resolve_docs
 from workflow_search import print_query_results, search_docs_outcome
 from workflow_spill import spill_label_for_args, write_spill_label
@@ -431,6 +431,7 @@ def print_route(args: argparse.Namespace) -> int:
         request_text=intent_text,
         surface_paths=args.surface_path,
         project_root=project_root,
+        advisory=advisory,
     )
     if advisory:
         route["advisory"] = True
@@ -460,6 +461,8 @@ def print_route(args: argparse.Namespace) -> int:
         print(json.dumps(route, indent=2, sort_keys=True))
     elif advisory and getattr(args, "hook_stdin", False):
         _print_advisory_once(route, project_root or Path.cwd(), _hook_payload_text(args))
+    elif advisory:
+        sys.stdout.write(render_advisory_markdown(route))
     else:
         print_markdown(route)
     return 1 if route["missing"] or route.get("blocking") else 0
@@ -475,7 +478,7 @@ def _print_advisory_once(route: dict[str, object], root: Path, payload_text: str
     guidance behind it changes.
     """
 
-    text = render_markdown(route)
+    text = render_advisory_markdown(route)
     session_id = hook_session_id(payload_text)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     if session_id and already_delivered(root, session_id, digest):

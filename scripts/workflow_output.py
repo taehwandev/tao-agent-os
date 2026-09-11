@@ -29,16 +29,63 @@ def render_markdown(route: dict[str, object]) -> str:
     return buffer.getvalue()
 
 
-def print_markdown(route: dict[str, object]) -> None:
-    print("# Tao Agent OS Workflow Route")
-    print()
-    print(f"Command: `{route['command']}`")
+def render_advisory_markdown(route: dict[str, object]) -> str:
+    """Return the compact listing an advisory route prints.
+
+    The prompt hook injects this into a session's context, and an advisory route
+    satisfies no gate, so everything that only serves gate execution -- hook
+    command templates, the parallel plan, the gate ledger, retrospective policy,
+    graphify readiness, the agent contract -- is left to the real route that
+    `tao-hook start` produces. What stays is what orients the agent before it
+    starts: the route identity, what to read, the gate names, the notes, and
+    anything missing or blocking, which is never dropped.
+    """
+
+    lines = _header_lines(route)
+    lines.append("## Read First")
+    lines.extend(f"- `{doc}`" for doc in route.get("required_docs") or route["docs"])
+    reference_count = len(route.get("reference_docs") or [])
+    if reference_count:
+        lines.append("")
+        noun = "doc is" if reference_count == 1 else "docs are"
+        lines.append(
+            f"{reference_count} more reference {noun} listed by `tao-hook start`; "
+            "open them only on demand."
+        )
+    lines.append("")
+    lines.append("## Gates")
+    lines.extend(f"- {gate}" for gate in route["gates"])
+    for heading, items, template in (
+        ("Notes", route["notes"], "- {}"),
+        ("Missing Documents", route["missing"], "- `{}`"),
+        ("Blocking Conditions", route.get("blocking"), "- {}"),
+    ):
+        if items:
+            lines.append("")
+            lines.append(f"## {heading}")
+            lines.extend(template.format(item) for item in items)
+    lines.append("")
+    lines.append(
+        "The full manifest (hooks, parallel plan, gate ledger) comes from "
+        f"`tao-hook start ... --command {route['command']} --request \"<USER_REQUEST>\"`."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _header_lines(route: dict[str, object]) -> list[str]:
+    lines = ["# Tao Agent OS Workflow Route", "", f"Command: `{route['command']}`"]
     if route["platform"]:
-        print(f"Platform: `{route['platform']}`")
+        lines.append(f"Platform: `{route['platform']}`")
     if route["concerns"]:
         concerns = ", ".join(f"`{item}`" for item in route["concerns"])
-        print(f"Concerns: {concerns}")
-    print()
+        lines.append(f"Concerns: {concerns}")
+    lines.append("")
+    return lines
+
+
+def print_markdown(route: dict[str, object]) -> None:
+    for line in _header_lines(route):
+        print(line)
     if route["request_classification"]:
         classification = route["request_classification"]
         print("## Request Classification")
