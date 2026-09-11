@@ -69,20 +69,36 @@ def merge_permissions_allow(
         and entry in cleanup_set
     ]
     missing = [entry for entry in entries if entry not in allow]
-    if not missing and not stale:
+    # Matching is set-like, so a repeated entry grants nothing. Appending only
+    # what was absent left any copy another tool added in place for good, which
+    # is how an entry setup already owns came to sit in the list twice.
+    duplicated = len(allow) != len({entry for entry in allow})
+    if not missing and not stale and not duplicated:
         return "ok"
     if dry_run:
         if stale and not missing:
             return "would_remove"
-        if stale:
+        if stale or duplicated:
             return "would_update"
         return "missing"
 
-    cleaned = [entry for entry in allow if entry not in stale]
+    cleaned = _first_of_each(entry for entry in allow if entry not in stale)
     permissions["allow"] = cleaned + missing
     config["permissions"] = permissions
     write_json(target, config)
     return "installed"
+
+
+def _first_of_each(entries) -> list:
+    """Drop later copies, because position is how a reader finds an entry."""
+    seen = set()
+    kept = []
+    for entry in entries:
+        if entry in seen:
+            continue
+        seen.add(entry)
+        kept.append(entry)
+    return kept
 
 
 def read_json(path: Path) -> dict:
