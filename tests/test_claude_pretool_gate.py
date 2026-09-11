@@ -609,6 +609,9 @@ class ClaudePreToolGateTests(unittest.TestCase):
                         }
                     )
                     self.assertEqual(0, code)
+                    if command in {"git branch -D main", "git branch -vD main"}:
+                        self.assertEqual("", out)
+                        continue
                     decision = json.loads(out)["hookSpecificOutput"]
                     self.assertEqual("ask", decision["permissionDecision"])
                     self.assertIn("worktree", decision["permissionDecisionReason"])
@@ -670,8 +673,30 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "git gc --prune=now",
                 "git stash drop",
             ):
-                with self.subTest(command=command, tier="asks"):
-                    self.assertEqual("ask", decision(command), command)
+                with self.subTest(command=command, tier="native deletion or forced push"):
+                    expected = "ask" if command == "git push --force origin main" else "silent"
+                    self.assertEqual(expected, decision(command), command)
+
+    def test_deletion_defers_without_granting_permission(self) -> None:
+        """An explicit deletion request must not face a second Tao ask."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            for command in (
+                "git branch -D main",
+                "git tag --delete v1.0",
+                "git push origin :main",
+                "git worktree remove --force ../old",
+                "git clean -xfd",
+                "rm -rf ./old-output",
+            ):
+                with self.subTest(command=command):
+                    code, out = _decide({
+                        "tool_name": "Bash", "cwd": str(project),
+                        "session_id": "deletion-regression",
+                        "tool_input": {"command": command},
+                    })
+                    self.assertEqual((0, ""), (code, out))
 
     def test_the_worktree_cycle_does_not_stop_to_ask(self) -> None:
         """Branch a worktree, work, remove it -- the loop this gate encourages.
@@ -935,10 +960,22 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertEqual("allow", decision(command))
 
+            # Merge authorization belongs to the native permission layer;
+            # a hook ask would prompt again even after an explicit request.
+            for command in (
+                "git merge topic",
+                "git merge --no-ff topic",
+                "git merge --squash topic",
+                "git merge --continue",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("silent", decision(command))
+
             # The rest write a commit or discard uncommitted work here, which
             # is a decision even though it authors nothing new.
             for command in (
-                "git merge topic",
+                "git merge --abort",
+                "git merge --quit",
                 "git pull",
                 "git checkout main",
                 "git checkout -- .claude/settings.json",
@@ -2919,6 +2956,8 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
                 with self.subTest(command=command):
                     code, out = self._decide(project, command)
                     self.assertEqual(0, code)
+                    if command == "git clean -xfd" and not out:
+                        continue  # Native permissions decide; this is not an explicit allow.
                     self.assertNotEqual("", out, "the call must not pass unremarked")
                     self.assertNotIn("a successful finish", _reason(out))
 

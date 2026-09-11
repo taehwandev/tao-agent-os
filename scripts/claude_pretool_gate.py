@@ -331,19 +331,17 @@ def deny(reason: str) -> int:
     return 0
 
 
-def ask(reason: str) -> int:
-    """Put one decision to the operator, for the rare kind that is a decision.
+def ask(reason: str, tokens: list[str] | None = None) -> int:
+    """Request native review, without re-asking for deletion authorization.
 
-    ``deny`` is right wherever the remedy is deterministic: the agent enters the
-    workflow, moves to a permitted worktree, or reduces the edit, and no human
-    needs to watch it happen. A destructive command that is *sometimes exactly
-    what was meant* has no such remedy -- denying it hides a real choice, and
-    asking about everything buries that choice among the ordinary calls until
-    the prompt stops carrying information.
-
-    So this is reserved for the short hazard list, where Claude's prompt also
-    offers "don't ask again": an operator who force-pushes daily answers once.
+    A hook cannot observe settled conversational approval. Deletion decisions
+    therefore remain with Claude's permission layer, rather than a hook ask
+    that overrides that layer on every invocation. Isolation and workflow
+    refusals are evaluated separately and remain in force.
     """
+
+    if tokens and _is_git_deletion(tokens):
+        return allow()
 
     print(
         json.dumps(
@@ -992,7 +990,8 @@ def _worktree_policy_verdict(
         return ask(
             "This writes a commit into the protected checkout, discards "
             "uncommitted work there, or reaches shared state. Allow it only "
-            "if that is what you meant."
+            "if that is what you meant.",
+            tokens=tokens,
         )
     return deny(
         _worktree_reason_naming_its_cause(
@@ -1264,6 +1263,32 @@ def unstages_only(subcommand: str, arguments: list[str]) -> bool:
     return False
 
 
+def _is_git_deletion(tokens: list[str]) -> bool:
+    """Recognize deletion forms only; native permissions still decide access."""
+    if not tokens or Path(tokens[0]).name != "git":
+        return False
+    if any(arg.split("=", 1)[0] in {"--git-dir", "--work-tree", "--config-env", "-c"} for arg in tokens[1:]):
+        return False  # Repository/configuration overrides need their own review.
+    subcommand, arguments = git_subcommand(tokens)
+    if any(names_unsafe_git_option(arg) for arg in arguments):
+        return False
+    flags = {arg.split("=", 1)[0] for arg in arguments if arg.startswith("--")}
+    short = {c for arg in arguments if arg.startswith("-") and not arg.startswith("--") for c in arg[1:]}
+    words = [arg for arg in arguments if not arg.startswith("-")]
+    first = words[0] if words else ""
+    if subcommand in {"branch", "tag"}:
+        return bool(short & ({"d", "D"} if subcommand == "branch" else {"d"}) or "--delete" in flags)
+    if subcommand == "push":
+        return "d" in short or "--delete" in flags or any(word.startswith(":") for word in words[1:])
+    if subcommand in {"remote", "worktree"}:
+        return first in ({"remove", "rm"} if subcommand == "remote" else {"remove", "prune"})
+    if subcommand == "stash":
+        return first in {"drop", "clear"}
+    if subcommand in {"update-ref", "replace"}:
+        return "d" in short or "--delete" in flags
+    return subcommand in {"clean", "prune"} or (subcommand == "reflog" and first in {"delete", "expire"}) or (subcommand == "gc" and "--prune" in flags)
+
+
 def protected_checkout_verdict(
     tokens: list[str], protected: frozenset[str] | None = None
 ) -> str:
@@ -1353,6 +1378,11 @@ def protected_checkout_verdict(
     flags = {argument.split("=", 1)[0] for argument in arguments}
     if subcommand in {"merge", "pull"} and "--ff-only" in flags:
         return "allow"
+    if subcommand == "merge" and not flags & {"--abort", "--quit"}:
+        # Integration belongs in this checkout. This hook cannot see the
+        # user's merge authorization, so do not override Claude's native
+        # permission decision with a new ask on every invocation.
+        return "defer"
     if subcommand in COMMITTING_OR_DISCARDING_SUBCOMMANDS:
         return "allow" if unstages_only(subcommand, arguments) else "ask"
     if shared_repository_hazard(tokens, protected):
@@ -1807,7 +1837,8 @@ def decide(payload: dict) -> int:
         if hazard:
             return ask(
                 "This worktree isolates ordinary file edits, but this Git command "
-                f"{hazard}. Allow it only if that is what you meant."
+                f"{hazard}. Allow it only if that is what you meant.",
+                tokens=tokens,
             )
         if (
             tool in BASH_TOOLS
@@ -1820,12 +1851,11 @@ def decide(payload: dict) -> int:
                 "This is an ordinary Git command inside the isolated linked worktree."
             )
         return allow()
-    # A repository that asked for both keeps the hazard prompt it would have
-    # had under the waiver: workflow entry answers whether the run exists, not
-    # whether this command is about to reach another repository.
+    # Deletion deferral must still reach required workflow validation below.
+    # Other shared-state hazards retain their existing permission request.
     if worktree_policy_satisfied(root):
         hazard = shared_repository_hazard(tokens, protected_branch_names(root))
-        if hazard:
+        if hazard and not _is_git_deletion(tokens):
             return ask(
                 "This worktree isolates ordinary file edits, but this Git command "
                 f"{hazard}. Allow it only if that is what you meant."
