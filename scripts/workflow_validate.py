@@ -8,7 +8,9 @@ from pathlib import Path
 
 from agent_finish_gate_policy import VALIDATED_GATES
 from support.project_tree import iter_project_files
-from workflow_catalog import COMMANDS, CONCERNS, CORE_DOCS, PLATFORM_CONCERNS, PLATFORMS
+from workflow_catalog import (
+    COMMANDS, CONCERN_REFERENCE_DOCS, CONCERNS, CORE_DOCS, PLATFORM_CONCERNS, PLATFORMS,
+)
 from workflow_common import (
     QUESTION_ROUTE_COMMANDS,
     REPAIR_CYCLE_LIMIT,
@@ -299,6 +301,8 @@ def validate() -> int:
     for docs in PLATFORMS.values():
         refs.update(docs)
     for docs in CONCERNS.values():
+        refs.update(docs)
+    for docs in CONCERN_REFERENCE_DOCS.values():
         refs.update(docs)
     for docs in PLATFORM_CONCERNS.values():
         refs.update(docs)

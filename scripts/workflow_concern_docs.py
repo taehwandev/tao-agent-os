@@ -33,8 +33,10 @@ CONCERNS: Dict[str, Tuple[str, ...]] = {
     "config": ("common/skills/runtime-url-configuration/SKILL.md",),
     "intake": ("common/skills/task-intake-effort-routing/SKILL.md", "workflows/skills/request-triage/SKILL.md"),
     "effort": ("common/skills/task-intake-effort-routing/SKILL.md",),
-    "testing": ("common/skills/testing/SKILL.md", "common/skills/scenario-driven-testing/SKILL.md", "common/skills/verification-policy/SKILL.md"),
-    "test": ("common/skills/testing/SKILL.md", "common/skills/scenario-driven-testing/SKILL.md", "common/skills/verification-policy/SKILL.md"),
+    # The testing card carries the always-applicable test rules and links the
+    # other two; see CONCERN_REFERENCE_DOCS.
+    "testing": ("common/skills/testing/SKILL.md",),
+    "test": ("common/skills/testing/SKILL.md",),
     "verification": (
         "common/skills/verification-policy/SKILL.md",
         "common/skills/testing/SKILL.md",
@@ -225,6 +227,16 @@ CONCERNS: Dict[str, Tuple[str, ...]] = {
     "brokered-credentials": ("product-patterns/skills/agent-credential-broker-ideation/SKILL.md",),
     "capability-token": ("product-patterns/skills/agent-credential-broker-ideation/SKILL.md",),
     "egress-control": ("product-patterns/skills/agent-credential-broker-ideation/SKILL.md",),
+}
+
+
+# Cards a concern routes as on-demand references only. A caller naming
+# `testing` gets the testing card required (10 KB); the scenario and
+# verification-policy references (25 KB together) stay one link away, and a
+# route whose tests gate needs them still selects them through the gate tier.
+CONCERN_REFERENCE_DOCS: Dict[str, Tuple[str, ...]] = {
+    "testing": ("common/skills/scenario-driven-testing/SKILL.md", "common/skills/verification-policy/SKILL.md"),
+    "test": ("common/skills/scenario-driven-testing/SKILL.md", "common/skills/verification-policy/SKILL.md"),
 }
 
 

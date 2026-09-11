@@ -10,13 +10,16 @@ Use when routed to `common/skills/task-intake-effort-routing/SKILL.md` or when w
 
 ## Read
 
-- `references/current-guidance.md` for the detailed guidance for this skill.
+- `references/current-guidance.md` for the intake rules every request applies.
+- `references/prd-creation-boundary.md` only when deciding whether work needs a PRD.
+- `references/model-tier-selection.md` only when choosing a model or worker tier.
+- `references/grill-me-protocol.md` only when a Grill-Me session is required or requested.
 - Related `SKILL.md` entrypoints named by the reference before loading their detailed references.
 
 ## Process
 
 1. Read this entrypoint first to confirm this guidance area applies.
-2. Open `references/current-guidance.md` only when the task touches request clarity, effort, model tier selection, Grill-Me, or token controls.
+2. Open `references/current-guidance.md` when the task touches request clarity, effort, route selection, the alignment brief, or token controls; open a sibling reference only under its condition above.
 3. Select the abstract effort/model tier before applying runtime-specific model ids.
 4. Follow the reference's decision rules, stop conditions, and verification requirements before editing, reviewing, or reporting completion.
 
@@ -28,4 +31,4 @@ Use when routed to `common/skills/task-intake-effort-routing/SKILL.md` or when w
 ## Verification
 
 - If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
-- If detailed guidance changes, validate links and frontmatter for `references/current-guidance.md`.
+- If detailed guidance changes, validate links and frontmatter for every file under `references/`.

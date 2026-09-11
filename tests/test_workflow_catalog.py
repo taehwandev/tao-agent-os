@@ -65,7 +65,9 @@ from support.runtime_bridge import (
     runtime_bridge_required_phrases,
 )
 from support.stable_launcher import stable_launcher_path
-from workflow_catalog import COMMANDS, CONCERNS, PLATFORMS, SPILL_ACTION_LABELS
+from workflow_catalog import (
+    COMMANDS, CONCERN_REFERENCE_DOCS, CONCERNS, PLATFORMS, SPILL_ACTION_LABELS,
+)
 from workflow_doc_resolution import resolve_guidance_docs
 from workflow_route import CORE_REQUIRED_DOCS
 from workflow_gate_policy import (
@@ -219,9 +221,10 @@ class WorkflowCatalogTests(unittest.TestCase):
 
     def test_testing_concern_is_registered(self) -> None:
         self.assertIn("testing", CONCERNS)
-        self.assertIn("common/skills/testing/SKILL.md", CONCERNS["testing"])
-        self.assertIn("common/skills/scenario-driven-testing/SKILL.md", CONCERNS["testing"])
-        self.assertIn("common/skills/verification-policy/SKILL.md", CONCERNS["testing"])
+        self.assertEqual(("common/skills/testing/SKILL.md",), CONCERNS["testing"])
+        # Still routed for the concern, as on-demand references.
+        self.assertIn("common/skills/scenario-driven-testing/SKILL.md", CONCERN_REFERENCE_DOCS["testing"])
+        self.assertIn("common/skills/verification-policy/SKILL.md", CONCERN_REFERENCE_DOCS["testing"])
         self.assertIn("definition-of-done", CONCERNS)
         self.assertIn("common/skills/definition-of-done/SKILL.md", CONCERNS["definition-of-done"])
 
@@ -594,7 +597,9 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertIn(guidance_area("common/skills/llm-coding-discipline/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("common/skills/agent-editing-safety/SKILL.md"), routed_areas(route))
         self.assertIn(required_doc("common/skills/testing/SKILL.md"), route["required_docs"])
-        self.assertIn(route_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["reference_docs"])
+        # The testing concern now requires only its 10 KB card, so the budget
+        # still has room for the ambiguity gate's own contract.
+        self.assertIn(required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["required_docs"])
         self.assertIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["reference_docs"])
         self.assertIn(route_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["reference_docs"])
         self.assertNotIn(required_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["required_docs"])

@@ -75,7 +75,8 @@ def lookup_start(args: argparse.Namespace) -> int | None:
         print(json.dumps({"status": "FAIL", "lookup": True, "failures": failures}))
         return 2
 
-    concerns = list(dict.fromkeys([*args.concern, *infer_concerns_from_request(args.request)]))
+    inferred = [c for c in infer_concerns_from_request(args.request) if c not in args.concern]
+    concerns = list(dict.fromkeys([*args.concern, *inferred]))
     token = READ_ONLY_LOOKUP.set(True)
     try:
         route = resolve_docs(
@@ -83,6 +84,7 @@ def lookup_start(args: argparse.Namespace) -> int | None:
             request_classification=classification,
             request_text=args.request, project_root=args.project.resolve(),
             surface_paths=getattr(args, "surface_path", []),
+            inferred_concerns=inferred,
         )
     finally:
         READ_ONLY_LOOKUP.reset(token)

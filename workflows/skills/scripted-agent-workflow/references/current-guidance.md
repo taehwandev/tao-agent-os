@@ -157,7 +157,12 @@ The router also infers the canonical `seo` concern from explicit public
 discovery keywords in `--request`, such as SEO, AI search, AEO, GEO, AI
 Overviews, AI Mode, `llms.txt`, sitemap, robots, canonical, Open Graph, and
 structured data. Inference is a convenience, not a replacement for adding
-specific `--concern` values when local context shows the risk.
+specific `--concern` values when local context shows the risk. Keyword matching
+fires on negations such as "not a performance change", so a concern that was
+only inferred routes its documents as `reference_docs`; only a caller-named
+`--concern` makes them required. A concern may also route companion cards as
+references only, as `testing` does with scenario-driven testing and the
+verification policy.
 
 Use the `metering`, `usage`, or `telemetry` concern for local runtime usage
 metering, workflow label bridges, or Spill-related work. Do not use the

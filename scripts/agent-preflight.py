@@ -40,7 +40,7 @@ from workflow_classified_exemption import (
 )
 from workflow_intent_dual_run import route_intake_decision
 from workflow_intent_envelope import read_approval_record, read_intent_envelope
-from workflow_request import infer_concerns_from_request
+from workflow_request import infer_concerns_from_request, inferred_concern_note
 from workflow_effect_policy import route_minimum_effect
 from workflow_route import resolve_docs
 
@@ -202,13 +202,13 @@ def route_payload(
         request_text=intent_text,
         surface_paths=surface_paths,
         project_root=args.project.resolve(),
+        inferred_concerns=newly_inferred,
     )
     if newly_inferred:
         route["inferred_concerns"] = newly_inferred
         notes = route.get("notes")
         if isinstance(notes, list):
-            joined = ", ".join(f"`{concern}`" for concern in newly_inferred)
-            notes.append(f"Inferred concern(s) from request keywords: {joined}.")
+            notes.append(inferred_concern_note(newly_inferred))
     if any(surface_candidates.values()):
         route["surface_candidates"] = surface_candidates
         notes = route.get("notes")

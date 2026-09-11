@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Tuple
 
-from workflow_concern_docs import BASELINE_CONCERNS, CONCERNS
+from workflow_concern_docs import BASELINE_CONCERNS, CONCERN_REFERENCE_DOCS, CONCERNS
 from workflow_concern_hints import REQUEST_CONCERN_HINTS
 from workflow_platform_concerns import PLATFORM_CONCERNS
 

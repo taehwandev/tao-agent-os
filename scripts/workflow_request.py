@@ -154,6 +154,16 @@ def infer_concerns_from_request(text: str) -> list[str]:
     return unique(inferred)
 
 
+def inferred_concern_note(concerns: list[str]) -> str:
+    """Name keyword-inferred concerns and say they did not become required."""
+
+    joined = ", ".join(f"`{concern}`" for concern in concerns)
+    return (
+        f"Inferred concern(s) from request keywords: {joined}. Their documents are "
+        "on-demand references; pass `--concern <name>` when the task really touches one."
+    )
+
+
 def _match_text(text: str) -> str:
     ascii_apostrophes = text.replace("’", "'").replace("‘", "'")
     return _LATIN_HANGUL_JUNCTION.sub(" ", ascii_apostrophes)

@@ -13,6 +13,19 @@ how much model effort, context loading, and workflow depth the task deserves.
 The goal is to use the lowest capable effort level without skipping safety,
 verification, or repo-local rules.
 
+## Read When Needed
+
+This file holds the rules every intake applies. Open a sibling only when its
+condition is true for the current request:
+
+- `prd-creation-boundary.md` when requirements analysis or modification work
+  has to decide between creating or updating a PRD and the PRD-skip checkpoint.
+- `model-tier-selection.md` when a runtime chooses a model, reasoning level, or
+  worker tier from the effort profile.
+- `grill-me-protocol.md` when classification sets `grill_me: true` or legacy
+  `question_drill: true`, the user asks for Grill-Me or requirements discovery,
+  or blocker questions are the deliverable.
+
 ## Intake Decision
 
 Classify the request before loading many documents or doing deep reasoning.
@@ -37,8 +50,11 @@ Examples:
   VibeGuard block, otherwise audit current guardrails.
 - "Change the button on home" -> `vague-action`; ask which button, state, and
   expected behavior unless the repo has one obvious home button.
-- "check", "review", "확인", or "이거 확인해줘" without a named target ->
-  `vague-action`; ask what to inspect before routing work.
+- "check", "review", "확인", or "이거 확인해줘" without a named target -> first
+  resolve the target from the conversation (the work just reported or the
+  artifact under discussion) and the repository state (the current diff, branch,
+  or active run). It is `vague-action`, and the agent asks what to inspect, only
+  when that still leaves no single plausible target.
 - "Add profile saving and avatar presets" -> `vague-action` or
   `broad-product` unless an existing PRD/spec/code owner already answers
   storage, API, loading, error, and acceptance questions.
@@ -75,98 +91,14 @@ criteria, data ownership, permission/security handling, cost impact, or
 verification, stop at triage or ambiguity and ask the smallest blocker
 question.
 
-## PRD Creation Boundary
+Choose the lightest work route the evidence supports. Use `small-change` when
+bounded inspection proves one existing owner, a clear requested outcome, at most
+four changed files, and no risk-sensitive concern, as defined in
+`common/skills/agent-operating-skill/references/small-change.md`. Use `task` or
+the specific work route when scope is uncertain, crosses owners, or touches a
+risk surface; do not send every terse request to `small-change`.
 
-PRD creation is a deliverable and risk decision. It is separate from the
-alignment brief and from Grill-Me.
-
-- The alignment brief is mandatory before requirements analysis or modification
-  work, but it does not imply a PRD.
-- When a PRD is not created for requirements analysis or modification work, the
-  agent must still give the user a compact PRD-skip alignment checkpoint before
-  drafting or editing. This must be user-visible, not only an internal note.
-  State shared understanding, possible differences, unsupported assumptions or
-  unknowns, and either the minimal blocker question or the safe default the
-  agent will use.
-- Grill-Me is a clarification skill for blocker questions, but it does not imply
-  a PRD by itself.
-- For writing or documentation work, unclear genre, point of view, honorific
-  level, audience, or voice target is still an alignment blocker when the choice
-  would change the outline or rewrite strategy. Ask with concrete options before
-  editing; do not infer the mode from a single style example.
-- Create a new PRD when the requested deliverable is explicitly a PRD/product
-  requirements note, or when work introduces a new product capability, flow,
-  multi-screen behavior, data model, API contract, auth/permission/billing
-  policy, release behavior, or durable acceptance criteria that do not already
-  exist.
-- Update an existing PRD or product source of truth when the change alters
-  documented user behavior, acceptance criteria, product policy, or required
-  states.
-- Do not create a PRD for a clear bugfix, refactor, documentation edit, test
-  update, hook/script/workflow-policy repair, or internal cleanup unless that
-  work changes product behavior or a public contract. Use the user-visible
-  PRD-skip alignment checkpoint and acceptance criteria instead.
-
-## Effort Profiles
-
-Use runtime-specific model or reasoning controls only when the runtime supports
-them. First choose an abstract model tier from the effort profile, then let the
-active runtime map that tier to a concrete model id. If model selection is not
-available, apply the same profile through context loading, planning depth, and
-verification scope.
-
-| Effort | Use When | Behavior |
-| --- | --- | --- |
-| `quick` | Clear exact target, low risk, one file/symbol/doc answer, or explicit error output. | Read local instructions plus the exact files/snippets; avoid broad planning; run the narrowest check. |
-| `standard` | Scoped implementation, bugfix, refactor, or docs work with normal local context. | Use workflow route, relevant platform/common cards, focused plan, focused verification. |
-| `deep` | Ambiguous product behavior, architecture choice, security/data/release risk, cross-module changes, or repeated failure. | Use ambiguity/product/multi-perspective routes, more context, explicit tradeoffs, stronger verification. |
-| `specialist` | Platform/security/release/billing/auth/database/AI-tooling risk requires a specific skill or expert agent. | Route to the specialist card/agent and keep write scopes explicit. |
-
-## Model Tier Selection
-
-Model tier is a runtime-neutral routing result. Do not make Codex model names the
-shared workflow policy; they are one runtime mapping for the abstract tier.
-
-| Effort | Model Tier | Codex Mapping | Typical Work |
-| --- | --- | --- | --- |
-| `quick` | `fast` | `gpt-5.6-luna` | exact search, small status checks, narrow docs lookup, read-only test reruns, low-risk summaries |
-| `standard` | `balanced` | `gpt-5.6-terra` | scoped code edits, documentation updates, normal review, focused debugging |
-| `deep` | `frontier` | `gpt-5.6-sol` | architecture, security/data/release risk, cross-module changes, repeated failure recovery, broad planning |
-| `specialist` | `specialist` | `gpt-5.6-sol` unless a runtime specialist is configured | platform/security/release/billing/auth/database/AI-tooling expert work |
-
-Runtime rules:
-
-- Codex may map `fast` / `balanced` / `frontier` to the configured Luna / Terra /
-  Sol model ids above when those models are available.
-- Luna is not a code-authoring tier. A Codex dispatch may use it only for a
-  read-only, non-authoring mechanical task; code edits, code generation, test
-  creation, and test fixes require Terra / medium or higher.
-- Claude and other runtimes must map the same tiers to their own configured
-  model choices. Do not pass Codex model ids to non-Codex runtimes.
-- If a runtime cannot switch models for the current session, keep the current
-  model and apply the effort profile through smaller context, deeper planning,
-  or stronger verification.
-- Switch only at a task, subagent, or session boundary unless the runtime has a
-  safe mid-task handoff mechanism. Preserve the route, docs read, gate ledger,
-  and unresolved blockers across the handoff.
-- Do not route secret, credential, destructive, deployment, or external-state
-  work to a cheaper tier only for cost. Risk controls win over cost controls.
-
-Do not default to the strongest model, longest reasoning, or full-document
-loading when the request is clear and low risk. Escalate when evidence shows the
-task is broader or riskier than first classified.
-
-## Grill-Me Protocol
-
-Grill-Me is the blocker-question protocol for pressure-testing a plan or
-design before PRD, ARD, or implementation. Prefer an installed Grill-Me skill
-when one exists; otherwise use the built-in protocol from this card. A
-`/grilling` session asks one question at a time, gives a recommended answer,
-waits for feedback, and continues until the decision tree is resolved. It is
-not the default for every request. Use it when the user asks for Grill-Me,
-wants requirements discovery, the request is `vague-action`, the request is
-broad product or architecture work without already-known acceptance criteria,
-or unknowns can change behavior, scope, risk, or verification.
+## Alignment Brief
 
 For requirements analysis and modification routes, always provide a compact
 alignment brief before drafting requirements or changing files. This is not the
@@ -183,50 +115,20 @@ selection. Examples such as plain Korean endings, "not honorific", or "my
 style" are not enough to choose retrospective, announcement, technical guide,
 or opinion-piece structure unless the user says so or selects that option.
 
-Grill-Me rules:
+## Effort Profiles
 
-- Invoke the actual Grill-Me skill when it is available.
-- If an external Grill-Me skill is unavailable, run this built-in protocol
-  instead of skipping the gate: state `Grill-Me protocol /grilling session`,
-  ask the blocker question, include the recommended answer and tradeoff, wait
-  for feedback, and record the decision/output as gate evidence.
-- Do not treat unstructured ad hoc questions as Grill-Me evidence. The session
-  must name Grill-Me or `/grilling`, include its output, and capture the
-  blocker question or no-blocker decision.
-- Feed Grill-Me only the minimum safe task summary and public or repo-safe facts
-  needed to ask blocker questions.
-- If an answer can be found by inspecting the codebase, inspect the code instead
-  of asking the user to explain existing behavior.
-- Ask only blocker questions returned by Grill-Me after checking available
-  conversation and repo context.
-- Ask one question at a time unless the skill output explicitly requires
-  grouping.
-- Include the skill's recommended answer and tradeoff when presenting the
-  question.
-- Wait for feedback before continuing Grill-Me.
-- Ask one to three concise questions per pass only when the runtime requires a
-  batched question format or the skill output is
-  explicitly scoped otherwise.
-- Prefer concrete choices with tradeoffs and a recommended default when the
-  runtime allows structured choices.
-- Stop Grill-Me when the task can be classified as `clear-exact`,
-  `clear-scoped`, or `broad-product` with existing PRD/spec/ARD/source docs or
-  known acceptance criteria.
-- Do not invoke Grill-Me to delay a clear low-risk task.
-- Do not ask questions that repo-local docs, code, tests, PRD/ARD docs, or error
-  output can answer.
+Use runtime-specific model or reasoning controls only when the runtime supports
+them. First choose an abstract model tier from the effort profile, then let the
+active runtime map that tier to a concrete model id. If model selection is not
+available, apply the same profile through context loading, planning depth, and
+verification scope.
 
-If the user explicitly asks for "grill me", "ask me questions", "help define
-requirements", or equivalent wording, use Grill-Me as the deliverable until
-enough decisions are captured. Treat "그릴미" as an explicit Grill-Me request.
-When wrapper evidence is available, a route classification with
-`grill_me: true` or legacy `question_drill: true` must finish with Grill-Me
-protocol evidence such as `grill-me if needed=</grilling session/output
-evidence>`.
-Legacy `question drill if needed=<evidence>` is accepted only when the evidence
-still names the Grill-Me protocol, skill, or `/grilling` session and output.
-Missing Grill-Me evidence is `🐱🔴 FAIL` and requires missed-gate recovery plus
-the retrospective workflow before final report, commit, release, or handoff.
+| Effort | Use When | Behavior |
+| --- | --- | --- |
+| `quick` | Clear exact target, low risk, one file/symbol/doc answer, or explicit error output. | Read local instructions plus the exact files/snippets; avoid broad planning; run the narrowest check. |
+| `standard` | Scoped implementation, bugfix, refactor, or docs work with normal local context. | Use workflow route, relevant platform/common cards, focused plan, focused verification. |
+| `deep` | Ambiguous product behavior, architecture choice, security/data/release risk, cross-module changes, or repeated failure. | Use ambiguity/product/multi-perspective routes, more context, explicit tradeoffs, stronger verification. |
+| `specialist` | Platform/security/release/billing/auth/database/AI-tooling risk requires a specific skill or expert agent. | Route to the specialist card/agent and keep write scopes explicit. |
 
 ## Token Controls
 

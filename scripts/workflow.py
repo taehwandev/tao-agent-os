@@ -42,6 +42,7 @@ from workflow_intent_envelope import read_approval_record, read_intent_envelope
 from workflow_request import (
     classify_request,
     infer_concerns_from_request,
+    inferred_concern_note,
     print_classification,
 )
 from workflow_advisory_echo import already_delivered, hook_session_id, record_delivery
@@ -432,6 +433,7 @@ def print_route(args: argparse.Namespace) -> int:
         surface_paths=args.surface_path,
         project_root=project_root,
         advisory=advisory,
+        inferred_concerns=newly_inferred,
     )
     if advisory:
         route["advisory"] = True
@@ -455,8 +457,7 @@ def print_route(args: argparse.Namespace) -> int:
         route["inferred_concerns"] = newly_inferred
         notes = route.get("notes")
         if isinstance(notes, list):
-            joined = ", ".join(f"`{concern}`" for concern in newly_inferred)
-            notes.append(f"Inferred concern(s) from request keywords: {joined}.")
+            notes.append(inferred_concern_note(newly_inferred))
     if args.format == "json":
         print(json.dumps(route, indent=2, sort_keys=True))
     elif advisory and getattr(args, "hook_stdin", False):
@@ -581,6 +582,7 @@ def print_dispatch(args: argparse.Namespace) -> int:
             classification_evidence=args.classification_evidence,
             request_text=args.request,
             project_root=project,
+            inferred_concerns=[c for c in inferred_concerns if c not in args.concern],
         )
     if route["missing"] or route.get("blocking"):
         print("Dispatch route is blocked:", file=sys.stderr)

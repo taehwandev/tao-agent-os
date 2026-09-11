@@ -354,7 +354,9 @@ class RequiredDocMembershipTests(unittest.TestCase):
             request_classified=True,
         )
 
-        self.assertEqual("wikimap", route["document_search"]["backend"])
+        # Not the fixed cleanup contract. With no request text nothing is searched.
+        self.assertEqual("not-run", route["document_search"]["backend"])
+        self.assertEqual("not_searched", route["document_search"]["status"])
         self.assertTrue(
             any("security" in doc for doc in route["required_docs"]),
             route["required_docs"],
@@ -717,6 +719,108 @@ class AdvisoryRequiredDocsTests(unittest.TestCase):
         self.assertIn(core_dependency, advisory["required_docs"])
         self.assertNotIn(gate_dependency, advisory["required_docs"])
         self.assertIn(gate_dependency, advisory["reference_docs"])
+
+    def test_advisory_never_requires_what_the_real_route_does_not(self) -> None:
+        # Withholding gate docs freed budget that lower tiers used to refill, so
+        # code-simplify and refactor advisory routes required two references the
+        # real routes leave on demand.
+        for command in sorted(COMMANDS):
+            with self.subTest(command=command):
+                full = resolve_docs(command, None, [], request_classified=True)
+                advisory = resolve_docs(command, None, [], advisory=True)
+
+                self.assertLessEqual(
+                    set(advisory["required_docs"]), set(full["required_docs"])
+                )
+                self.assertFalse(
+                    set(advisory["required_docs"]) & set(advisory["reference_docs"])
+                )
+                self.assertEqual(
+                    set(full["required_docs"]) | set(full["reference_docs"]),
+                    set(advisory["required_docs"]) | set(advisory["reference_docs"]),
+                )
+
+
+class InferredConcernTests(unittest.TestCase):
+    """Keyword inference routes a concern's documents, but never requires them."""
+
+    PERFORMANCE_DOCS = (
+        "common/skills/performance-verification/SKILL.md",
+        "common/skills/performance-verification/references/current-guidance.md",
+    )
+
+    def test_an_inferred_concern_changes_no_required_doc(self) -> None:
+        plain = resolve_docs("bugfix", None, [], request_classified=True)
+        inferred = resolve_docs(
+            "bugfix", None, ["performance"], request_classified=True,
+            inferred_concerns=["performance"],
+        )
+
+        self.assertEqual(plain["required_docs"], inferred["required_docs"])
+        # On demand, the entrypoint is listed; it links its own reference.
+        self.assertIn(self.PERFORMANCE_DOCS[0], inferred["reference_docs"])
+
+    def test_a_named_concern_is_still_required(self) -> None:
+        named = resolve_docs("bugfix", None, ["performance"], request_classified=True)
+
+        for doc in self.PERFORMANCE_DOCS:
+            with self.subTest(doc=doc):
+                self.assertIn(doc, named["required_docs"])
+
+    def test_a_negated_request_only_infers_a_reference(self) -> None:
+        from workflow_request import infer_concerns_from_request
+
+        text = "this is not a performance change"
+        inferred = infer_concerns_from_request(text)
+        route = resolve_docs(
+            "bugfix", None, inferred, request_classified=True,
+            inferred_concerns=inferred,
+        )
+
+        self.assertIn("performance", inferred)
+        for doc in self.PERFORMANCE_DOCS:
+            with self.subTest(doc=doc):
+                self.assertNotIn(doc, route["required_docs"])
+
+
+class ConcernReferenceDocTests(unittest.TestCase):
+    """A named concern requires its primary card; its companions stay on demand."""
+
+    TESTING = "common/skills/testing/references/current-guidance.md"
+    COMPANIONS = (
+        "common/skills/scenario-driven-testing/references/current-guidance.md",
+        "common/skills/verification-policy/references/current-guidance.md",
+    )
+
+    def test_testing_concern_requires_the_testing_card_only(self) -> None:
+        route = resolve_docs("bugfix", None, ["testing"], request_classified=True)
+
+        self.assertIn(self.TESTING, route["required_docs"])
+        for doc in self.COMPANIONS:
+            with self.subTest(doc=doc):
+                self.assertNotIn(doc, route["required_docs"])
+                self.assertTrue(
+                    doc in route["reference_docs"]
+                    or doc.replace("references/current-guidance.md", "SKILL.md")
+                    in route["reference_docs"]
+                )
+
+    def test_verification_concern_still_requires_verification_policy(self) -> None:
+        route = resolve_docs("bugfix", None, ["verification"], request_classified=True)
+
+        self.assertIn(self.COMPANIONS[1], route["required_docs"])
+
+
+class SearchNoteTests(unittest.TestCase):
+    """A route with no request text ran no search and must not report one."""
+
+    def test_no_request_text_reports_search_not_run(self) -> None:
+        route = resolve_docs("task", None, [], request_classified=True)
+        notes = " ".join(route["notes"])
+
+        self.assertEqual("not-run", route["document_search"]["backend"])
+        self.assertEqual("not_searched", route["document_search"]["status"])
+        self.assertNotIn("search completed", notes)
 
 
 class GraphNoteTests(unittest.TestCase):

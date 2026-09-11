@@ -20,7 +20,8 @@ of these rules.
 - `common/skills/task-intake-effort-routing/SKILL.md`
 - `common/skills/agent-interaction/SKILL.md`
 - `workflows/skills/ambiguity-gate/SKILL.md` when blockers remain
-- `index.md` only after the task is classified
+- `index.md` only when routing is unavailable; after a route succeeds, use its
+  `reference_docs` instead of reselecting documents from the catalog
 
 ## Steps
 
@@ -43,8 +44,15 @@ of these rules.
    work is genuinely part of the correction; a broader restatement must not
    turn a small regression fix into product discovery.
 7. If an inspection verb such as `check`, `review`, `확인`, or `검토` has no
-   named target, treat it as `vague-action` and ask what to inspect.
-8. If `clear-scoped`, run the smallest matching workflow route.
+   named target, first resolve the target from the conversation (the work just
+   reported or the artifact under discussion) and the repository state (the
+   current diff, branch, or active run). Treat it as `vague-action` and ask what
+   to inspect only when that still leaves no single plausible target.
+8. If `clear-scoped`, run the smallest matching workflow route: `small-change`
+   when bounded inspection proves one existing owner, a clear outcome, at most
+   four changed files, and no risk-sensitive concern
+   (`common/skills/agent-operating-skill/references/small-change.md`);
+   otherwise `task` or the specific work route.
 9. If `vague-action` or `risky-unclear`, run Grill-Me or use the ambiguity gate.
 10. If `broad-product`, use PRD/product workflow before implementation.
 11. Do not reopen a work route with `--request-classified` while the stored

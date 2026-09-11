@@ -8,6 +8,7 @@ from typing import NamedTuple, Optional
 from workflow_catalog import (
     BASELINE_CONCERNS,
     COMMANDS,
+    CONCERN_REFERENCE_DOCS,
     CONCERNS,
     CORE_DOCS,
     PLATFORM_CONCERNS,
@@ -44,7 +45,6 @@ from workflow_doc_surfaces import infer_surface_docs, required_surface_docs
 from workflow_parallel import parallel_execution_plan
 from workflow_search import SearchOutcome, search_docs_outcome
 from workflow_skill_paths import canonical_doc_path
-from workflow_wikimap import WIKIMAP_VERSION
 from support.stable_launcher import stable_launcher_path
 from support.stage_timing import stage
 
@@ -191,6 +191,7 @@ def _resolve_documents(
     request_text: str,
     surface_paths: list[str],
     advisory: bool = False,
+    required_concerns: Optional[list[str]] = None,
 ) -> RoutedDocuments:
     """Gather every document this route gets from, in the order they compose.
 
@@ -204,8 +205,14 @@ def _resolve_documents(
     gates* are demoted to `reference_docs` and `tao-hook start` requires them
     when the real route runs. The full selection still seeds the graph and the
     missing-document check, so the two routes reach the same documents.
+
+    `required_concerns` is the subset of `concerns` the caller named. A concern
+    only inferred from request keywords still routes its documents, but as
+    `reference_docs`: keyword matching fires on "not a performance change" as
+    readily as on a performance change, so it cannot make a document mandatory.
     """
 
+    selection_concerns = concerns if required_concerns is None else required_concerns
     base_gates = route_gates(command)
     # surface_paths are repository-verified owners, never raw request paths.
     # Once a lookup has that anchor, searching the guidance catalog again only
@@ -218,14 +225,16 @@ def _resolve_documents(
         for gate, reference in ON_DEMAND_GATE_REFERENCES.items()
         if gate in base_gates
     )
-    if _uses_fixed_cleanup_documents(command, concerns):
+    if _uses_fixed_cleanup_documents(command, selection_concerns):
         surface_docs: list[str] = []
         surface_matches: list[dict[str, object]] = []
         search_outcome = SearchOutcome(results=[], backend="fixed-route")
         search_seed_docs: list[str] = []
         doc_graph_matches: list[dict[str, object]] = []
         graph_required: list[str] = []
-        selected_sources = route_required_docs(command, platform, concerns, profile.docs, [])
+        selected_sources = route_required_docs(
+            command, platform, selection_concerns, profile.docs, []
+        )
         advisory_sources = selected_sources
         advisory_graph_required: list[str] = []
     else:
@@ -240,19 +249,26 @@ def _resolve_documents(
         elif request_text.strip():
             search_outcome = search_docs_outcome(ROOT, request_text, max_results=12)
         else:
-            search_outcome = SearchOutcome(
-                results=[], backend="wikimap", backend_version=WIKIMAP_VERSION
-            )
+            # No request text means nothing was searched. Reporting it as an
+            # empty Wikimap result told agents a search had completed.
+            search_outcome = SearchOutcome(results=[], backend="not-run")
         search_seed_docs = [str(item["path"]) for item in search_outcome.results]
         eligible_surface_docs = required_surface_docs(surface_matches)
         selected_sources = route_required_docs(
-            command, platform, concerns, profile.docs, eligible_surface_docs
+            command, platform, selection_concerns, profile.docs, eligible_surface_docs
         )
+        # Withholding gate documents frees budget that lower tiers would refill,
+        # which made an advisory route require documents the real route leaves
+        # as references. Advisory reading is never more than the real route's.
         advisory_sources = (
-            route_required_docs(
-                command, platform, concerns, profile.docs, eligible_surface_docs,
-                advisory=True,
-            )
+            [
+                doc
+                for doc in route_required_docs(
+                    command, platform, selection_concerns, profile.docs,
+                    eligible_surface_docs, advisory=True,
+                )
+                if doc in selected_sources
+            ]
             if advisory
             else selected_sources
         )
@@ -318,6 +334,7 @@ def _resolve_documents(
 
     for concern in concerns:
         docs.extend(CONCERNS.get(concern, ()))
+        docs.extend(CONCERN_REFERENCE_DOCS.get(concern, ()))
         if platform:
             docs.extend(PLATFORM_CONCERNS.get((platform, concern), ()))
 
@@ -489,8 +506,10 @@ def resolve_docs(
     surface_paths: Optional[list[str]] = None,
     project_root: Path | None = None,
     advisory: bool = False,
+    inferred_concerns: Optional[list[str]] = None,
 ) -> dict[str, object]:
     profile = COMMANDS[command]
+    inferred = set(inferred_concerns or [])
     documents = _resolve_documents(
         command=command,
         platform=platform,
@@ -499,6 +518,7 @@ def resolve_docs(
         request_text=request_text,
         surface_paths=surface_paths or [],
         advisory=advisory,
+        required_concerns=[concern for concern in concerns if concern not in inferred],
     )
     routed_docs = documents.routed
     required_docs = documents.required
@@ -639,6 +659,12 @@ def _document_resolution(
             "status": "resolved",
             "terminal": True,
             "reason": "A verified lookup owner makes broad document search unnecessary; required guidance is preserved.",
+        }
+    if search_outcome.backend == "not-run":
+        return {
+            "status": "not_searched",
+            "terminal": True,
+            "reason": "No request text was given, so natural-language document search did not run.",
         }
     if not search_seed_docs:
         source = "Wikimap" if search_outcome.backend == "wikimap" else "local recovery search"
