@@ -200,14 +200,29 @@ def _scope_fallback_decision(flags: dict[str, object]) -> tuple[str, bool, str, 
             "work",
             "The request names a scoped UI, code, or feature owner.",
         )
-    if flags["has_inspection"] and not has_risky and not flags["inspection_lacks_target"]:
+    if (
+        flags["has_inspection"]
+        and not has_risky
+        and not flags["inspection_lacks_target"]
+        # Look *and* change is not a lookup. Shaping "확인하고 없으면 추가해줘"
+        # as read-only work read fewer documents by dropping half the request.
+        and not flags.get("has_mutation_request")
+    ):
         flags["clarity"] = "clear-scoped"
-        flags["effort"] = "standard"
+        flags["effort"] = "quick"
+        # A lookup shaped like a lookup keeps the lookup route. Shaping it as
+        # `task` is what made the automatic guidance disagree with the manual
+        # check: "does the Android response carry this field" read as general
+        # multi-step work and selected the implementation reading for it, while
+        # the same question run as `analysis` selected one card. `analysis` is
+        # read-only by contract, and a lookup that turns into an edit enters the
+        # writable lifecycle before that edit either way.
         return (
-            "task",
+            "analysis",
             False,
             "work",
-            "The request asks for inspection, review, status, or documentation summary work with an inspectable target.",
+            "The request asks for inspection, status, or a documentation summary of an "
+            "inspectable target; keep it a read-only lookup until an edit is actually asked for.",
         )
     if flags["has_follow_up_approval"] and not has_risky:
         flags["clarity"] = "clear-scoped"

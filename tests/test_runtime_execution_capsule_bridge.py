@@ -263,6 +263,17 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, claude_block)
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, agy_block)
 
+    def test_generated_bridges_preserve_diagnostic_lookup_boundary(self) -> None:
+        for runtime, entry in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
+            with self.subTest(runtime=runtime):
+                block = runtime_bridge_block(ROOT, runtime, entry)
+                self.assertIn("checks of a supplied diagnosis", block)
+                self.assertIn("without start, fingerprint, mailbox, checkpoint, gate, review, or finish calls", block)
+                self.assertIn("Explicit change/PR reviews and release acceptance retain their review workflow", block)
+                self.assertIn("Enter the writable lifecycle before an authorized edit", block)
+                self.assertIn("each tracked user-visible task", block)
+                self.assertNotIn("each normal user-visible task", block)
+
     def test_codex_refresh_replaces_premature_cancellation_rule_idempotently(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "AGENTS.md"

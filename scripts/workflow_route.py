@@ -13,6 +13,7 @@ from workflow_catalog import (
     CORE_DOCS,
     PLATFORM_CONCERNS,
     PLATFORMS,
+    RISK_CONCERNS_REQUIRED_WHEN_INFERRED,
 )
 from agent_skill_catalog import FEEDBACK_SIGNALS
 from workflow_common import (
@@ -206,8 +207,9 @@ def _resolve_documents(
     when the real route runs. The full selection still seeds the graph and the
     missing-document check, so the two routes reach the same documents.
 
-    `required_concerns` is the subset of `concerns` the caller named. A concern
-    only inferred from request keywords still routes its documents, but as
+    `required_concerns` is the subset of `concerns` the caller named, plus the
+    risk concerns inference alone is allowed to require. Any other concern only
+    inferred from request keywords still routes its documents, but as
     `reference_docs`: keyword matching fires on "not a performance change" as
     readily as on a performance change, so it cannot make a document mandatory.
     """
@@ -235,6 +237,7 @@ def _resolve_documents(
         selected_sources = route_required_docs(
             command, platform, selection_concerns, profile.docs, []
         )
+        owner_surface_docs = []
         advisory_sources = selected_sources
         advisory_graph_required: list[str] = []
     else:
@@ -253,9 +256,23 @@ def _resolve_documents(
             # empty Wikimap result told agents a search had completed.
             search_outcome = SearchOutcome(results=[], backend="not-run")
         search_seed_docs = [str(item["path"]) for item in search_outcome.results]
+        # `required_surface_docs` stamps each match's selection_reason, so the
+        # evidence-backed subset is read after it, not before. A verified owner
+        # path and an explicit `required_priority` rule are the two reasons the
+        # resolver treats as evidence rather than a keyword guess, and a rule
+        # that narrows a broader one carries that priority precisely so it can
+        # stand in the broader rule's place.
         eligible_surface_docs = required_surface_docs(surface_matches)
+        owner_surface_docs = unique([
+            str(doc)
+            for match in surface_matches
+            if match.get("selection_reason")
+            in {"verified_owner_path", "explicit_required_priority", "independent_change"}
+            for doc in match.get("docs", [])
+        ])
         selected_sources = route_required_docs(
-            command, platform, selection_concerns, profile.docs, eligible_surface_docs
+            command, platform, selection_concerns, profile.docs, eligible_surface_docs,
+            owner_surface_docs=owner_surface_docs,
         )
         # Withholding gate documents frees budget that lower tiers would refill,
         # which made an advisory route require documents the real route leaves
@@ -266,6 +283,7 @@ def _resolve_documents(
                 for doc in route_required_docs(
                     command, platform, selection_concerns, profile.docs,
                     eligible_surface_docs, advisory=True,
+                    owner_surface_docs=owner_surface_docs,
                 )
                 if doc in selected_sources
             ]
@@ -495,6 +513,102 @@ def _document_search_notes(
     return notes
 
 
+
+# Selection reasons, strongest first. The order is the attribution order below:
+# a document selected by more than one rule is reported under the strongest one,
+# because that is the rule that would still require it if the others went away.
+PLATFORM_DEFAULT_REASON = "platform_default"
+
+
+def _required_doc_reasons(
+    *,
+    command: str,
+    platform: Optional[str],
+    concerns: list[str],
+    required_concerns: list[str],
+    inferred_concerns: set[str],
+    profile: object,
+    documents: RoutedDocuments,
+) -> list[dict[str, str]]:
+    """Say, for each required document, which rule made it mandatory.
+
+    Nothing here selects anything; it re-derives the attribution from the same
+    registries the selection walked. Keeping it derived is the point: a reason
+    that could drift from the decision would be worse than no reason at all.
+
+    It exists to make one failure mode visible. A document whose only reason is
+    `platform_default` is required because the caller named a platform, not
+    because this request touches it -- an Android JSON parsing fix pulling 25 KB
+    of app architecture. That is a document-boundary problem, not a selection
+    bug: the card bundles the short contract every Android change needs with
+    detailed Navigation, Compose and module procedures it does not. Reporting it
+    per document is what turns "the route reads too much" into a list of cards
+    to split.
+    """
+
+    def resolved(docs) -> set[str]:
+        return set(resolve_guidance_docs(ROOT, [canonical_doc_path(d) for d in docs]))
+
+    gates = set(route_gates(command))
+    core = resolved(CORE_REQUIRED_DOCS)
+    command_docs = resolved(COMMAND_REQUIRED_DOCS.get(command, profile.docs))
+    gate_docs = resolved(
+        [doc for gate, doc in GUARANTEED_GATE_DOCS.items() if gate in gates]
+    ) | resolved(automatic_docs(command))
+    if "review hook" in gates:
+        gate_docs |= resolved(REVIEW_HOOK_GATE_DOCS)
+    surface_docs: dict[str, str] = {}
+    for match in documents.surface_matches:
+        for doc in resolved(match.get("docs", [])):
+            surface_docs.setdefault(doc, str(match.get("name", "request_surface")))
+    graph_docs = set(documents.graph_promoted)
+    platform_docs = resolved(PLATFORMS[platform]) if platform else set()
+    discipline = resolved(CODE_WORK_REQUIRED_DOCS)
+
+    # Only a concern that is allowed to require documents can be the reason one
+    # is required. A concern that was merely inferred and is not a risk concern
+    # routes its cards as references, so crediting it here would blame the wrong
+    # rule: a SwiftUI request's Swift cards arrive through the work surface, and
+    # reporting them as concern-driven would hide that the surface rule is what
+    # to tune.
+    concern_docs: dict[str, str] = {}
+    for concern in concerns:
+        if concern not in required_concerns:
+            continue
+        kind = (
+            "concern_named" if concern not in inferred_concerns
+            else "concern_inferred_risk"
+        )
+        for doc in resolved(CONCERNS.get(concern, ())):
+            concern_docs.setdefault(doc, f"{kind}:{concern}")
+        if platform:
+            for doc in resolved(PLATFORM_CONCERNS.get((platform, concern), ())):
+                concern_docs.setdefault(doc, f"{kind}:{concern}")
+
+    reasons: list[dict[str, str]] = []
+    for doc in documents.required:
+        if doc in core:
+            reason = "core_reading_contract"
+        elif doc in command_docs:
+            reason = f"command_workflow:{command}"
+        elif doc in concern_docs:
+            reason = concern_docs[doc]
+        elif doc in surface_docs:
+            reason = f"work_surface:{surface_docs[doc]}"
+        elif doc in graph_docs:
+            reason = "requires_edge"
+        elif doc in gate_docs:
+            reason = "gate_contract"
+        elif doc in platform_docs:
+            reason = f"{PLATFORM_DEFAULT_REASON}:{platform}"
+        elif doc in discipline:
+            reason = "code_work_discipline"
+        else:
+            reason = "route_profile"
+        reasons.append({"doc": doc, "reason": reason})
+    return reasons
+
+
 def resolve_docs(
     command: str,
     platform: Optional[str],
@@ -510,6 +624,15 @@ def resolve_docs(
 ) -> dict[str, object]:
     profile = COMMANDS[command]
     inferred = set(inferred_concerns or [])
+    required_concerns = [
+        concern
+        for concern in concerns
+        # A risk concern is required on inference alone. Everything else
+        # waits to be named; RISK_CONCERNS_REQUIRED_WHEN_INFERRED says which
+        # concerns are on that list and why release is not.
+        if concern not in inferred
+        or concern in RISK_CONCERNS_REQUIRED_WHEN_INFERRED
+    ]
     documents = _resolve_documents(
         command=command,
         platform=platform,
@@ -518,7 +641,7 @@ def resolve_docs(
         request_text=request_text,
         surface_paths=surface_paths or [],
         advisory=advisory,
-        required_concerns=[concern for concern in concerns if concern not in inferred],
+        required_concerns=required_concerns,
     )
     routed_docs = documents.routed
     required_docs = documents.required
@@ -603,6 +726,15 @@ def resolve_docs(
         "missing": missing,
         "blocking": blocking,
     }
+    route["required_doc_reasons"] = _required_doc_reasons(
+        command=command,
+        platform=platform,
+        concerns=concerns,
+        required_concerns=required_concerns,
+        inferred_concerns=inferred,
+        profile=profile,
+        documents=documents,
+    )
     if command == "analysis":
         route["reading_scope"] = {"mode": "lookup", "guidance": LOOKUP_READING_GUIDANCE}
     if surface_paths:
@@ -715,6 +847,9 @@ DETAIL_REQUIRED_COMMANDS = {
 # These routes already completed intake at start. Keep their own workflow and
 # request-specific guidance, not the generic gate/disciplines tier walk.
 FOCUSED_READING_COMMANDS = {"docs", "prd", "task"}
+# The bugfix/refactoring procedures use the compact ambiguity evidence card.
+# Build and feature share a development procedure and must not diverge here.
+COMPACT_AMBIGUITY_COMMANDS = {"bugfix", "refactor", "code-simplify"}
 
 REVIEW_HOOK_GATE_DOCS = (
     GUARANTEED_GATE_DOCS["review hook"],
@@ -748,6 +883,8 @@ REQUIRED_DOC_BUDGET_BYTES = 30_000
 # code routes. Eight preserves the previous four request-specific slots after
 # replacing the three always-loaded detailed documents with lazy references.
 MAX_REQUIRED_DOCS = 8
+# Evidence-backed requirements are not truncated: independent change domains
+# may need more than one rule's documents. Budgets constrain optional tiers.
 
 
 def route_required_docs(
@@ -758,6 +895,7 @@ def route_required_docs(
     surface_docs: list[str] | None = None,
     *,
     advisory: bool = False,
+    owner_surface_docs: list[str] | None = None,
 ) -> list[str]:
     """Select the documents a route requires, and report what selecting cost.
 
@@ -765,14 +903,15 @@ def route_required_docs(
     all of it in reading and normalising document bodies to decide which are
     pointer entrypoints. None of it was visible in the recorded stages.
 
-    `advisory` selects for a route that satisfies no gate: the core contract,
-    the command's own documents, and what the caller or request named, but
-    none of the documents that exist to define gate evidence.
+    `advisory` selects for orientation, not execution: the core reading contract
+    and explicit concerns, platform or owner guidance. The suggested command
+    alone is not evidence that its procedure is needed before a request exists.
     """
 
     with stage("required_docs"):
         return _route_required_docs(
-            command, platform, concerns, profile_docs, surface_docs, advisory=advisory
+            command, platform, concerns, profile_docs, surface_docs,
+            advisory=advisory, owner_surface_docs=owner_surface_docs,
         )
 
 
@@ -784,7 +923,24 @@ def _route_required_docs(
     surface_docs: list[str] | None = None,
     *,
     advisory: bool = False,
+    owner_surface_docs: list[str] | None = None,
 ) -> list[str]:
+    if advisory:
+        # No task is being executed yet. Do not pre-read a suggested workflow
+        # merely because its command name is in the prompt hook configuration.
+        #
+        # The platform card set is not selected here either. It is identical for
+        # every route on that platform, so it says nothing about this request --
+        # and an advisory route has no request text to say it with. Naming
+        # `--platform android` before a field lookup required 28.5 KB of Android
+        # architecture that the lookup never needed. Platform guidance still
+        # becomes required the moment something request-specific asks for it: a
+        # concern the caller named carries its PLATFORM_CONCERNS cards through
+        # `_unbudgeted_required_docs`, and a repository-verified owner path
+        # carries its own through `surface_docs`. Everything else stays one link
+        # away in `reference_docs`.
+        return unique([*_unbudgeted_required_docs(platform, concerns, set(), advisory=True),
+                       *resolve_guidance_docs(ROOT, surface_docs or [])])
     compact = _compact_required_docs(command, platform, concerns)
     if compact is not None:
         # A compact set is the command's whole reading contract, already small;
@@ -792,11 +948,61 @@ def _route_required_docs(
         return compact
     gates = set(route_gates(command))
     selected = _unbudgeted_required_docs(platform, concerns, gates, advisory=advisory)
+    if command in COMPACT_AMBIGUITY_COMMANDS:
+        # Reserve an enforced contract before spending optional capacity.
+        # Named concerns remain unbudgeted; never append another budgeted
+        # document after the selection cap has already been reached.
+        selected = unique([*selected, "workflows/skills/ambiguity-gate/SKILL.md"])
+    # What the route *is* is not the budget's to spend. The command tier was the
+    # first thing the tier walk paid for, so anything selected ahead of it could
+    # take the last slot and drop the command's own procedure: a concern the
+    # caller named, or -- since risk concerns became requirable on inference --
+    # a concern the request only implied. "log in the error to the console"
+    # infers `auth` and cost the bugfix route its debugging reference; the start
+    # hook for this very repair required four auth and security cards and no
+    # bugfix card at all. An inference must not outrank a certainty, so the
+    # command's documents are selected before the budget rather than out of it.
+    command_docs = [
+        doc
+        for doc in resolve_guidance_docs(
+            ROOT,
+            [canonical_doc_path(doc) for doc in COMMAND_REQUIRED_DOCS.get(command, ())],
+        )
+        if doc not in selected
+    ]
+    selected = unique([*selected, *command_docs])
+    # What the change touches, proven by a repository-verified owner path, is
+    # the most specific evidence the router has. Leaving it in the tier walk
+    # meant it queued behind the core, gate and command contracts and then
+    # competed with the platform card set for the last slot -- so an Android DTO
+    # parsing fix got 25 KB of app architecture and none of the contract,
+    # boundary-value, error or test guidance the change actually needed.
+    owner_docs = [
+        doc
+        for doc in resolve_guidance_docs(
+            ROOT, [canonical_doc_path(doc) for doc in (owner_surface_docs or [])]
+        )
+        if doc not in selected
+    ]
+    selected = unique([*selected, *owner_docs])
     tiers = _required_doc_tiers(
         command, platform, profile_docs, surface_docs, gates, advisory=advisory
     )
-    selected = _select_within_budget(command, tiers, selected)
-    if command in FOCUSED_READING_COMMANDS and not advisory:
+    selected = _select_within_budget(
+        command, tiers, selected,
+        explicit_docs=resolve_guidance_docs(ROOT, surface_docs or []),
+        # Moving the command tier out of the eviction path must not also hand
+        # its budget to the tiers below it. Left unspent, that share refilled
+        # with gate and discipline references: review and docs-review grew from
+        # 46.6 KB to 69.5 KB, triage from 33.6 KB to 49.4 KB, and seven routes
+        # gained 115 KB between them. The core contract and the concise gate
+        # contracts stay exempt as they always were; only this tier moved, so
+        # only this tier's bytes come back.
+        prespent_bytes=sum(
+            doc_size(ROOT, doc) for doc in (*command_docs, *owner_docs)
+        ),
+    )
+    if command in FOCUSED_READING_COMMANDS:
         # This compact gate contract must not crowd out an owner-specific
         # entrypoint's actual reference at the selection boundary.
         selected = unique([*selected, "workflows/skills/ambiguity-gate/SKILL.md"])
@@ -888,7 +1094,9 @@ def _required_doc_tiers(
     # required; everything below stays available as `reference_docs`.
     tiers: list[list[str]] = []
 
-    # 1. What the route *is*: its own command skill.
+    # 1. What the route *is*: its own command skill. A command with its own
+    #    entry was already selected ahead of the budget and is skipped here;
+    #    this still carries the profile fallback for the commands without one.
     tiers.append(list(COMMAND_REQUIRED_DOCS.get(command, profile_docs)))
 
     # 2. What this particular request touches.  Surface and graph docs are
@@ -983,11 +1191,18 @@ def _unbudgeted_required_docs(
 
 
 def _select_within_budget(
-    command: str, tiers: list[list[str]], selected: list[str]
+    command: str, tiers: list[list[str]], selected: list[str],
+    *, explicit_docs: list[str] | None = None, prespent_bytes: int = 0,
 ) -> list[str]:
-    """Spend the budget down the tiers and stop, rather than skipping past."""
+    """Spend the budget down the tiers and stop, rather than skipping past.
 
-    used = 0
+    `prespent_bytes` is what a tier selected before this call already spent.
+    Only the command tier is prespent: the core contract and the gate contracts
+    are exempt from the byte budget by design, and were before the command tier
+    moved out of the walk.
+    """
+
+    used = prespent_bytes
 
     # Selection is a strict prefix of the priority order.  The budget *stops*
     # selection rather than skipping over individual documents: skipping would
@@ -1003,6 +1218,15 @@ def _select_within_budget(
         )
         for doc in candidates:
             if doc in selected:
+                continue
+            if (doc == "workflows/skills/ambiguity-gate/references/current-guidance.md"
+                    and command in COMPACT_AMBIGUITY_COMMANDS
+                    and doc not in (explicit_docs or [])):
+                # The compact evidence contract is guaranteed separately.
+                # Detailed blocker discovery needs an actual ambiguity task,
+                # not spare capacity. This says nothing about later documents:
+                # they retain their own gate, owner and budget eligibility.
+                # Explicit concerns and requires are selected outside this budget.
                 continue
             if (
                 doc in DETAIL_REQUIRED_COMMANDS

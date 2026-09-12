@@ -616,5 +616,77 @@ class DeviceMcpRoutingTests(unittest.TestCase):
         )
 
 
+class LookupShapeSurvivesIntakeTests(unittest.TestCase):
+    """A read-only question must not be shaped as general multi-step work.
+
+    Shaping "does the Android response carry this field" as `task` is what made
+    the prompt advisory disagree with the same question run as `analysis`: one
+    selected the implementation reading, the other selected one card.
+    """
+
+    def test_an_inspection_request_keeps_the_lookup_route(self) -> None:
+        for request in (
+            "Android 응답에 특정 필드가 있는지 확인해줘",
+            "웹 재시도 설정이 어디에 있는지 설명해줘",
+            "check the retry config status",
+            "explain the retry config in the web client",
+        ):
+            with self.subTest(request=request):
+                result = classify_request(request, conversation_first=True)
+
+                self.assertEqual("analysis", result["route_shape"])
+                self.assertEqual("work", result["shape_response_mode"])
+                # A shape is never an authorization; intake still routes triage.
+                self.assertEqual("triage", result["recommended_route"])
+
+    def test_a_lookup_verb_without_a_target_is_not_a_lookup(self) -> None:
+        for request in ("설명해줘", "explain", "확인해줘", "check"):
+            with self.subTest(request=request):
+                self.assertNotEqual(
+                    "analysis",
+                    classify_request(request, conversation_first=True)["route_shape"],
+                )
+
+    def test_look_and_change_is_not_a_lookup(self) -> None:
+        """Reading only the inspection half drops the edit the user asked for."""
+
+        for request in (
+            "기본 이미지 필드가 있는지 확인하고 없으면 추가해줘",
+            "재시도 설정 확인하고 값 바꿔줘",
+            "상태 확인하고 수정해줘",
+            "explain the mapper and fix the parsing bug",
+            "설명하고 고쳐줘",
+        ):
+            with self.subTest(request=request):
+                self.assertNotEqual(
+                    "analysis",
+                    classify_request(request, conversation_first=True)["route_shape"],
+                )
+
+    def test_an_edit_named_only_to_exclude_it_leaves_the_lookup(self) -> None:
+        for request in (
+            "수정은 하지 말고 함수 설명해줘",
+            "explain the mapper without changing anything",
+            "고치지 말고 상태만 확인해줘",
+        ):
+            with self.subTest(request=request):
+                self.assertEqual(
+                    "analysis",
+                    classify_request(request, conversation_first=True)["route_shape"],
+                )
+
+    def test_an_edit_request_is_not_reshaped_into_a_lookup(self) -> None:
+        for request in (
+            "Android JSON 파싱 오류 수정해줘",
+            "add the retry header to the web client",
+            "v1.2.0 태그 만들고 릴리즈 노트 써줘",
+        ):
+            with self.subTest(request=request):
+                self.assertNotEqual(
+                    "analysis",
+                    classify_request(request, conversation_first=True)["route_shape"],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

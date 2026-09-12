@@ -450,8 +450,10 @@ def print_route(args: argparse.Namespace) -> int:
         if isinstance(notes, list):
             notes.append(
                 "Advisory listing only: this route asserted no request intake and "
-                "satisfies no downstream gate. Rerun with `--request \"<USER_REQUEST>\"` "
-                "before editing, reviewing, or reporting completion."
+                "satisfies no downstream gate. Read-only answers need no lifecycle "
+                "unless project instructions explicitly require one. For work requiring "
+                "a tracked lifecycle, use an authorized start with the current request "
+                "before that work; complete its gates before reporting completion."
             )
     if newly_inferred:
         route["inferred_concerns"] = newly_inferred
@@ -724,8 +726,15 @@ def _resolve_auto_command(args: argparse.Namespace) -> None:
         return
     if recommended in COMMANDS:
         args.command = recommended
-        if not getattr(args, "request", None):
-            args.request = prompt
+    elif classification.get("response_mode") == "answer_first":
+        # `route_shape` is "none" for a direct question: intake answers it
+        # rather than routing it. The advisory still has to name a command, and
+        # falling back to `triage` gave a read-only question the intake
+        # procedure and the platform card set. `analysis` is the read-only
+        # contract, which is what answering it actually needs.
+        args.command = "analysis"
+    if args.command != "triage" and not getattr(args, "request", None):
+        args.request = prompt
 
 
 def main(argv: list[str]) -> int:

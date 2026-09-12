@@ -10,35 +10,34 @@ Use when routed to `common/skills/agent-operating-skill/SKILL.md` or when work n
 
 ## Need-Driven Reading Contract
 
-This is the shared reading rule for every Tao route and runtime. Apply it before
-following this or another Tao document's reference links.
+Apply this contract to reading, investigation and edits in every Tao runtime.
+Tao supports the agent's task judgment; its catalog does not expand the request.
 
-1. Read the target's applicable instructions and the route's `required_docs`.
-   Preserve explicit applicable safety, platform, and verification dependencies;
-   a reading budget never permits skipping a requirement.
-2. Treat `reference_docs`, related-skill lists, routing tables, graph neighbors,
-   and bare links as candidates, not a recursive reading queue. A topic appearing
-   in the task is not by itself a reason to read every document about that topic.
-   After successful routing, do not read `index.md` or another broad catalog to
-   repeat document selection. Use a narrow lookup only for a concrete unresolved
-   requirement; use the catalog fallback only when routing is unavailable.
-3. Before an optional read, identify the unresolved question, why this document
-   can answer it, and which in-scope decision or check depends on the answer.
-   If none exists, do not read it. Keep this rationale in the existing work
-   summary when useful; do not add a per-document hook, receipt, or gate.
-4. Select the smallest relevant document first. Read selected instruction files
-   completely, but do not automatically follow their optional links. Reuse a
-   complete reading still available in context when the document is unchanged;
-   re-read if its contents changed or the needed instructions are unavailable.
-5. Stop optional discovery when the requested outcome, change owner, applicable
-   constraints, and nearest verification are known. Reopen it only for a new
-   concrete blocker, failed check, or changed requirement. An empty search is not
-   permission to broaden the task or repeat equivalent searches.
-6. Do not turn incidental findings into implementation scope. Keep unrelated
-   cleanup, architecture changes, and environment tuning outside this task.
-   If required selection itself is excessive, report the specific selection
-   conflict and repair its owner only with task authority; do not silently omit
-   required guidance or start an unrequested library-wide cleanup.
+1. Keep the confirmed outcome, target and authority from the conversation.
+   Do not reinterpret a settled correction as a design exercise or ask the user
+   to restate it. Use task judgment, not a new classification ritual.
+2. Read applicable instructions and the route's `required_docs`; preserve explicit
+   safety and verification dependencies. Other documents are candidates, not a
+   reading queue. A platform name, graph neighbor or spare budget is insufficient.
+   Do not repeat successful routing with `index.md` or another broad catalog.
+3. Before an additional read or investigation, identify the unresolved decision
+   in the current task and why that source can resolve it. Start with the owning
+   definition and nearest relevant test. Expand samples, callers or modules only
+   when missing evidence, a contradiction, an applicable requirement or a failed
+   check makes that expansion necessary. An empty search is not a reason to
+   repeat equivalent searches or broaden the task without a new concrete lead.
+4. Load optional procedures when the action needs them, not for every later
+   workflow stage. PR metadata work does not itself require module-design rules;
+   module creation needs the applicable platform's module rules. Read selected
+   instruction files completely; reuse unchanged readings still in context.
+5. Make only changes needed for the authorized outcome. An incidental finding
+   is not permission for cleanup, redesign or environment changes. If required
+   selection is excessive, report the conflict and repair its owner only with
+   authority; never silently waive an applicable requirement.
+6. Once evidence supports the requested outcome and applicable verification is
+   complete, stop. More possible checks are not by themselves a reason to keep
+   working. Keep any expansion rationale in existing work context; add no new
+   plan, per-read receipt, gate, hook or approval round merely to apply this rule.
 
 ## Read
 

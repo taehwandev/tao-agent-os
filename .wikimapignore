@@ -2,6 +2,7 @@
 .tao
 scripts/.tao
 graphify-out
+.pytest_cache
 
 # Runtime Graphify discovery views resolve to the canonical project skill and
 # would otherwise duplicate it in document retrieval.
@@ -11,3 +12,33 @@ graphify-out
 
 # Vendored dependency notices are provenance, not Tao Agent OS guidance.
 scripts/third_party
+
+# Publications, samples, and scaffolds. Wikimap ranks by information content, so
+# a term that is rare in the corpus carries the weight. The guidance library is
+# written in English, which left the two Korean publications below as the entire
+# Korean corpus: every Korean request ranked them first and then pulled their
+# markdown neighbours -- AGENTS.md, CLAUDE.md, README.md, the bootstrap cards --
+# in as reference candidates, whatever the request was about. None of these is
+# guidance an agent reads to make a decision. Routing is unaffected: concern,
+# platform, surface, and graph selection never go through this index, and
+# `templates/repo-agents-routing.md` still matches its path surface when it is
+# the file being changed.
+
+# Localized publications. AGENTS.md: public docs may be localized but do not
+# become the guidance source of truth.
+docs/ko
+
+# One-off historical notes and sample PRD/ARD/spec outputs, not rules.
+docs/migration
+docs/minimal-workflow
+docs/work-surface-resolution
+
+# The published site itself: markup, styles, scripts, and images.
+docs/index.html
+docs/styles
+docs/styles.css
+docs/workflow
+docs/*.svg
+
+# Copy-paste scaffolding for target repositories.
+templates

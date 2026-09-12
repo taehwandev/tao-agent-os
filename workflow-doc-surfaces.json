@@ -8,6 +8,7 @@
     ],
     "android_compose_ui": [
       "platforms/android/skills/android-compose-ui/SKILL.md",
+      "platforms/android/skills/android-compose-ui/references/screen-structure.md",
       "platforms/android/skills/android-module-structure/SKILL.md",
       "platforms/android/skills/android-viewmodel-state/SKILL.md",
       "platforms/android/skills/android-state-data/SKILL.md",
@@ -166,6 +167,98 @@
     "figma_handoff": [
       "common/skills/figma-handoff/SKILL.md",
       "common/skills/figma-handoff/references/current-guidance.md"
+    ],
+    "data_contract_change": [
+      "common/skills/api-contract-compatibility/SKILL.md",
+      "common/skills/defensive-boundaries/SKILL.md",
+      "common/skills/error-modeling/SKILL.md",
+      "common/skills/testing/SKILL.md"
+    ],
+    "android_data_contract_change": [
+      "common/skills/api-contract-compatibility/SKILL.md",
+      "common/skills/defensive-boundaries/SKILL.md",
+      "common/skills/error-modeling/SKILL.md",
+      "common/skills/testing/SKILL.md",
+      "platforms/android/skills/android-state-data/SKILL.md"
+    ],
+    "web_data_contract_change": [
+      "common/skills/api-contract-compatibility/SKILL.md",
+      "common/skills/defensive-boundaries/SKILL.md",
+      "common/skills/error-modeling/SKILL.md",
+      "common/skills/testing/SKILL.md",
+      "platforms/web/skills/web-state-data/SKILL.md"
+    ],
+    "android_ui_layout_change": [
+      "platforms/android/skills/android-compose-ui/SKILL.md",
+      "common/skills/accessibility-i18n/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md"
+    ],
+    "web_ui_layout_change": [
+      "platforms/web/skills/web-react-ui/SKILL.md",
+      "common/skills/accessibility-i18n/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md"
+    ],
+    "android_compose_touch": [
+      "platforms/android/skills/android-compose-ui/SKILL.md",
+      "platforms/android/skills/android-review/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md"
+    ],
+    "ios_swiftui_touch": [
+      "platforms/ios/skills/ios-swiftui-ui/SKILL.md",
+      "platforms/ios/skills/ios-review/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md"
+    ],
+    "ios_uikit_touch": [
+      "platforms/ios/skills/ios-uikit-ui/SKILL.md",
+      "platforms/ios/skills/ios-review/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md"
+    ],
+    "web_react_touch": [
+      "platforms/web/skills/web-react-ui/SKILL.md",
+      "platforms/web/skills/web-review/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md"
+    ],
+    "android_ui_performance": [
+      "platforms/android/skills/android-compose-ui/references/compose-performance.md",
+      "common/skills/performance-verification/SKILL.md",
+      "platforms/android/skills/source-coverage/references/compose-performance-source-map.md"
+    ],
+    "android_navigation_deep_links": [
+      "platforms/android/skills/android-architecture/references/navigation-deep-links.md"
+    ],
+    "android_webview_surface": [
+      "platforms/android/skills/android-architecture/references/webview-surface.md"
+    ],
+    "android_wear_compose": [
+      "platforms/android/skills/android-compose-ui/references/wear-compose.md"
+    ],
+    "android_compose_previews": [
+      "platforms/android/skills/android-compose-ui/references/compose-previews.md"
+    ],
+    "ios_ui_performance": [
+      "platforms/ios/skills/ios-state-concurrency/SKILL.md",
+      "common/skills/performance-verification/SKILL.md"
+    ],
+    "web_ui_performance": [
+      "common/skills/web-performance-verification/SKILL.md",
+      "common/skills/performance-verification/SKILL.md"
+    ],
+    "android_ui_state_change": [
+      "platforms/android/skills/android-viewmodel-state/SKILL.md",
+      "common/skills/state-modeling/SKILL.md"
+    ],
+    "ios_ui_state_change": [
+      "platforms/ios/skills/ios-state-concurrency/SKILL.md",
+      "common/skills/state-modeling/SKILL.md"
+    ],
+    "web_ui_state_change": [
+      "platforms/web/skills/web-state-data/SKILL.md",
+      "common/skills/state-modeling/SKILL.md"
+    ],
+    "ios_ui_layout_change": [
+      "platforms/ios/skills/ios-swiftui-ui/SKILL.md",
+      "common/skills/accessibility-i18n/SKILL.md",
+      "common/skills/ui-visual-verification/SKILL.md"
     ]
   },
   "request_intents": [
@@ -312,6 +405,438 @@
         "workflows/skills/scripted-agent-workflow/SKILL.md"
       ],
       "reason": "Planning, requirements, acceptance-criteria, or stale-documentation requests must load source-doc, documentation-impact, and completion guidance so expected durable docs cannot be skipped as a generic no-docs decision."
+    },
+    {
+      "name": "android_data_contract_change",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor",
+        "code-simplify"
+      ],
+      "request_any": [
+        "\\b(dto|payload|schema)\\b",
+        "\\b(json|xml|protobuf)\\b.{0,20}\\b(pars|serial|deserial|decod|encod|map)",
+        "\\b(pars|serial|deserial|decod|encod)\\w*\\b.{0,20}\\b(json|xml|response|payload|field|body)\\b",
+        "\\bapi\\b.{0,20}\\b(response|contract|field|schema|payload)\\b",
+        "\\b(response|request)\\b.{0,20}\\b(field|model|mapper|mapping)\\b",
+        "(\\ud30c\\uc2f1|\\uc9c1\\ub82c\\ud654|\\uc5ed\\uc9c1\\ub82c\\ud654|\\uc2a4\\ud0a4\\ub9c8|\\ud398\\uc774\\ub85c\\ub4dc)",
+        "(\\uc751\\ub2f5|\\uc694\\uccad).{0,12}(\\ud544\\ub4dc|\\ubaa8\\ub378|\\ub9e4\\ud37c|\\ub9e4\\ud551|\\uc2a4\\ud0a4\\ub9c8)"
+      ],
+      "reason": "A serialization or wire-shape change decides the contract, the behaviour for values that do not match it, how the failure surfaces, and the regression test; app architecture answers none of those.",
+      "doc_sets": [
+        "android_data_contract_change"
+      ],
+      "narrows": [
+        "android_compose_ui_feature",
+        "android_compose_paths"
+      ],
+      "required_priority": 50
+    },
+    {
+      "name": "web_data_contract_change",
+      "platforms": [
+        "web"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor",
+        "code-simplify"
+      ],
+      "request_any": [
+        "\\b(dto|payload|schema)\\b",
+        "\\b(json|xml|protobuf)\\b.{0,20}\\b(pars|serial|deserial|decod|encod|map)",
+        "\\b(pars|serial|deserial|decod|encod)\\w*\\b.{0,20}\\b(json|xml|response|payload|field|body)\\b",
+        "\\bapi\\b.{0,20}\\b(response|contract|field|schema|payload)\\b",
+        "\\b(response|request)\\b.{0,20}\\b(field|model|mapper|mapping)\\b",
+        "(\\ud30c\\uc2f1|\\uc9c1\\ub82c\\ud654|\\uc5ed\\uc9c1\\ub82c\\ud654|\\uc2a4\\ud0a4\\ub9c8|\\ud398\\uc774\\ub85c\\ub4dc)",
+        "(\\uc751\\ub2f5|\\uc694\\uccad).{0,12}(\\ud544\\ub4dc|\\ubaa8\\ub378|\\ub9e4\\ud37c|\\ub9e4\\ud551|\\uc2a4\\ud0a4\\ub9c8)"
+      ],
+      "reason": "A serialization or wire-shape change decides the contract, the behaviour for values that do not match it, how the failure surfaces, and the regression test; app architecture answers none of those.",
+      "doc_sets": [
+        "web_data_contract_change"
+      ],
+      "narrows": [
+        "web_ui_feature",
+        "web_react_paths"
+      ],
+      "required_priority": 50
+    },
+    {
+      "name": "data_contract_change",
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor",
+        "code-simplify"
+      ],
+      "request_any": [
+        "\\b(dto|payload|schema)\\b",
+        "\\b(json|xml|protobuf)\\b.{0,20}\\b(pars|serial|deserial|decod|encod|map)",
+        "\\b(pars|serial|deserial|decod|encod)\\w*\\b.{0,20}\\b(json|xml|response|payload|field|body)\\b",
+        "\\bapi\\b.{0,20}\\b(response|contract|field|schema|payload)\\b",
+        "\\b(response|request)\\b.{0,20}\\b(field|model|mapper|mapping)\\b",
+        "(\\ud30c\\uc2f1|\\uc9c1\\ub82c\\ud654|\\uc5ed\\uc9c1\\ub82c\\ud654|\\uc2a4\\ud0a4\\ub9c8|\\ud398\\uc774\\ub85c\\ub4dc)",
+        "(\\uc751\\ub2f5|\\uc694\\uccad).{0,12}(\\ud544\\ub4dc|\\ubaa8\\ub378|\\ub9e4\\ud37c|\\ub9e4\\ud551|\\uc2a4\\ud0a4\\ub9c8)"
+      ],
+      "reason": "A serialization or wire-shape change needs its contract, boundary-value, error and test guidance whatever the platform.",
+      "doc_sets": [
+        "data_contract_change"
+      ]
+    },
+    {
+      "name": "android_ui_performance",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "webperf",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(jank|stutter|dropped frames?|frame time|scroll performance|recompositions?)\\b",
+        "\\b(slow|laggy|sluggish|janky)\\b",
+        "\\b(performance|profiling|benchmark)\\b",
+        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824)"
+      ],
+      "doc_sets": [
+        "android_ui_performance"
+      ],
+      "required_priority": 50,
+      "narrows": [
+        "android_compose_ui_feature",
+        "android_compose_paths"
+      ],
+      "reason": "A jank or recomposition task needs the measure-first loop and the stability rules, which is exactly what the wide Compose set was crowding out."
+    },
+    {
+      "name": "android_navigation_deep_links",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(deep ?links?|deeplinks?|nav ?graph|navigation routes?|back ?stack|app links?)\\b",
+        "(\\ub525 ?\\ub9c1\\ud06c|\\ub0b4\\ube44\\uac8c\\uc774\\uc158 \\uacbd\\ub85c|\\ub124\\ube44\\uac8c\\uc774\\uc158 \\uacbd\\ub85c|\\ubc31\\uc2a4\\ud0dd)"
+      ],
+      "doc_sets": [
+        "android_navigation_deep_links"
+      ],
+      "required_priority": 50,
+      "reason": "A deep link, nav graph, or back stack task needs the navigation and link-handling rules, which the wide Compose set leaves out."
+    },
+    {
+      "name": "android_webview_surface",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(web ?views?)\\b",
+        "(\\uc6f9 ?\\ubdf0)"
+      ],
+      "doc_sets": [
+        "android_webview_surface"
+      ],
+      "required_priority": 50,
+      "reason": "A WebView screen needs the embedded-browser surface rules, which the wide Compose set leaves out."
+    },
+    {
+      "name": "android_wear_compose",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(wear ?os|wearos|watch ?face|complications?)\\b",
+        "\\bwear\\b",
+        "(\\uc6cc\\uce58|\\uc6e8\\uc5b4|\\uc6e8\\uc5b4\\ub7ec\\ube14|\\uc6cc\\uce58\\ud398\\uc774\\uc2a4)"
+      ],
+      "doc_sets": [
+        "android_wear_compose"
+      ],
+      "required_priority": 50,
+      "reason": "A Wear OS task needs the watch-surface Compose rules, which the phone-shaped Compose set leaves out."
+    },
+    {
+      "name": "android_compose_previews",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(previews?|@preview|screenshot tests?)\\b",
+        "(\\ud504\\ub9ac\\ubdf0|\\ubbf8\\ub9ac\\ubcf4\\uae30|\\uc2a4\\ud06c\\ub9b0\\uc0f7)"
+      ],
+      "doc_sets": [
+        "android_compose_previews"
+      ],
+      "required_priority": 50,
+      "reason": "A preview or screenshot-test task needs the preview rules, which no longer ride along with every Compose screen request."
+    },
+    {
+      "name": "ios_ui_performance",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "webperf",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(jank|stutter|dropped frames?|frame time|scroll performance|recompositions?)\\b",
+        "\\b(slow|laggy|sluggish|janky)\\b",
+        "\\b(performance|profiling|benchmark)\\b",
+        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824)"
+      ],
+      "doc_sets": [
+        "ios_ui_performance"
+      ],
+      "required_priority": 50,
+      "narrows": [
+        "ios_ui_feature",
+        "ios_swiftui_paths",
+        "ios_uikit_paths"
+      ],
+      "reason": "A performance task on iOS needs the concurrency and measurement rules, not the whole platform set."
+    },
+    {
+      "name": "web_ui_performance",
+      "platforms": [
+        "web"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "webperf",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(jank|stutter|dropped frames?|frame time|scroll performance|recompositions?)\\b",
+        "\\b(slow|laggy|sluggish|janky)\\b",
+        "\\b(performance|profiling|benchmark)\\b",
+        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824)"
+      ],
+      "doc_sets": [
+        "web_ui_performance"
+      ],
+      "required_priority": 50,
+      "narrows": [
+        "web_ui_feature",
+        "web_react_paths"
+      ],
+      "reason": "A web performance task needs the web and common measurement rules, not the design system and code structure."
+    },
+    {
+      "name": "android_ui_state_change",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(viewmodel|uistate|state holder|state restoration)\\b",
+        "\\b(state)\\b.{0,24}\\b(lost|reset|restore|survive|rotation|config change)\\b",
+        "\\b(rotation|configuration change|process death)\\b",
+        "(\\ubdf0\\ubaa8\\ub378|\\uc0c1\\ud0dc\\s*\\ubcf5\\uc6d0|\\ud68c\\uc804\\s*\\ud6c4|\\uc0c1\\ud0dc\\uac00\\s*\\uc0ac\\ub77c)",
+        "(\\uc0c1\\ud0dc).{0,16}(\\uc720\\uc9c0|\\ubcf5\\uc6d0|\\ucd08\\uae30\\ud654|\\uc0ac\\ub77c)"
+      ],
+      "doc_sets": [
+        "android_ui_state_change"
+      ],
+      "required_priority": 50,
+      "narrows": [
+        "android_compose_ui_feature",
+        "android_compose_paths"
+      ],
+      "reason": "State ownership, restoration and stream rules answer a ViewModel or UiState change; the Compose authoring set does not."
+    },
+    {
+      "name": "ios_ui_state_change",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(viewmodel|uistate|state holder|state restoration)\\b",
+        "\\b(state)\\b.{0,24}\\b(lost|reset|restore|survive|rotation|config change)\\b",
+        "\\b(rotation|configuration change|process death)\\b",
+        "(\\ubdf0\\ubaa8\\ub378|\\uc0c1\\ud0dc\\s*\\ubcf5\\uc6d0|\\ud68c\\uc804\\s*\\ud6c4|\\uc0c1\\ud0dc\\uac00\\s*\\uc0ac\\ub77c)",
+        "(\\uc0c1\\ud0dc).{0,16}(\\uc720\\uc9c0|\\ubcf5\\uc6d0|\\ucd08\\uae30\\ud654|\\uc0ac\\ub77c)"
+      ],
+      "doc_sets": [
+        "ios_ui_state_change"
+      ],
+      "required_priority": 50,
+      "narrows": [
+        "ios_ui_feature",
+        "ios_swiftui_paths",
+        "ios_uikit_paths"
+      ],
+      "reason": "Observation and state modeling answer an iOS state change."
+    },
+    {
+      "name": "web_ui_state_change",
+      "platforms": [
+        "web"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(viewmodel|uistate|state holder|state restoration)\\b",
+        "\\b(state)\\b.{0,24}\\b(lost|reset|restore|survive|rotation|config change)\\b",
+        "\\b(rotation|configuration change|process death)\\b",
+        "(\\ubdf0\\ubaa8\\ub378|\\uc0c1\\ud0dc\\s*\\ubcf5\\uc6d0|\\ud68c\\uc804\\s*\\ud6c4|\\uc0c1\\ud0dc\\uac00\\s*\\uc0ac\\ub77c)",
+        "(\\uc0c1\\ud0dc).{0,16}(\\uc720\\uc9c0|\\ubcf5\\uc6d0|\\ucd08\\uae30\\ud654|\\uc0ac\\ub77c)"
+      ],
+      "doc_sets": [
+        "web_ui_state_change"
+      ],
+      "required_priority": 50,
+      "narrows": [
+        "web_ui_feature",
+        "web_react_paths"
+      ],
+      "reason": "Server state, forms and state modeling answer a web state change."
+    },
+    {
+      "name": "ios_ui_layout_change",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task"
+      ],
+      "request_any": [
+        "\\b(button|label|icon|padding|margin|spacing|align|position|layout)\\b.{0,24}\\b(move|moved|placement|position|reposition|fix|adjust|tweak)\\b",
+        "\\b(move|reposition|realign|re-?align|adjust|tweak)\\b.{0,24}\\b(button|label|icon|padding|margin|spacing|layout)\\b",
+        "(\\ubc84\\ud2bc|\\ub77c\\ubca8|\\uc544\\uc774\\ucf58|\\uc5ec\\ubc31|\\uac04\\uaca9|\\uc815\\ub82c|\\uc704\\uce58|\\ub808\\uc774\\uc544\\uc6c3).{0,16}(\\uc218\\uc815|\\ubc14\\uafb8|\\uc62e\\uae30|\\uc870\\uc815|\\ubcc0\\uacbd)"
+      ],
+      "doc_sets": [
+        "ios_ui_layout_change"
+      ],
+      "required_priority": 50,
+      "narrows": [
+        "ios_ui_feature",
+        "ios_swiftui_paths",
+        "ios_uikit_paths"
+      ],
+      "reason": "Moving or restyling one control needs the view idiom, the accessibility rules and visual confirmation, not module structure and concurrency."
+    },
+    {
+      "name": "android_ui_layout_change",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task"
+      ],
+      "request_any": [
+        "\\b(button|label|icon|padding|margin|spacing|align|position|layout)\\b.{0,24}\\b(move|moved|placement|position|reposition|fix|adjust|tweak)\\b",
+        "\\b(move|reposition|realign|re-?align|adjust|tweak|fix)\\b.{0,24}\\b(button|label|icon|padding|margin|spacing|layout)\\b",
+        "(\\ubc84\\ud2bc|\\ub77c\\ubca8|\\uc544\\uc774\\ucf58|\\uc5ec\\ubc31|\\uac04\\uaca9|\\uc815\\ub82c|\\uc704\\uce58|\\ub808\\uc774\\uc544\\uc6c3).{0,16}(\\uc218\\uc815|\\ubc14\\uafb8|\\uc62e\\uae30|\\uc870\\uc815|\\ubcc0\\uacbd)"
+      ],
+      "reason": "Moving or restyling one control needs the Compose idiom, the accessibility rules for that control, and visual confirmation, not the state, module and lifecycle material a new screen needs.",
+      "doc_sets": [
+        "android_ui_layout_change"
+      ],
+      "narrows": [
+        "android_compose_ui_feature",
+        "android_compose_paths"
+      ],
+      "required_priority": 50
+    },
+    {
+      "name": "web_ui_layout_change",
+      "platforms": [
+        "web"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task"
+      ],
+      "request_any": [
+        "\\b(button|label|icon|padding|margin|spacing|align|position|layout)\\b.{0,24}\\b(move|moved|placement|position|reposition|fix|adjust|tweak)\\b",
+        "\\b(move|reposition|realign|re-?align|adjust|tweak|fix)\\b.{0,24}\\b(button|label|icon|padding|margin|spacing|layout)\\b",
+        "(\\ubc84\\ud2bc|\\ub77c\\ubca8|\\uc544\\uc774\\ucf58|\\uc5ec\\ubc31|\\uac04\\uaca9|\\uc815\\ub82c|\\uc704\\uce58|\\ub808\\uc774\\uc544\\uc6c3).{0,16}(\\uc218\\uc815|\\ubc14\\uafb8|\\uc62e\\uae30|\\uc870\\uc815|\\ubcc0\\uacbd)"
+      ],
+      "reason": "Moving or restyling one control needs the component idiom, the accessibility rules for that control, and visual confirmation, not the whole web feature set.",
+      "doc_sets": [
+        "web_ui_layout_change"
+      ],
+      "narrows": [
+        "web_ui_feature",
+        "web_react_paths"
+      ],
+      "required_priority": 50
     },
     {
       "name": "android_compose_ui_feature",
@@ -963,6 +1488,44 @@
       "reason": "Request classification changes need intake, triage, and ambiguity routing guidance."
     },
     {
+      "name": "android_data_contract_paths",
+      "patterns": [
+        "**/*Dto.kt",
+        "**/*DTO.kt",
+        "**/*Response.kt",
+        "**/*Request.kt",
+        "**/*Mapper.kt",
+        "**/*Serializer.kt",
+        "**/*ApiService.kt",
+        "**/*ApiClient.kt",
+        "**/src/main/**/data/**/*.kt",
+        "**/src/main/**/network/**/*.kt",
+        "**/src/main/**/remote/**/*.kt"
+      ],
+      "reason": "A verified owner under the data, network or remote layer, or named as a DTO, mapper or serializer, is a wire-contract change.",
+      "doc_sets": [
+        "android_data_contract_change"
+      ]
+    },
+    {
+      "name": "web_data_contract_paths",
+      "patterns": [
+        "src/**/api/**/*.ts",
+        "src/**/services/**/*.ts",
+        "src/**/lib/api/**/*.ts",
+        "**/*.schema.ts",
+        "**/*Dto.ts",
+        "**/*Client.ts",
+        "**/parse*.ts",
+        "**/*Mapper.ts",
+        "**/serializers/**/*.ts"
+      ],
+      "reason": "A verified owner under the api or services layer, or named as a schema, DTO, client, parser or mapper, is a wire-contract change.",
+      "doc_sets": [
+        "web_data_contract_change"
+      ]
+    },
+    {
       "name": "android_compose_paths",
       "patterns": [
         "app/src/main/**/ui/**/*.kt",
@@ -974,9 +1537,20 @@
         "**/src/main/**/*UiState.kt"
       ],
       "doc_sets": [
-        "android_compose_ui"
+        "android_compose_touch"
       ],
-      "reason": "Touched Android Kotlin UI, screen, route, composable, or UiState paths imply Android Compose UI/state and performance guidance should be read."
+      "reason": "Touched Android Kotlin UI, screen, route, composable, or UiState paths imply Android Compose UI/state and performance guidance should be read.",
+      "exclude_patterns": [
+        "**/*Dto.kt",
+        "**/*DTO.kt",
+        "**/*Response.kt",
+        "**/*Request.kt",
+        "**/*Mapper.kt",
+        "**/*Serializer.kt",
+        "**/*Repository.kt",
+        "**/*ApiService.kt",
+        "**/*ApiClient.kt"
+      ]
     },
     {
       "name": "application_desktop_paths",
@@ -1014,7 +1588,7 @@
         "**/*Screen.swift"
       ],
       "doc_sets": [
-        "ios_swiftui"
+        "ios_swiftui_touch"
       ],
       "reason": "Touched SwiftUI view, screen, or view-model paths imply iOS SwiftUI/state/design guidance should be read."
     },
@@ -1027,7 +1601,7 @@
         "**/*Coordinator.swift"
       ],
       "doc_sets": [
-        "ios_uikit"
+        "ios_uikit_touch"
       ],
       "reason": "Touched UIKit view-controller, cell, or coordinator paths imply UIKit/state/design guidance should be read."
     },
@@ -1098,13 +1672,106 @@
         "**/*.ios.ts",
         "**/*.ios.tsx",
         "**/*.android.ts",
-        "**/*.android.tsx"
+        "**/*.android.tsx",
+        "**/*.schema.ts",
+        "**/*Dto.ts",
+        "**/*Client.ts",
+        "**/*Mapper.ts"
+      ],
+      "doc_sets": [
+        "web_react_touch"
+      ],
+      "reason": "Touched React page, route, screen, component, or feature paths imply web UI/state/design guidance should be read."
+    },
+    {
+      "name": "android_compose_ecosystem",
+      "patterns": [
+        "app/src/main/**/ui/**/*.kt",
+        "*/src/main/**/ui/**/*.kt",
+        "**/src/main/**/compose/**/*.kt",
+        "**/src/main/**/*Screen.kt",
+        "**/src/main/**/*Route.kt",
+        "**/src/main/**/*Composable.kt",
+        "**/src/main/**/*UiState.kt"
+      ],
+      "exclude_patterns": [
+        "**/*Dto.kt",
+        "**/*DTO.kt",
+        "**/*Response.kt",
+        "**/*Request.kt",
+        "**/*Mapper.kt",
+        "**/*Serializer.kt",
+        "**/*Repository.kt",
+        "**/*ApiService.kt",
+        "**/*ApiClient.kt"
+      ],
+      "doc_sets": [
+        "android_compose_ui",
+        "android_compose_previews"
+      ],
+      "reference_only": true,
+      "reason": "Touching this surface makes the platform's wider card set worth offering as reference candidates; what the change actually needs is decided by the change-action rules, not by the file's path."
+    },
+    {
+      "name": "ios_swiftui_ecosystem",
+      "patterns": [
+        "**/*View.swift",
+        "**/*Screen.swift"
+      ],
+      "doc_sets": [
+        "ios_swiftui"
+      ],
+      "reference_only": true,
+      "reason": "Touching this surface makes the platform's wider card set worth offering as reference candidates; what the change actually needs is decided by the change-action rules, not by the file's path."
+    },
+    {
+      "name": "ios_uikit_ecosystem",
+      "patterns": [
+        "**/*ViewController.swift",
+        "**/*CollectionViewCell.swift",
+        "**/*TableViewCell.swift",
+        "**/*Coordinator.swift"
+      ],
+      "doc_sets": [
+        "ios_uikit"
+      ],
+      "reference_only": true,
+      "reason": "Touching this surface makes the platform's wider card set worth offering as reference candidates; what the change actually needs is decided by the change-action rules, not by the file's path."
+    },
+    {
+      "name": "web_react_ecosystem",
+      "patterns": [
+        "app/**/page.tsx",
+        "app/**/layout.tsx",
+        "pages/**/*.tsx",
+        "src/**/pages/**/*.tsx",
+        "src/**/routes/**/*.tsx",
+        "src/**/screens/**/*.tsx",
+        "src/**/components/**/*.tsx",
+        "src/**/features/**/*.tsx",
+        "**/*Screen.tsx",
+        "**/*Page.tsx"
+      ],
+      "exclude_patterns": [
+        "packages/mobile/**",
+        "apps/mobile/**",
+        "**/*.native.ts",
+        "**/*.native.tsx",
+        "**/*.ios.ts",
+        "**/*.ios.tsx",
+        "**/*.android.ts",
+        "**/*.android.tsx",
+        "**/*.schema.ts",
+        "**/*Dto.ts",
+        "**/*Client.ts",
+        "**/*Mapper.ts"
       ],
       "doc_sets": [
         "web_react_ui",
         "web_ui"
       ],
-      "reason": "Touched React page, route, screen, component, or feature paths imply web UI/state/design guidance should be read."
+      "reference_only": true,
+      "reason": "Touching this surface makes the platform's wider card set worth offering as reference candidates; what the change actually needs is decided by the change-action rules, not by the file's path."
     },
     {
       "name": "tests",

@@ -5,12 +5,17 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from workflow_catalog import REQUEST_CONCERN_HINTS
+from workflow_catalog import (
+    REQUEST_CONCERN_HINTS,
+    RISK_CONCERNS_REQUIRED_WHEN_INFERRED,
+)
 from workflow_common import ANSWER_ONLY_CLARITY, QUESTION_ROUTE_COMMANDS, unique
 from workflow_request_decision import classification_decision
 from workflow_request_patterns import (
     BROAD_PATTERNS,
+    CODE_AUTHORING_NEGATION_PATTERNS,
     COMMIT_ACTION_PATTERNS,
+    MUTATION_INTENT_PATTERNS,
     COMMIT_BLOCKING_RISK_PATTERNS,
     COMMIT_NEGATION_PATTERNS,
     COMMIT_RELEASE_SUBSTEP_PATTERNS,
@@ -58,7 +63,26 @@ CODE_AUTHORING_REQUEST_PATTERNS = (
     r"(?:추가|작성|구현|수정|고쳐|만들)",
 )
 
+_RISK_CONCERN_NOUNS = {
+    "security": r"security|보안|취약점|취약성",
+    "auth": r"auth|authentication|authorization|permissions?|login|인증|인가|권한|로그인",
+    "billing": r"billing|payments?|subscriptions?|결제|구독|청구",
+    "migration": r"migration|마이그레이션",
+}
+# "not a security change, just rename the button" / "보안 이슈는 아니고 문구만
+# 수정해줘". Both halves are required: the negation alone is not an opt-out,
+# because "make sure this is not a security regression" contains one and is a
+# security request. The scope-limiting word is what makes it a correction.
 EXPLICIT_CONCERN_EXCLUSION_PATTERNS = {
+    concern: (
+        rf"\b(?:is\s+)?not\s+(?:a|an|the)?\s*(?:{nouns})\b[^.!?]{{0,40}}"
+        r"\b(?:just|only|merely|simply)\b",
+        rf"(?:{nouns})[^.!?]{{0,16}}아니(?:고|라|며|지만|에요|예요|야)"
+        r"[^.!?]{0,24}(?:만|단순|그냥|뿐)",
+    )
+    for concern, nouns in _RISK_CONCERN_NOUNS.items()
+}
+EXPLICIT_CONCERN_EXCLUSION_PATTERNS.update({
     "graphify": (
         r"\b(?:do not|don't|must not|should not|never)\s+"
         r"(?:(?:run|use|invoke|call|execute|include|install|enable|build|update|query)\s+|"
@@ -92,7 +116,7 @@ EXPLICIT_CONCERN_EXCLUSION_PATTERNS = {
         r"(?:\s*(?:는|은|를|을|도|만))?\s*"
         r"(?:하지\s*마|하지\s*않|안\s*함|금지|제외|생략|건너뛰|스킵|무시|빼)",
     ),
-}
+})
 # Checked before the exclusion patterns above and, when it matches, cancels
 # them. "Do not skip graphify" / "Graphify 는 제외하지 마" are negators applied
 # to an opt-out verb, so they ask for the exact opposite of the exclusion they
@@ -155,13 +179,28 @@ def infer_concerns_from_request(text: str) -> list[str]:
 
 
 def inferred_concern_note(concerns: list[str]) -> str:
-    """Name keyword-inferred concerns and say they did not become required."""
+    """Name keyword-inferred concerns and say which of them became required."""
 
-    joined = ", ".join(f"`{concern}`" for concern in concerns)
-    return (
-        f"Inferred concern(s) from request keywords: {joined}. Their documents are "
-        "on-demand references; pass `--concern <name>` when the task really touches one."
-    )
+    risk = [c for c in concerns if c in RISK_CONCERNS_REQUIRED_WHEN_INFERRED]
+    optional = [c for c in concerns if c not in RISK_CONCERNS_REQUIRED_WHEN_INFERRED]
+    notes: list[str] = []
+    if optional:
+        notes.append(
+            f"Inferred concern(s) from request keywords: {_joined(optional)}. Their documents "
+            "are on-demand references; pass `--concern <name>` when the task really touches one."
+        )
+    if risk:
+        notes.append(
+            f"Inferred risk concern(s) from request keywords: {_joined(risk)}. Their documents "
+            "are required on inference alone, because a missed credential, permission, charge, "
+            "or migration rule costs more than reading a card the task turns out not to need. "
+            "Record in scope which of them does not apply rather than skipping it."
+        )
+    return " ".join(notes)
+
+
+def _joined(concerns: list[str]) -> str:
+    return ", ".join(f"`{concern}`" for concern in concerns)
 
 
 def _match_text(text: str) -> str:
@@ -181,6 +220,15 @@ def _is_opted_out(concern: str, normalized: str) -> bool:
         normalized,
         re.IGNORECASE,
     )
+
+
+def _mentions_explanation(text: str) -> bool:
+    """Detect an explanation cue, never certify the absence of other intent.
+
+    Interpretation stays in conversation, including for simple explanations.
+    This is neither a work route nor a request for further user clarification.
+    """
+    return bool(re.search(r"\bexplain\b|설명", text))
 
 
 def classify_request(
@@ -206,8 +254,13 @@ def classify_request(
     asks_action = _matches(QUESTION_ACTION_PATTERNS, lowered) or (
         imperative_correction and not word_sense_question
     )
-    answer_only = direct_question and not asks_action
-    effort = "quick" if answer_only else "standard"
+    explanation_request = _mentions_explanation(lowered)
+    # A question word cannot certify that an explanation has no other intent.
+    answer_only = direct_question and not asks_action and not explanation_request
+    # Context uncertainty is not itself task complexity. A cheap intake pass
+    # does not certify explanation-only intent or size the eventual work.
+    explanation_intake = explanation_request and not requires_code_authoring(matched)
+    effort = "quick" if answer_only or explanation_intake else "standard"
     model_tier = MODEL_TIER_BY_EFFORT[effort]
     if requires_code_authoring(matched) and model_tier == "fast":
         model_tier = "balanced"
@@ -215,7 +268,26 @@ def classify_request(
     response_mode, reason = _intake_next_step(
         answer_only, shape, shape_mode, context, lowered, conversation_first,
     )
+    if explanation_request:
+        response_mode = "resolve_context"
+        reason = (
+            "Interpret the complete request in the current conversation, without another "
+            "routing pass or workflow-document read just for this advisory. "
+            "An explanation cue does not prove the absence of another action. "
+            "Answer directly if it only requests explanation; otherwise preserve the actionable scope "
+            "and prepare the required intent. Ask only for a remaining material ambiguity."
+            f" Effort {effort} is current-intake-only. "
+            "Reassess before substantive analysis or execution."
+        )
     needs_question = response_mode == "clarify_first"
+    model_selection = _model_selection(model_tier, effort)
+    if explanation_request:
+        model_selection["scope"] = "current-intake-only"
+        model_selection["reason"] += (
+            ". Reassess effort after interpreting the full request, before substantive "
+            "analysis or execution; this recommendation neither bounds task complexity "
+            "nor proves that no action was requested."
+        )
     return {
         "request": normalized,
         "clarity": {
@@ -225,7 +297,7 @@ def classify_request(
         }.get(response_mode, "vague-action"),
         "effort": effort,
         "model_tier": model_tier,
-        "model_selection": _model_selection(model_tier, effort),
+        "model_selection": model_selection,
         "recommended_route": "none" if answer_only else "triage",
         "route_shape": shape,
         "shape_response_mode": shape_mode,
@@ -345,6 +417,22 @@ def requires_code_authoring(request: str) -> bool:
     return _matches(CODE_AUTHORING_REQUEST_PATTERNS, request.lower())
 
 
+def requests_code_authoring(request: str) -> bool:
+    """True when the request asks for an edit, rather than merely naming one.
+
+    `requires_code_authoring` answers whether an *authoring* verb is present,
+    which is what effort sizing wants. Intent asks a different question in both
+    directions: it counts a rename or a value change that sizing does not, and
+    it discounts a verb the request named only to exclude -- "수정은 하지 말고
+    설명해줘" asks for no edit at all.
+    """
+
+    lowered = request.lower()
+    return _matches(MUTATION_INTENT_PATTERNS, lowered) and not _matches(
+        CODE_AUTHORING_NEGATION_PATTERNS, lowered, re.IGNORECASE
+    )
+
+
 def print_classification(result: dict[str, object]) -> None:
     print("# Tao Agent OS Request Classification\n")
     print(f"Clarity: `{result['clarity']}`")
@@ -432,6 +520,10 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
         not has_release_action or _matches(COMMIT_RELEASE_SUBSTEP_PATTERNS, normalized, re.IGNORECASE)
     )
     inspection_lacks_target = has_inspection and _inspection_lacks_target(lowered)
+    # A request can ask to look and then to change: "필드가 있는지 확인하고
+    # 없으면 추가해줘". Reading the inspection half alone shaped it as a
+    # read-only lookup, which dropped the edit the user actually asked for.
+    has_mutation_request = requests_code_authoring(normalized)
     has_direct_question = _matches(DIRECT_QUESTION_PATTERNS, lowered)
     asks_agent_action = _matches(QUESTION_ACTION_PATTERNS, lowered) or _matches(
         IMPERATIVE_CORRECTION_ACTION_PATTERNS,
@@ -508,6 +600,7 @@ def _request_flags(normalized: str, lowered: str) -> dict[str, object]:
         "release_scope_signal_count": release_scope_signal_count,
         "commit_release_substep": commit_release_substep,
         "inspection_lacks_target": inspection_lacks_target,
+        "has_mutation_request": has_mutation_request,
         "has_direct_question": has_direct_question,
         "asks_agent_action": asks_agent_action,
         "short_without_target": short_without_target,
@@ -522,9 +615,9 @@ def _inspection_lacks_target(lowered: str) -> bool:
     if not compact:
         return False
     targetless_patterns = (
-        r"^(?:please\s+)?(?:check|review|inspect|verify|status|summarize|report)(?:\s+(?:it|this|that|please))?$",
-        r"^(?:can you|could you|would you)\s+(?:check|review|inspect|verify|summarize|report)(?:\s+(?:it|this|that))?$",
-        r"^(?:이거|그거|저거)?\s*(?:확인|체크|검토|점검|상태|파악|정리)\s*(?:해줘|해주세요|해줄래|좀)?$",
+        r"^(?:please\s+)?(?:check|review|inspect|verify|status|summarize|report|explain)(?:\s+(?:it|this|that|please))?$",
+        r"^(?:can you|could you|would you)\s+(?:check|review|inspect|verify|summarize|report|explain)(?:\s+(?:it|this|that))?$",
+        r"^(?:이거|그거|저거)?\s*(?:확인|체크|검토|점검|상태|파악|정리|설명)\s*(?:해줘|해주세요|해줄래|좀)?$",
     )
     return _matches(targetless_patterns, compact)
 

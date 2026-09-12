@@ -23,7 +23,9 @@ from workflow_doc_resolution import (  # noqa: E402
     is_pointer_entrypoint,
     resolve_guidance_docs,
 )
+from workflow_catalog import PLATFORM_CONCERNS, PLATFORMS  # noqa: E402
 from workflow_route import (  # noqa: E402
+    COMMAND_REQUIRED_DOCS,
     COMMANDS,
     CORE_REQUIRED_DOCS,
     MAX_REQUIRED_DOCS,
@@ -598,13 +600,29 @@ class RequiredDocMembershipTests(unittest.TestCase):
                 )
 
     def test_required_docs_stay_within_the_selection_cap(self) -> None:
-        for command in ("triage", "task", "bugfix", "release", "review", "feature"):
+        for command in ("triage", "task", "bugfix", "release", "review", "feature",
+                        "build", "refactor", "code-simplify"):
             with self.subTest(command=command):
                 route = resolve_docs(
                     command, None, [], request_classified=True,
                     request_text="update the router and verify it",
                 )
                 self.assertLessEqual(len(route["required_docs"]), MAX_REQUIRED_DOCS)
+
+    def test_shared_build_feature_workflow_has_the_same_reading_contract(self) -> None:
+        for concerns in ([], ["testing"]):
+            build = resolve_docs("build", None, concerns)
+            feature = resolve_docs("feature", None, concerns)
+            self.assertEqual(build["required_docs"], feature["required_docs"])
+
+    def test_deferring_one_detail_does_not_discard_later_explicit_guidance(self) -> None:
+        from workflow_route import _select_within_budget
+        detail = "workflows/skills/ambiguity-gate/references/current-guidance.md"
+        needed = "common/skills/task-intake-effort-routing/SKILL.md"
+        selected = _select_within_budget("bugfix", [[detail, needed]], [],
+                                       explicit_docs=[needed])
+        self.assertNotIn(detail, selected)
+        self.assertIn(needed, selected)
 
     def test_required_docs_carry_content_not_pointers(self) -> None:
         """The point of the change: mandatory reading must not be boilerplate."""
@@ -659,10 +677,10 @@ class AdvisoryRequiredDocsTests(unittest.TestCase):
     def test_advisory_triage_demotes_gate_driven_docs_to_reference(self) -> None:
         route = resolve_docs("triage", None, [], advisory=True)
 
-        self.assertIn(OPERATING_SKILL, route["required_docs"])
+        self.assertEqual([OPERATING_SKILL], route["required_docs"])
         self.assertIn(
             "workflows/skills/request-triage/references/current-guidance.md",
-            route["required_docs"],
+            route["reference_docs"],
         )
         for doc in TRIAGE_GATE_DOCS:
             with self.subTest(doc=doc):
@@ -673,9 +691,10 @@ class AdvisoryRequiredDocsTests(unittest.TestCase):
         full = resolve_docs("triage", None, [], request_classified=True)
         advisory = resolve_docs("triage", None, [], advisory=True)
 
-        self.assertEqual(
-            [*advisory["required_docs"], *TRIAGE_GATE_DOCS], full["required_docs"]
-        )
+        for doc in TRIAGE_GATE_DOCS:
+            self.assertIn(doc, full["required_docs"])
+        self.assertIn("workflows/skills/request-triage/references/current-guidance.md",
+                      full["required_docs"])
         self.assertEqual(full["docs"], advisory["docs"])
         self.assertEqual(full["gates"], advisory["gates"])
 
@@ -699,6 +718,31 @@ class AdvisoryRequiredDocsTests(unittest.TestCase):
 
         expected = _named_concern_docs(None, ["security"])
         route = resolve_docs("task", None, ["security"], advisory=True)
+
+        self.assertTrue(set(expected).issubset(route["required_docs"]))
+
+    def test_advisory_does_not_require_the_platform_card_set(self) -> None:
+        """The platform cards are identical for every route on that platform.
+
+        An advisory route has no request text, so it cannot say which of them
+        this request needs. Naming `--platform android` before a field lookup
+        required 28.5 KB of Android architecture the lookup never opened.
+        """
+
+        for platform in ("android", "web", "ios"):
+            with self.subTest(platform=platform):
+                route = resolve_docs("task", platform, [], advisory=True)
+
+                self.assertEqual([OPERATING_SKILL], route["required_docs"])
+                for doc in PLATFORMS[platform]:
+                    self.assertNotIn(doc, route["required_docs"])
+                    self.assertIn(doc, route["docs"])
+
+    def test_advisory_still_requires_the_platform_cards_a_concern_names(self) -> None:
+        route = resolve_docs("task", "android", ["compose"], advisory=True)
+        expected = resolve_guidance_docs(
+            ROOT, list(PLATFORM_CONCERNS[("android", "compose")])
+        )
 
         self.assertTrue(set(expected).issubset(route["required_docs"]))
 
@@ -741,6 +785,176 @@ class AdvisoryRequiredDocsTests(unittest.TestCase):
                 )
 
 
+class CommandDocumentsSurviveTheSelectionCapTests(unittest.TestCase):
+    """The route's own procedure is not the budget's to spend.
+
+    Risk concerns became requirable on inference, and they are selected before
+    the tier walk. Counting them against the cap let one keyword evict the
+    command's own reference: "log in the error to the console" infers `auth`,
+    and the bugfix route lost its debugging procedure. The repair that fixed
+    this reproduced it on its own start hook -- nine required documents, four of
+    them auth and security cards, and no bugfix card at all.
+    """
+
+    FALSE_POSITIVES = (
+        "permissions.md 오타 수정",
+        "add a login screen and rename the button",
+    )
+
+    def test_an_inferred_concern_cannot_evict_the_command_workflow(self) -> None:
+        from workflow_request import infer_concerns_from_request
+
+        expected = resolve_guidance_docs(
+            ROOT, list(COMMAND_REQUIRED_DOCS["bugfix"])
+        )
+        for text in self.FALSE_POSITIVES:
+            with self.subTest(text=text):
+                inferred = infer_concerns_from_request(text)
+                route = resolve_docs(
+                    "bugfix", None, inferred, request_classified=True,
+                    inferred_concerns=inferred, request_text=text,
+                )
+
+                self.assertTrue(inferred, "the case no longer infers a concern")
+                self.assertTrue(set(expected).issubset(route["required_docs"]))
+
+    def test_a_named_concern_cannot_evict_it_either(self) -> None:
+        expected = resolve_guidance_docs(ROOT, list(COMMAND_REQUIRED_DOCS["bugfix"]))
+        route = resolve_docs(
+            "bugfix", None, ["security", "auth", "billing", "testing"],
+            request_classified=True,
+        )
+
+        self.assertTrue(set(expected).issubset(route["required_docs"]))
+
+    def test_a_tiny_cap_still_keeps_the_command_workflow(self) -> None:
+        with patch("workflow_route.MAX_REQUIRED_DOCS", 1):
+            route = resolve_docs("bugfix", None, ["security"], request_classified=True)
+
+        self.assertIn("workflows/skills/bugfix-debugging/SKILL.md", route["required_docs"])
+
+
+class RequiredDocumentReasonTests(unittest.TestCase):
+    """Every required document names the rule that made it mandatory.
+
+    The reasons are derived from the same registries the selection walked, so
+    they cannot drift from it, and they exist to make one thing visible: a
+    document required only because the caller named a platform.
+    """
+
+    def test_every_required_doc_has_a_reason(self) -> None:
+        for command in ("bugfix", "feature", "task", "docs", "review", "analysis"):
+            for platform in (None, "android", "web"):
+                with self.subTest(command=command, platform=platform):
+                    route = resolve_docs(
+                        command, platform, [], request_classified=True,
+                        request_text="update the retry handler",
+                    )
+                    reasons = route["required_doc_reasons"]
+
+                    self.assertEqual(
+                        route["required_docs"], [item["doc"] for item in reasons]
+                    )
+                    for item in reasons:
+                        self.assertTrue(item["reason"], item["doc"])
+
+    def test_the_core_command_and_platform_rules_are_named_apart(self) -> None:
+        route = resolve_docs("bugfix", "android", [], request_classified=True)
+        reasons = {item["doc"]: item["reason"] for item in route["required_doc_reasons"]}
+
+        self.assertEqual(
+            "core_reading_contract", reasons[OPERATING_SKILL]
+        )
+        self.assertEqual(
+            "command_workflow:bugfix",
+            reasons["workflows/skills/bugfix-debugging/SKILL.md"],
+        )
+        self.assertEqual(
+            "platform_default:android",
+            reasons["platforms/android/skills/android-architecture/references/current-guidance.md"],
+        )
+
+    def test_a_named_concern_outranks_the_platform_default(self) -> None:
+        route = resolve_docs("task", "android", ["compose"], request_classified=True)
+        reasons = {item["doc"]: item["reason"] for item in route["required_doc_reasons"]}
+
+        compose = [doc for doc in reasons if "android-compose-ui" in doc]
+        self.assertTrue(compose)
+        for doc in compose:
+            self.assertEqual("concern_named:compose", reasons[doc])
+
+    def test_an_inferred_non_risk_concern_is_never_credited(self) -> None:
+        """It cannot require a document, so it cannot be why one is required."""
+
+        route = resolve_docs(
+            "feature", "ios", ["swift"], request_classified=True,
+            inferred_concerns=["swift"],
+            request_text="다크모드 토글을 SwiftUI로 추가해줘",
+        )
+
+        for item in route["required_doc_reasons"]:
+            self.assertNotIn("concern_inferred:", item["reason"])
+            self.assertNotIn("concern_named:swift", item["reason"])
+
+
+class InferredRiskConcernTests(unittest.TestCase):
+    """The exception: inference alone requires the cards a miss cannot undo.
+
+    A false positive here costs one or two cards. A miss costs a permission, a
+    charge, a secret, a migration, or a release being changed without the card
+    that says how not to break it.
+    """
+
+    RISK_CARDS = (
+        ("security", "common/skills/secure-development-baseline/SKILL.md"),
+        ("auth", "product-patterns/skills/auth-rbac-permissions/SKILL.md"),
+        ("billing", "product-patterns/skills/billing-entitlements/SKILL.md"),
+        ("credential-broker",
+         "product-patterns/skills/agent-credential-broker-ideation/SKILL.md"),
+    )
+
+    def test_an_inferred_risk_concern_is_still_required(self) -> None:
+        for concern, doc in self.RISK_CARDS:
+            with self.subTest(concern=concern):
+                route = resolve_docs(
+                    "feature", None, [concern], request_classified=True,
+                    inferred_concerns=[concern],
+                )
+                expected = resolve_guidance_docs(ROOT, [doc])
+
+                self.assertTrue(set(expected).issubset(route["required_docs"]))
+
+    def test_a_request_reaches_the_auth_cards_without_the_design_card(self) -> None:
+        from workflow_request import infer_concerns_from_request
+
+        text = "로그인 API에 JWT 토큰 검증 추가해줘"
+        inferred = infer_concerns_from_request(text)
+        route = resolve_docs(
+            "feature", None, inferred, request_classified=True,
+            inferred_concerns=inferred, request_text=text,
+        )
+        auth_docs = resolve_guidance_docs(
+            ROOT, ["product-patterns/skills/auth-rbac-permissions/SKILL.md"]
+        )
+
+        self.assertIn("auth", inferred)
+        self.assertNotIn("design-system", inferred)
+        self.assertTrue(set(auth_docs).issubset(route["required_docs"]))
+        self.assertNotIn(
+            "common/skills/design-system/SKILL.md", route["required_docs"]
+        )
+
+    def test_the_note_says_which_inferred_concerns_became_required(self) -> None:
+        from workflow_request import inferred_concern_note
+
+        note = inferred_concern_note(["performance", "security"])
+
+        self.assertIn("`performance`", note)
+        self.assertIn("on-demand references", note)
+        self.assertIn("`security`", note)
+        self.assertIn("required on inference alone", note)
+
+
 class InferredConcernTests(unittest.TestCase):
     """Keyword inference routes a concern's documents, but never requires them."""
 
@@ -774,13 +988,36 @@ class InferredConcernTests(unittest.TestCase):
         inferred = infer_concerns_from_request(text)
         route = resolve_docs(
             "bugfix", None, inferred, request_classified=True,
-            inferred_concerns=inferred,
+            inferred_concerns=inferred, request_text=text,
         )
 
         self.assertIn("performance", inferred)
         for doc in self.PERFORMANCE_DOCS:
             with self.subTest(doc=doc):
                 self.assertNotIn(doc, route["required_docs"])
+
+    def test_request_path_preserves_explicit_concern_over_negated_hint(self) -> None:
+        import contextlib
+        import io
+        import json
+        import workflow
+
+        for text in ("this is not a performance change", "성능 최적화가 아니라 문구만 수정해줘"):
+            for explicit in (False, True):
+                with self.subTest(text=text, explicit=explicit):
+                    argv = ["route", "bugfix", "--request", text, "--format", "json"]
+                    if explicit:
+                        argv += ["--concern", "performance"]
+                    output = io.StringIO()
+                    # Intake authorization is tested separately; exercise the
+                    # real CLI parsing, inference, search and selection here.
+                    with patch.object(workflow, "route_intake_decision",
+                                      return_value=({"clarity": "clear-exact"}, [])), \
+                         contextlib.redirect_stdout(output):
+                        self.assertEqual(0, workflow.print_route(workflow.build_parser().parse_args(argv)))
+                    route = json.loads(output.getvalue())
+                    for doc in self.PERFORMANCE_DOCS:
+                        self.assertEqual(explicit, doc in route["required_docs"])
 
 
 class ConcernReferenceDocTests(unittest.TestCase):
@@ -791,6 +1028,39 @@ class ConcernReferenceDocTests(unittest.TestCase):
         "common/skills/scenario-driven-testing/references/current-guidance.md",
         "common/skills/verification-policy/references/current-guidance.md",
     )
+
+    def test_ambiguity_contract_is_not_exchanged_for_testing_docs(self) -> None:
+        entry = "workflows/skills/ambiguity-gate/SKILL.md"
+        detail = "workflows/skills/ambiguity-gate/references/current-guidance.md"
+        for concerns in ([], ["testing"]):
+            route = resolve_docs("bugfix", None, concerns)
+            self.assertIn(entry, route["required_docs"])
+            self.assertNotIn(detail, route["required_docs"])
+            self.assertIn(detail, route["reference_docs"])
+        self.assertIn(detail, resolve_docs("ambiguity", None, [])["required_docs"])
+        self.assertIn(detail, route_required_docs("bugfix", None, [], (), surface_docs=[detail]))
+
+    def test_explicit_dependency_survives_compact_ambiguity_selection(self) -> None:
+        detail = "workflows/skills/ambiguity-gate/references/current-guidance.md"
+        edges = [{"path": detail, "source": OPERATING_SKILL,
+                  "relation": "frontmatter:requires"}]
+        with patch("workflow_route.expand_doc_matches", return_value=edges):
+            self.assertIn(detail, resolve_docs("bugfix", None, ["testing"])["required_docs"])
+
+    def test_gate_contract_survives_a_full_optional_budget(self) -> None:
+        from workflow_route import _named_concern_docs
+        named = _named_concern_docs(None, ["testing", "security"])
+        with patch("workflow_route.MAX_REQUIRED_DOCS", 1):
+            route = resolve_docs("bugfix", None, ["testing", "security"])
+        self.assertIn("workflows/skills/ambiguity-gate/SKILL.md", route["required_docs"])
+        self.assertTrue(set(named).issubset(route["required_docs"]))
+
+    def test_empty_advisory_required_list_does_not_read_all_candidates(self) -> None:
+        from workflow_output import render_advisory_markdown
+        route = resolve_docs("triage", None, [], advisory=True)
+        route["required_docs"] = []
+        route["docs"] = ["unrelated-candidate.md"]
+        self.assertNotIn("unrelated-candidate.md", render_advisory_markdown(route))
 
     def test_testing_concern_requires_the_testing_card_only(self) -> None:
         route = resolve_docs("bugfix", None, ["testing"], request_classified=True)

@@ -9,6 +9,13 @@ from typing import Any, Iterable
 
 from workflow_common import ROOT, unique
 
+# A Latin keyword glued to a Korean particle leaves `\b` nothing to find:
+# in "jank\uB97C" Python sees `k` and `\uB97C` as two word characters, so a
+# request pattern like `\b(jank|stutter)\b` silently misses the request.
+# Splitting that one junction before matching repairs every such pattern at
+# once; `workflow_request` normalizes concern hints with the same regex.
+from workflow_request import _LATIN_HANGUL_JUNCTION
+
 
 REQUEST_PATH_PATTERNS = (
     r"`([^`]+)`",
@@ -154,4 +161,5 @@ def _pattern_groups(value: Any) -> list[list[str]]:
 
 
 def _request_pattern_matches(pattern: str, text: str) -> bool:
-    return re.search(pattern, text, re.IGNORECASE) is not None
+    normalized = _LATIN_HANGUL_JUNCTION.sub(" ", text)
+    return re.search(pattern, normalized, re.IGNORECASE) is not None

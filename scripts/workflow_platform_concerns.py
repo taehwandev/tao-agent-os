@@ -8,6 +8,7 @@ from typing import Dict, Tuple
 ANDROID_EXTERNAL_SKILL_DOCS = (
     "platforms/android/skills/android-external-skill-source-coverage/SKILL.md",
     "platforms/android/skills/source-coverage/SKILL.md",
+    "platforms/android/skills/android-compose-ui/references/official-source-surfaces.md",
 )
 
 # The android-module-structure bundle is split into topic siblings so a route
@@ -28,6 +29,29 @@ ANDROID_MODULE_SPLIT_DOC = f"{_ANDROID_MODULE_REFS}/split-and-migration.md"
 ANDROID_MODULE_SKILL_SOURCE_DOC = f"{_ANDROID_MODULE_REFS}/skill-source-coverage.md"
 ANDROID_MODULE_REVIEW_DOC = f"{_ANDROID_MODULE_REFS}/review-checklist.md"
 
+# The android-architecture card is split the same way the module-structure
+# bundle is: the entrypoint reference keeps the boundary contract every Android
+# change applies, and each decision it used to bundle -- composition, WebView,
+# navigation, the structure baseline -- is selectable on its own. Before this,
+# naming the platform required all 25 KB of it.
+_ANDROID_ARCH_REFS = "platforms/android/skills/android-architecture/references"
+ANDROID_ARCH_COMPOSITION_DOC = f"{_ANDROID_ARCH_REFS}/runtime-composition.md"
+ANDROID_ARCH_WEBVIEW_DOC = f"{_ANDROID_ARCH_REFS}/webview-surface.md"
+ANDROID_ARCH_NAVIGATION_DOC = f"{_ANDROID_ARCH_REFS}/navigation-deep-links.md"
+ANDROID_ARCH_STRUCTURE_DOC = f"{_ANDROID_ARCH_REFS}/structure-baseline.md"
+
+# The Compose card is split the same way: the entrypoint reference keeps the
+# authoring contract every Compose change applies, and screen structure,
+# performance, previews, Wear and the official source surfaces are each
+# selectable by the decision they answer. Moving one button used to require all
+# 39.9 KB of it.
+_ANDROID_COMPOSE_REFS = "platforms/android/skills/android-compose-ui/references"
+ANDROID_COMPOSE_STRUCTURE_DOC = f"{_ANDROID_COMPOSE_REFS}/screen-structure.md"
+ANDROID_COMPOSE_PERF_DOC = f"{_ANDROID_COMPOSE_REFS}/compose-performance.md"
+ANDROID_COMPOSE_PREVIEW_DOC = f"{_ANDROID_COMPOSE_REFS}/compose-previews.md"
+ANDROID_COMPOSE_WEAR_DOC = f"{_ANDROID_COMPOSE_REFS}/wear-compose.md"
+ANDROID_COMPOSE_SOURCES_DOC = f"{_ANDROID_COMPOSE_REFS}/official-source-surfaces.md"
+
 ANDROID_COMPOSE_DOCS = (
     "platforms/android/skills/android-compose-ui/SKILL.md",
     "platforms/android/skills/android-review/SKILL.md",
@@ -46,6 +70,7 @@ ANDROID_STRUCTURE_DOCS = (
     ANDROID_MODULE_LAYOUT_DOC,
     ANDROID_MODULE_SPLIT_DOC,
     ANDROID_MODULE_REVIEW_DOC,
+    ANDROID_ARCH_STRUCTURE_DOC,
     *ANDROID_EXTERNAL_SKILL_DOCS,
 )
 # `dependency` covers both dependency direction between modules and Android
@@ -55,6 +80,7 @@ ANDROID_DEPENDENCY_DOCS = (
     ANDROID_MODULE_STRUCTURE_DOC,
     ANDROID_MODULE_LAYOUT_DOC,
     ANDROID_MODULE_DI_DOC,
+    ANDROID_ARCH_COMPOSITION_DOC,
     "platforms/android/skills/android-review/SKILL.md",
     *ANDROID_EXTERNAL_SKILL_DOCS,
 )
@@ -102,7 +128,7 @@ PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
         *ANDROID_EXTERNAL_SKILL_DOCS,
     ),
     ("android", "compose"): ANDROID_COMPOSE_BOUNDARY_DOCS,
-    ("android", "performance"): ANDROID_COMPOSE_DOCS,
+    ("android", "performance"): (*ANDROID_COMPOSE_DOCS, ANDROID_COMPOSE_PERF_DOC),
     ("android", "api"): (
         ANDROID_MODULE_STRUCTURE_DOC,
         ANDROID_MODULE_COMPOSE_ENTRY_DOC,
@@ -128,6 +154,22 @@ PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
     ("android", "structure"): ANDROID_STRUCTURE_DOCS,
     ("android", "module"): ANDROID_STRUCTURE_DOCS,
     ("android", "background"): ("platforms/android/skills/android-background-work/SKILL.md",),
+    ("android", "wear"): (
+        "platforms/android/skills/android-compose-ui/SKILL.md",
+        ANDROID_COMPOSE_WEAR_DOC,
+    ),
+    ("android", "preview"): (
+        "platforms/android/skills/android-compose-ui/SKILL.md",
+        ANDROID_COMPOSE_PREVIEW_DOC,
+    ),
+    ("android", "navigation"): (
+        "platforms/android/skills/android-architecture/SKILL.md",
+        ANDROID_ARCH_NAVIGATION_DOC,
+    ),
+    ("android", "webview"): (
+        ANDROID_ARCH_WEBVIEW_DOC,
+        "platforms/android/skills/android-security/SKILL.md",
+    ),
     ("android", "cache"): ANDROID_PERSISTENCE_DOCS,
     ("android", "persistence"): ANDROID_PERSISTENCE_DOCS,
     ("android", "devtools"): ANDROID_PLATFORM_SURFACE_DOCS,

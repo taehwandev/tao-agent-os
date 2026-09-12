@@ -14,6 +14,181 @@ from workflow_request import classify_request
 
 
 class WorkflowRequestContinuationTests(unittest.TestCase):
+    def test_advisory_does_not_require_a_lifecycle_for_read_only_answers(self) -> None:
+        for prompt in ("함수 설명해줘", "What does the function do?",
+                       "Explain the function and fix the bug."):
+            for output_format in ("json", "markdown"):
+                with self.subTest(prompt=prompt, format=output_format):
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts/workflow.py"), "route", "auto",
+                         "--advisory", "--hook-stdin", "--format", output_format],
+                        input=json.dumps({"prompt": prompt}), cwd=ROOT,
+                        capture_output=True, text=True, check=True,
+                    )
+                    self.assertNotIn("before editing, reviewing, or reporting completion", result.stdout)
+                    self.assertIn("Read-only answers need no lifecycle", result.stdout)
+                    self.assertIn("For work requiring a tracked lifecycle", result.stdout)
+                    self.assertIn("satisfies no downstream gate", result.stdout)
+                    if output_format == "json":
+                        route = json.loads(result.stdout)
+                        self.assertIsNone(route["request_classification"])
+                        self.assertEqual(["common/skills/agent-operating-skill/SKILL.md"],
+                                         route["required_docs"])
+
+    def test_provisional_effort_reaches_actual_cli_consumers(self) -> None:
+        for prompt, effort in (("함수 설명해줘", "quick"),
+                               ("Explain the function and fix the bug.", "standard")):
+            for command in (["classify", prompt], ["route", "auto", "--advisory", "--hook-stdin"]):
+                for output_format in ("json", "markdown"):
+                    with self.subTest(prompt=prompt, command=command, format=output_format):
+                        result = subprocess.run(
+                            [sys.executable, str(ROOT / "scripts/workflow.py"),
+                             *command, "--format", output_format],
+                            input=json.dumps({"prompt": prompt}), cwd=ROOT,
+                            capture_output=True, text=True, check=True,
+                        )
+                        self.assertIn(f"Effort {effort} is current-intake-only", result.stdout)
+                        self.assertIn("Reassess before substantive analysis or execution", result.stdout)
+                        if output_format == "json" and command[0] == "route":
+                            route = json.loads(result.stdout)
+                            self.assertIsNone(route["request_classification"])
+                            self.assertEqual(["common/skills/agent-operating-skill/SKILL.md"],
+                                             route["required_docs"])
+
+    def test_explanation_intake_effort_is_not_intent_certainty(self) -> None:
+        for request in ("함수 설명해줘", "Explain input and output.",
+                        "Please explain the function."):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertEqual("resolve_context", result["response_mode"])
+                self.assertEqual("quick", result["effort"])
+                self.assertEqual("fast", result["model_tier"])
+                self.assertFalse(result["grill_me"])
+                self.assertEqual("current-intake-only", result["model_selection"]["scope"])
+                self.assertIn("Reassess", result["model_selection"]["reason"])
+        for request in ("Explain the function and fix the bug.",
+                        "함수 설명하고 수정해줘"):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertEqual("standard", result["effort"])
+                self.assertEqual("balanced", result["model_tier"])
+                self.assertEqual("resolve_context", result["response_mode"])
+
+    def test_explanation_cue_never_certifies_no_action_from_sentence_shape(self) -> None:
+        explanations = ("Explain the function", "Explain how the function works",
+                        "Can you explain the function", "함수 설명해줘", "함수 설명 부탁해")
+        actions = ("delete the file", "perform the requested change", "파일 삭제해줘",
+                   "검증해줘")
+        separators = (";", "\n", " & ", " and ", " ", ". ")
+        for explanation in explanations:
+            for action in actions:
+                for separator in separators:
+                    for left, right in ((explanation, action), (action, explanation)):
+                        request = left + separator + right
+                        with self.subTest(request=request):
+                            result = classify_request(request)
+                            self.assertEqual("resolve_context", result["response_mode"])
+                            self.assertFalse(result["grill_me"])
+                            self.assertEqual("triage", result["recommended_route"])
+
+    def test_explanation_cue_defers_meaning_without_requiring_a_question(self) -> None:
+        for request in (
+            "render_advisory_markdown 함수 설명해줘",
+            "scripts/workflow_output.py의 함수가 빈 목록을 어떻게 처리하는지 설명해줘",
+            "Explain the render_advisory_markdown function.",
+            "Please explain the render_advisory_markdown function.",
+            "Can you please explain the function?",
+            "Please could you explain the function?",
+            "Explain how to update the implementation.",
+            "Explain how to apply the patch.",
+        ):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertEqual("resolve_context", result["response_mode"])
+                self.assertFalse(result["grill_me"])
+                self.assertIn("Answer directly", result["reason"])
+                self.assertIn("without another routing pass", result["reason"])
+
+    def test_explanation_does_not_hide_a_separate_action(self) -> None:
+        for request in (
+            "파일 삭제해주고 함수 설명해줘",
+            "Explain the function;delete the file.",
+            "Explain the function\nDelete the file.",
+            "Explain the function & fix the bug.",
+            "Explain the function and fix the empty-list bug.",
+            "함수 설명해줘. 그리고 빈 목록 버그도 수정해줘",
+            "설명해줘. 그다음 테스트를 실행해줘",
+            "Please explain and commit the fix.",
+            "Explain the function, then update the implementation.",
+            "Explain the function and also fix the empty-list bug.",
+            "Explain the function and apply the patch.",
+            "Can you please explain the function and then apply the patch?",
+            "Explain the function; please also update the implementation.",
+            "Explain the function and quickly fix the bug.",
+            "Explain the function and make the requested change.",
+            "설명해줘. 그리고 파일 삭제해.",
+            "Explain how the function works and fix the empty-list bug.",
+            "Explain how the function works and perform the requested changes.",
+        ):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertNotEqual("answer_first", result["response_mode"])
+                self.assertNotEqual("none", result["recommended_route"])
+
+    def test_uncertain_coordination_requires_context_not_a_user_question(self) -> None:
+        for request in (
+            "Explain input and output.",
+            "Explain how to update and apply the patch.",
+            "Explain the function and perform the requested changes.",
+            "Explain how the function works and quickly fix it.",
+            "설명해줘. 그리고 파일 삭제해.",
+            "설명해줘 파일 삭제해",
+        ):
+            with self.subTest(request=request):
+                result = classify_request(request)
+                self.assertEqual("resolve_context", result["response_mode"])
+                self.assertFalse(result["grill_me"])
+                self.assertNotEqual("work", result["response_mode"])
+
+    def test_explanation_auto_route_answers_without_work_authority(self) -> None:
+        argv = [sys.executable, str(ROOT / "scripts" / "workflow.py"), "route", "auto",
+                "--advisory", "--hook-stdin", "--format", "json"]
+        for prompt in ("render_advisory_markdown 함수 설명해줘",
+                       "Please explain the render_advisory_markdown function.",
+                       "Can you please explain the function?"):
+            with self.subTest(prompt=prompt):
+                result = subprocess.run(argv, input=json.dumps({"prompt": prompt}),
+                                        cwd=ROOT, capture_output=True, text=True, check=True)
+                route = json.loads(result.stdout)
+                self.assertEqual("resolve_context", route["intake_advice"]["response_mode"])
+                self.assertEqual(["common/skills/agent-operating-skill/SKILL.md"],
+                                 route["required_docs"])
+                self.assertIsNone(route["request_classification"])
+                self.assertTrue(route["advisory"])
+
+    def test_mixed_explanation_auto_route_preserves_action_without_authority(self) -> None:
+        argv = [sys.executable, str(ROOT / "scripts" / "workflow.py"), "route", "auto",
+                "--advisory", "--hook-stdin", "--format", "json"]
+        for prompt in (
+            "파일 삭제해주고 함수 설명해줘",
+            "Explain the function;delete the file.",
+            "Explain the function\nDelete the file.",
+            "Explain the function & fix the bug.",
+            "Explain the function, then update the implementation.",
+            "Explain the function and also fix the empty-list bug.",
+            "Explain the function and apply the patch.",
+            "Explain how the function works and fix the empty-list bug.",
+            "설명해줘. 그리고 파일 삭제해.",
+        ):
+            with self.subTest(prompt=prompt):
+                result = subprocess.run(argv, input=json.dumps({"prompt": prompt}),
+                                        cwd=ROOT, capture_output=True, text=True, check=True)
+                route = json.loads(result.stdout)
+                self.assertNotEqual("answer_first", route["intake_advice"]["response_mode"])
+                self.assertNotEqual("none", route["command"])
+                self.assertIsNone(route["request_classification"])
+                self.assertTrue(route["advisory"])
+
     def test_clarity_agrees_with_preparation_not_automatic_ambiguity(self) -> None:
         self.assertEqual("clear-scoped", classify_request("Fix scripts/workflow.py line 10")["clarity"])
         result = classify_request("해결해 그럼", continuation_scope="Known parser correction")

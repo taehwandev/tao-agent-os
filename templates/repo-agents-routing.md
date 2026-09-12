@@ -48,7 +48,8 @@ and cross-repo verification. When finish-check evidence is used and a secondary
 repo was written, pass it as `workspace scope checkpoint=<evidence>`,
 `scope expansion checkpoint=<evidence>`, or
 `cross-repo scope checkpoint=<evidence>`.
-Use the shared index only to select the smallest relevant document set.
+Use the workflow router for narrow selection. Do not read `index.md` after
+successful routing; it is a fallback catalog, not another startup requirement.
 Do not create repo-local skill documents merely to copy shared Tao Agent OS
 behavior. Keep repo-local skills, workflows, wiki pages, or runbooks only when
 they contain product-specific facts, commands, domain policy, or verification
@@ -64,7 +65,17 @@ application drill first: add pointer vs merge vs pin; audit-only vs refresh
 with update vs first-time setup; apply now vs prepare instructions only.
 Default to preserving current guardrails and running audit only unless the user
 chooses to refresh the managed block.
-For multi-step tasks, run `<TAO_LAUNCHER> start` once with `--request
+Read-only lookup, explanation, status, and checks of a supplied diagnosis use
+bounded direct evidence without start, fingerprint, mailbox, checkpoint, gate,
+review, or finish calls. Applicable project instructions and source contracts
+still apply. Checking a diagnosis is not a diff review merely because the user
+says "verify". Explicit change/PR reviews and release acceptance retain their
+review workflow. Enter the writable lifecycle before any authorized edit.
+The lifecycle and gate requirements below apply only to tracked work, not these
+read-only answers. When updating an installed routing block, replace its older
+blanket multi-step requirements and check local adapters for contradictions;
+preserve product-specific contracts, safety rules and metering integration.
+For tracked multi-step tasks, run `<TAO_LAUNCHER> start` once with `--request
 "<USER_REQUEST>"`; it runs workflow routing/preflight and reports the required
 hooks for the route. Do not separately repeat workflow list, classify, route, or
 preflight. Use the start output as the command manifest before selecting task
@@ -103,16 +114,14 @@ If the direct question asks how to start app, product, or feature work, answer
 with the PRD -> ARD -> implementation path before lower-level coding steps. If
 the work then proceeds into code, use the `product` route unless an existing
 PRD/ARD or repo-local instruction makes the slice clearly trivial.
-Baseline documentation enforcement (the `documentation` gate always runs and is
-non-empty, `unchanged` needs inspection proof, skipping docs needs recorded user
-approval, and a `triage`/`plan` roadmap needs `product route re-entry` with PRD
-coverage) is enforced centrally by the shared Tao Agent OS finish-check and is
-identical across Codex, Claude, and Gemini/Antigravity/AGY.
+Documentation enforcement for the active tracked route is owned centrally by
+the shared Tao Agent OS finish-check across all runtimes; this pointer does not
+add a documentation gate or approval round to read-only answers.
 Do not duplicate or restate these rules in repo-local files; keep only this
 pointer. The source of truth and the exception process are
 `<TAO_ROOT>/workflows/skills/documentation-update/SKILL.md`; add
-exceptions there rather than self-judging, and load that card in Grill-Me or
-self-review before completion.
+exceptions there rather than self-judging. Load that card when the active route
+requires it or an unresolved documentation decision needs its contract.
 If the workflow router or start hook cannot run, stop and report the blocker
 before continuing. Keep its gate execution ledger current; each required gate
 must have evidence before completion. Show a short gate signal after each
@@ -229,5 +238,6 @@ Release readiness workflow: <TAO_ROOT>/workflows/skills/release-readiness/SKILL.
 Review/commit workflow: <TAO_ROOT>/workflows/skills/review-and-commit/SKILL.md
 ```
 
-Use `index.md` for platform, product-pattern, and task-specific common cards
-instead of copying the full shared library into repo-local instructions.
+The direct routes above are optional candidates, not a startup reading queue.
+Use the workflow router for selection instead of copying the full shared library
+into repo-local instructions.
