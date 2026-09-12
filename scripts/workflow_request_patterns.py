@@ -103,7 +103,10 @@ SCOPED_PATTERNS = (
 )
 
 INSPECTION_PATTERNS = (
-    r"\b(audit|review|inspect|check|verify|status|summarize|report)\b",
+    # "Explain where the retry config lives" is the same read-only question as
+    # "check where the retry config lives". Leaving it out shaped it as work,
+    # and the guidance for it was selected for work.
+    r"\b(audit|review|inspect|check|verify|status|summarize|report|explain)\b",
     "상태",
     "점검",
     "검토",
@@ -111,6 +114,33 @@ INSPECTION_PATTERNS = (
     "체크",
     "파악",
     "정리",
+    "설명",
+)
+
+# Verbs that mean "change something", for deciding whether a request asks for
+# an edit at all. Wider than CODE_AUTHORING_REQUEST_PATTERNS, which sizes effort
+# and is deliberately narrow: sizing a rename as authoring work would overstate
+# it, but reading "확인하고 값 바꿔줘" as read-only drops the half of the request
+# that mutates. Between over-reading a lookup and losing an edit, lose neither
+# by asking the wider question here and the narrower one there.
+MUTATION_INTENT_PATTERNS = (
+    r"\b(?:add|create|write|implement|fix|modify|edit|refactor|rewrite|"
+    r"change|update|replace|rename|remove|delete|move|migrate|revert)\b",
+    r"(?:추가|작성|구현|수정|고치|고쳐|만들|바꾸|바꿔|변경|교체|삭제|제거|되돌리|리팩터)",
+)
+
+# The mirror of CODE_AUTHORING_REQUEST_PATTERNS: an authoring verb that the
+# request rules out. "수정은 하지 말고 설명해줘" and "explain it without
+# changing anything" name an edit in order to exclude it, so the verb alone
+# cannot stand for edit intent.
+CODE_AUTHORING_NEGATION_PATTERNS = (
+    r"\b(?:do not|don'?t|without|no need to|rather than|instead of)\s+"
+    r"(?:\w+\s+){0,2}?"
+    r"(?:add|adding|create|creating|write|writing|implement|implementing|"
+    r"fix|fixing|modify|modifying|edit|editing|refactor|refactoring|change|changing)\b",
+    # "고치지 말고" negates the stem with a bare `지`; "수정하지 마" uses `하지`.
+    r"(?:추가|작성|구현|수정|고치|고쳐|변경|만들)(?:\s*(?:은|는|을|를|지|하지|하진))?"
+    r"\s*(?:하지\s*(?:마|말|않)|말고|않고|없이|말아|마세요)",
 )
 
 REFACTOR_ACTION_PATTERNS = (
