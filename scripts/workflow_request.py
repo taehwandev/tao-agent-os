@@ -171,7 +171,12 @@ def infer_concerns_from_request(text: str) -> list[str]:
         return []
     inferred: list[str] = []
     for concern, patterns in REQUEST_CONCERN_HINTS:
-        if _matches(patterns, normalized, re.IGNORECASE) and not _is_opted_out(
+        # Mask only the unambiguous non-credential noun phrase. Do not opt out
+        # of security for the whole request: another token or keychain may
+        # still carry a real credential-storage requirement.
+        candidate = re.sub(r"\bdesign[\s-]+tokens?\b|디자인\s*토큰", "design-values",
+                           normalized, flags=re.IGNORECASE) if concern == "security" else normalized
+        if _matches(patterns, candidate, re.IGNORECASE) and not _is_opted_out(
             concern, normalized
         ):
             inferred.append(concern)

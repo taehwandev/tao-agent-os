@@ -597,7 +597,8 @@
         "android_lifecycle_leak"
       ],
       "required_priority": 50,
-      "reason": "A leak or a lifecycle callback is what the memory and lifecycle card is for; without this rule the request was handed the Android architecture card and could not reach it at all."
+      "reason": "A leak or a lifecycle callback is what the memory and lifecycle card is for; without this rule the request was handed the Android architecture card and could not reach it at all.",
+      "subject_exclusion": true
     },
     {
       "name": "android_background_work",
@@ -623,7 +624,8 @@
         "android_background_work"
       ],
       "required_priority": 50,
-      "reason": "Scheduled and background execution is what the background-work card is for; without this rule the request was handed the Android architecture card and could not reach it at all."
+      "reason": "Scheduled and background execution is what the background-work card is for; without this rule the request was handed the Android architecture card and could not reach it at all.",
+      "subject_exclusion": true
     },
     {
       "name": "android_wear_compose",
