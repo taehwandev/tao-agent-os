@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -233,6 +234,69 @@ class IndexRefreshIsSkippedOnlyWhenNothingChangedTests(unittest.TestCase):
             self.assertNotEqual("", _ensure_index(str(self.root)))
 
         self.assertTrue(self._refresh())
+
+
+class WikimapCorpusIgnoreTests(unittest.TestCase):
+    """`.wikimapignore` must hide publications without hiding guidance.
+
+    Wikimap ranks by information content, so a term rare in the corpus carries
+    the weight. The guidance library is English, which left the two Korean
+    publications as the entire Korean corpus: every Korean request ranked them
+    first and pulled their markdown neighbours in behind them.
+    """
+
+    @staticmethod
+    def _vendor():
+        spec = importlib.util.spec_from_file_location(
+            "vendor_wikimap_for_tests", WIKIMAP_SCRIPT
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def setUp(self) -> None:
+        vendor = self._vendor()
+        self.is_ignored = vendor.is_ignored
+        self.patterns = vendor.load_ignore_patterns(ROOT)
+
+    def _ignored(self, relative: str) -> bool:
+        return self.is_ignored(
+            tuple(Path(relative).parts), Path(relative).as_posix(), self.patterns
+        )
+
+    def test_publications_samples_and_scaffolds_are_excluded(self) -> None:
+        for relative in (
+            "docs/ko/update-tao.md",
+            "docs/ko/tao-agent-os-roadmap.md",
+            "docs/migration/tao-agent-os-rename.md",
+            "docs/minimal-workflow/prd.md",
+            "docs/work-surface-resolution/spec.md",
+            "docs/index.html",
+            "docs/logo.svg",
+            "templates/use-tao-prompt.md",
+        ):
+            with self.subTest(relative=relative):
+                self.assertTrue(self._ignored(relative))
+
+    def test_no_routable_document_is_excluded(self) -> None:
+        """An ignore entry that hid a routed card would break retrieval silently."""
+
+        from workflow_catalog import (
+            CONCERNS,
+            CORE_DOCS,
+            PLATFORM_CONCERNS,
+            PLATFORMS,
+        )
+
+        routable = {
+            *CORE_DOCS,
+            *(doc for docs in CONCERNS.values() for doc in docs),
+            *(doc for docs in PLATFORMS.values() for doc in docs),
+            *(doc for docs in PLATFORM_CONCERNS.values() for doc in docs),
+        }
+        for doc in sorted(routable):
+            with self.subTest(doc=doc):
+                self.assertFalse(self._ignored(doc))
 
 
 if __name__ == "__main__":
