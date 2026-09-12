@@ -44,7 +44,7 @@ existing code:
 
 - **Compose**: load the Compose card and follow its component, state-hoisting,
   modifier, edge-to-edge, preview, and test rules.
-- **Views/XML**: do not apply Compose APIs or Route/Screen conventions. Follow
+- **Views/XML**: do not apply Compose APIs or Screen/Content conventions. Follow
   the repository's existing Fragment/View, XML, custom View, resource, binding,
   adapter, lifecycle, and test patterns.
 - **Mixed**: state which screens or components belong to each toolkit and keep

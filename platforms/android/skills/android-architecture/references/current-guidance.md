@@ -93,8 +93,8 @@ core/model                   pure Kotlin product models and ids
 core/domain                  use cases, repository contracts, product policies
 core/data                    repository implementations, DTO/cache mapping, fakes
 core-app/<area>              Android/Compose app-runtime helpers
-feature/<name>/api           route contracts, entrypoints, public events
-feature/<name>/impl          Route, ViewModel, UiState, Screen, feature components
+feature/<name>/api           destinations, navigate actions, entrypoints, events
+feature/<name>/impl          Screen holder, ViewModel, UiState, Content, components
 core/<area>/assertions       reusable fakes, fixtures, and assertion helpers
 build-logic                  convention plugins and shared build settings
 ```
@@ -103,8 +103,10 @@ Keep the `app` module thin. Put reusable visual primitives in the design system,
 
 The baseline intentionally keeps Compose UI in `feature/<name>/impl`. Add an
 optional `feature/<name>/ui` only when a named consumer outside `impl` must reuse
-the concrete feature surface; keep Activity and navigation execution in
-`impl`. Add `api` independently for stable caller or navigation contracts. See
+the concrete feature surface; keep Activity and entry-binding execution in
+`impl`. Add `api` for the whole navigation contract — destination type,
+arguments, deep link, result, and `navigateTo<Feature>` — so a module that only
+navigates never depends on the implementation. See
 `../../android-module-structure/references/module-boundaries.md` for the
 canonical ownership and dependency rules.
 
@@ -236,8 +238,8 @@ DI multibinding, and the app/root coordinator should consume only
 The route graph or product route factory should also be a DI-managed class,
 factory, or coordinator. Do not leave product route graphs as Kotlin `object`
 singletons after adopting DI; otherwise the handler set is injectable but the
-route policy remains a hidden service locator. Route keys and stateless
-`DeepLinkSpec` values may stay as `object` values when they are pure immutable
+route policy remains a hidden service locator. Destination types and stateless
+`DeepLinkSpec` values may stay as plain immutable `object` or `data class`
 contracts, but graph assembly, route planning, handler-set composition, and
 runtime factory creation should be injected.
 
@@ -454,9 +456,9 @@ Start every Android feature by naming the smallest architecture track that fits 
 | Track | Use When | Required Shape |
 | --- | --- | --- |
 | Local UI | Local interaction only; no async data, persistence, permission, or navigation side effect. | Stateless composable plus local `remember` state where needed. |
-| MVVM | Screen loads data, submits forms, handles permission state, emits navigation, or has testable UI logic. | `Route -> ViewModel -> Screen`; ViewModel owns `UiState`, actions, and effects. |
-| Clean Architecture | Domain policy, offline/cache, auth/tenant/billing, sync, multiple clients, or risky side effects. | `Route -> ViewModel -> UseCase -> Repository -> DataSource/Adapter`. |
-| Reducer/MVI | Many actions, optimistic updates, replayable transitions, concurrency races, or complex undo/retry. | `Route -> ViewModel/Store -> Reducer -> Effects/UseCases`. |
+| MVVM | Screen loads data, submits forms, handles permission state, emits navigation, or has testable UI logic. | `Screen holder -> ViewModel -> Content`; ViewModel owns `UiState`, actions, and effects. |
+| Clean Architecture | Domain policy, offline/cache, auth/tenant/billing, sync, multiple clients, or risky side effects. | `Screen holder -> ViewModel -> UseCase -> Repository -> DataSource/Adapter`. |
+| Reducer/MVI | Many actions, optimistic updates, replayable transitions, concurrency races, or complex undo/retry. | `Screen holder -> ViewModel/Store -> Reducer -> Effects/UseCases`. |
 
 Do not add use cases, repositories, reducers, or modules only for ceremony. Add them when they protect a product rule, platform side effect, cache boundary, permission boundary, or test boundary.
 
@@ -477,8 +479,8 @@ Do not add use cases, repositories, reducers, or modules only for ceremony. Add 
 For a non-trivial Compose feature, expect these pieces unless the repo has a more specific pattern:
 
 ```text
-<Feature>Route.kt      stateful holder, ViewModel wiring, effects, navigation
-<Feature>Screen.kt     stateless screen rendering and user intent callbacks
+<Feature>Screen.kt     stateful holder, ViewModel wiring, effects, navigation
+<Feature>Content.kt    stateless screen rendering and user intent callbacks
 <Feature>UiState.kt    immutable state, actions, effects, UI display models
 <Feature>ViewModel.kt  state owner, action handling, coroutine ownership
 components/            feature-local stateless pieces
@@ -488,15 +490,15 @@ preview/               preview fixtures and sample UI states
 Implementation order:
 
 1. Define the screen contract: state, user actions, one-off effects, and route outputs.
-2. Create or update the stateless `Screen` and previews for visible states.
-3. Add the `Route` holder that collects state lifecycle-aware and handles effects.
+2. Create or update the stateless `Content` and previews for visible states.
+3. Add the `Screen` holder that collects state lifecycle-aware and handles effects.
 4. Add ViewModel/use-case/repository boundaries only where data, policy, cache, permission, or platform APIs require ownership.
 5. Verify state transitions and the visible UI path with repo-local tests, previews, screenshots, or manual smoke evidence.
 
 Module decision:
 
 - Keep the feature in one module when no caller needs a stable route or contract.
-- Add `feature-api` when navigation, holder registration, route data, or another module needs the feature contract without implementation dependencies.
+- Add `feature-api` when navigation, holder registration, route data, or another module needs the feature contract without implementation dependencies. Put the destination type, arguments, deep link, result, and navigate action there together; a navigate action left in the implementation hands every navigating caller the dependency the split was meant to remove.
 - Add `feature-ui` only when another module must reuse the concrete Compose
   surface without importing `impl`; an internal `compose/` package, preview, or
   Activity wrapper is not sufficient reason.
@@ -507,7 +509,7 @@ Module decision:
 
 ## Boundary Placement
 
-- Parse route arguments at the `Route` or navigation adapter boundary, then pass typed values into the ViewModel.
+- Parse route arguments at the `Screen` holder or navigation adapter boundary, then pass typed values into the ViewModel.
 - Keep `Context`, `Activity`, `NavController`, permission launchers, `ActivityResultLauncher`, clipboard, files, notifications, sensors, and SDK calls out of stateless composables.
 - Keep domain models free of Compose rendering types. Map domain to UI display models before the state reaches `Screen`.
 - Keep repositories out of ViewModels only when a use case owns real product orchestration; pass-through use cases are optional, not mandatory.

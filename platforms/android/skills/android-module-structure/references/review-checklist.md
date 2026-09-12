@@ -14,18 +14,22 @@ before approval or commit.
 - Is this package/module the lowest boundary that protects the real owner?
 - Does each `api` module have at least one caller that should avoid the
   implementation dependency?
-- Does `api` own the navigation key, arguments, result, and stable ports without
-  importing either UI or platform implementation?
-- Does `feature-ui` own the complete independently runnable Compose feature:
-  holder Route, ViewModel, state, stateless Screen, mapping, previews, and
-  focused UI/ViewModel tests?
-- Can a Compose host compile, render, preview, and test the feature through
+- Does `api` own the destination type, arguments, deep link, result, navigate
+  action, and stable ports without importing either UI or platform
+  implementation?
+- Can a module that only navigates to the feature compile against `api` alone,
+  with no dependency on `impl` or `ui`?
+- Does `impl` own the complete feature: holder composable, ViewModel, state,
+  stateless content, mapping, entry binding, previews, and focused UI/ViewModel
+  tests?
+- If a `ui` module exists, is there a named consumer outside `impl` that renders
+  the surface, and can that consumer compile, render, preview, and test through
   `api + ui` without importing `impl`?
-- Is `impl` present only when a concrete Activity, manifest, Intent/result
-  adapter, platform launcher, or another Android entry surface requires it?
-- Do dependencies point `impl -> api + ui` and `ui -> api` without any
-  `api -> impl`, `api -> ui`, or `ui -> impl` edge?
-- Is a feature-specific reusable surface kept in feature `ui` while only
+- Does a `Route` name mean exactly one thing in this repo — the destination, not
+  also the holder composable?
+- Do dependencies point `impl -> api` (plus `impl -> ui` when extracted) and
+  `ui -> api`, without any `api -> impl`, `api -> ui`, or `ui -> impl` edge?
+- Is a feature-specific reusable surface kept in the feature module while only
   domain-free, broadly shared primitives move to the design system?
 - Does each `assertions` module expose role-sized fixtures, fakes, recorders,
   builders, and assertion subjects instead of one catch-all testing file?

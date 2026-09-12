@@ -52,13 +52,13 @@ manually before editing.
 Use this shape unless the repo has a stricter local pattern:
 
 ```text
-Route/Holder Composable -> Screen Composable -> Section Composable
+Screen/Holder Composable -> Content Composable -> Section Composable
 -> Feature Component -> Design-System Primitive
 ```
 
-- Route/holder composable wires ViewModel, lifecycle collection, effects,
+- Screen/holder composable wires ViewModel, lifecycle collection, effects,
   navigation callbacks, permission launchers, and dependency entry points.
-- Screen composable is stateless. It receives immutable UI state plus explicit
+- Content composable is stateless. It receives immutable UI state plus explicit
   callbacks and renders the whole screen.
 - Section composables group screen areas and accept only the state they need.
 - Feature components may know product display models but not repositories,
@@ -72,7 +72,7 @@ Route/Holder Composable -> Screen Composable -> Section Composable
 ## Mandatory Component Split
 
 Compose screens must be split into named composables instead of placing the
-whole UI tree in one `Route`, `Screen`, or file. A screen file may own the
+whole UI tree in one `Screen`, `Content`, or file. A screen file may own the
 top-level state switch, but headers, filters, summary strips, forms, list
 regions, rows, cards, dialogs, empty states, error states, and bottom actions
 must become section or component composables as soon as they have a distinct
@@ -107,7 +107,11 @@ Do not:
 
 Stateful composables:
 
-- End with `Route`, `Host`, or another repo-local holder suffix when possible.
+- End with `Screen`, `Host`, or another repo-local holder suffix when possible.
+  Do not use `Route` as the holder suffix: that name belongs to the navigation
+  destination declared in the feature `api` module, and a repo that spends it on
+  a composable has no name left for the destination. See
+  `../../android-module-structure/references/module-boundaries.md`.
 - Collect `StateFlow` with lifecycle-aware APIs.
 - Own lifecycle-aware effects for one-off commands such as navigation,
   snackbar, focus, permission launch, or external activity launch.
@@ -134,14 +138,14 @@ Stateless composables:
   screen can branch on high-level status, but repeated rows and leaf components
   should receive row models or plain values.
 
-## Route And Screen Template
+## Screen And Content Template
 
 For a ViewModel-backed Compose screen, generate or review both the holder and the
-stateless screen. Replace `hiltViewModel()` with the repo's DI pattern.
+stateless content. Replace `hiltViewModel()` with the repo's DI pattern.
 
 ```kotlin
 @Composable
-fun ProfileRoute(
+fun ProfileScreen(
     onBack: () -> Unit,
     onOpenEditor: (ProfileId) -> Unit,
     modifier: Modifier = Modifier,
@@ -168,7 +172,7 @@ fun ProfileRoute(
         }
     }
 
-    ProfileScreen(
+    ProfileContent(
         state = state,
         onAction = viewModel::onAction,
         snackbarHostState = snackbarHostState,
@@ -179,7 +183,7 @@ fun ProfileRoute(
 
 ```kotlin
 @Composable
-fun ProfileScreen(
+fun ProfileContent(
     state: ProfileUiState,
     onAction: (ProfileAction) -> Unit,
     modifier: Modifier = Modifier,
@@ -205,7 +209,7 @@ fun ProfileScreen(
             ProfileStatus.PermissionDenied -> PermissionDeniedState(
                 modifier = Modifier.padding(contentPadding),
             )
-            is ProfileStatus.Content -> ProfileContent(
+            is ProfileStatus.Content -> ProfileDetail(
                 profile = status.profile,
                 canEdit = state.canEdit,
                 onBackClick = { onAction(ProfileAction.BackClick) },
@@ -219,9 +223,9 @@ fun ProfileScreen(
 
 Rules for applying this template:
 
-- `Route` may know ViewModel, lifecycle collection, navigation outputs,
-  permission launchers, activity results, and snackbar/focus effects.
-- `Screen` must be previewable without DI, ViewModel, navigation, database,
+- The `Screen` holder may know ViewModel, lifecycle collection, navigation
+  outputs, permission launchers, activity results, and snackbar/focus effects.
+- `Content` must be previewable without DI, ViewModel, navigation, database,
   network, or platform services.
 - Leaf components should receive the smallest model or values they need, not the
   whole screen `UiState`.
@@ -234,9 +238,9 @@ Rules for applying this template:
 Write Compose code so state ownership, recomposition boundaries, and preview
 contracts are visible in the function signature:
 
-- Prefer one public or internal `Route` plus one public or internal stateless
-  `Screen`; keep helper sections and leaf components private until another
-  caller proves a reusable contract.
+- Prefer one public or internal `Screen` holder plus one public or internal
+  stateless `Content`; keep helper sections and leaf components private until
+  another caller proves a reusable contract.
 - Keep public composable parameters ordered as stable inputs, callbacks or
   slots, `modifier`, then optional visual defaults. Follow the repo's local
   ordering when it is stricter.
@@ -499,9 +503,9 @@ Choose the smallest track that makes ownership clear:
 | Track | Use When | Shape |
 | --- | --- | --- |
 | Simple Compose | Local interaction only, no async data or product workflow. | `Composable -> local remember state` |
-| MVVM | Loading, forms, async fetch, permission state, navigation output, or reusable screen logic. | `Route -> ViewModel -> Screen` |
-| Clean Architecture | Domain policy, offline/sync, auth/tenant/billing, multiple clients, or complex test boundary. | `Route -> ViewModel -> UseCase -> Repository -> DataSource` |
-| Reducer/MVI | Many events, replayable transitions, optimistic updates, or concurrency races. | `Route -> ViewModel/Store -> Reducer -> Effects/UseCases` |
+| MVVM | Loading, forms, async fetch, permission state, navigation output, or reusable screen logic. | `Screen holder -> ViewModel -> Content` |
+| Clean Architecture | Domain policy, offline/sync, auth/tenant/billing, multiple clients, or complex test boundary. | `Screen holder -> ViewModel -> UseCase -> Repository -> DataSource` |
+| Reducer/MVI | Many events, replayable transitions, optimistic updates, or concurrency races. | `Screen holder -> ViewModel/Store -> Reducer -> Effects/UseCases` |
 
 Do not add use cases, repositories, reducers, or modules only for ceremony. Add
 them when they isolate a real product rule, side effect, or test boundary.
@@ -646,7 +650,7 @@ private object ProfilePreviewData {
     )
 }
 
-private class ProfileScreenPreviewProvider : PreviewParameterProvider<ProfileUiState> {
+private class ProfileContentPreviewProvider : PreviewParameterProvider<ProfileUiState> {
     override val values = sequenceOf(
         ProfilePreviewData.content,
         ProfilePreviewData.loading,
@@ -657,12 +661,12 @@ private class ProfileScreenPreviewProvider : PreviewParameterProvider<ProfileUiS
 
 @Preview(name = "Profile states")
 @Composable
-private fun ProfileScreenPreview(
-    @PreviewParameter(ProfileScreenPreviewProvider::class)
+private fun ProfileContentPreview(
+    @PreviewParameter(ProfileContentPreviewProvider::class)
     state: ProfileUiState,
 ) {
     AppTheme {
-        ProfileScreen(
+        ProfileContent(
             state = state,
             onAction = {},
         )
@@ -696,10 +700,11 @@ feature implementation can use:
 
 ```text
 feature/<name>/impl/src/main/.../<name>/
-  <Name>Route.kt        stateful holder and lifecycle wiring
-  <Name>Screen.kt       stateless screen content
+  <Name>Screen.kt       stateful holder and lifecycle wiring
+  <Name>Content.kt      stateless screen content
   <Name>ViewModel.kt    UI state owner
   <Name>UiState.kt      state, actions, effects, UI models
+  navigation/           binds the api destination to this content
   components/           feature-local reusable pieces
   preview/              shared preview providers only when reused across files
 ```
@@ -708,9 +713,11 @@ This `impl` layout is the default even when it contains `compose/` or `ui/`
 packages. A separate `feature/<name>/ui` Gradle module is optional: create it
 only when a named consumer outside the implementation must reuse the concrete
 Compose surface. Move the stateless composables, their smallest visual models
-and callbacks or slots, previews, and UI tests; keep `Route`, `ViewModel`,
-loading/orchestration state, mapping, DI, navigation execution, Activity, and
-Intent/result handling in `impl`. The canonical module contract lives in
+and callbacks or slots, previews, and UI tests, and move the `Screen` holder,
+`ViewModel`, and mapping as well when that consumer needs the working feature;
+keep DI, the destination binding, Activity, and Intent/result handling in
+`impl`. The destination type and its navigate action live in
+`feature/<name>/api`, not here. The canonical module contract lives in
 `../../android-module-structure/references/module-boundaries.md`.
 
 Use `components/` for feature-local pieces and promote only stable visual

@@ -47,14 +47,17 @@ clear dependency direction; otherwise the extra modules only move complexity int
 Gradle.
 
 For a cross-module feature family, name modules by the entry surface they own.
-Keep navigation identity and caller-facing contracts in `api`. Put the
-independently runnable Compose feature in `ui`, including its holder `Route`,
-screen `ViewModel`, UI state, screen, and feature components. Add `impl` only
-when Android needs another platform entry around that feature, such as a
-concrete Activity, manifest entry, Intent mapping, Activity result adapter, or
-another platform launcher. A local feature that does not cross a module
-boundary may still stay in one module. The canonical ownership and dependency
-rules live in [`module-boundaries.md`](module-boundaries.md).
+Keep the whole navigation contract and the caller-facing contracts in `api`:
+the destination type, its arguments, the deep-link spec, the result, the public
+route events, and the `navigateTo<Feature>` action. A module that only navigates
+must compile against `api` alone. Put the feature itself in `impl`, including
+its holder composable, screen `ViewModel`, UI state, content, feature
+components, the binding from destination to content, and any Activity, manifest
+entry, Intent mapping, Activity result adapter, or platform launcher. Add `ui`
+only when a named consumer outside `impl` must render the same concrete
+surface. A local feature that does not cross a module boundary may still stay
+in one module. The canonical ownership, naming, and dependency rules live in
+[`module-boundaries.md`](module-boundaries.md).
 
 ## File And Class Split
 
