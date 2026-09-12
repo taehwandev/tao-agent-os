@@ -519,6 +519,27 @@ REQUEST_CONCERN_HINTS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
             "민감 정보",
             "민감정보",
             "개인정보",
+            # Where a credential is kept is a security decision, and naming the
+            # store is how a request usually says so.
+            r"\bkey\s?store\b",
+            r"\bkey\s?chain\b",
+            r"\bcredential\s?stores?\b",
+            r"\bsecure\s?storage\b",
+            r"\bencrypted\s?shared\s?preferences\b",
+            # A token next to a storage verb. A bare "token" is left alone: this
+            # vocabulary also uses `tokens` for design tokens.
+            r"\b(?:access|refresh|auth|session|bearer|id)\s?tokens?\b",
+            r"\btokens?\b.{0,24}\b(?:store|stored|storing|storage|persist(?:ed|ing)?|save[ds]?|saving)\b",
+            r"\b(?:store|stored|storing|storage|persist(?:ed|ing)?|save[ds]?|saving)\b.{0,24}\btokens?\b",
+            "키스토어",
+            "키 스토어",
+            "키체인",
+            "키 체인",
+            "자격 증명",
+            "자격증명",
+            "보안 저장소",
+            "토큰.{0,16}(저장|보관)",
+            "(저장|보관).{0,16}토큰",
         ),
     ),
     (

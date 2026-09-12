@@ -575,5 +575,82 @@ class NamedFrameworkExcludesTheOtherTests(unittest.TestCase):
             self.assertIn(doc, reachable)
 
 
+class CardsThatExistMustBeReachableTests(unittest.TestCase):
+    """A card nothing routes to is a card nobody reads.
+
+    Measured through `scripts/workflow.py route`: a view-binding leak, a
+    WorkManager schedule, and a keystore change each reached the card that
+    names their subject neither as required reading nor as a reference. They
+    were handed the Android architecture card instead. Nothing was mis-ranked;
+    no rule pointed at those cards at all, and for the keystore case no concern
+    was inferred either.
+    """
+
+    def assert_required(self, route, card):
+        required = set(route["required_docs"])
+        for doc in resolved([card]):
+            self.assertIn(doc, required)
+
+    def test_a_lifecycle_leak_reaches_the_memory_and_lifecycle_card(self):
+        for prompt in (
+            "Fragment onViewCreated에서 뷰 바인딩이 새고 있습니다",
+            "The view binding is leaking in onViewCreated",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required(
+                    route_for("bugfix", "android", prompt),
+                    "platforms/android/skills/android-memory-lifecycle/SKILL.md",
+                )
+
+    def test_scheduled_work_reaches_the_background_work_card(self):
+        for prompt in (
+            "WorkManager 작업이 절전 모드에서 실행되지 않습니다",
+            "The WorkManager job never runs in doze",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required(
+                    route_for("bugfix", "android", prompt),
+                    "platforms/android/skills/android-background-work/SKILL.md",
+                )
+
+    def test_a_change_of_credential_store_is_a_security_change(self):
+        """`security` is required on inference alone, so the inference has to
+        fire. Where a credential is kept was not saying security to it."""
+
+        for prompt in (
+            "토큰을 안드로이드 키스토어에 저장하도록 바꿔줘",
+            "Store the token in the Android keystore instead",
+            "iOS 키체인으로 자격 증명을 옮겨줘",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertIn("security", infer_concerns_from_request(prompt))
+
+    def test_design_tokens_are_not_a_credential(self):
+        """The control: `tokens` is also this vocabulary's design-token concern,
+        so a bare token must not drag in mandatory security reading."""
+
+        for prompt in (
+            "디자인 토큰을 정리해줘",
+            "Clean up the design tokens file",
+            "토큰 이름을 spacing-sm 으로 바꿔줘",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertNotIn("security", infer_concerns_from_request(prompt))
+
+    def test_a_non_lifecycle_android_bug_does_not_gain_the_lifecycle_card(self):
+        """The control for the new rules: they must answer their subject only."""
+
+        route = route_for(
+            "bugfix", "android", "응답 DTO 파싱에서 null 처리가 빠져 크래시가 납니다"
+        )
+        required = set(route["required_docs"])
+        for card in (
+            "platforms/android/skills/android-memory-lifecycle/SKILL.md",
+            "platforms/android/skills/android-background-work/SKILL.md",
+        ):
+            for doc in resolved([card]):
+                self.assertNotIn(doc, required)
+
+
 if __name__ == "__main__":
     unittest.main()
