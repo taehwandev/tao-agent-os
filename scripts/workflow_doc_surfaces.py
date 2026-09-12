@@ -127,6 +127,11 @@ def _append_request_match(
             "reason": str(rule.get("reason") or ""),
             "required_priority": _required_priority(rule),
             "narrows": string_list(rule.get("narrows")),
+            # Carried for the same reason a path rule carries it. Reading the
+            # flag only there made it a silent no-op on a request rule: the
+            # documents were routed as candidates *and* required, which is
+            # exactly what the flag exists to prevent.
+            "reference_only": bool(rule.get("reference_only")),
         }
     )
     return docs

@@ -925,19 +925,22 @@
         "bugfix",
         "refactor"
       ],
-      "request_any": [
-        "\\bswift\\s*ui\\b",
-        "\\b(view ?modifier|@State\\b|@Binding\\b|@Observable\\b)",
-        "스위프트\\s*ui",
-        "스위프트유아이"
-      ],
       "doc_sets": [
         "ios_swiftui"
       ],
       "narrows": [
         "ios_ui_feature"
       ],
-      "reason": "The request names SwiftUI, so the repo-local UI stack the generic iOS set waits for is already confirmed; UIKit guidance is the other framework's and only competes for the budget."
+      "reason": "The request names SwiftUI and not UIKit, and is about the interface, so the repo-local UI stack the generic iOS set waits for is confirmed. Naming both frameworks -- a migration, or an instruction to leave one alone -- confirms nothing and does not narrow, and a request that merely says which app it is does not make a UI card mandatory.",
+      "request_all": [
+        [
+          "(?s)^(?!.*(?:\\buikit\\b|\\buiview ?controller\\b|\\buitableview\\b|\\buicollectionview\\b|\\bstoryboard\\b|\\bxib\\b|\\bnib\\b|스토리보드|유아이킷))(?=.*(?:\\bswift\\s*ui\\b|스위프트\\s*ui|스위프트유아이)).*"
+        ],
+        [
+          "\\b(screen|screens|view|views|layout|list|lists|cell|cells|table|collection|navigation|tab|button|label|icon|padding|margin|spacing|constraint|align|alignment|position|placement)\\b",
+          "(화면|뷰|레이아웃|목록|리스트|셀|테이블|내비|네비|탭|버튼|라벨|아이콘|여백|간격|정렬|위치|배치|제약)"
+        ]
+      ]
     },
     {
       "name": "ios_uikit_named",
@@ -951,19 +954,22 @@
         "bugfix",
         "refactor"
       ],
-      "request_any": [
-        "\\buikit\\b",
-        "\\b(uiview ?controller|uitableview|uicollectionview|storyboard|xib|nib)\\b",
-        "유아이킷",
-        "스토리보드"
-      ],
       "doc_sets": [
         "ios_uikit"
       ],
       "narrows": [
         "ios_ui_feature"
       ],
-      "reason": "The request names UIKit, so the repo-local UI stack the generic iOS set waits for is already confirmed; SwiftUI guidance is the other framework's and only competes for the budget."
+      "reason": "The request names UIKit and not SwiftUI, and is about the interface, so the repo-local UI stack the generic iOS set waits for is confirmed. Naming both frameworks -- a migration, or an instruction to leave one alone -- confirms nothing and does not narrow, and a request that merely says which app it is does not make a UI card mandatory.",
+      "request_all": [
+        [
+          "(?s)^(?!.*(?:\\bswift\\s*ui\\b|스위프트\\s*ui|스위프트유아이))(?=.*(?:\\buikit\\b|\\buiview ?controller\\b|\\buitableview\\b|\\buicollectionview\\b|\\bstoryboard\\b|\\bxib\\b|\\bnib\\b|스토리보드|유아이킷)).*"
+        ],
+        [
+          "\\b(screen|screens|view|views|layout|list|lists|cell|cells|table|collection|navigation|tab|button|label|icon|padding|margin|spacing|constraint|align|alignment|position|placement)\\b",
+          "(화면|뷰|레이아웃|목록|리스트|셀|테이블|내비|네비|탭|버튼|라벨|아이콘|여백|간격|정렬|위치|배치|제약)"
+        ]
+      ]
     },
     {
       "name": "ios_ui_ecosystem_named",

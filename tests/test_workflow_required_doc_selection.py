@@ -1249,5 +1249,48 @@ class ResolutionNeverRepeatsADocumentTests(unittest.TestCase):
                 self.assertEqual([], repeated)
 
 
+class ReferenceOnlyMeansTheSameOnBothRuleKindsTests(unittest.TestCase):
+    """A flag a rule carries and nobody reads is worse than no flag at all.
+
+    `_append_path_match` copied `reference_only` into the match it built;
+    `_append_request_match` did not. So on a `request_intents` rule the key was
+    accepted, read by nobody, and the rule's documents became required through
+    the ordinary intent fallback -- the opposite of what it asks for, with
+    nothing reporting the mismatch. Found when a backstop rule written as
+    reference_only required the first card in its own doc_set, so a UIKit
+    networking bug was required to read the SwiftUI card.
+    """
+
+    def _match(self, **extra):
+        from workflow_doc_surfaces import _append_request_match
+
+        matches: list = []
+        rule = {"name": "probe", "docs": ["common/skills/testing/SKILL.md"], **extra}
+        _append_request_match({}, rule, "feature", matches)
+        return matches[0]
+
+    def test_a_request_rule_carries_the_flag_into_its_match(self):
+        self.assertTrue(self._match(reference_only=True)["reference_only"])
+
+    def test_a_request_rule_without_the_flag_is_not_reference_only(self):
+        self.assertFalse(self._match()["reference_only"])
+
+    def test_a_reference_only_request_rule_selects_no_required_document(self):
+        from workflow_doc_surfaces import required_surface_docs
+
+        self.assertEqual([], required_surface_docs([self._match(reference_only=True)]))
+
+    def test_the_same_rule_without_the_flag_does_select_it(self):
+        """The control: without the flag the intent fallback still requires it,
+        so the test above is measuring the flag and not something else."""
+
+        from workflow_doc_surfaces import required_surface_docs
+
+        self.assertEqual(
+            ["common/skills/testing/SKILL.md"],
+            required_surface_docs([self._match()]),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
