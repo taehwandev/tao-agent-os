@@ -49,12 +49,18 @@ source-of-truth repo, selected mode, write scope, and cross-repo verification.
 For implementation, review, refactoring, debugging, documentation, and planning,
 read `common/skills/agent-operating-skill/SKILL.md` first. For multi-step
 work requiring a tracked lifecycle, use the installed absolute Tao launcher.
-Read-only lookup, explanation, and status instead inspect bounded direct evidence
+Read-only lookup, explanation, status, and checks of a supplied diagnosis instead inspect bounded direct evidence
 and answer without start, fingerprint, mailbox, checkpoint, gate, review, or
 finish calls. Applicable project instructions and source contracts still apply;
 this exception does not waive a target project's explicit workflow. Do not create
 task state or refresh indexes merely to answer. A lookup that expands into an
 edit must enter the writable lifecycle before that edit.
+
+Checking an existing explanation against source or measurements is not a diff
+review merely because the user says "verify". Explicit change/PR reviews and
+release acceptance retain their review workflow. Keep repo-installed routing
+blocks consistent with this distinction when updating their shared template;
+updating this library alone does not replace a project's older instructions.
 
 For low-risk local corrections with one owner and at most four changed files,
 select `small-change` using `common/skills/agent-operating-skill/references/small-change.md`. Its compact

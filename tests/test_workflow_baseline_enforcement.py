@@ -168,5 +168,19 @@ class BaselineEnforcementStaysCentralTest(unittest.TestCase):
         self.assertIn("문서를 스킵할까요", skill)
         self.assertIn("Where the rules live", skill)
 
+    def test_installed_routing_distinguishes_diagnosis_from_change_review(self) -> None:
+        template = " ".join(self._read("templates", "repo-agents-routing.md").split())
+        root = " ".join(self._read("AGENTS.md").split())
+        for text in (template, root):
+            self.assertIn("checks of a supplied diagnosis", text)
+            self.assertIn("Explicit change/PR reviews", text)
+        self.assertIn("without start, fingerprint, mailbox, checkpoint, gate, review, or finish", template)
+        self.assertIn("Enter the writable lifecycle before any authorized edit", template)
+        self.assertIn("replace its older blanket multi-step requirements", template)
+        self.assertIn("preserve product-specific contracts, safety rules and metering integration", template)
+        self.assertNotIn("For multi-step tasks, run", template)
+        self.assertNotIn("the `documentation` gate always runs", template)
+        self.assertNotIn("Use the shared index only", template)
+
 if __name__ == "__main__":
     unittest.main()
