@@ -989,7 +989,12 @@
         "ios_ui"
       ],
       "reference_only": true,
-      "reason": "Naming one framework decides what must be read, not what exists in the project. The whole iOS set stays reachable as reference candidates so a change that turns out to touch the other framework can still get to it."
+      "reason": "Naming one framework decides what must be read, not what exists in the project. Filling the surface tier stops the budget before the platform card set, so the whole iOS set -- including the platform cards no framework doc_set carries -- stays reachable as reference candidates.",
+      "docs": [
+        "platforms/swift/skills/swift-architecture/SKILL.md",
+        "platforms/swift/skills/swift-review/SKILL.md",
+        "platforms/ios/skills/ios-architecture/SKILL.md"
+      ]
     },
     {
       "name": "ios_ui_feature",
