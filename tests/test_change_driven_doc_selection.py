@@ -515,5 +515,65 @@ class PathSurfaceScopeTests(unittest.TestCase):
                     )
 
 
+class NamedFrameworkExcludesTheOtherTests(unittest.TestCase):
+    """The iOS card set waits for the stack to be confirmed; the request confirms it.
+
+    `ios_ui` hands out SwiftUI *and* UIKit guidance, and its own reason says why:
+    "until the repo-local UI stack is confirmed". A request that says SwiftUI has
+    confirmed it, and the other framework's card then only competes for a capped
+    budget with guidance that cannot apply.
+
+    Measured before this: the SwiftUI request required the UIKit reference --
+    5,515B of the wrong framework -- and the UIKit request required neither
+    framework card, having spent the slot on Swift architecture instead.
+    """
+
+    SWIFTUI = "platforms/ios/skills/ios-swiftui-ui/SKILL.md"
+    UIKIT = "platforms/ios/skills/ios-uikit-ui/SKILL.md"
+
+    def assert_framework(self, route, *, must, must_not):
+        required = set(route["required_docs"])
+        reachable = required | set(route["reference_docs"])
+        for doc in resolved([must]):
+            self.assertIn(doc, required)
+        for doc in resolved([must_not]):
+            self.assertNotIn(doc, required)
+            # Excluded from the mandate, not from the repository: a request can
+            # still turn out to touch the other framework, and the reader has
+            # to be able to reach its card when it does.
+            self.assertIn(doc, reachable)
+
+    def test_a_swiftui_request_is_not_required_to_read_uikit(self):
+        for prompt in (
+            "SwiftUI 리스트에 당겨서 새로고침을 추가해줘",
+            "Add pull to refresh to the SwiftUI list screen",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_framework(
+                    route_for("feature", "ios", prompt),
+                    must=self.SWIFTUI, must_not=self.UIKIT,
+                )
+
+    def test_a_uikit_request_is_not_required_to_read_swiftui(self):
+        for prompt in (
+            "UIKit 테이블뷰 셀 높이를 고쳐줘",
+            "Fix the UIKit table view cell height",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_framework(
+                    route_for("bugfix", "ios", prompt),
+                    must=self.UIKIT, must_not=self.SWIFTUI,
+                )
+
+    def test_a_request_naming_no_framework_still_reaches_both(self):
+        """The generic set is the right answer while the stack is unknown."""
+
+        route = route_for("feature", "ios", "즐겨찾기 화면을 만들어줘")
+        reachable = set(route["required_docs"]) | set(route["reference_docs"])
+
+        for doc in resolved([self.SWIFTUI, self.UIKIT]):
+            self.assertIn(doc, reachable)
+
+
 if __name__ == "__main__":
     unittest.main()

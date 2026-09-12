@@ -914,6 +914,84 @@
       "reason": "Flutter UI feature work should load widget, project structure, state/data, review, visual, and performance guidance."
     },
     {
+      "name": "ios_swiftui_named",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor"
+      ],
+      "request_any": [
+        "\\bswift\\s*ui\\b",
+        "\\b(view ?modifier|@State\\b|@Binding\\b|@Observable\\b)",
+        "스위프트\\s*ui",
+        "스위프트유아이"
+      ],
+      "doc_sets": [
+        "ios_swiftui"
+      ],
+      "narrows": [
+        "ios_ui_feature"
+      ],
+      "reason": "The request names SwiftUI, so the repo-local UI stack the generic iOS set waits for is already confirmed; UIKit guidance is the other framework's and only competes for the budget."
+    },
+    {
+      "name": "ios_uikit_named",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor"
+      ],
+      "request_any": [
+        "\\buikit\\b",
+        "\\b(uiview ?controller|uitableview|uicollectionview|storyboard|xib|nib)\\b",
+        "유아이킷",
+        "스토리보드"
+      ],
+      "doc_sets": [
+        "ios_uikit"
+      ],
+      "narrows": [
+        "ios_ui_feature"
+      ],
+      "reason": "The request names UIKit, so the repo-local UI stack the generic iOS set waits for is already confirmed; SwiftUI guidance is the other framework's and only competes for the budget."
+    },
+    {
+      "name": "ios_ui_ecosystem_named",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor"
+      ],
+      "request_any": [
+        "\\bswift\\s*ui\\b",
+        "\\buikit\\b",
+        "\\b(uiview ?controller|uitableview|uicollectionview|storyboard|xib|nib)\\b",
+        "스위프트\\s*ui",
+        "유아이킷",
+        "스토리보드"
+      ],
+      "doc_sets": [
+        "ios_ui"
+      ],
+      "reference_only": true,
+      "reason": "Naming one framework decides what must be read, not what exists in the project. The whole iOS set stays reachable as reference candidates so a change that turns out to touch the other framework can still get to it."
+    },
+    {
       "name": "ios_ui_feature",
       "commands": [
         "feature",
