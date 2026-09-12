@@ -2390,6 +2390,127 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 _os.environ["TAO_CLAUDE_GATE_NEW_FILE_BUDGET"] = previous
 
 
+class EveryGovernedProjectNeedsItsOwnEntryTests(unittest.TestCase):
+    """Sitting in one project must not authorize a write into another.
+
+    `bash_governed_roots` returns the project a command runs in *and* every
+    project a path in it writes into, and says a command is governed by all of
+    them. The workflow-entry check read only the first, so a session holding
+    evidence for the directory it happened to sit in could write anywhere:
+    `git clone <url> <other-project>/x` was allowed from a started project and
+    denied from an unstarted one, for the same intended write.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        base = Path(self._tmp.name)
+        self.started = _opt_in_project(base / "a")
+        self.other = _opt_in_project(base / "b")
+        self.session = "session-governed-roots"
+        _write_preflight(self.started, self.session)
+
+    def _verdict(self, command: str, cwd: Path) -> dict:
+        _, out = _decide({
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "cwd": str(cwd),
+            "session_id": self.session,
+        })
+        # A silent allow writes nothing at all, which is itself the verdict.
+        return json.loads(out)["hookSpecificOutput"] if out.strip() else {}
+
+    def test_a_started_project_does_not_authorize_a_write_into_another(self):
+        target = self.other / "clone"
+        verdict = self._verdict(
+            f"git clone https://example.invalid/r.git {target}", self.started
+        )
+
+        self.assertEqual("deny", verdict["permissionDecision"],
+                         "the write into the unstarted project was allowed")
+        self.assertIn(str(self.other), verdict["permissionDecisionReason"])
+
+    def test_the_denial_says_the_project_is_not_where_the_command_runs(self):
+        target = self.other / "clone"
+        reason = self._verdict(
+            f"git clone https://example.invalid/r.git {target}", self.started
+        )["permissionDecisionReason"]
+
+        # The failure this replaces: the denial named a project the reader
+        # never chose, with no hint that a path in the command put it there,
+        # so it read as "the environment is blocking me".
+        self.assertIn("is not where the command runs", reason)
+        self.assertIn("the path does", reason)
+
+    def test_a_write_inside_the_started_project_is_still_allowed(self):
+        verdict = self._verdict("git commit -m subject", self.started)
+
+        self.assertNotEqual("deny", verdict.get("permissionDecision"))
+
+    def test_an_unstarted_cwd_still_names_itself_as_where_it_runs(self):
+        verdict = self._verdict("git commit -m subject", self.other)
+
+        self.assertEqual("deny", verdict["permissionDecision"])
+        self.assertIn("is where the command runs",
+                      verdict["permissionDecisionReason"])
+
+
+class ProtectedCheckoutSpeaksOnlyForItselfTests(unittest.TestCase):
+    """A question about the protected checkout cannot answer for another project.
+
+    Standing in the protected checkout, `git clone <url> <other-project>/x`
+    was resolved as a question about the checkout -- "this writes a commit
+    into the protected checkout, allow it only if that is what you meant" --
+    and the project the clone actually lands in was never asked for workflow
+    entry. The identical write, run from that project's own directory, was
+    denied. Two verdicts for one write, decided by where the shell sat, and
+    the permissive one is the one a session keeps.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        base = Path(self._tmp.name)
+        self.checkout = _opt_in_project(base / "checkout")
+        _require_linked_worktree(self.checkout)
+        self.other = _opt_in_project(base / "other")
+        self.session = "session-protected-checkout"
+        self.command = (
+            f"git clone https://example.invalid/r.git {self.other / 'clone'}"
+        )
+
+    def _verdict(self, command: str) -> dict:
+        _, out = _decide({
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "cwd": str(self.checkout),
+            "session_id": self.session,
+        })
+        return json.loads(out)["hookSpecificOutput"] if out.strip() else {}
+
+    def test_a_write_into_an_unstarted_project_is_not_merely_asked_about(self):
+        verdict = self._verdict(self.command)
+
+        self.assertEqual("deny", verdict.get("permissionDecision"),
+                         "the clone into the unstarted project was only asked about")
+        self.assertIn(str(self.other), verdict["permissionDecisionReason"])
+
+    def test_the_operator_is_not_asked_about_a_checkout_the_clone_never_touches(self):
+        reason = self._verdict(self.command).get("permissionDecisionReason", "")
+
+        self.assertNotIn("writes a commit into the protected checkout", reason)
+
+    def test_starting_the_other_project_restores_the_checkout_question(self):
+        _write_preflight(self.other, self.session)
+
+        verdict = self._verdict(self.command)
+
+        # The check adds a condition; it does not deny outright. Once the
+        # project the clone lands in has its own run, the only question left
+        # is the protected checkout's, and the operator gets it back.
+        self.assertEqual("ask", verdict.get("permissionDecision"))
+
+
 class ImportCostTests(unittest.TestCase):
     """This gate runs in its own process on every gated tool call.
 
