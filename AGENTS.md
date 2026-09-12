@@ -193,6 +193,92 @@ investigation or edits. It binds additional work to an unresolved in-scope
 decision and stops it when the requested outcome is verified; it does not waive
 applicable required instructions or add a new planning or approval procedure.
 
+A prompt advisory suggests a route; it does not establish a task that requires
+that workflow's detailed instructions. Reuse the reading contract already in
+context, and load task procedures only when the actual request needs them.
+Keep the compact contract for every enforced gate independent of document-count
+budgets. Detailed procedures need a concrete unresolved decision, an explicit
+concern, or a required dependency; spare capacity is not a reason to read them.
+When measuring reading savings, include conditionally required follow-up reads
+(for example scenario guidance when writing tests), and distinguish selected
+bytes from observed reads and end-to-end latency. Moving a document to references
+does not save a read when its applicability condition is still true.
+
+An advisory route also leaves the platform card set in `reference_docs`. That
+set is identical for every route on the platform, and an advisory route has no
+request text to say which of it this request needs, so naming a platform is not
+by itself a reason to read its architecture. Platform guidance becomes required
+as soon as something request-specific asks for it: a concern the caller names,
+or a repository-verified owner path.
+
+A concern inferred from request keywords routes its documents as references,
+because the same keyword fires on "not a performance change" as readily as on a
+performance change. Security, auth, billing, credential-broker, and migration
+are the exception and stay required on inference alone: a false positive costs
+one card, while a miss changes a permission, a charge, a secret, or a migration
+without the card that says how not to break it. Record in scope which inferred
+risk concern does not apply rather than skipping it. Release is not on that
+list because `release` and `ship` already require its cards as their command
+documents.
+
+The command's own workflow documents are selected before the selection budget,
+not out of it. Concerns are chosen ahead of the tier walk, so counting them
+against the document cap let one keyword-inferred concern evict the procedure
+the route exists to run. An inference never outranks a certainty.
+
+Selection follows the change, not the platform name. What the change touches,
+proven by a repository-verified owner path, and what it does, matched by a
+change-action rule in `workflow-doc-surfaces.json`, are selected before the
+generic tiers rather than out of the single slot they leave. A rule may name
+broader rules it `narrows`: moving one control matches both "Compose UI work"
+and "layout change", and the narrower rule stands in the broader one's place so
+placing a button does not require the state, module and lifecycle cards. A
+narrowed document stays reachable as a reference; narrowing never makes one
+unreadable. Where a file sits does not decide what the change is -- a DTO or
+mapper under a `ui/` package is a data change, and the UI path rules exclude
+those names for that reason.
+
+A path rule says which surface was touched, never what the change does, so it
+carries only the contract any change to that surface applies. What the change
+is -- layout, state, performance, a new screen, a wire contract -- comes from a
+change-action rule, and those select what that decision needs. A path rule may
+also mark a wider set `reference_only`: touching a Compose file is a good reason
+to offer the platform's ecosystem as candidates and a poor reason to require it.
+Before this, one touched Compose file made 162 KB across 21 documents required-
+eligible, and the document cap then kept whichever tier came first: a scroll
+performance task required the previews and screen-structure references and never
+the performance one.
+
+A platform card set may carry the contract every change on that platform
+applies; it may not carry that platform's detailed procedures. When a card
+bundles both, split it: the entrypoint reference keeps the contract and each
+bundled decision becomes a sibling a concern or surface can select. Naming
+Android used to require 25 KB of app architecture, which is how Hilt
+composition, WebView and Navigation deep links reached a JSON parsing fix.
+Removing the tier instead was measured and rejected: seven of twelve
+representative Android and web requests then had no platform guidance at all.
+
+A split may delete two kinds of text, and nothing else. The first is routing
+instructions about the document system itself -- which manifest to load, and
+what to do when a route does not load it. The router owns that, and an agent
+deciding how to lay out a control does not arbitrate its own routing. The
+second is a bullet that restates a rule another section states as well or
+better; keep the better statement, and fold in any clause only the duplicate
+carried. Every other rule moves to the sibling that owns its decision. Account
+for the difference: list the sections dropped and the bullets pruned, and check
+that each surviving rule still appears exactly once in the bundle.
+
+Every required document carries a selection reason, reported as
+`required_doc_reasons`: the core reading contract, the command workflow, a named
+or inferred-risk concern, a work surface, a `requires` edge, a gate contract, or
+the platform default. Read it when a route seems to require too much. A document
+whose only reason is `platform_default` is mandatory because a platform was
+named, not because this request touches it; that is a document-boundary problem
+-- the card bundles a short contract every change on that platform needs with
+detailed procedures most do not -- and the repair is to split the card, not to
+drop the tier. Dropping it was measured: nine of twelve representative Android
+and web requests then had no platform guidance required at all.
+
 For `analysis`, carry the route's `reading_scope` into any downstream document
 recommendation. A field lookup, configuration check, or function explanation
 needs its answering definition/contract and only the callers needed to resolve
