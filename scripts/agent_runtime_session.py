@@ -35,6 +35,11 @@ SESSION_ENV_VARS = (
 )
 WORKER_EVIDENCE_ENV = "TAO_WORKER_EVIDENCE"
 RUN_ID_LENGTH = 32
+# The Claude Stop gate reads these; it keeps its own copy of the directory name
+# rather than importing this module, which costs it 17.7ms it runs on every turn.
+SESSION_MARKER_DIR = "claude-pretool-gate"
+FINISHED_SUFFIX = ".finished"
+SETTLED_SUFFIX = ".settled"
 
 
 def runtime_session() -> dict[str, str]:
@@ -54,6 +59,35 @@ def recorded_session_id(payload: object) -> str:
         return ""
     recorded = session.get("session_id")
     return recorded if isinstance(recorded, str) else ""
+
+
+def record_session_close(project: Path, session: object, suffix: str) -> None:
+    """Leave a per-session record that this session closed its work here.
+
+    The shared lifecycle files -- `finish.json`, a run's `cancel.json` -- are one
+    file per project, so a later run of any kind overwrites them and erases the
+    proof that *this* session closed. Stamping the session inside them was not
+    enough; the record has to be one a later run cannot clobber, which is what
+    the per-session name buys.
+
+    A malformed session, or a filesystem that refuses the write, records
+    nothing. The gate reading these treats an absent marker as "not closed",
+    which blocks a session that did close rather than releasing one that did
+    not.
+    """
+
+    session_id = session.get("session_id") if isinstance(session, dict) else session
+    if not isinstance(session_id, str):
+        return
+    safe = "".join(ch for ch in session_id if ch.isalnum() or ch in "-_")
+    if not safe:
+        return
+    marker = Path(project) / ".tao" / SESSION_MARKER_DIR / (safe + suffix)
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("", encoding="utf-8")
+    except OSError:
+        pass
 
 
 def is_run_local_continuation_evidence(

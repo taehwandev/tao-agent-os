@@ -70,6 +70,14 @@ def _age(marker: Path, seconds: float) -> None:
     os.utime(marker, (stamp, stamp))
 
 
+def _record_settle(project: Path, session_id: str, *, newer_than: Path | None = None) -> None:
+    marker = gate.settled_marker(project, session_id)
+    marker.write_text("", encoding="utf-8")
+    if newer_than is not None:
+        stamp = newer_than.stat().st_mtime + 1
+        os.utime(marker, (stamp, stamp))
+
+
 def _record_finish(project: Path, session_id: str, *, newer_than: Path | None = None) -> None:
     marker = gate.finished_marker(project, session_id)
     marker.write_text("", encoding="utf-8")
@@ -393,6 +401,96 @@ def _make_global_state_dir(home: Path) -> Path:
     (state / "projects.json").write_text("{}")
     (state / "claude-session-projects").mkdir()
     return state
+
+
+class CancelClosesTheSessionTests(unittest.TestCase):
+    """A run that closed without finishing still closed.
+
+    Not every run ends in a finish. A run whose work moved to a linked worktree,
+    and one whose honest outcome is that nothing needed changing, are both
+    settled by `cancel` -- and `cancel` settles only against a verified clean
+    checkout, which is the exact thing this gate wants to know. Reading only
+    `finish`'s marker made the gate block a session that had done what the
+    lifecycle asked, and print a remedy -- run review and finish -- that a
+    terminal run cannot accept.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.project = _opt_in_project(Path(self._tmp.name))
+        self.session = "s-cancel"
+
+    def _stop(self) -> bool:
+        _, out = _decide(_payload(self.project, self.session))
+        return _blocked(out)
+
+    def test_a_settled_run_lets_the_session_stop(self) -> None:
+        _record_edit(self.project, self.session)
+        _record_settle(
+            self.project,
+            self.session,
+            newer_than=gate.edit_activity_marker(self.project, self.session),
+        )
+
+        self.assertFalse(self._stop(), "cancel settled the run and the gate still blocked")
+
+    def test_edits_after_the_settlement_re_arm_the_gate(self) -> None:
+        _record_settle(self.project, self.session)
+        _record_edit(
+            self.project,
+            self.session,
+            newer_than=gate.settled_marker(self.project, self.session),
+        )
+
+        # A cancellation vouches for the checkout it verified, not for whatever
+        # the session does afterwards -- the same staleness rule a finish has.
+        self.assertTrue(self._stop())
+
+    def test_an_unsettled_session_is_still_blocked(self) -> None:
+        _record_edit(self.project, self.session)
+
+        self.assertTrue(self._stop())
+
+
+class CancelWritesTheSessionMarkerTests(unittest.TestCase):
+    """The writer half: settling a run has to leave the record the gate reads."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.project = _opt_in_project(Path(self._tmp.name))
+        self.session = "s-writer"
+        self.evidence = self.project / ".tao" / "runs" / "r1" / "preflight.json"
+        self.evidence.parent.mkdir(parents=True)
+        self.evidence.write_text(
+            json.dumps(
+                {"runtime_session": {"runtime": "claude", "session_id": self.session}}
+            ),
+            encoding="utf-8",
+        )
+
+    def test_settling_a_run_records_the_session_that_closed_it(self) -> None:
+        import agent_transfer_cancel
+
+        agent_transfer_cancel._record_settled_session(self.project, self.evidence)
+
+        self.assertTrue(gate.settled_marker(self.project, self.session).exists())
+
+    def test_unreadable_evidence_records_nothing(self) -> None:
+        import agent_transfer_cancel
+
+        # Failing to record leaves the gate armed, which blocks a session that
+        # closed. Recording from evidence that cannot be read would release it
+        # for a session that did not, which is the worse of the two.
+        agent_transfer_cancel._record_settled_session(
+            self.project, self.evidence.with_name("absent.json")
+        )
+
+        self.assertEqual(
+            [],
+            list((self.project / ".tao" / gate.SESSION_MARKER_DIR).glob("*.settled")),
+        )
 
 
 class SessionStampReaderTests(unittest.TestCase):

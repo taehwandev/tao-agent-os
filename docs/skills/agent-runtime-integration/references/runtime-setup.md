@@ -151,7 +151,9 @@ automatically retry a non-idempotent external write.
 only when that same session still owns an active run. It continues the turn
 once with the remaining `finish` and same-closeout skill-maintenance work, then
 stops an unchanged second attempt explicitly instead of looping or reporting a
-false completion. A successful `finish` closes the run and lets Stop proceed.
+false completion. A successful `finish` closes the run and lets Stop proceed, and so does a
+settled `cancel`: both write a per-session record that the gate reads, and a
+cancellation settles only against a verified clean checkout.
 If the Codex launcher process is replaced while `CODEX_THREAD_ID` survives, a
 lifecycle hook may reclaim only that exact session's run and only after the
 recorded process owner's death is proven. The atomic takeover increments the

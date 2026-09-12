@@ -18,7 +18,16 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import importlib.util
+
 from agent_run_registry import register_run, registered_run, transition_run
+
+_STOP_SPEC = importlib.util.spec_from_file_location(
+    "claude_stop_gate_for_cancel_tests", SCRIPTS / "claude_stop_gate.py"
+)
+assert _STOP_SPEC and _STOP_SPEC.loader
+stop_gate = importlib.util.module_from_spec(_STOP_SPEC)
+_STOP_SPEC.loader.exec_module(stop_gate)
 import agent_transfer_cancel as transfer_cancel
 from agent_transfer_cancel import (
     CANCEL_RECEIPT_NAME,
@@ -626,6 +635,57 @@ class CancelInvocationTests(unittest.TestCase):
             )
 
         self.assertIn("exactly one of --replacement-evidence", stderr)
+
+
+class SettledRunsDoNotBlockTheStopGateTests(unittest.TestCase):
+    """Cancelling a run has to end the session's obligation for that project.
+
+    `cancel` exists because an unfinished run makes a session block its own
+    work, and the worktree-hygiene card says so in as many words. The Claude
+    Stop gate read only `finish`'s per-session marker, so settling a run left
+    that gate armed: it blocked the stop, named the project, and told the reader
+    to run review and finish -- on a run already terminal, which accepts
+    neither. Observed live on a project whose only mutation was a clone.
+    """
+
+    def _stop_is_blocked(self, project: Path, session_id: str) -> bool:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            stop_gate.decide({"session_id": session_id, "cwd": str(project)})
+        out = buffer.getvalue()
+        return bool(out) and json.loads(out).get("decision") == "block"
+
+    def _record_edit(self, project: Path, session_id: str) -> None:
+        marker = stop_gate.edit_activity_marker(project, session_id)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("", encoding="utf-8")
+
+    def test_a_session_that_settled_its_run_may_stop(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            session_id = "runtime-session-01"
+            self._record_edit(fixture.source, session_id)
+            code, output = fixture.cancel_no_change()
+            blocked = self._stop_is_blocked(fixture.source, session_id)
+            settled = stop_gate.settled_marker(fixture.source, session_id).exists()
+
+        self.assertEqual(0, code, output)
+        self.assertTrue(settled, "the cancellation left no record of the session")
+        self.assertFalse(blocked, "the stop gate blocked a session that settled its run")
+
+    def test_a_refused_cancellation_leaves_the_gate_armed(self) -> None:
+        """A cancellation that did not happen must vouch for nothing."""
+
+        with TransferFixture(True, "same request") as fixture:
+            session_id = "runtime-session-01"
+            self._record_edit(fixture.source, session_id)
+            (fixture.source / "appeared.txt").write_text("x\n", encoding="utf-8")
+            code, _ = fixture.cancel_no_change()
+            blocked = self._stop_is_blocked(fixture.source, session_id)
+            settled = stop_gate.settled_marker(fixture.source, session_id).exists()
+
+        self.assertEqual(1, code)
+        self.assertFalse(settled)
+        self.assertTrue(blocked)
 
 
 class TransferFixture:

@@ -95,8 +95,12 @@ EDIT_ACTIVITY_SUFFIX = ".edited"
 BLOCKED_SUFFIX = ".stop-blocked"
 # Written by the PreToolUse gate; see session_projects().
 SESSION_PROJECT_DIR = "claude-session-projects"
-# Written by `finish`; see session_finished() for why finish.json alone is not enough.
+# Written by `finish`; see session_closed() for why finish.json alone is not enough.
 FINISHED_SUFFIX = ".finished"
+# Written by `cancel`. A run can close without finishing -- its work was
+# transferred to a linked worktree, or its honest outcome was that nothing
+# needed changing -- and both are settled against a verified clean checkout.
+SETTLED_SUFFIX = ".settled"
 OPT_IN_FILES = ("AGENTS.md", "CLAUDE.md", "CODEX.md")
 OPT_IN_TOKEN = "tao"
 
@@ -197,8 +201,12 @@ def finished_marker(root: Path, session_id: str) -> Path:
     return root / STATE_DIR / SESSION_MARKER_DIR / (safe_session_id(session_id) + FINISHED_SUFFIX)
 
 
-def session_finished(root: Path, session_id: str) -> bool:
-    """True when a passing `finish` vouches for this session's current edits.
+def settled_marker(root: Path, session_id: str) -> Path:
+    return root / STATE_DIR / SESSION_MARKER_DIR / (safe_session_id(session_id) + SETTLED_SUFFIX)
+
+
+def session_closed(root: Path, session_id: str) -> bool:
+    """True when a passing close vouches for this session's current edits.
 
     `finish` writes a per-session record, and only when it found no failures, so
     a failed finish leaves this gate closed instead of counting as completion.
@@ -211,21 +219,39 @@ def session_finished(root: Path, session_id: str) -> bool:
     blocked completed work. The shared file is still accepted as a fallback for
     a finish written before the per-session record existed.
 
-    A finish can only vouch for work that already existed when it ran. Treating
+    `cancel` counts too. Not every run ends in a finish: one whose work moved to
+    a linked worktree, and one whose honest outcome is that nothing needed
+    changing, are both closed by `cancel`, which settles them only against a
+    verified clean checkout. Reading only `finish`'s marker made this gate block
+    a session that had done exactly what the lifecycle asked -- and the remedy
+    it printed was to finish a run that was already terminal, so there was
+    nothing the reader could run. A clean checkout is the answer to this gate's
+    question, whichever hook established it.
+
+    A close can only vouch for work that already existed when it ran. Treating
     the marker as a permanent pass made the gate go silent for the rest of the
     session: one passing finish, then a whole second task's edits, and the gate
     never armed again. Observed live -- a session with `.edited` more than an
-    hour after `.finished` and no `.stop-blocked` marker at all. A finish older
+    hour after `.finished` and no `.stop-blocked` marker at all. A close older
     than the newest edit activity is stale for those edits, so the gate re-arms
     and `has_unreported_edits()` decides whether to block once for them.
     """
-    finished = marker_mtime(finished_marker(root, session_id))
-    if finished is None:
-        finished = shared_finish_mtime(root, session_id)
-    if finished is None:
+    closed = max(
+        (
+            stamp
+            for stamp in (
+                marker_mtime(finished_marker(root, session_id)),
+                marker_mtime(settled_marker(root, session_id)),
+                shared_finish_mtime(root, session_id),
+            )
+            if stamp is not None
+        ),
+        default=None,
+    )
+    if closed is None:
         return False
     edited = marker_mtime(edit_activity_marker(root, session_id))
-    return edited is None or edited <= finished
+    return edited is None or edited <= closed
 
 
 def shared_finish_mtime(root: Path, session_id: str) -> float | None:
@@ -297,7 +323,7 @@ def decide(payload: dict) -> int:
         # Preserve the legacy once-per-stop guard after versioned handling.
         if payload.get("stop_hook_active"):
             continue
-        if session_finished(root, session_id):
+        if session_closed(root, session_id):
             continue
         if not has_unreported_edits(root, session_id):
             continue
