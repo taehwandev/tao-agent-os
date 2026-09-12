@@ -182,9 +182,10 @@ analysis. An empty search is a terminal no-match outcome; a missing required
 document is an invalid manifest and stops work.
 
 Apply the Need-Driven Reading Contract in
-`common/skills/agent-operating-skill/SKILL.md` before optional document discovery.
-It governs reference-link selection, reuse, stopping, and incidental scope;
-it does not waive applicable required instructions.
+`common/skills/agent-operating-skill/SKILL.md` before expanding reading,
+investigation or edits. It binds additional work to an unresolved in-scope
+decision and stops it when the requested outcome is verified; it does not waive
+applicable required instructions or add a new planning or approval procedure.
 
 For `analysis`, carry the route's `reading_scope` into any downstream document
 recommendation. A field lookup, configuration check, or function explanation
