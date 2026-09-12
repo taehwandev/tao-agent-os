@@ -13,7 +13,11 @@ from typing import Any
 from agent_delegation_plan import read_delegation_plan
 from agent_execution_capsule_state import contained_doc_path, doc_hash_record
 from agent_global_lessons import state_home, write_retrospective_candidate
-from agent_runtime_session import runtime_session
+from agent_runtime_session import (
+    FINISHED_SUFFIX,
+    record_session_close,
+    runtime_session,
+)
 from agent_skill_catalog import canonical_skill_ids
 from agent_finish_check_steps import (
     check_preflight_vibeguard,
@@ -330,18 +334,7 @@ def record_session_finished(project: Path, session: dict[str, Any]) -> None:
     was properly finished. Stamping the session was not enough on its own; the
     record has to be one that a later run cannot clobber.
     """
-    session_id = session.get("session_id") if isinstance(session, dict) else None
-    if not session_id:
-        return
-    safe = "".join(ch for ch in str(session_id) if ch.isalnum() or ch in "-_")
-    if not safe:
-        return
-    marker = project / ".tao" / "claude-pretool-gate" / f"{safe}.finished"
-    try:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text("", encoding="utf-8")
-    except OSError:
-        pass
+    record_session_close(project, session, FINISHED_SUFFIX)
 
 
 def effective_read_only(

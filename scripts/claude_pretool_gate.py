@@ -43,6 +43,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 from types import ModuleType
 
 try:  # The gate must never fail to load; the import is only used for a message.
@@ -458,7 +459,34 @@ def stopped_action(tool: str) -> tuple[str, str]:
     return ("editing files in this project", "retry the edit")
 
 
-def deny_reason(root: Path, session_id: str = "", tool: str = "") -> str:
+def governed_because(root: Path, cwd_roots: "list[Path] | None") -> str:
+    """Say why this project is the one being asked for evidence.
+
+    A command is governed by the project it runs in *and* by every project a
+    path in it writes into, and those are usually different projects. Naming
+    only the root left the reader to guess which one it was, and the guess that
+    costs most is "the environment is blocking me": a reader who believes the
+    gate means their own directory concludes the command cannot run at all,
+    rather than that a second project needs its own `start`.
+    """
+
+    if cwd_roots is None:
+        return ""
+    if root in cwd_roots:
+        return f" `{root}` is where the command runs."
+    return (
+        f" `{root}` is not where the command runs: a path in this command "
+        "writes into it, so that project needs its own workflow entry. Running "
+        "the command from somewhere else does not change this; the path does."
+    )
+
+
+def deny_reason(
+    root: Path,
+    session_id: str = "",
+    tool: str = "",
+    cwd_roots: "list[Path] | None" = None,
+) -> str:
     """Explain the denial in terms of what is actually wrong with the evidence.
 
     Reporting "no fresh evidence" when a stamped-but-foreign or unstamped
@@ -476,6 +504,7 @@ def deny_reason(root: Path, session_id: str = "", tool: str = "") -> str:
     else:
         cause = f"Preflight evidence at {evidence} does not satisfy the workflow entry gate."
     action, retry = stopped_action(tool)
+    cause = f"{cause}{governed_because(root, cwd_roots)}"
     return (
         f"Tao Agent OS: run the workflow start hook before {action}. {cause} "
         f"Run `{stable_launcher_path()} start --project "
@@ -875,6 +904,8 @@ def _isolated_checkout_verdict(
     cwd: Path,
     tokens: list[str] | None = None,
     syntax_is_simple: bool = False,
+    governed_roots: "list[Path] | None" = None,
+    cwd_roots: "list[Path] | None" = None,
 ) -> int:
     """Answer a call the worktree policy has already cleared.
 
@@ -886,17 +917,28 @@ def _isolated_checkout_verdict(
     """
 
     session_id = str(payload.get("session_id") or "")
-    if not workflow_entry_allows(root, session_id):
+    # Every governed project, for the same reason the mutation and worktree
+    # checks already use all of them: a command writing into a second project
+    # is governed by that project's workflow entry too, and reading only the
+    # first let the project the shell happens to sit in authorize a write
+    # anywhere else.
+    finish_authorized = False
+    for governed in governed_roots or [root]:
+        if workflow_entry_allows(governed, session_id):
+            continue
         if (
             tool in BASH_TOOLS
             and syntax_is_simple
-            and publishes_finished_work(root, session_id, tokens or [])
+            and publishes_finished_work(governed, session_id, tokens or [])
         ):
-            return _approve(
-                "This is the ordinary Git command that a successful finish "
-                "authorized for this session."
-            )
-        return deny(deny_reason(root, session_id, tool))
+            finish_authorized = True
+            continue
+        return deny(deny_reason(governed, session_id, tool, cwd_roots))
+    if finish_authorized:
+        return _approve(
+            "This is the ordinary Git command that a successful finish "
+            "authorized for this session."
+        )
     sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
     if sprawl_reason:
         return deny(sprawl_reason)
@@ -922,6 +964,60 @@ def _isolated_checkout_verdict(
     return allow()
 
 
+def _is_one_of(root: Path, others: "list[Path] | None") -> bool:
+    """Whether this is one of those directories, through a symlinked path.
+
+    `/var` and `/private/var` name one directory on this platform, and the
+    project root a command resolves to is not always spelled the way the
+    governed-root scan spelled it. Comparing the spellings said two names for
+    the same checkout were two different projects.
+    """
+
+    for other in others or []:
+        if root == other:
+            return True
+        try:
+            if root.resolve() == other.resolve():
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _project_needing_its_own_entry(
+    payload: dict,
+    tool: str,
+    roots: list[Path],
+    cwd_roots: "list[Path] | None",
+    tokens: list[str] | None,
+    *,
+    syntax_is_simple: bool,
+) -> "Path | None":
+    """A project this command writes into that has not had its own ``start``.
+
+    Only projects the command reaches into, never the one it runs in: that one
+    is the subject of the verdict being qualified, and re-asking it here would
+    answer with the wrong gate.
+    """
+
+    session_id = str(payload.get("session_id") or "")
+    for candidate in roots:
+        if _is_one_of(candidate, cwd_roots):
+            continue
+        if workflow_entry_allows(candidate, session_id):
+            continue
+        # A successful finish authorizes the ordinary Git command that
+        # publishes it, including into a root the session is not standing in.
+        if (
+            tool in BASH_TOOLS
+            and syntax_is_simple
+            and publishes_finished_work(candidate, session_id, tokens or [])
+        ):
+            continue
+        return candidate
+    return None
+
+
 def _worktree_policy_verdict(
     payload: dict,
     tool: str,
@@ -932,6 +1028,7 @@ def _worktree_policy_verdict(
     worktree_reason: str,
     *,
     syntax_is_simple: bool,
+    cwd_roots: "list[Path] | None" = None,
 ) -> int:
     """Answer a call that a governed root refuses, once one of them does.
 
@@ -979,6 +1076,26 @@ def _worktree_policy_verdict(
         and standing_in_the_protected_checkout
         else ""
     )
+    # A landing that lets the command through speaks for the protected
+    # checkout, and only for it. The same command can write into a second
+    # governed project, and that project's workflow entry is a separate
+    # question this branch skipped entirely: the operator was asked about the
+    # checkout the command does not touch, while the project it does touch was
+    # never asked. Run from that project's own directory the identical write
+    # was denied, so where the shell sat decided the verdict.
+    if landing in {"allow", "defer", "ask"}:
+        unentered = _project_needing_its_own_entry(
+            payload, tool, roots, cwd_roots, tokens, syntax_is_simple=syntax_is_simple
+        )
+        if unentered is not None:
+            return deny(
+                deny_reason(
+                    unentered,
+                    str(payload.get("session_id") or ""),
+                    tool,
+                    cwd_roots,
+                )
+            )
     if landing == "allow":
         return _approve(
             "This authors nothing in the protected checkout: it moves or "
@@ -1743,6 +1860,55 @@ def shared_repository_hazard(
     )
 
 
+class _CallScope(NamedTuple):
+    """What this call is, and which projects it touches.
+
+    `bash_kind` is empty for an Edit or a Write, which have no command line.
+    `roots` is every governed project the call reaches, `cwd_roots` only the
+    ones it runs in; keeping them apart is what lets a verdict say whether a
+    project is in it because the shell is there or because a path put it there.
+    """
+
+    bash_kind: str
+    tokens: list[str]
+    syntax_is_simple: bool
+    command_cwd: Path
+    effective_cwd: Path
+    roots: "list[Path]"
+    cwd_roots: "list[Path]"
+
+    @property
+    def root(self) -> "Path | None":
+        return self.roots[0] if self.roots else None
+
+
+def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
+    """Read the call once, so every verdict below reads the same answer."""
+
+    if tool not in BASH_TOOLS:
+        # An Edit or a Write names one path and is judged by where that path
+        # is: it cannot run somewhere other than the shell's directory, and its
+        # shape cannot be unreadable.
+        root = find_edit_project_root(payload, cwd)
+        found = [root] if root is not None else []
+        return _CallScope("", [], True, cwd, cwd, found, list(found))
+    effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
+    command_cwd = _git_effective_cwd(tokens, effective_cwd)
+    return _CallScope(
+        bash_command_kind(tokens, syntax_is_simple),
+        tokens,
+        syntax_is_simple,
+        command_cwd,
+        effective_cwd,
+        bash_governed_roots(tokens, command_cwd, command=bash_command(payload)),
+        [
+            found
+            for found in (find_project_root(command_cwd), find_project_root(cwd))
+            if found is not None
+        ],
+    )
+
+
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
@@ -1754,29 +1920,15 @@ def decide(payload: dict) -> int:
         cwd = Path(cwd_raw).resolve()
     except OSError:
         return allow()
-    bash_kind = ""
-    # An Edit or Write has no command line, and the hazard check below runs for
-    # every tool. Leaving this unbound made that check raise for exactly the
-    # calls the waiver exists to allow.
-    tokens: list[str] = []
-    # Only a Bash command has a shape that can be unreadable, and only a Bash
-    # command can run somewhere other than the shell's directory; an Edit or a
-    # Write names one path and is judged by where that path is. Both are bound
-    # for either tool because the verdicts below are now functions, and an
-    # argument is evaluated whether or not the branch that reads it is taken.
-    syntax_is_simple = True
-    command_cwd = cwd
-    if tool in BASH_TOOLS:
-        effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
-        bash_kind = bash_command_kind(tokens, syntax_is_simple)
-        command_cwd = _git_effective_cwd(tokens, effective_cwd)
-        roots = bash_governed_roots(
-            tokens, command_cwd, command=bash_command(payload)
-        )
-        root = roots[0] if roots else None
-    else:
-        root = find_edit_project_root(payload, cwd)
-        roots = [root] if root is not None else []
+    scope = _call_scope(payload, tool, cwd)
+    bash_kind = scope.bash_kind
+    tokens = scope.tokens
+    syntax_is_simple = scope.syntax_is_simple
+    command_cwd = scope.command_cwd
+    effective_cwd = scope.effective_cwd
+    roots = scope.roots
+    cwd_roots = scope.cwd_roots
+    root = scope.root
     if root is None:
         return _ungoverned_project_verdict(cwd, tokens)
     if tool in BASH_TOOLS and bash_kind == "read_only":
@@ -1831,6 +1983,7 @@ def decide(payload: dict) -> int:
             command_cwd,
             worktree_reason,
             syntax_is_simple=syntax_is_simple,
+            cwd_roots=cwd_roots,
         )
     if worktree_policy_satisfied(root) and not policy_requires_workflow_entry(root):
         hazard = shared_repository_hazard(tokens, protected_branch_names(root))
@@ -1860,7 +2013,9 @@ def decide(payload: dict) -> int:
                 "This worktree isolates ordinary file edits, but this Git command "
                 f"{hazard}. Allow it only if that is what you meant."
             )
-    return _isolated_checkout_verdict(payload, tool, root, cwd, tokens, syntax_is_simple)
+    return _isolated_checkout_verdict(
+        payload, tool, root, cwd, tokens, syntax_is_simple, roots, cwd_roots
+    )
 
 
 def main() -> int:

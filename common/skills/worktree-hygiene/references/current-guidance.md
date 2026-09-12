@@ -217,6 +217,12 @@ hook refuses every scope with `no changed paths` and cannot attest a clean
 checkout, so without this the run stays unfinished, and unfinished runs are what
 make a session start blocking its own edits.
 
+Either cancellation also records, per session, that this session's work in that
+project is closed, which is what the Claude Stop gate reads before blocking a
+stop. Without that record the gate kept blocking a session that had cancelled
+correctly, and told it to run `review` and `finish` on a run already terminal --
+a remedy nothing could accept.
+
 ## Before Reporting
 
 - Re-check the final diff or touched files.

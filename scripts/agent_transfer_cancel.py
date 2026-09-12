@@ -12,6 +12,11 @@ from typing import Any
 from agent_execution_capsule_state import atomic_write_json
 from agent_hook_runtime import finish_with_result
 from agent_run_registry import cancel_run, registered_run
+from agent_runtime_session import (
+    SETTLED_SUFFIX,
+    recorded_session_id,
+    record_session_close,
+)
 from agent_transfer_validate import git, validate_transfer
 
 
@@ -337,6 +342,31 @@ def recorded_changed_scope(project: Path, run_id: str) -> int:
     return len(scope) if isinstance(scope, list) else 0
 
 
+def _record_settled_session(project: Path, evidence: Path) -> None:
+    """Tell the Claude Stop gate this session's work here was settled.
+
+    That gate blocks a stop when a session edited files in a project and no
+    close from the same session vouches for them. It only ever read `finish`'s
+    marker, so a run settled here -- proven clean, correctly not finished --
+    left the gate armed and it blocked a session that had done exactly what the
+    lifecycle asked. The cancellation this follows is the strongest answer the
+    gate could want: the transition ran with a clean checkout as its
+    precondition.
+
+    Written after the transition, never before: a marker for a cancellation that
+    then failed would release the gate over work nothing settled. The residual
+    race is the one the receipt's own signature documents -- a tool approved
+    before the transition can land after it -- and it is no wider here than for
+    `finish`, which vouches on the same terms.
+    """
+
+    try:
+        preflight = json.loads(evidence.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    record_session_close(project, recorded_session_id(preflight), SETTLED_SUFFIX)
+
+
 def _settle_cancellation(
     args: Any, evidence: Path, receipt: dict, details: list[str]
 ) -> int:
@@ -380,6 +410,7 @@ def _settle_cancellation(
             args.repair_cycle,
             invocation_error=True,
         )
+    _record_settled_session(args.project, evidence)
     # The registry already carries this record, written in the same transaction
     # as the state, so the file is a convenience copy. Losing it to a crash no
     # longer loses the outcome, and rewriting it is idempotent -- which is why a
