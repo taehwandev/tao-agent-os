@@ -390,6 +390,91 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertIn("## Red Flags", STRICT_CARD_REQUIRED_HEADINGS)
         self.assertIn("## Verification", STRICT_CARD_REQUIRED_HEADINGS)
 
+    def test_risk_concern_hints_reach_their_cards_in_both_languages(self) -> None:
+        """Each of these cards existed with no path to it from a request."""
+
+        cases = (
+            (
+                "security",
+                (
+                    "fix the security issue",
+                    "encrypt the stored payload",
+                    "시크릿 키가 로그에 남아요",
+                    "민감정보 마스킹 추가해줘",
+                ),
+            ),
+            (
+                "auth",
+                (
+                    "Add JWT token validation to the login API",
+                    "add auth check for admin role",
+                    "로그인 API에 JWT 토큰 검증 추가해줘",
+                    "권한 검사 추가해줘",
+                ),
+            ),
+            (
+                "billing",
+                (
+                    "billing entitlement check",
+                    "handle the payment webhook",
+                    "구독 결제 연동해줘",
+                    "환불 처리 추가해줘",
+                ),
+            ),
+        )
+        for concern, requests in cases:
+            for request in requests:
+                with self.subTest(concern=concern, request=request):
+                    self.assertIn(concern, infer_concerns_from_request(request))
+
+    def test_a_bare_token_is_not_a_design_token(self) -> None:
+        """`\\btokens?\\b` sent every JWT and access token to the design card."""
+
+        for request in (
+            "Add JWT token validation to the login API",
+            "rotate the access token",
+            "토큰 검증 로직 고쳐줘",
+        ):
+            with self.subTest(request=request):
+                self.assertNotIn("design-system", infer_concerns_from_request(request))
+        for request in ("clean up the design tokens", "디자인 토큰 정리해줘"):
+            with self.subTest(request=request):
+                self.assertIn("design-system", infer_concerns_from_request(request))
+
+    def test_a_logging_verb_is_not_a_sign_in(self) -> None:
+        """`\\blog\\s?in\\b` read "log in the error" as authentication."""
+
+        for request in ("log in the error to the console", "log in the request id"):
+            with self.subTest(request=request):
+                self.assertNotIn("auth", infer_concerns_from_request(request))
+        for request in ("add a login screen", "sign-in flow is broken", "로그인 고쳐줘"):
+            with self.subTest(request=request):
+                self.assertIn("auth", infer_concerns_from_request(request))
+
+    def test_a_request_that_rules_a_risk_concern_out_is_believed(self) -> None:
+        """Only with the scope-limiting half: a warning is not an opt-out."""
+
+        excluded = (
+            ("security", "this is not a security change, just rename the button"),
+            ("security", "보안 이슈는 아니고 문구만 수정해줘"),
+            ("auth", "not an auth change, only a copy tweak"),
+            ("billing", "결제는 아니고 문구만 고쳐줘"),
+            ("migration", "this is not a migration, just a rename"),
+        )
+        for concern, request in excluded:
+            with self.subTest(concern=concern, request=request):
+                self.assertNotIn(concern, infer_concerns_from_request(request))
+
+        kept = (
+            ("security", "make sure this is not a security regression"),
+            ("security", "fix the security issue"),
+            ("auth", "권한 체크 추가해줘"),
+            ("billing", "결제 웹훅 처리 추가해줘"),
+        )
+        for concern, request in kept:
+            with self.subTest(concern=concern, request=request):
+                self.assertIn(concern, infer_concerns_from_request(request))
+
     def test_metering_concern_is_registered_separately_from_design_tokens(self) -> None:
         self.assertIn("metering", CONCERNS)
         self.assertIn("usage", CONCERNS)

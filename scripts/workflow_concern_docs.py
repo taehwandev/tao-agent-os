@@ -230,6 +230,35 @@ CONCERNS: Dict[str, Tuple[str, ...]] = {
 }
 
 
+# Keyword inference is not evidence, so an inferred concern routes its cards as
+# references: "not a performance change" matches as readily as a performance
+# change does. These concerns are the exception. Each one guards an outcome that
+# cannot be taken back -- a leaked secret, a wrong permission, a wrong charge, a
+# lost row, a shipped version -- so a false positive costs one or two cards while
+# a miss costs the change being made without the card that says how not to break
+# it. Naming the concern explicitly is still the stronger signal; this only says
+# the route does not wait for it.
+#
+# `release` is deliberately absent. Its miss is already covered: `release` and
+# `ship` require three of its four cards as their command documents, so a real
+# release request reads them without the concern. Promoting it would add 24 KB
+# -- the largest concern set here -- to ordinary work whenever a request says
+# "changelog" or "versioning", to supply one card the release routes do not.
+RISK_CONCERNS_REQUIRED_WHEN_INFERRED: frozenset[str] = frozenset(
+    {
+        "agent-credentials",
+        "auth",
+        "billing",
+        "brokered-credentials",
+        "capability-token",
+        "credential-broker",
+        "egress-control",
+        "migration",
+        "security",
+    }
+)
+
+
 # Cards a concern routes as on-demand references only. A caller naming
 # `testing` gets the testing card required (10 KB); the scenario and
 # verification-policy references (25 KB together) stay one link away, and a
