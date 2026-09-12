@@ -4,6 +4,7 @@ import json
 import io
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -105,6 +106,8 @@ from workflow_doc_surfaces import (
     git_status_surface_paths,
     infer_surface_docs,
     load_doc_surface_rules,
+    rule_list,
+    rule_matches_request,
     surface_rule_doc_refs,
 )
 from workflow_doc_graph import (
@@ -1491,6 +1494,114 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                 self.assertIn(required_doc(expected_doc), route["required_docs"])
                 self.assertNotIn(required_doc(absent_doc), route["required_docs"])
                 self.assertTrue(any(match["name"] == match_name for match in route["doc_surface_matches"]))
+
+
+class AndroidSiblingReferenceRoutingTests(unittest.TestCase):
+    """A sibling reference card is earned by the request, not carried by default.
+
+    Splitting the two large Android cards produced narrow siblings -- deep
+    links, WebView, Wear, previews. Each only helps the request that asks for
+    it, and the required-doc budget is eight documents, so a card that rides
+    along on every Compose screen request costs the request its own guidance.
+    """
+
+    def test_deep_link_feature_requires_the_navigation_card(self) -> None:
+        route = resolve_docs(
+            "feature",
+            "android",
+            [],
+            request_classified=True,
+            request_text="딥링크로 상세 화면 여는 기능 추가해줘",
+        )
+
+        self.assertIn(required_doc("platforms/android/skills/android-architecture/references/navigation-deep-links.md"), route["required_docs"])
+
+    def test_webview_screen_feature_requires_the_webview_card(self) -> None:
+        route = resolve_docs(
+            "feature",
+            "android",
+            [],
+            request_classified=True,
+            request_text="WebView로 약관 페이지 보여주는 화면 추가",
+        )
+
+        self.assertIn(required_doc("platforms/android/skills/android-architecture/references/webview-surface.md"), route["required_docs"])
+
+    def test_wear_os_feature_requires_the_wear_card(self) -> None:
+        route = resolve_docs(
+            "feature",
+            "android",
+            [],
+            request_classified=True,
+            request_text="Wear OS 타일에 걸음수 표시 추가",
+        )
+
+        self.assertIn(required_doc("platforms/android/skills/android-compose-ui/references/wear-compose.md"), route["required_docs"])
+
+    def test_broken_preview_bugfix_requires_the_preview_card(self) -> None:
+        route = resolve_docs(
+            "bugfix",
+            "android",
+            [],
+            request_classified=True,
+            request_text="스크린샷 프리뷰가 깨져서 고쳐줘",
+        )
+
+        self.assertIn(required_doc("platforms/android/skills/android-compose-ui/references/compose-previews.md"), route["required_docs"])
+
+    def test_plain_compose_screen_feature_keeps_structure_and_drops_previews(self) -> None:
+        route = resolve_docs(
+            "feature",
+            "android",
+            [],
+            request_classified=True,
+            request_text="홈 화면에 즐겨찾기 탭을 Compose로 추가해줘",
+        )
+
+        self.assertNotIn(required_doc("platforms/android/skills/android-compose-ui/references/compose-previews.md"), route["required_docs"])
+        self.assertIn(required_doc("platforms/android/skills/android-compose-ui/references/screen-structure.md"), route["required_docs"])
+
+
+class KoreanParticleRequestMatchingTests(unittest.TestCase):
+    """A Latin keyword carrying a Korean particle still has to match its rule.
+
+    Korean requests glue the particle onto the keyword -- "jank를",
+    "ViewModel에", "uiState가" -- and a trailing word-boundary anchor finds no
+    boundary between `k` and `를`, so the request patterns that end a Latin
+    keyword that way used to miss the request in silence. The matcher splits
+    that one junction instead of loosening every pattern.
+    """
+
+    def _request_rule(self, name: str) -> dict:
+        for rule in rule_list(load_doc_surface_rules(), "request_intents"):
+            if rule.get("name") == name:
+                return rule
+        self.fail(f"no request intent rule named {name}")
+
+    def test_keyword_with_attached_particle_matches_its_rule(self) -> None:
+        cases = (
+            ("jank를 줄여줘", "android_ui_performance"),
+            ("ViewModel에 상태 추가", "android_ui_state_change"),
+            ("uiState가 회전하면 초기화됨", "android_ui_state_change"),
+            ("WebView로 약관 페이지", "android_webview_surface"),
+        )
+
+        for request_text, rule_name in cases:
+            with self.subTest(request=request_text):
+                self.assertTrue(rule_matches_request(self._request_rule(rule_name), request_text))
+
+        self.assertIsNone(re.search(r"\b(jank|stutter)\b", "jank를 줄여줘", re.IGNORECASE))
+
+    def test_jank_bugfix_request_requires_the_compose_performance_card(self) -> None:
+        route = resolve_docs(
+            "bugfix",
+            "android",
+            [],
+            request_classified=True,
+            request_text="LazyColumn이 jank를 일으켜서 고쳐줘",
+        )
+
+        self.assertIn(required_doc("platforms/android/skills/android-compose-ui/references/compose-performance.md"), route["required_docs"])
 
 
 if __name__ == "__main__":

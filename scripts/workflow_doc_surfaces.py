@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -52,6 +53,10 @@ def infer_surface_docs(
     rules = load_doc_surface_rules(root)
     docs: list[str] = []
     matches: list[dict[str, object]] = []
+    # Keep independent requests separate: a narrow data edit must not erase a
+    # UI edit in another clause. Retain clause indexes, not another prompt copy.
+    clauses = re.split(r"[;\n.!?]|\b(?:and|but|then)\b|(?<=하고)|(?<=말고)",
+                       request_text, flags=re.IGNORECASE)
 
     request_rules = list(enumerate(rule_list(rules, "request_intents")))
     request_rules.sort(key=lambda item: (-_required_priority(item[1]), item[0]))
@@ -62,7 +67,14 @@ def infer_surface_docs(
             continue
         if not rule_matches_request(rule, request_text):
             continue
+        clause_ids = [i for i, clause in enumerate(clauses)
+                      if rule_matches_request(rule, clause)]
+        if str(rule.get("name", "")).endswith("_change"):
+            clause_ids = [i for i in clause_ids if not _negated_change(clauses[i])]
+            if not clause_ids:
+                continue
         docs.extend(_append_request_match(rules, rule, command, matches))
+        matches[-1]["request_clauses"] = clause_ids
 
     paths = unique(
         normalize_path(path)
@@ -85,6 +97,20 @@ def infer_surface_docs(
     return unique(docs), matches
 
 
+def _negated_change(clause: str) -> bool:
+    """Recognize explicit change exclusions, not arbitrary uses of 'not'.
+
+    This filters change-specific discovery only; required safety concerns and
+    owner-path rules are not removed by a request's negative wording.
+    """
+    return bool(re.search(
+        r"\b(?:do\s+not|don't|must\s+not|never)\s+(?:change|modify|edit|fix|touch)\b"
+        r"|\bwithout\s+(?:changing|modifying|editing|fixing|touching)\b"
+        r"|(?:수정|변경|편집|건드리)(?:하)?지\s*(?:말|마|않)",
+        clause, re.IGNORECASE,
+    ))
+
+
 def _append_request_match(
     rules: dict[str, Any],
     rule: dict[str, Any],
@@ -100,25 +126,65 @@ def _append_request_match(
             "platforms": string_list(rule.get("platforms")),
             "reason": str(rule.get("reason") or ""),
             "required_priority": _required_priority(rule),
+            "narrows": string_list(rule.get("narrows")),
         }
     )
     return docs
 
 
 def required_surface_docs(matches: list[dict[str, object]]) -> list[str]:
-    """Separate retrieval matches from evidence that permits required reading."""
+    """Separate retrieval matches from evidence that permits required reading.
+
+    A rule may name broader rules it `narrows`. Moving one button matches both
+    "this is Compose UI work" and "this is a layout change"; the second is the
+    truer description, and without this the wider rule still required the state,
+    module and lifecycle cards that placing a control does not decide. Narrowing
+    only removes documents from the required set -- they stay reachable as
+    reference docs, so nothing becomes unreadable.
+    """
     selected: list[str] = []
-    has_owner = any(m.get("type") == "path_surface" and m.get("paths") for m in matches)
+    narrowed: set[str] = set()
     for match in matches:
+        for name in match.get("narrows") or ():
+            # A separately matched request for the broad domain is independent
+            # work, even if its owner path also matches a narrowed path rule.
+            sibling_names = set(match.get("narrows") or ())
+            independent = []
+            for other in matches:
+                if (other.get("type") == "request_intent"
+                        and other.get("name") in sibling_names
+                        and set(other.get("request_clauses") or ())
+                            - set(match.get("request_clauses") or ())):
+                    independent.append(other)
+                    other["independent_change"] = True
+            if not independent:
+                narrowed.add(str(name))
+    has_owner = any(
+        m.get("type") == "path_surface" and m.get("paths") and not m.get("reference_only")
+        for m in matches
+    )
+    for match in matches:
+        if match.get("reference_only"):
+            # Routed as a candidate, never required: the touched file says this
+            # ecosystem is nearby, not that this change reads it.
+            match["required_eligible"] = False
+            match["selection_reason"] = "reference_only_surface"
+            continue
+        if str(match.get("name")) in narrowed:
+            match["required_eligible"] = False
+            match["selection_reason"] = "narrowed_by_a_more_specific_rule"
+            continue
         owner = match.get("type") == "path_surface" and bool(match.get("paths"))
         priority = match.get("required_priority", 0)
         explicit = isinstance(priority, int) and not isinstance(priority, bool) and priority > 0
         intent_fallback = not has_owner and match.get("type") == "request_intent"
-        eligible = owner or explicit or intent_fallback
+        independent = bool(match.get("independent_change"))
+        eligible = owner or explicit or independent or intent_fallback
         match["required_eligible"] = eligible
         match["selection_reason"] = (
             "verified_owner_path" if owner else
             "explicit_required_priority" if explicit else
+            "independent_change" if independent else
             "request_intent_without_resolved_owner" if intent_fallback else
             "keyword_candidate_without_owner_evidence"
         )
@@ -146,6 +212,8 @@ def _append_path_match(
             "paths": matched_paths,
             "docs": docs,
             "reason": str(rule.get("reason") or ""),
+            "narrows": string_list(rule.get("narrows")),
+            "reference_only": bool(rule.get("reference_only")),
         }
     )
     return docs

@@ -12,6 +12,13 @@ from workflow_common import (
     RESUME_SCOPE,
 )
 
+WORK_SCOPE_GUIDANCE = (
+    "Stay within the confirmed request. Expand reading, samples or edits only for "
+    "an unresolved in-scope decision or an applicable requirement; incidental findings "
+    "do not authorize extra work. Stop when the requested outcome and required checks "
+    "are satisfied. Preserve mandatory instructions; add no planning or approval ritual."
+)
+
 
 def render_markdown(route: dict[str, object]) -> str:
     """Return exactly what `print_markdown` would print.
@@ -43,7 +50,7 @@ def render_advisory_markdown(route: dict[str, object]) -> str:
 
     lines = _header_lines(route)
     lines.append("## Read First")
-    lines.extend(f"- `{doc}`" for doc in route.get("required_docs") or route["docs"])
+    lines.extend(f"- `{doc}`" for doc in route.get("required_docs", route["docs"]))
     reference_count = len(route.get("reference_docs") or [])
     if reference_count:
         lines.append("")
@@ -52,6 +59,14 @@ def render_advisory_markdown(route: dict[str, object]) -> str:
             f"{reference_count} more reference {noun} listed by `tao-hook start`; "
             "open them only on demand."
         )
+    reading_scope = route.get("reading_scope") or {}
+    if reading_scope.get("guidance"):
+        # The route already decided this is a lookup. Printing only its document
+        # list handed that decision to the agent without the scope that makes it
+        # a lookup, which is how a read-only question grew a reading queue.
+        lines.append("")
+        lines.append(f"## Reading Scope: {reading_scope.get('mode', 'lookup')}")
+        lines.append(str(reading_scope["guidance"]))
     lines.append("")
     lines.append("## Gates")
     lines.extend(f"- {gate}" for gate in route["gates"])
@@ -69,6 +84,12 @@ def render_advisory_markdown(route: dict[str, object]) -> str:
         "The full manifest (hooks, parallel plan, gate ledger) comes from "
         f"`tao-hook start ... --command {route['command']} --request \"<USER_REQUEST>\"`."
     )
+    lines.append(
+        "This suggested command is not a reading queue: reuse unchanged guidance; "
+        "answer read-only lookups directly, and select the actual work route only "
+        "when the request needs it."
+    )
+    lines.append(WORK_SCOPE_GUIDANCE)
     return "\n".join(lines) + "\n"
 
 
@@ -86,6 +107,7 @@ def _header_lines(route: dict[str, object]) -> list[str]:
 def print_markdown(route: dict[str, object]) -> None:
     for line in _header_lines(route):
         print(line)
+    print(WORK_SCOPE_GUIDANCE)
     if route["request_classification"]:
         classification = route["request_classification"]
         print("## Request Classification")
@@ -116,8 +138,10 @@ def print_markdown(route: dict[str, object]) -> None:
         print("- Record that evidence before reporting `request intake` SUCCESS.")
         print()
     print("## Read First")
+    reasons = {item["doc"]: item["reason"] for item in route.get("required_doc_reasons") or []}
     for doc in route.get("required_docs") or route["docs"]:
-        print(f"- `{doc}`")
+        reason = reasons.get(doc)
+        print(f"- `{doc}`" + (f" - {reason}" if reason else ""))
     print()
     if route.get("reference_docs"):
         print("## Reference On Demand")

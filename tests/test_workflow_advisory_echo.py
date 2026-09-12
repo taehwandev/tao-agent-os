@@ -20,7 +20,38 @@ from workflow_advisory_echo import (  # noqa: E402
     record_delivery,
 )
 from workflow_output import render_advisory_markdown, render_markdown  # noqa: E402
+from workflow_output import WORK_SCOPE_GUIDANCE  # noqa: E402
 from workflow_route import resolve_docs  # noqa: E402
+
+
+class WorkScopeDeliveryTests(unittest.TestCase):
+    def test_both_renderers_deliver_scope_without_changing_requirements(self):
+        for command in ("analysis", "small-change", "commit"):
+            for renderer in (render_advisory_markdown, render_markdown):
+                with self.subTest(command=command, renderer=renderer.__name__):
+                    route = resolve_docs(command, None, [], advisory=True)
+                    route["blocking"] = ["test authority blocker"]
+                    before = json.dumps(route, sort_keys=True)
+                    rendered = renderer(route)
+                    self.assertEqual(1, rendered.count(WORK_SCOPE_GUIDANCE))
+                    self.assertIn("test authority blocker", rendered)
+                    self.assertEqual(before, json.dumps(route, sort_keys=True))
+
+    def test_actual_prompt_output_carries_scope_without_extra_required_reads(self):
+        for prompt in ("함수 설명해줘", "오타 한 줄 수정해줘", "PR 설명만 작성해줘"):
+            with self.subTest(prompt=prompt):
+                argv = [sys.executable, str(ROOT / "scripts/workflow.py"), "route", "auto",
+                        "--advisory", "--hook-stdin", "--format"]
+                payload = json.dumps({"prompt": prompt})
+                markdown = subprocess.run([*argv, "markdown"], input=payload, cwd=ROOT,
+                                          capture_output=True, text=True, check=True)
+                self.assertIn(WORK_SCOPE_GUIDANCE, markdown.stdout)
+                encoded = subprocess.run([*argv, "json"], input=payload, cwd=ROOT,
+                                         capture_output=True, text=True, check=True)
+                route = json.loads(encoded.stdout)
+                self.assertIsNone(route["request_classification"])
+                self.assertEqual(["common/skills/agent-operating-skill/SKILL.md"],
+                                 route["required_docs"])
 
 
 class AdvisoryRouteIsDeliveredOncePerSessionTests(unittest.TestCase):
@@ -270,6 +301,19 @@ class AdvisoryListingIsCompactTests(unittest.TestCase):
 
         self.assertIn("## Missing Documents\n- `missing-guidance.md`", output)
         self.assertIn("## Blocking Conditions\n- a blocker the agent must see", output)
+
+    def test_an_advisory_lookup_carries_its_reading_scope(self) -> None:
+        """The document list alone hands over the decision without its scope."""
+
+        output = render_advisory_markdown(resolve_docs("analysis", None, [], advisory=True))
+
+        self.assertIn("## Reading Scope: lookup", output)
+        self.assertIn("Lookup reading:", output)
+
+    def test_an_advisory_work_route_prints_no_reading_scope(self) -> None:
+        output = render_advisory_markdown(resolve_docs("task", None, [], advisory=True))
+
+        self.assertNotIn("## Reading Scope", output)
 
     def test_the_non_advisory_route_keeps_its_full_manifest(self) -> None:
         route = resolve_docs("triage", None, [], request_classified=True)
