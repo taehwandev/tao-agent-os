@@ -195,9 +195,9 @@ class BundleContentCoverageTests(unittest.TestCase):
     def test_boundary_examples_cover_compose_and_activity_entry_shapes(self) -> None:
         bundle = self.bundle_text()
 
-        self.assertIn("`api` + `ui`", bundle)
+        self.assertIn("one unsplit feature module", bundle)
         self.assertIn("`api` + `impl`", bundle)
-        self.assertIn("`api` + `ui` + `impl`", bundle)
+        self.assertIn("`api` + `impl` + `ui`", bundle)
 
 
 class BundleShapeTests(unittest.TestCase):
@@ -225,14 +225,40 @@ class BundleShapeTests(unittest.TestCase):
 
 
 class FeatureUiBoundaryContractTests(unittest.TestCase):
-    def test_canonical_contract_puts_complete_compose_feature_in_ui(self) -> None:
+    def test_canonical_contract_keeps_the_feature_in_impl_by_default(self) -> None:
+        """`ui` is an extraction, so the default pair has to read that way."""
         text = (ROOT / BOUNDARIES).read_text()
 
-        self.assertIn("holder `Route`, ViewModel, `UiState`", text)
-        self.assertIn("`ui` is standalone from the feature's `impl`", text)
-        self.assertIn("`api + ui`", text)
-        self.assertIn("`api + impl`", text)
-        self.assertIn("`api` + `ui` + `impl`", text)
+        self.assertIn("`api` plus `impl` is the default pair", text)
+        self.assertIn("`api` + `impl`", text)
+        self.assertIn("`api` + `impl` + `ui`", text)
+
+    def test_ui_extraction_requires_a_named_consumer_outside_impl(self) -> None:
+        """Without that consumer the module is ceremony, so the rule names it."""
+        text = (ROOT / BOUNDARIES).read_text()
+
+        self.assertIn("created only when a named consumer", text)
+        self.assertIn("is not that consumer", text)
+
+    def test_api_owns_the_whole_navigation_contract(self) -> None:
+        """A caller that only navigates must not reach the implementation."""
+        text = (ROOT / BOUNDARIES).read_text()
+
+        self.assertIn("`navigateTo<Feature>` action", text)
+        self.assertIn(
+            "A module that only navigates to the feature must compile against"
+            " `api` alone",
+            text,
+        )
+        self.assertIn("fun NavController.navigateToProfile(", text)
+
+    def test_destination_and_holder_names_do_not_collide(self) -> None:
+        text = (ROOT / BOUNDARIES).read_text()
+
+        self.assertIn("## Destination And Holder Naming", text)
+        self.assertIn("`ProfileRoute` | `api`", text)
+        self.assertIn("`ProfileScreen` | `impl`", text)
+        self.assertIn("`ProfileContent` | `impl`", text)
 
     def test_dependent_guidance_preserves_ui_dependency_direction(self) -> None:
         layout = (ROOT / LAYOUT).read_text()
@@ -245,22 +271,26 @@ class FeatureUiBoundaryContractTests(unittest.TestCase):
         )
         self.assertIn("Do not copy the same composable signature", entry)
 
-    def test_activity_platform_code_stays_in_optional_impl(self) -> None:
+    def test_activity_platform_code_stays_in_impl(self) -> None:
         boundaries = (ROOT / BOUNDARIES).read_text()
         layout = (ROOT / LAYOUT).read_text()
 
-        self.assertIn("concrete Activities, manifest", boundaries)
+        self.assertIn("Activity, manifest declaration, Intent", boundaries)
         self.assertIn("Intent/request/result mapping", layout)
 
-    def test_route_example_uses_hilt_assisted_creation_for_the_key(self) -> None:
+    def test_route_example_uses_hilt_assisted_creation_for_the_destination(
+        self,
+    ) -> None:
         text = (ROOT / BOUNDARIES).read_text()
 
         self.assertIn("@HiltViewModel(assistedFactory", text)
-        self.assertIn("creationCallback = { factory -> factory.create(key) }", text)
+        self.assertIn("creationCallback = { factory -> factory.create(route) }", text)
         self.assertNotIn("profileViewModel(", text)
-        self.assertNotIn("LaunchedEffect(key)", text)
+        self.assertNotIn("LaunchedEffect(route)", text)
 
-    def test_legacy_ui_ownership_rules_do_not_return(self) -> None:
+    def test_ui_first_default_does_not_return(self) -> None:
+        """The bundle used to make `api + ui` the default and deviate from the
+        official Navigation 3 module naming to do it.  Both are gone."""
         text = "\n".join(
             (ROOT / path).read_text()
             for path in (
@@ -273,7 +303,9 @@ class FeatureUiBoundaryContractTests(unittest.TestCase):
             )
         )
 
-        self.assertNotIn("`impl` owns Compose UI by default", text)
+        self.assertNotIn("Choose `feature-api + feature-ui` when", text)
+        self.assertNotIn("`impl` is the optional platform-entry adapter", text)
+        self.assertNotIn("This skill keeps content in `ui`", text)
         self.assertNotIn("`ui` must not own ViewModels", text)
 
 

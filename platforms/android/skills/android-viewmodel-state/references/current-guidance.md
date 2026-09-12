@@ -19,12 +19,12 @@ also read `../../common/skills/reusable-code-design/SKILL.md`.
 Use this shape unless the repo has a stricter local pattern:
 
 ```text
-View/Route/Composable -> Action -> ViewModel -> Use Case -> Repository
+View/Screen holder/Composable -> Action -> ViewModel -> Use Case -> Repository
   -> DataSource/Adapter -> domain/repository entity
   -> ViewModel maps entity/failure to UiState + SideEffect
 ```
 
-- View/Route/Composable collects state, renders it, emits typed actions, and
+- View/Screen holder/Composable collects state, renders it, emits typed actions, and
   handles lifecycle-aware UI effects.
 - ViewModel receives actions through one explicit surface such as
   `onAction(action)`, owns screen state, cancellation, and event output.
@@ -213,17 +213,17 @@ class InboxViewModel @Inject constructor() : ViewModel() {
 }
 
 @Composable
-fun InboxRoute(viewModel: InboxViewModel = hiltViewModel()) {
+fun InboxScreen(viewModel: InboxViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    InboxScreen(
+    InboxContent(
         state = state,
         onAction = viewModel::send,
     )
 }
 
 @Composable
-private fun InboxScreen(
+private fun InboxContent(
     state: InboxUiState,
     onAction: (InboxAction) -> Unit,
 ) {
@@ -239,7 +239,7 @@ Keep user-visible text localizable at the UI/resource boundary. ViewModels may
 emit Android string resource ids, such as `R.string.retry`, as stable message
 keys when the repo uses that convention. They should not resolve those ids with
 `Context`, `Resources`, `getString()`, or `stringResource`, and should not
-hardcode user-visible copy. The Route, Activity, Fragment, or Composable
+hardcode user-visible copy. The Screen holder, Activity, Fragment, or Composable
 renderer resolves message keys into localized platform resources. Safe server
 fallback messages may be carried as values only when the app's error policy
 allows them.
