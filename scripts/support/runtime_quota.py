@@ -55,13 +55,13 @@ GAUGE_FULL = "█"
 GAUGE_EMPTY = "░"
 GAUGE_PARTIALS = " ▏▎▍▌▋▊▉"
 
-# Between windows. Two spaces alone let a gauge and the next label read as one
-# run of blocks.
-SEPARATOR = "  │  "
+# Between segments. A middle dot keeps a gauge and the next label apart without
+# the width a padded bar took; the operator asked for the tighter line.
+SEPARATOR = " · "
 
 
 def remaining_summary(rate_limits: Any, *, color: bool = False) -> str:
-    """`5h ██▊░░░░░  35%  │  7d ███████▌  94%` -- what is left, not what is spent.
+    """`5h ██▊░░░░░  35% · 7d ███████▌  94%` -- what is left, not what is spent.
 
     Runtimes report a window as the fraction it has consumed, which answers
     "how much have I burned". The question a status line exists for is the
