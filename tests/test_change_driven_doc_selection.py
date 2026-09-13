@@ -515,5 +515,268 @@ class PathSurfaceScopeTests(unittest.TestCase):
                     )
 
 
+class NamedFrameworkExcludesTheOtherTests(unittest.TestCase):
+    """The iOS card set waits for the stack to be confirmed; the request confirms it.
+
+    `ios_ui` hands out SwiftUI *and* UIKit guidance, and its own reason says why:
+    "until the repo-local UI stack is confirmed". A request that says SwiftUI has
+    confirmed it, and the other framework's card then only competes for a capped
+    budget with guidance that cannot apply.
+
+    Measured before this: the SwiftUI request required the UIKit reference --
+    5,515B of the wrong framework -- and the UIKit request required neither
+    framework card, having spent the slot on Swift architecture instead.
+    """
+
+    SWIFTUI = "platforms/ios/skills/ios-swiftui-ui/SKILL.md"
+    UIKIT = "platforms/ios/skills/ios-uikit-ui/SKILL.md"
+
+    def assert_framework(self, route, *, must, must_not):
+        required = set(route["required_docs"])
+        reachable = required | set(route["reference_docs"])
+        for doc in resolved([must]):
+            self.assertIn(doc, required)
+        for doc in resolved([must_not]):
+            self.assertNotIn(doc, required)
+            # Excluded from the mandate, not from the repository: a request can
+            # still turn out to touch the other framework, and the reader has
+            # to be able to reach its card when it does.
+            self.assertIn(doc, reachable)
+
+    def test_a_swiftui_request_is_not_required_to_read_uikit(self):
+        for prompt in (
+            "SwiftUI 리스트에 당겨서 새로고침을 추가해줘",
+            "Add pull to refresh to the SwiftUI list screen",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_framework(
+                    route_for("feature", "ios", prompt),
+                    must=self.SWIFTUI, must_not=self.UIKIT,
+                )
+
+    def test_a_uikit_request_is_not_required_to_read_swiftui(self):
+        for prompt in (
+            "UIKit 테이블뷰 셀 높이를 고쳐줘",
+            "Fix the UIKit table view cell height",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_framework(
+                    route_for("bugfix", "ios", prompt),
+                    must=self.UIKIT, must_not=self.SWIFTUI,
+                )
+
+    def test_a_request_naming_no_framework_still_reaches_both(self):
+        """The generic set is the right answer while the stack is unknown."""
+
+        route = route_for("feature", "ios", "즐겨찾기 화면을 만들어줘")
+        reachable = set(route["required_docs"]) | set(route["reference_docs"])
+
+        for doc in resolved([self.SWIFTUI, self.UIKIT]):
+            self.assertIn(doc, reachable)
+
+
+class CardsThatExistMustBeReachableTests(unittest.TestCase):
+    """A card nothing routes to is a card nobody reads.
+
+    Measured through `scripts/workflow.py route`: a view-binding leak, a
+    WorkManager schedule, and a keystore change each reached the card that
+    names their subject neither as required reading nor as a reference. They
+    were handed the Android architecture card instead. Nothing was mis-ranked;
+    no rule pointed at those cards at all, and for the keystore case no concern
+    was inferred either.
+    """
+
+    def assert_required(self, route, card):
+        required = set(route["required_docs"])
+        for doc in resolved([card]):
+            self.assertIn(doc, required)
+
+    def test_a_lifecycle_leak_reaches_the_memory_and_lifecycle_card(self):
+        for prompt in (
+            "Fragment onViewCreated에서 뷰 바인딩이 새고 있습니다",
+            "The view binding is leaking in onViewCreated",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required(
+                    route_for("bugfix", "android", prompt),
+                    "platforms/android/skills/android-memory-lifecycle/SKILL.md",
+                )
+
+    def test_scheduled_work_reaches_the_background_work_card(self):
+        for prompt in (
+            "WorkManager 작업이 절전 모드에서 실행되지 않습니다",
+            "The WorkManager job never runs in doze",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required(
+                    route_for("bugfix", "android", prompt),
+                    "platforms/android/skills/android-background-work/SKILL.md",
+                )
+
+    def test_a_change_of_credential_store_is_a_security_change(self):
+        """`security` is required on inference alone, so the inference has to
+        fire. Where a credential is kept was not saying security to it."""
+
+        for prompt in (
+            "토큰을 안드로이드 키스토어에 저장하도록 바꿔줘",
+            "Store the token in the Android keystore instead",
+            "iOS 키체인으로 자격 증명을 옮겨줘",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertIn("security", infer_concerns_from_request(prompt))
+
+    def test_design_tokens_are_not_a_credential(self):
+        """The control: `tokens` is also this vocabulary's design-token concern,
+        so a bare token must not drag in mandatory security reading."""
+
+        for prompt in (
+            "디자인 토큰을 정리해줘",
+            "Clean up the design tokens file",
+            "토큰 이름을 spacing-sm 으로 바꿔줘",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertNotIn("security", infer_concerns_from_request(prompt))
+
+    def test_design_token_storage_preserves_real_security_signals(self):
+        for prompt in ("Store design tokens in a JSON file",
+                       "디자인 토큰을 JSON 파일에 저장하도록 바꿔줘"):
+            self.assertNotIn("security", infer_concerns_from_request(prompt))
+            route = route_for("bugfix", "web", prompt)
+            self.assertFalse(any("security" in doc for doc in route["required_docs"]))
+        for prompt in ("Store design tokens and access tokens separately",
+                       "디자인 토큰과 인증 토큰을 저장해줘",
+                       "Store design tokens in the keychain",
+                       "Store the token in a file"):
+            self.assertIn("security", infer_concerns_from_request(prompt))
+
+    def test_excluded_android_work_does_not_require_its_card(self):
+        for subject, card in (("WorkManager", "android-background-work"),
+                              ("라이프사이클", "android-memory-lifecycle")):
+            for prompt in (f"{subject}는 수정하지 말고 DTO 파싱만 고쳐줘",
+                           f"Do not change {subject}; fix only DTO parsing"):
+                route = route_for("bugfix", "android", prompt)
+                self.assertFalse(any(card in doc for doc in route["required_docs"]), prompt)
+            prompt = f"Do not change {subject}; fix {subject} in the other module"
+            route = route_for("bugfix", "android", prompt)
+            self.assertTrue(any(card in doc for doc in route["required_docs"]), prompt)
+
+    def test_other_exclusions_preserve_android_subject_guidance(self):
+        for subject, card in (("WorkManager", "android-background-work"),
+                              ("onDestroyView", "android-memory-lifecycle")):
+            for prompt in (
+                f"Fix {subject} retry without changing the public API",
+                f"공개 API는 변경하지 않고 {subject} 오류를 수정해줘",
+                f"Fix {subject} without changing {subject} public API",
+                f"{subject} 설정은 수정하지 말고 {subject} 오류를 고쳐줘",
+            ):
+                route = route_for("bugfix", "android", prompt)
+                self.assertTrue(any(card in doc for doc in route["required_docs"]), prompt)
+
+    def test_a_non_lifecycle_android_bug_does_not_gain_the_lifecycle_card(self):
+        """The control for the new rules: they must answer their subject only."""
+
+        route = route_for(
+            "bugfix", "android", "응답 DTO 파싱에서 null 처리가 빠져 크래시가 납니다"
+        )
+        required = set(route["required_docs"])
+        for card in (
+            "platforms/android/skills/android-memory-lifecycle/SKILL.md",
+            "platforms/android/skills/android-background-work/SKILL.md",
+        ):
+            for doc in resolved([card]):
+                self.assertNotIn(doc, required)
+
+
+class AnExclusionIsAnExclusionWhereverItSitsTests(unittest.TestCase):
+    """"Without touching X" forbids X as plainly as "do not change X".
+
+    The recogniser required the whole clause to *be* the prohibition, so an
+    exclusion written as a modifier was invisible: "Fix only the DTO parser
+    without touching WorkManager" and "WorkManager는 변경하지 않고 DTO 파싱만
+    수정해줘" both kept the WorkManager card, while the same exclusion written
+    as a standalone sentence dropped it.
+
+    Reading prohibitions as spans is only safe with the other half: a clause
+    that forbids one thing and asks for another must keep the guidance for the
+    thing it asks for, which is what the `True` cases here hold.
+    """
+
+    WORK = "platforms/android/skills/android-background-work/SKILL.md"
+    LIFECYCLE = "platforms/android/skills/android-memory-lifecycle/SKILL.md"
+
+    def assert_required_is(self, prompt, card, expected):
+        route = route_for("bugfix", "android", prompt)
+        required = set(route["required_docs"])
+        for doc in resolved([card]):
+            if expected:
+                self.assertIn(doc, required)
+            else:
+                self.assertNotIn(doc, required)
+
+    def test_a_modifier_exclusion_drops_the_card(self):
+        for prompt in (
+            "Fix only the DTO parser without touching WorkManager",
+            "WorkManager는 변경하지 않고 DTO 파싱만 수정해줘",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, self.WORK, False)
+
+    def test_a_standalone_exclusion_still_drops_the_card(self):
+        for prompt in (
+            "Do not change WorkManager; fix only the DTO parser",
+            "WorkManager는 수정하지 말고 DTO 파싱만 고쳐줘",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, self.WORK, False)
+
+    def test_forbidding_one_thing_while_asking_for_another_keeps_the_card(self):
+        """The control. Reading exclusions more widely must not drop guidance
+        for work the same sentence asks for."""
+
+        for prompt in (
+            "Fix the WorkManager schedule without changing the API",
+            "API는 보존하면서 WorkManager 스케줄을 고쳐줘",
+            "DTO는 건드리지 말고 WorkManager 작업만 고쳐줘",
+            "Without touching the DTO parser, fix the WorkManager job",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, self.WORK, True)
+
+    def test_the_same_holds_for_the_lifecycle_rule(self):
+        self.assert_required_is(
+            "Fix the DTO parser without touching the view binding lifecycle",
+            self.LIFECYCLE, False,
+        )
+        self.assert_required_is(
+            "Fix the view binding leak without touching the DTO parser",
+            self.LIFECYCLE, True,
+        )
+
+
+class AKeystoreRequestStillReachesTheSecurityCardTests(unittest.TestCase):
+    """The part of the security finding that is not in dispute.
+
+    A review measured a keystore request at 13 documents and 80,749B, of which
+    29,694B is where-to-find-source material that says nothing about keeping a
+    credential. Trimming it is left to the user, because
+    `test_android_platform_surfaces_load_external_skill_manifest` names
+    `security` in an explicit list of concerns that must reach that manifest, so
+    the attachment is a recorded decision rather than an oversight.
+
+    What this branch is responsible for is that the request reaches the security
+    card at all. Before it, the keystore prompt inferred no concern and required
+    neither security card.
+    """
+
+    def test_a_keystore_request_requires_the_android_security_card(self):
+        route = route_for(
+            "feature", "android", "토큰을 안드로이드 키스토어에 저장하도록 바꿔줘"
+        )
+        required = set(route["required_docs"])
+
+        for doc in resolved(["platforms/android/skills/android-security/SKILL.md"]):
+            self.assertIn(doc, required)
+
+
 if __name__ == "__main__":
     unittest.main()

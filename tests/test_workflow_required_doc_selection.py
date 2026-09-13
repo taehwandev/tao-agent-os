@@ -1169,5 +1169,128 @@ class EmptyManifestBranchTests(unittest.TestCase):
         self.assertTrue(missing)
 
 
+class ResolutionNeverRepeatsADocumentTests(unittest.TestCase):
+    """One file, one read.
+
+    Selection reaches a card by one rule and that same card's reference by
+    another, which is ordinary: a work surface names the card, a concern names
+    the reference. Resolving the card then appends the reference a second time,
+    so the brief listed one file twice and the reading budget was charged twice
+    for it. Measured on the router before this: two repeats on a DTO-parsing
+    bugfix route, and a 16KB repeat on the docs route.
+    """
+
+    def _substantive_card(self) -> str:
+        """A card kept alongside its reference, which is where repeats arise.
+
+        A pointer entrypoint is replaced by its reference and can never
+        duplicate; only a substantive one emits two paths.
+        """
+
+        for card in (
+            "workflows/skills/bugfix-debugging/SKILL.md",
+            "workflows/skills/documentation-update/SKILL.md",
+            "common/skills/agent-operating-skill/SKILL.md",
+        ):
+            resolved = resolve_guidance_docs(ROOT, [card])
+            if len(resolved) == 2:
+                return card
+        self.skipTest("no substantive entrypoint available to exercise the repeat")
+
+    def test_a_card_and_its_own_reference_resolve_to_each_file_once(self):
+        card = self._substantive_card()
+        reference = resolve_guidance_docs(ROOT, [card])[1]
+
+        resolved = resolve_guidance_docs(ROOT, [card, reference])
+
+        self.assertEqual(len(resolved), len(set(resolved)),
+                         f"a document was handed to the reader twice: {resolved}")
+        self.assertEqual([card, reference], resolved)
+
+    def test_the_same_document_named_twice_is_read_once(self):
+        doc = "common/skills/agent-operating-skill/references/current-guidance.md"
+
+        self.assertEqual([doc], resolve_guidance_docs(ROOT, [doc, doc]))
+
+    def test_first_seen_order_survives(self):
+        """Order is the priority the tier walk spent its budget in."""
+
+        docs = [
+            "common/skills/agent-operating-skill/references/current-guidance.md",
+            "workflows/skills/bugfix-debugging/references/current-guidance.md",
+            "common/skills/agent-operating-skill/references/current-guidance.md",
+        ]
+
+        self.assertEqual(docs[:2], resolve_guidance_docs(ROOT, docs))
+
+    def test_no_route_hands_a_reader_the_same_document_twice(self):
+        """The property that matters, asserted where it is consumed."""
+
+        from workflow_request import infer_concerns_from_request
+        from workflow_route import resolve_docs
+
+        for command, platform, request in (
+            ("bugfix", "android",
+             "응답 DTO 파싱에서 null 처리가 빠져 크래시가 납니다. 고쳐주세요."),
+            ("docs", "web", "README의 설치 절차를 최신으로 고쳐줘"),
+            ("bugfix", "web", "API 응답 파싱에서 undefined 접근 오류가 납니다"),
+        ):
+            with self.subTest(request=request):
+                concerns = infer_concerns_from_request(request)
+                route = resolve_docs(
+                    command, platform, concerns, request_classified=True,
+                    inferred_concerns=concerns, request_text=request,
+                    surface_paths=[],
+                )
+                docs = resolve_guidance_docs(
+                    ROOT, list(route.get("required_docs") or [])
+                )
+                repeated = [d for d in set(docs) if docs.count(d) > 1]
+                self.assertEqual([], repeated)
+
+
+class ReferenceOnlyMeansTheSameOnBothRuleKindsTests(unittest.TestCase):
+    """A flag a rule carries and nobody reads is worse than no flag at all.
+
+    `_append_path_match` copied `reference_only` into the match it built;
+    `_append_request_match` did not. So on a `request_intents` rule the key was
+    accepted, read by nobody, and the rule's documents became required through
+    the ordinary intent fallback -- the opposite of what it asks for, with
+    nothing reporting the mismatch. Found when a backstop rule written as
+    reference_only required the first card in its own doc_set, so a UIKit
+    networking bug was required to read the SwiftUI card.
+    """
+
+    def _match(self, **extra):
+        from workflow_doc_surfaces import _append_request_match
+
+        matches: list = []
+        rule = {"name": "probe", "docs": ["common/skills/testing/SKILL.md"], **extra}
+        _append_request_match({}, rule, "feature", matches)
+        return matches[0]
+
+    def test_a_request_rule_carries_the_flag_into_its_match(self):
+        self.assertTrue(self._match(reference_only=True)["reference_only"])
+
+    def test_a_request_rule_without_the_flag_is_not_reference_only(self):
+        self.assertFalse(self._match()["reference_only"])
+
+    def test_a_reference_only_request_rule_selects_no_required_document(self):
+        from workflow_doc_surfaces import required_surface_docs
+
+        self.assertEqual([], required_surface_docs([self._match(reference_only=True)]))
+
+    def test_the_same_rule_without_the_flag_does_select_it(self):
+        """The control: without the flag the intent fallback still requires it,
+        so the test above is measuring the flag and not something else."""
+
+        from workflow_doc_surfaces import required_surface_docs
+
+        self.assertEqual(
+            ["common/skills/testing/SKILL.md"],
+            required_surface_docs([self._match()]),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

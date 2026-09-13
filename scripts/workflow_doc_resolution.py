@@ -120,24 +120,38 @@ def resolve_guidance_docs(root: Path, docs: list[str]) -> list[str]:
     * substantive entrypoint with a reference -> both are kept, entrypoint first
     * entrypoint with no reference on disk -> the entrypoint is kept unchanged
     * anything that is not a `SKILL.md` -> passed through untouched
+
+    The result keeps first-seen order and never repeats a path. Expansion is
+    what makes that necessary: a selection can name a card by one rule and that
+    same card's reference by another, and resolving the card appends the
+    reference a second time. The reader was then told to read one file twice
+    and the reading budget was charged for it twice -- measured at two repeats
+    on a DTO-parsing bugfix route and a 16KB repeat on the docs route.
     """
 
     resolved: list[str] = []
+    seen: set[str] = set()
+
+    def keep(path: str) -> None:
+        if path not in seen:
+            seen.add(path)
+            resolved.append(path)
+
     for doc in docs:
         if not doc.endswith("/SKILL.md"):
-            resolved.append(doc)
+            keep(doc)
             continue
         reference = guidance_reference_path(doc)
         if reference == doc or not (root / reference).exists():
             # No detailed reference exists; the entrypoint is all there is.
-            resolved.append(doc)
+            keep(doc)
             continue
         if is_pointer_entrypoint(root, doc):
-            resolved.append(reference)
+            keep(reference)
             continue
         # The entrypoint carries content the reference does not repeat.
-        resolved.append(doc)
-        resolved.append(reference)
+        keep(doc)
+        keep(reference)
     return resolved
 
 

@@ -259,6 +259,12 @@
       "platforms/ios/skills/ios-swiftui-ui/SKILL.md",
       "common/skills/accessibility-i18n/SKILL.md",
       "common/skills/ui-visual-verification/SKILL.md"
+    ],
+    "android_lifecycle_leak": [
+      "platforms/android/skills/android-memory-lifecycle/SKILL.md"
+    ],
+    "android_background_work": [
+      "platforms/android/skills/android-background-work/SKILL.md"
     ]
   },
   "request_intents": [
@@ -566,6 +572,60 @@
       ],
       "required_priority": 50,
       "reason": "A WebView screen needs the embedded-browser surface rules, which the wide Compose set leaves out."
+    },
+    {
+      "name": "android_lifecycle_leak",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(memory leaks?|leaking|leaked)\\b",
+        "\\bview ?binding\\b.{0,24}\\b(leak|null|clear|destroy)\\b",
+        "\\b(onviewcreated|ondestroyview|ondestroy|onclear(?:ed)?)\\b",
+        "\\b(lifecycle ?scope|viewlifecycleowner|lifecycle owner)\\b",
+        "(메모리|뷰\\s*바인딩|리스너|콜백).{0,16}(누수|샌|새고|해제)",
+        "(누수|라이프사이클|생명주기)"
+      ],
+      "doc_sets": [
+        "android_lifecycle_leak"
+      ],
+      "required_priority": 50,
+      "reason": "A leak or a lifecycle callback is what the memory and lifecycle card is for; without this rule the request was handed the Android architecture card and could not reach it at all.",
+      "subject_exclusion": true
+    },
+    {
+      "name": "android_background_work",
+      "platforms": [
+        "android"
+      ],
+      "commands": [
+        "bugfix",
+        "feature",
+        "build",
+        "task",
+        "refactor"
+      ],
+      "request_any": [
+        "\\b(workmanager|jobscheduler|foreground service|alarmmanager)\\b",
+        "\\b(doze|app standby|battery optimi[sz]ation)\\b",
+        "\\bbackground\\b.{0,24}\\b(work|job|task|sync|service)\\b",
+        "\\b(work|job|task|sync)\\b.{0,24}\\bbackground\\b",
+        "(백그라운드|절전|도즈).{0,16}(작업|동기화|서비스|실행)",
+        "(작업|동기화|서비스).{0,16}(백그라운드|절전)"
+      ],
+      "doc_sets": [
+        "android_background_work"
+      ],
+      "required_priority": 50,
+      "reason": "Scheduled and background execution is what the background-work card is for; without this rule the request was handed the Android architecture card and could not reach it at all.",
+      "subject_exclusion": true
     },
     {
       "name": "android_wear_compose",
@@ -912,6 +972,95 @@
         "flutter_ui"
       ],
       "reason": "Flutter UI feature work should load widget, project structure, state/data, review, visual, and performance guidance."
+    },
+    {
+      "name": "ios_swiftui_named",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor"
+      ],
+      "doc_sets": [
+        "ios_swiftui"
+      ],
+      "narrows": [
+        "ios_ui_feature"
+      ],
+      "reason": "The request names SwiftUI and not UIKit, and is about the interface, so the repo-local UI stack the generic iOS set waits for is confirmed. Naming both frameworks -- a migration, or an instruction to leave one alone -- confirms nothing and does not narrow, and a request that merely says which app it is does not make a UI card mandatory.",
+      "request_all": [
+        [
+          "(?s)^(?!.*(?:\\buikit\\b|\\buiview ?controller\\b|\\buitableview\\b|\\buicollectionview\\b|\\bstoryboard\\b|\\bxib\\b|\\bnib\\b|스토리보드|유아이킷))(?=.*(?:\\bswift\\s*ui\\b|스위프트\\s*ui|스위프트유아이)).*"
+        ],
+        [
+          "\\b(screen|screens|view|views|layout|list|lists|cell|cells|table|collection|navigation|tab|button|label|icon|padding|margin|spacing|constraint|align|alignment|position|placement)\\b",
+          "(화면|뷰|레이아웃|목록|리스트|셀|테이블|내비|네비|탭|버튼|라벨|아이콘|여백|간격|정렬|위치|배치|제약)"
+        ]
+      ]
+    },
+    {
+      "name": "ios_uikit_named",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor"
+      ],
+      "doc_sets": [
+        "ios_uikit"
+      ],
+      "narrows": [
+        "ios_ui_feature"
+      ],
+      "reason": "The request names UIKit and not SwiftUI, and is about the interface, so the repo-local UI stack the generic iOS set waits for is confirmed. Naming both frameworks -- a migration, or an instruction to leave one alone -- confirms nothing and does not narrow, and a request that merely says which app it is does not make a UI card mandatory.",
+      "request_all": [
+        [
+          "(?s)^(?!.*(?:\\bswift\\s*ui\\b|스위프트\\s*ui|스위프트유아이))(?=.*(?:\\buikit\\b|\\buiview ?controller\\b|\\buitableview\\b|\\buicollectionview\\b|\\bstoryboard\\b|\\bxib\\b|\\bnib\\b|스토리보드|유아이킷)).*"
+        ],
+        [
+          "\\b(screen|screens|view|views|layout|list|lists|cell|cells|table|collection|navigation|tab|button|label|icon|padding|margin|spacing|constraint|align|alignment|position|placement)\\b",
+          "(화면|뷰|레이아웃|목록|리스트|셀|테이블|내비|네비|탭|버튼|라벨|아이콘|여백|간격|정렬|위치|배치|제약)"
+        ]
+      ]
+    },
+    {
+      "name": "ios_ui_ecosystem_named",
+      "platforms": [
+        "ios"
+      ],
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor"
+      ],
+      "request_any": [
+        "\\bswift\\s*ui\\b",
+        "\\buikit\\b",
+        "\\b(uiview ?controller|uitableview|uicollectionview|storyboard|xib|nib)\\b",
+        "스위프트\\s*ui",
+        "유아이킷",
+        "스토리보드"
+      ],
+      "doc_sets": [
+        "ios_ui"
+      ],
+      "reference_only": true,
+      "reason": "Naming one framework decides what must be read, not what exists in the project. Filling the surface tier stops the budget before the platform card set, so the whole iOS set -- including the platform cards no framework doc_set carries -- stays reachable as reference candidates.",
+      "docs": [
+        "platforms/swift/skills/swift-architecture/SKILL.md",
+        "platforms/swift/skills/swift-review/SKILL.md",
+        "platforms/ios/skills/ios-architecture/SKILL.md"
+      ]
     },
     {
       "name": "ios_ui_feature",

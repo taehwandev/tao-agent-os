@@ -69,7 +69,13 @@ def infer_surface_docs(
             continue
         clause_ids = [i for i, clause in enumerate(clauses)
                       if rule_matches_request(rule, clause)]
-        if str(rule.get("name", "")).endswith("_change"):
+        name = str(rule.get("name", ""))
+        if rule.get("subject_exclusion"):
+            clause_ids = [i for i in clause_ids
+                          if not _excluded_subject(clauses[i], rule)]
+            if not clause_ids:
+                continue
+        elif name.endswith("_change"):
             clause_ids = [i for i in clause_ids if not _negated_change(clauses[i])]
             if not clause_ids:
                 continue
@@ -95,6 +101,47 @@ def infer_surface_docs(
         docs.extend(_append_path_match(rules, rule, matched_paths, matches))
 
     return unique(docs), matches
+
+
+# A prohibition and the subject it governs. Read as spans inside the clause
+# rather than as the whole clause: "fix only the DTO parser without touching
+# WorkManager" is a prohibition too, and requiring the clause to *be* one meant
+# every exclusion written as a modifier was invisible.
+_PROHIBITION_SPANS = (
+    r"\bwith(?:out)\s+(?:touching|changing|modifying|editing|altering|"
+    r"breaking|affecting)\s+(?P<subject>[^,.;]+)",
+    r"\b(?:do\s+not|don't|must\s+not|never)\s+"
+    r"(?:change|modify|edit|fix|touch|alter)\s+(?P<subject>[^,.;]+)",
+    r"(?P<subject>[^,.;]+?)\s*(?:은|는|을|를)?\s*"
+    r"(?:수정|변경|편집|건드리|손대)(?:하)?지\s*"
+    r"(?:말고|말아줘|마세요|마|않고|않은\s*채|않으면서|않인\s*채)",
+)
+
+
+def _excluded_subject(clause: str, rule: dict[str, Any]) -> bool:
+    """True when this clause forbids this rule's subject and asks nothing of it.
+
+    The prohibition is found wherever it sits, and what it governs is compared
+    against the rule. Excluding on that alone would be wrong: "API는 보존하면서
+    WorkManager 수정" forbids one thing and asks for another, and the rule's
+    subject is in the part being asked for. So the clause with its prohibitions
+    removed has to *stop* matching before the guidance is dropped.
+
+    Phrasing this does not recognise keeps the guidance, which is the safe
+    direction: an unread exclusion costs a document, an unread request costs the
+    rules for the change being made.
+    """
+
+    remainder = clause
+    forbidden = False
+    for pattern in _PROHIBITION_SPANS:
+        for match in re.finditer(pattern, clause, re.IGNORECASE):
+            if rule_matches_request(rule, match.group("subject")):
+                forbidden = True
+            remainder = remainder.replace(match.group(0), " ")
+    if not forbidden:
+        return False
+    return not rule_matches_request(rule, remainder)
 
 
 def _negated_change(clause: str) -> bool:
@@ -127,6 +174,11 @@ def _append_request_match(
             "reason": str(rule.get("reason") or ""),
             "required_priority": _required_priority(rule),
             "narrows": string_list(rule.get("narrows")),
+            # Carried for the same reason a path rule carries it. Reading the
+            # flag only there made it a silent no-op on a request rule: the
+            # documents were routed as candidates *and* required, which is
+            # exactly what the flag exists to prevent.
+            "reference_only": bool(rule.get("reference_only")),
         }
     )
     return docs
