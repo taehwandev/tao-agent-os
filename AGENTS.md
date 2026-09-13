@@ -125,6 +125,20 @@ Ask only for a remaining material ambiguity, conflicting instruction or missing
 authority. Do not ask the user to repeat a settled requirement or approve the
 same authorized action again. Current scope changes override prior context.
 
+The runtime owns contextual intent, sequence, scope and authority judgment;
+Tao checks its bound declaration and the proposed action's safety, not whether
+the user's wording matches a phrase recognizer. A clear execution request is
+actionable when first made, including ordered work: perform the authorized
+steps in order rather than treating an acknowledgement or plan as completion.
+Do not require another confirmation merely because the agent announced its
+plan. Planning-only requests remain planning-only. Never infer approval from
+silence or extend permission to a deferred, prohibited or unrelated action.
+Before ending an execution turn, continue the next authorized step unless the
+outcome is complete or a concrete blocker, required user decision, approval
+boundary or interruption prevents it. In that case report actual partial work
+and what remains; do not end with only a promise. This is an agent execution
+responsibility, not a new classifier, gate, receipt or Stop auto-resume rule.
+
 For an authorized correction, continue into the correction rather than ending
 with an apology, explanation of what should have happened, or another offer to
 do the same work. Check the requested observable outcome, not just test totals:

@@ -439,12 +439,12 @@ def print_route(args: argparse.Namespace) -> int:
         route["advisory"] = True
         advice = getattr(args, "_auto_intake_advice", None)
         if advice:
-            # Preparation advice must reach the prompt consumer, but is not
-            # request_classification and cannot satisfy an intake gate.
+            # Effort is a provisional cost hint, not an answer/ask/work or
+            # authorization verdict. Keep this compact on the prompt path.
             route["intake_advice"] = advice
             route["notes"].append(
-                f"Intake advice (not authorization): {advice['response_mode']} / "
-                f"{advice['clarity']}. {advice['reason']}"
+                f"Effort {advice['effort']} is current-intake-only. "
+                "Reassess before substantive analysis or execution."
             )
         notes = route.get("notes")
         if isinstance(notes, list):
@@ -719,8 +719,12 @@ def _resolve_auto_command(args: argparse.Namespace) -> None:
             conversation_first=True,
         )
         recommended = str(classification.get("route_shape") or "")
+        # This hook sees a message, not the runtime's complete conversation.
+        # Keep classification as a document-retrieval hint. Publishing even a
+        # neutral answer/ask/work, clarity, or Grill-Me value turns a
+        # message-only heuristic into a competing runtime instruction.
         args._auto_intake_advice = {
-            key: classification[key] for key in ("response_mode", "clarity", "grill_me", "reason")
+            "effort": str(classification.get("effort") or "standard")
         }
     except Exception:
         return
