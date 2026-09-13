@@ -37,6 +37,9 @@ DIM = "\033[2m"
 CYAN = "\033[36m"
 YELLOW = "\033[33m"
 RED = "\033[31m"
+# The location's colour. Blue is not on the quota's ramp, so a path is never
+# read as a window's health.
+BLUE = "\033[34m"
 
 # The windows both runtimes report, shortest first. A window this map does not
 # name is skipped rather than guessed at: an unlabelled percentage is worse than

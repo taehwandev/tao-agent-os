@@ -1,4 +1,4 @@
-"""The one line a runtime keeps on screen: where you are, what is left, what is running.
+"""The one line a runtime keeps on screen: which model, where you are, what is left.
 
 Claude Code and Antigravity both render a status line the same way -- they run a
 command on every draw, hand it the session as JSON on stdin, and print whatever
@@ -25,8 +25,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from support.runtime_quota import DIM, SEPARATOR, paint, remaining_summary
-from support.tao_run_state import work_segment
+from support.runtime_quota import BLUE, SEPARATOR, paint, remaining_summary
 
 
 # Long enough for a local file read behind a cold page cache, short enough that
@@ -59,17 +58,23 @@ def render(payload_text: str, chain: str = "", *, color: bool = False) -> str:
     # someone else's text and gets plain space instead: a divider would claim it
     # as part of this layout.
     #
-    # Quota, then where, then what -- the order this line already shipped with.
-    # Reordering it would be a change nobody asked for, and the quota leading
-    # suits it anyway: that is the segment worth seeing without looking for it.
-    context = [location_segment(payload), work_segment(payload)]
-    if color:
-        context = [paint(segment, DIM) for segment in context]
+    # Model, then where, then what is left -- the order the operator asked for.
+    # The location keeps a colour of its own so it stands apart from the quota
+    # beside it, whose colours mean how much is left.
+    #
+    # The open Tao run (`refactor 5/8`) is not drawn. Its count is gates
+    # recorded, not work done, so it read as progress it was not; the operator
+    # asked for it to go.
+    model = model_segment(payload)
+    location = location_segment(payload)
+    if color and location:
+        location = paint(location, BLUE)
     mine = SEPARATOR.join(
         segment
         for segment in (
+            model,
+            location,
             remaining_summary(payload.get("rate_limits"), color=color),
-            *context,
         )
         if segment
     )
@@ -95,6 +100,22 @@ def parse(text: str) -> dict[str, Any]:
     except ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def model_segment(payload: dict[str, Any]) -> str:
+    """Which model this session is running, as the runtime names it.
+
+    The runtime's own display name is used when it sends one, because that is
+    the label the operator chose the model by; the bare id is the fallback. A
+    runtime that sends no model draws nothing here rather than a guess.
+    """
+
+    model = payload.get("model")
+    if isinstance(model, dict):
+        return str(model.get("display_name") or model.get("id") or "").strip()
+    if isinstance(model, str):
+        return model.strip()
+    return ""
 
 
 def location_segment(payload: dict[str, Any]) -> str:
