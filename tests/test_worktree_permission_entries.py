@@ -51,11 +51,36 @@ def _resolves_to(rule: str, *, project: Path, cwd: Path) -> PurePosixPath:
 
 class WorktreePermissionEntryTests(unittest.TestCase):
     def test_the_worktree_root_is_covered_for_reading_and_writing(self) -> None:
+        """Writing is covered by the Edit rule, not by a Write rule.
+
+        Claude Code checks file permissions against Edit(path) rules only, and
+        says so on every start: "Write(**/*.py) is not matched by file
+        permission checks -- only Edit(path) rules are ... Edit rules cover all
+        file-editing tools". This test used to require a Write rule too, which
+        approved nothing and printed that warning.
+        """
+
         entries = _entries()
 
-        for tool in ("Read", "Edit", "Write"):
+        for tool in ("Read", "Edit"):
             with self.subTest(tool=tool):
                 self.assertIn(f"{tool}(/.tao/{WORKTREE_DIRNAME}/**)", entries)
+
+    def test_no_write_path_rule_is_written(self) -> None:
+        """A Write(path) rule matches nothing, so writing one is only a warning."""
+
+        self.assertEqual(
+            [], [entry for entry in _entries() if entry.startswith("Write(")]
+        )
+
+    def test_a_write_path_rule_already_written_is_removed(self) -> None:
+        """Ceasing to write it leaves every existing install still warning."""
+
+        from support.permission_entries import claude_legacy_permission_entries
+
+        cleanup = claude_legacy_permission_entries(SCRIPTS)
+        self.assertIn(f"Write(/.tao/{WORKTREE_DIRNAME}/**)", cleanup)
+        self.assertIn("Write(**/*.py)", cleanup)
 
     def test_the_rules_point_at_the_worktree_root_from_inside_a_worktree(self) -> None:
         """The anchoring, checked by where the rule lands -- not by its spelling.

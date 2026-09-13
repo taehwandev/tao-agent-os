@@ -66,6 +66,7 @@ def claude_legacy_permission_entries(scripts_dir: Path) -> list[str]:
             _add_permission_command_entries(entries, "Bash", command)
     entries.extend(_legacy_claude_git_permission_entries())
     entries.extend(_legacy_worktree_permission_entries())
+    entries.extend(_unmatched_write_permission_entries())
     return entries
 
 
@@ -96,6 +97,26 @@ def _legacy_worktree_permission_entries() -> list[str]:
 
     root = f".tao/{WORKTREE_DIRNAME}"
     return [f"{tool}({root}/**)" for tool in ("Read", "Edit", "Write")]
+
+
+def _unmatched_write_permission_entries() -> list[str]:
+    """Write(path) rules this installer wrote, which Claude Code never matches.
+
+    Claude Code checks file permissions against Edit(path) rules only, and says
+    so on every start: "Write(**/*.py) is not matched by file permission checks
+    -- only Edit(path) rules are". The installer wrote two, each beside the Edit
+    rule that already does the work, so they approved nothing and warned.
+
+    Cleanup-only. Ceasing to write them would leave every existing install
+    warning until someone edited the file by hand.
+    """
+
+    from agent_worktree_identity import WORKTREE_DIRNAME
+
+    return [
+        "Write(**/*.py)",
+        f"Write(/.tao/{WORKTREE_DIRNAME}/**)",
+    ]
 
 
 def _legacy_claude_git_permission_entries() -> list[str]:
@@ -159,8 +180,9 @@ def _worktree_permission_entries() -> list[str]:
     root = f"/.tao/{WORKTREE_DIRNAME}"
     return [
         f"Read({root}/**)",
+        # Edit covers every file-editing tool; a Write(path) rule is not matched
+        # by Claude Code's file permission checks, so it only drew a warning.
         f"Edit({root}/**)",
-        f"Write({root}/**)",
         # A Bash rule matches command text, not a path, so it keeps the
         # spelling an agent actually types -- no leading slash to anchor.
         f"Bash(cd {root[1:]}/*)",
