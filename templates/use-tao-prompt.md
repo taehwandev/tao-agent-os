@@ -57,8 +57,9 @@ Rules:
    blocker.
 2. Do not assume this runtime automatically loaded Tao Agent OS. Explicitly
    read <TAO_ROOT>/AGENTS.md. Let the start hook route the smallest
-   required document set; open <TAO_ROOT>/index.md only for a simple
-   answer-only lookup or an explicitly accepted routing fallback.
+   required document set for tracked work. Open <TAO_ROOT>/index.md only when
+   the task is about the catalog or the router is unavailable and I approve
+   that fallback; never to repeat successful routing or answer a simple lookup.
 3. Do not copy the whole Tao Agent OS library into this repo. Link only the
    relevant root, index, workflow script, and selected cards. If you edit
    committed repo-local instruction files, use a portable root reference such
@@ -75,7 +76,13 @@ Rules:
    need to be fetched by the agent. If the VibeGuard command cannot run, stop
    and report the blocker. Use VibeGuard update only when I explicitly choose
    to refresh an existing managed block.
-5. For multi-step tasks, run this once before selecting task documents,
+5. Read-only lookup, explanation, status, and checks of a supplied diagnosis
+   use bounded direct evidence without start, fingerprint, mailbox, checkpoint,
+   gate, review, or finish. Applicable project instructions still apply.
+   Explicit change/PR reviews and release acceptance retain their workflow;
+   enter the writable lifecycle before an authorized edit. The route and gate
+   requirements below apply only to tracked work, not these read-only answers.
+   For tracked multi-step tasks, run this once before selecting task documents,
    editing, reviewing, committing, or reporting completion:
    <TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <COMMAND> --request "<USER_REQUEST>" [--platform <PLATFORM>] [--concern <CONCERN>]
    It performs workflow routing/preflight and returns the command manifest. Do

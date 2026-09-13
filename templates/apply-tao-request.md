@@ -156,7 +156,16 @@ files are present, update their Tao Agent OS pointer in the same pass or point
 them back to AGENTS.md. Do not create a separate runtime-specific file only to
 duplicate guidance when the active runtime already reads AGENTS.md.
 
-For any multi-step setup or follow-up task, run `<TAO_LAUNCHER> start` once with
+Install the read-only exception in the routing block and local adapters:
+Read-only lookup, explanation, status, and checks of a supplied diagnosis use
+bounded direct evidence without start, fingerprint, mailbox, checkpoint, gate,
+review, or finish. Applicable project instructions still apply.
+Explicit change/PR reviews and release acceptance retain their workflow;
+enter the writable lifecycle before an authorized edit. Replace older blanket
+multi-step requirements rather than appending a contradictory alternative.
+The lifecycle requirements below apply only to tracked work.
+
+For tracked multi-step setup or follow-up work, run `<TAO_LAUNCHER> start` once with
 `--request "<USER_REQUEST>"` before selecting task documents, editing,
 reviewing, committing, or reporting completion. It performs workflow routing
 and preflight; do not separately repeat workflow list, classify, route, or
@@ -261,7 +270,11 @@ The bridge must force this behavior:
 - Claude reads CLAUDE.md.
 - Antigravity reads AGENTS.md.
 - Do not claim an instruction file was read unless you actually opened it.
-- For multi-step work, run `<TAO_LAUNCHER> start` once with my current request;
+- Read-only lookup, explanation, status, and checks of a supplied diagnosis use
+  bounded direct evidence without start, fingerprint, mailbox, checkpoint, gate,
+  review, or finish. Preserve applicable project contracts. Explicit change/PR reviews
+  retain their workflow; authorized edits must enter the writable lifecycle.
+- For tracked multi-step work, run `<TAO_LAUNCHER> start` once with my current request;
   it performs Tao Agent OS workflow routing and preflight. Do not separately
   repeat workflow list, classify, route, or preflight after it succeeds.
 - Read every route `required_docs` entry directly after start and before editing
@@ -290,7 +303,7 @@ The bridge must force this behavior:
   implementation before lower-level coding steps.
 - If my request is ambiguous and the answer changes behavior, scope, safety, or
   external state, ask before working.
-- For multi-step tasks, require Tao Agent OS start and finish hook evidence
+- For tracked multi-step tasks, require Tao Agent OS start and finish hook evidence
   when those wrapper scripts are available; missing wrapper or gate evidence is
   non-compliant.
 
