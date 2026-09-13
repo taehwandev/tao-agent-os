@@ -70,13 +70,13 @@ def infer_surface_docs(
         clause_ids = [i for i, clause in enumerate(clauses)
                       if rule_matches_request(rule, clause)]
         name = str(rule.get("name", ""))
-        if rule.get("subject_exclusion"):
+        # One reading for both kinds. A change rule used to ask only whether the
+        # clause contained an exclusion, which cannot tell whose: "fix only the
+        # DTO parser without touching WorkManager" silenced the data-contract
+        # rule that describes the work being asked for.
+        if rule.get("subject_exclusion") or name.endswith("_change"):
             clause_ids = [i for i in clause_ids
                           if not _excluded_subject(clauses[i], rule)]
-            if not clause_ids:
-                continue
-        elif name.endswith("_change"):
-            clause_ids = [i for i in clause_ids if not _negated_change(clauses[i])]
             if not clause_ids:
                 continue
         docs.extend(_append_request_match(rules, rule, command, matches))
@@ -103,15 +103,25 @@ def infer_surface_docs(
     return unique(docs), matches
 
 
+# Where one part of a sentence ends and the next begins. Listing joints is not
+# the same as listing subjects: a joint is a closed class, while the things a
+# request can forbid are not, which is why the subject itself is never
+# enumerated here -- it is whatever the rule's own patterns match.
+_CLAUSE_JOINT = (
+    r"(?=\s*(?:[,.;!?]|$)|\s+(?:while|whilst|and|but|then|so|before|after|"
+    r"when|unless|though|although|instead|yet)\b)"
+)
+
 # A prohibition and the subject it governs. Read as spans inside the clause
 # rather than as the whole clause: "fix only the DTO parser without touching
 # WorkManager" is a prohibition too, and requiring the clause to *be* one meant
 # every exclusion written as a modifier was invisible.
 _PROHIBITION_SPANS = (
-    r"\bwith(?:out)\s+(?:touching|changing|modifying|editing|altering|"
-    r"breaking|affecting)\s+(?P<subject>[^,.;]+)",
+    r"\bwithout\s+(?:touching|changing|modifying|editing|altering|"
+    r"breaking|affecting)\s+(?P<subject>[^,.;]+?)" + _CLAUSE_JOINT,
     r"\b(?:do\s+not|don't|must\s+not|never)\s+"
-    r"(?:change|modify|edit|fix|touch|alter)\s+(?P<subject>[^,.;]+)",
+    r"(?:change|modify|edit|fix|touch|alter)\s+(?P<subject>[^,.;]+?)"
+    + _CLAUSE_JOINT,
     r"(?P<subject>[^,.;]+?)\s*(?:은|는|을|를)?\s*"
     r"(?:수정|변경|편집|건드리|손대)(?:하)?지\s*"
     r"(?:말고|말아줘|마세요|마|않고|않은\s*채|않으면서|않인\s*채)",
@@ -142,20 +152,6 @@ def _excluded_subject(clause: str, rule: dict[str, Any]) -> bool:
     if not forbidden:
         return False
     return not rule_matches_request(rule, remainder)
-
-
-def _negated_change(clause: str) -> bool:
-    """Recognize explicit change exclusions, not arbitrary uses of 'not'.
-
-    This filters change-specific discovery only; required safety concerns and
-    owner-path rules are not removed by a request's negative wording.
-    """
-    return bool(re.search(
-        r"\b(?:do\s+not|don't|must\s+not|never)\s+(?:change|modify|edit|fix|touch)\b"
-        r"|\bwithout\s+(?:changing|modifying|editing|fixing|touching)\b"
-        r"|(?:수정|변경|편집|건드리)(?:하)?지\s*(?:말|마|않)",
-        clause, re.IGNORECASE,
-    ))
 
 
 def _append_request_match(
