@@ -88,7 +88,7 @@ class QuotaTests(unittest.TestCase):
             },
         })
 
-        self.assertEqual("5h ██▊░░░░░  35%  │  7d ███████▌  94%", line)
+        self.assertEqual("5h ██▊░░░░░  35% · 7d ███████▌  94%", line)
 
     def test_a_weekly_only_limit_is_drawn_as_a_gauge(self) -> None:
         # A runtime may expose only its weekly budget. That must stay a visual
@@ -113,7 +113,7 @@ class QuotaTests(unittest.TestCase):
             },
         })
 
-        self.assertEqual("5h ███████▏  89%  │  7d █████▎░░  65%", line)
+        self.assertEqual("5h ███████▏  89% · 7d █████▎░░  65%", line)
 
     def test_a_list_of_windows_is_read_too(self) -> None:
         line = _line({
@@ -123,7 +123,7 @@ class QuotaTests(unittest.TestCase):
             ],
         })
 
-        self.assertEqual("5h ██████▍░  80%  │  7d ████▊░░░  60%", line)
+        self.assertEqual("5h ██████▍░  80% · 7d ████▊░░░  60%", line)
 
     def test_a_window_this_renderer_cannot_name_is_left_out(self) -> None:
         # An unlabelled percentage is worse than no percentage: the reader
@@ -454,8 +454,8 @@ class WholeLineTests(unittest.TestCase):
             })
 
             self.assertEqual(
-                f"Opus 5  │  {shorten_path(str(project))}"
-                "  │  5h ██▊░░░░░  35%  │  7d ███████▌  94%",
+                f"Opus 5 · {shorten_path(str(project))}"
+                " · 5h ██▊░░░░░  35% · 7d ███████▌  94%",
                 line,
             )
 

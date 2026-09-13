@@ -49,7 +49,7 @@ class EntryPointTests(unittest.TestCase):
         })
 
         self.assertEqual(0, code)
-        self.assertEqual("/nowhere  \u2502  5h \u2588\u2588\u258a\u2591\u2591\u2591\u2591\u2591  35%", out)
+        self.assertEqual("/nowhere \u00b7 5h \u2588\u2588\u258a\u2591\u2591\u2591\u2591\u2591  35%", out)
 
     def test_it_never_fails_on_input_it_cannot_read(self) -> None:
         for payload in ("not json", "", "[]"):
