@@ -1133,9 +1133,8 @@ def _required_doc_tiers(
         gate_docs.extend(REVIEW_HOOK_GATE_DOCS)
     tiers.append(gate_docs)
 
-    # 6. General code-work discipline, for routes that produce code.
-    if command in CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE:
-        tiers.append(list(CODE_WORK_REQUIRED_DOCS))
+    # General discipline stays reachable on demand; spare capacity is not a
+    # task-specific reason to read it. Explicit selections remain above.
     return tiers
 
 
@@ -1203,6 +1202,7 @@ def _select_within_budget(
     """
 
     used = prespent_bytes
+    generic_gate_docs = set(resolve_guidance_docs(ROOT, automatic_docs(command)))
 
     # Selection is a strict prefix of the priority order.  The budget *stops*
     # selection rather than skipping over individual documents: skipping would
@@ -1218,6 +1218,18 @@ def _select_within_budget(
         )
         for doc in candidates:
             if doc in selected:
+                continue
+            if (command in CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE
+                    and doc in generic_gate_docs
+                    and doc.endswith("/references/current-guidance.md")
+                    and doc.replace("/references/current-guidance.md", "/SKILL.md")
+                    in candidates
+                    and doc not in (explicit_docs or [])):
+                # A surviving SKILL entry carries a substantive contract.
+                # Its detail is on demand, not budget filler. Pointer-only
+                # contracts have no surviving entry and remain required.
+                # Command/owner/concern requirements were selected above;
+                # explicit surface details must also survive this filter.
                 continue
             if (doc == "workflows/skills/ambiguity-gate/references/current-guidance.md"
                     and command in COMPACT_AMBIGUITY_COMMANDS

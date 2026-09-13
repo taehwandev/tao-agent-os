@@ -161,6 +161,37 @@ class EntrypointResolutionTests(unittest.TestCase):
 
 
 class RequiredDocMembershipTests(unittest.TestCase):
+    def test_application_prompts_preserve_lookup_exception(self) -> None:
+        for name in ("use-tao-prompt.md", "apply-tao-request.md"):
+            text = (ROOT / "templates" / name).read_text(encoding="utf-8")
+            self.assertIn("checks of a supplied diagnosis", text)
+            self.assertIn("Explicit change/PR reviews", text)
+            self.assertNotIn("For multi-step tasks", text)
+            self.assertNotIn("For any multi-step setup or follow-up task", text)
+            self.assertNotIn("answer-only lookup or an explicitly accepted", text)
+
+    def test_code_routes_do_not_fill_spare_budget_with_generic_details(self) -> None:
+        from workflow_route import CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE
+        detail = "workflows/skills/ambiguity-gate/references/current-guidance.md"
+        for command in CODE_WORK_COMMANDS_REQUIRING_DISCIPLINE:
+            with self.subTest(command=command), patch("workflow_route.MAX_REQUIRED_DOCS", 100), \
+                    patch("workflow_route.REQUIRED_DOC_BUDGET_BYTES", 1000000):
+                required = route_required_docs(command, None, [], ())
+                self.assertNotIn(detail, required)
+                self.assertIn(REVIEW_AND_COMMIT_ENTRYPOINT, required)
+                explicit = route_required_docs(command, None, [], (), surface_docs=[detail])
+                self.assertIn(detail, explicit)
+
+    def test_detail_filter_preserves_platform_and_explicit_risk_contracts(self) -> None:
+        from workflow_route import _named_concern_docs, _select_within_budget
+        entry = "platforms/android/skills/android-compose-ui/SKILL.md"
+        detail = entry.replace("/SKILL.md", "/references/current-guidance.md")
+        selected = _select_within_budget("feature", [[entry]], [])
+        self.assertIn(detail, selected)
+        for command in ("feature", "build", "bugfix", "refactor"):
+            required = route_required_docs(command, "web", ["security"], ())
+            self.assertTrue(set(_named_concern_docs("web", ["security"])).issubset(required))
+
     def test_verified_owner_lookup_skips_catalog_search_and_optional_queue(self) -> None:
         with patch("workflow_route.search_docs_outcome") as search:
             route = resolve_docs(
