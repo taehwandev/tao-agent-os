@@ -138,9 +138,11 @@ def _python_permissions(project_path: Path) -> list[str]:
     )
     if not (packaged or _has_python_sources(project_path)):
         return []
+    # Edit only. Claude Code matches file permissions against Edit(path) rules
+    # and not Write(path) ones, so a Write rule approved nothing and printed a
+    # startup warning in every Python project that carried it.
     entries: list[str] = [
         "Edit(**/*.py)",
-        "Write(**/*.py)",
     ]
     if not packaged:
         return entries
