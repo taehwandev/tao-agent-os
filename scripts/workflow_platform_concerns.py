@@ -122,10 +122,15 @@ PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
         ANDROID_MODULE_LAYOUT_DOC,
         *ANDROID_EXTERNAL_SKILL_DOCS,
     ),
+    # Without the source-coverage bundle. It answers "where is the official
+    # source for this surface", which a change to where a credential is kept
+    # does not ask, and at 29,694B it was larger than the 20,934B of security
+    # guidance it rode on. The other Android concerns still carry it: the
+    # manifest's own scope is Android work that cites external skill sources,
+    # and narrowing that is a separate decision.
     ("android", "security"): (
         "platforms/android/skills/android-security/SKILL.md",
         "platforms/android/skills/android-review/SKILL.md",
-        *ANDROID_EXTERNAL_SKILL_DOCS,
     ),
     ("android", "compose"): ANDROID_COMPOSE_BOUNDARY_DOCS,
     ("android", "performance"): (*ANDROID_COMPOSE_DOCS, ANDROID_COMPOSE_PERF_DOC),

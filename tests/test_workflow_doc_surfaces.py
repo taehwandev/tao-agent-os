@@ -289,7 +289,10 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn(route_doc("platforms/android/skills/android-external-skill-source-coverage/SKILL.md"), route["docs"])
 
     def test_android_platform_surfaces_load_external_skill_manifest(self) -> None:
-        for concern in ("architecture", "security", "testing", "module", "dependency", "migration", "devtools", "skills", "skill"):
+        # `security` left this list when the bundle came off that concern:
+        # 29,694B of "where is the official source" against 20,934B of
+        # security guidance, on a route a keystore change now reaches.
+        for concern in ("architecture", "testing", "module", "dependency", "migration", "devtools", "skills", "skill"):
             with self.subTest(concern=concern):
                 route = resolve_docs(
                     "workflow-setup",
@@ -300,6 +303,22 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
 
                 self.assertIn(route_doc("platforms/android/skills/android-external-skill-source-coverage/SKILL.md"), route["docs"])
                 self.assertIn(route_doc("platforms/android/skills/source-coverage/SKILL.md"), route["docs"])
+
+    def test_the_android_security_concern_carries_security_guidance_only(self) -> None:
+        """The counterpart to the list above, so the removal is asserted rather
+        than merely absent: a security route reads the security cards and not
+        the source-coverage manifest."""
+
+        route = resolve_docs(
+            "workflow-setup",
+            "android",
+            ["security"],
+            request_classified=True,
+        )
+
+        self.assertIn(route_doc("platforms/android/skills/android-security/SKILL.md"), route["docs"])
+        self.assertIn(route_doc("platforms/android/skills/android-review/SKILL.md"), route["docs"])
+        self.assertNotIn(route_doc("platforms/android/skills/android-external-skill-source-coverage/SKILL.md"), route["docs"])
 
     def test_android_persistence_route_loads_datastore_reference(self) -> None:
         for concern in ("persistence", "cache"):
