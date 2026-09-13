@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from support.runtime_quota import (
     BOLD,
     CYAN,
+    BLUE,
     DIM,
     RED,
     RESET,
@@ -24,7 +25,7 @@ from support.runtime_quota import (
     level_color,
     remaining_summary,
 )
-from support.statusline import color_enabled, render, shorten_path
+from support.statusline import color_enabled, model_segment, render, shorten_path
 from support.tao_run_state import open_run, work_segment
 
 # The palette deliberately has no green entry, so the tests name the code
@@ -367,7 +368,7 @@ class ColorTests(unittest.TestCase):
         self.assertIn("!5h", _strip(low))
         self.assertIn(BOLD, low)
 
-    def test_context_recedes_so_the_quota_is_what_is_seen(self) -> None:
+    def test_the_location_comes_before_the_quota_in_colour(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _project(Path(tmp))
             _open_run(project, command="task", evidence_name="statusline.json")
@@ -378,13 +379,41 @@ class ColorTests(unittest.TestCase):
             )
 
             # The quota's own windows are joined by the same divider, so the
-            # line is a segment per window, then the location, then the run.
-            *windows, location, work = line.split(SEPARATOR)
-            self.assertTrue(location.startswith(DIM), location)
-            self.assertTrue(work.startswith(DIM), work)
+            # line is the location, then a segment per window.
+            location, *windows = line.split(SEPARATOR)
+            self.assertEqual(2, len(windows))
+            self.assertTrue(location.startswith(BLUE), location)
+            self.assertIn(_strip(location), shorten_path(str(project)))
             for window in windows:
                 with self.subTest(window=window):
                     self.assertFalse(window.startswith(DIM), window)
+
+    def test_the_model_leads_the_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _project(Path(tmp))
+            _open_run(project, command="task", evidence_name="statusline.json")
+            _ledger(project, evidence_name="statusline.json", gates=["a"], recorded=["a"])
+            payload = {
+                "cwd": str(project),
+                "model": {"id": "claude-opus-5", "display_name": "Opus 5"},
+                **self._windows(65, 94),
+            }
+
+            segments = _strip(render(json.dumps(payload), color=True)).split(SEPARATOR)
+
+            # The model, the location, then two windows -- in that order.
+            self.assertEqual("Opus 5", segments[0])
+            self.assertEqual(shorten_path(str(project)), segments[1])
+            self.assertEqual(4, len(segments))
+
+    def test_the_model_id_is_used_when_there_is_no_display_name(self) -> None:
+        self.assertEqual("claude-opus-5", model_segment({"model": {"id": "claude-opus-5"}}))
+
+    def test_a_payload_without_a_model_draws_no_model(self) -> None:
+        self.assertEqual("", model_segment({}))
+        self.assertEqual("", model_segment({"model": {}}))
+        line = render(json.dumps({"cwd": "/tmp", **self._windows(65, 94)}))
+        self.assertNotIn(SEPARATOR + SEPARATOR, line)
 
     def test_no_color_in_the_environment_turns_it_off(self) -> None:
         # A status line is exactly the sort of output someone captures or reads
@@ -408,7 +437,7 @@ class ColorTests(unittest.TestCase):
 
 
 class WholeLineTests(unittest.TestCase):
-    def test_what_is_left_then_where_then_what_is_running(self) -> None:
+    def test_the_model_then_where_then_what_is_left_and_no_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _project(Path(tmp))
             _open_run(project, command="task", evidence_name="statusline.json")
@@ -417,6 +446,7 @@ class WholeLineTests(unittest.TestCase):
 
             line = _line({
                 "cwd": str(project),
+                "model": {"id": "claude-opus-5", "display_name": "Opus 5"},
                 "rate_limits": {
                     "five_hour": {"used_percentage": 65},
                     "seven_day": {"used_percentage": 6},
@@ -424,8 +454,8 @@ class WholeLineTests(unittest.TestCase):
             })
 
             self.assertEqual(
-                "5h ██▊░░░░░  35%  │  7d ███████▌  94%"
-                f"  │  {shorten_path(str(project))}  │  task 5/8",
+                f"Opus 5  │  {shorten_path(str(project))}"
+                "  │  5h ██▊░░░░░  35%  │  7d ███████▌  94%",
                 line,
             )
 
