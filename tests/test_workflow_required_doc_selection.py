@@ -206,16 +206,21 @@ class RequiredDocMembershipTests(unittest.TestCase):
         self.assertEqual("resolved", route["document_search"]["status"])
         self.assertFalse(route["missing"])
 
-    def test_request_path_alone_and_implementation_still_search(self) -> None:
+    def test_only_unresolved_analysis_runs_natural_language_search(self) -> None:
         from workflow_search import SearchOutcome
-        for command, paths in (("analysis", []), ("feature", ["scripts/workflow_request.py"])):
-            with self.subTest(command=command), patch(
+        for command, paths, expected_calls in (
+            ("analysis", [], 1),
+            ("analysis", ["scripts/workflow_request.py"], 0),
+            ("feature", [], 0),
+            ("feature", ["scripts/workflow_request.py"], 0),
+        ):
+            with self.subTest(command=command, paths=paths), patch(
                 "workflow_route.search_docs_outcome",
                 return_value=SearchOutcome(results=[], backend="fixture"),
             ) as search:
                 resolve_docs(command, None, [], request_text="Inspect scripts/workflow_request.py",
                              surface_paths=paths)
-                search.assert_called_once()
+                self.assertEqual(expected_calls, search.call_count)
 
     def test_lookup_does_not_expand_incidental_implementation_candidates(self) -> None:
         from workflow_search import SearchOutcome
@@ -230,7 +235,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
                 with patch("workflow_route.infer_surface_docs", return_value=([candidate], matches)), \
                      patch("workflow_route.search_docs_outcome", return_value=SearchOutcome(
                          results=[{"path": candidate}], backend="fixture")), \
-                     patch("workflow_route.expand_doc_matches", return_value=[]) as graph:
+                     patch("workflow_route.expand_required_doc_matches", return_value=[]) as graph:
                     route = resolve_docs("analysis", platform, [], request_text=request)
                 self.assertEqual([OPERATING_SKILL], route["required_docs"])
                 self.assertEqual([OPERATING_SKILL], graph.call_args.args[1])
@@ -244,7 +249,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
         matches = [{"type": "request_intent", "docs": [required], "required_priority": 100}]
         edges = [{"path": dependency, "source": required, "relation": "frontmatter:requires"}]
         with patch("workflow_route.infer_surface_docs", return_value=([required], matches)), \
-             patch("workflow_route.expand_doc_matches", return_value=edges):
+             patch("workflow_route.expand_required_doc_matches", return_value=edges):
             route = resolve_docs("analysis", None, [], surface_paths=["scripts/workflow_request.py"])
         self.assertTrue(set(resolve_guidance_docs(ROOT, [required])).issubset(route["required_docs"]))
         self.assertIn(dependency, route["required_docs"])
@@ -254,9 +259,9 @@ class RequiredDocMembershipTests(unittest.TestCase):
         owner = "common/skills/asset-lifecycle/SKILL.md"
         matches = [{"type": "path_surface", "paths": ["src/assets.py"], "docs": [owner]}]
         with patch("workflow_route.infer_surface_docs", return_value=([owner], matches)), \
-             patch("workflow_route.expand_doc_matches", return_value=[]) as graph:
+             patch("workflow_route.expand_required_doc_matches", return_value=[]) as graph:
             route = resolve_docs("feature", None, [])
-        self.assertIn(owner, graph.call_args.args[1])
+        self.assertIn(resolve_guidance_docs(ROOT, [owner])[-1], graph.call_args.args[1])
         self.assertTrue(set(resolve_guidance_docs(ROOT, [owner])).issubset(route["required_docs"]))
         self.assertNotIn("reading_scope", route)
 
@@ -268,32 +273,30 @@ class RequiredDocMembershipTests(unittest.TestCase):
             {"type": "path_surface", "paths": ["src/assets.py"], "docs": [owner]},
         ]
         with patch("workflow_route.infer_surface_docs", return_value=([neighbor, owner], matches)), \
-             patch("workflow_route.expand_doc_matches", return_value=[]):
+             patch("workflow_route.expand_required_doc_matches", return_value=[]):
             route = resolve_docs("prd", None, [], request_classified=True)
         self.assertTrue(set(resolve_guidance_docs(ROOT, [owner])).issubset(route["required_docs"]))
         self.assertTrue(set(resolve_guidance_docs(ROOT, [neighbor])).isdisjoint(route["required_docs"]))
-        self.assertIn(neighbor, route["reference_docs"])
+        self.assertNotIn(neighbor, route["reference_docs"])
         self.assertFalse(matches[0]["required_eligible"])
         self.assertEqual("verified_owner_path", matches[1]["selection_reason"])
 
-    def test_search_hit_cannot_promote_its_required_neighbor(self) -> None:
+    def test_search_hit_cannot_seed_required_dependencies(self) -> None:
         from workflow_search import SearchOutcome
         source = "common/skills/branch-cleanup/SKILL.md"
         neighbor = "common/skills/asset-lifecycle/SKILL.md"
         required_dependency = "common/skills/secure-development-baseline/SKILL.md"
-        edges = [
-            {"path": neighbor, "source": source, "relation": "frontmatter:requires"},
-            {"path": required_dependency, "source": OPERATING_SKILL,
-             "relation": "frontmatter:requires"},
-        ]
+        edges = [{"path": required_dependency, "source": OPERATING_SKILL,
+                  "relation": "frontmatter:requires"}]
         with patch("workflow_route.infer_surface_docs", return_value=([], [])), \
              patch("workflow_route.search_docs_outcome", return_value=SearchOutcome(
                  results=[{"path": source}], backend="fixture")), \
-             patch("workflow_route.expand_doc_matches", return_value=edges):
-            route = resolve_docs("prd", None, [], request_classified=True,
+             patch("workflow_route.expand_required_doc_matches", return_value=edges) as required:
+            route = resolve_docs("analysis", None, [], request_classified=True,
                                  request_text="Clarify the existing requirement")
+        self.assertNotIn(source, required.call_args.args[1])
         self.assertNotIn(neighbor, route["required_docs"])
-        self.assertIn(neighbor, route["reference_docs"])
+        self.assertIn(source, route["reference_docs"])
         self.assertIn(required_dependency, route["required_docs"])
 
     def test_explicit_surface_priority_is_not_demoted_with_keyword_candidates(self) -> None:
@@ -355,7 +358,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
         with (
             patch("workflow_route.infer_surface_docs") as infer_surfaces,
             patch("workflow_route.search_docs_outcome") as search,
-            patch("workflow_route.expand_doc_matches") as expand_graph,
+            patch("workflow_route.expand_required_doc_matches") as expand_graph,
         ):
             route = resolve_docs(
                 "cleanup",
@@ -387,9 +390,9 @@ class RequiredDocMembershipTests(unittest.TestCase):
             request_classified=True,
         )
 
-        # Not the fixed cleanup contract. With no request text nothing is searched.
-        self.assertEqual("not-run", route["document_search"]["backend"])
-        self.assertEqual("not_searched", route["document_search"]["status"])
+        # Not the fixed cleanup contract, but still deterministic.
+        self.assertEqual("deterministic-route", route["document_search"]["backend"])
+        self.assertEqual("resolved", route["document_search"]["status"])
         self.assertTrue(
             any("security" in doc for doc in route["required_docs"]),
             route["required_docs"],
@@ -550,7 +553,8 @@ class RequiredDocMembershipTests(unittest.TestCase):
                 self.assertNotIn("AGENTS.md", required)
                 self.assertNotIn(REVIEW_AND_COMMIT_REFERENCE, required)
                 self.assertNotIn(MULTI_AGENT_REFERENCE, required)
-                self.assertIn("AGENTS.md", references)
+                self.assertNotIn("AGENTS.md", references)
+                self.assertNotIn("index.md", references)
                 self.assertIn(REVIEW_AND_COMMIT_REFERENCE, references)
                 self.assertIn(MULTI_AGENT_REFERENCE, references)
 
@@ -667,14 +671,15 @@ class RequiredDocMembershipTests(unittest.TestCase):
         ]
         self.assertEqual([], pointers)
 
-    def test_every_routed_document_stays_reachable(self) -> None:
-        """Narrowing may only make guidance un-mandatory, never unreachable."""
+    def test_reading_manifest_contains_only_required_or_reference_docs(self) -> None:
+        """Routing provenance is not itself a second reading queue."""
         route = resolve_docs(
             "task", None, [], request_classified=True,
             request_text="update the workflow router",
         )
-        reachable = set(route["required_docs"]) | set(route["reference_docs"])
-        self.assertTrue(set(route["docs"]).issubset(reachable))
+        self.assertFalse(set(route["required_docs"]) & set(route["reference_docs"]))
+        self.assertNotIn("AGENTS.md", route["required_docs"] + route["reference_docs"])
+        self.assertNotIn("index.md", route["required_docs"] + route["reference_docs"])
 
     def test_required_docs_exist_on_disk(self) -> None:
         for command in ("task", "release", "review", "triage"):
@@ -786,7 +791,10 @@ class AdvisoryRequiredDocsTests(unittest.TestCase):
             {"path": gate_dependency, "source": TRIAGE_GATE_DOCS[1],
              "relation": "frontmatter:requires"},
         ]
-        with patch("workflow_route.expand_doc_matches", return_value=edges):
+        with patch(
+            "workflow_route.expand_required_doc_matches",
+            side_effect=[edges, edges, [edges[0]]],
+        ):
             full = resolve_docs("triage", None, [], request_classified=True)
             advisory = resolve_docs("triage", None, [], advisory=True)
 
@@ -1067,7 +1075,7 @@ class ConcernReferenceDocTests(unittest.TestCase):
             route = resolve_docs("bugfix", None, concerns)
             self.assertIn(entry, route["required_docs"])
             self.assertNotIn(detail, route["required_docs"])
-            self.assertIn(detail, route["reference_docs"])
+            self.assertNotIn(detail, route["reference_docs"])
         self.assertIn(detail, resolve_docs("ambiguity", None, [])["required_docs"])
         self.assertIn(detail, route_required_docs("bugfix", None, [], (), surface_docs=[detail]))
 
@@ -1075,7 +1083,7 @@ class ConcernReferenceDocTests(unittest.TestCase):
         detail = "workflows/skills/ambiguity-gate/references/current-guidance.md"
         edges = [{"path": detail, "source": OPERATING_SKILL,
                   "relation": "frontmatter:requires"}]
-        with patch("workflow_route.expand_doc_matches", return_value=edges):
+        with patch("workflow_route.expand_required_doc_matches", return_value=edges):
             self.assertIn(detail, resolve_docs("bugfix", None, ["testing"])["required_docs"])
 
     def test_gate_contract_survives_a_full_optional_budget(self) -> None:
@@ -1113,49 +1121,43 @@ class ConcernReferenceDocTests(unittest.TestCase):
 
 
 class SearchNoteTests(unittest.TestCase):
-    """A route with no request text ran no search and must not report one."""
+    """Normal work routes must stay on deterministic document selection."""
 
-    def test_no_request_text_reports_search_not_run(self) -> None:
+    def test_no_request_text_reports_deterministic_selection(self) -> None:
         route = resolve_docs("task", None, [], request_classified=True)
         notes = " ".join(route["notes"])
 
-        self.assertEqual("not-run", route["document_search"]["backend"])
-        self.assertEqual("not_searched", route["document_search"]["status"])
+        self.assertEqual("deterministic-route", route["document_search"]["backend"])
+        self.assertEqual("resolved", route["document_search"]["status"])
         self.assertNotIn("search completed", notes)
 
 
 class GraphNoteTests(unittest.TestCase):
-    """The graph note must not claim a promotion that did not happen."""
+    """Only explicit required-document dependencies may expand selection."""
 
-    PROMOTED = "explicit `requires_docs` edges become required docs"
-    ON_DEMAND = "these neighbors stay on-demand reference candidates"
+    PROMOTED = "Followed explicit `requires_docs` frontmatter"
 
     def test_a_requires_edge_that_promoted_a_doc_is_named(self) -> None:
         dependency = "common/skills/secure-development-baseline/SKILL.md"
         edges = [{"path": dependency, "source": OPERATING_SKILL,
                   "relation": "frontmatter:requires"}]
-        with patch("workflow_route.expand_doc_matches", return_value=edges):
+        with patch("workflow_route.expand_required_doc_matches", return_value=edges):
             route = resolve_docs("prd", None, [], request_classified=True)
         notes = " ".join(route["notes"])
 
         self.assertIn(dependency, route["required_docs"])
         self.assertIn(self.PROMOTED, notes)
-        self.assertNotIn(self.ON_DEMAND, notes)
+        self.assertIn("no general document-graph neighbors", notes)
 
-    def test_neighbors_without_a_promotion_are_called_on_demand(self) -> None:
-        neighbor = "common/skills/asset-lifecycle/SKILL.md"
-        edges = [{"path": neighbor, "source": OPERATING_SKILL,
-                  "relation": "markdown:link"}]
-        with patch("workflow_route.expand_doc_matches", return_value=edges):
-            route = resolve_docs("prd", None, [], request_classified=True)
+    def test_general_graph_neighbors_are_not_exposed(self) -> None:
+        route = resolve_docs("prd", None, [], request_classified=True)
         notes = " ".join(route["notes"])
 
-        self.assertIn(neighbor, route["reference_docs"])
-        self.assertIn(self.ON_DEMAND, notes)
-        self.assertNotIn(self.PROMOTED, notes)
+        self.assertNotIn("index.md", route["reference_docs"])
+        self.assertNotIn("local document graph", notes)
 
     def test_no_graph_match_adds_no_graph_note(self) -> None:
-        with patch("workflow_route.expand_doc_matches", return_value=[]):
+        with patch("workflow_route.expand_required_doc_matches", return_value=[]):
             route = resolve_docs("prd", None, [], request_classified=True)
         notes = " ".join(route["notes"])
 

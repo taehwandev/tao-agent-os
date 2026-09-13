@@ -1,8 +1,9 @@
 """Natural-language document search for workflow.py.
 
-Pinned Wikimap provides deterministic section retrieval. Tao Agent OS keeps
-policy facets and its local document graph on top so explicit workflow rules
-remain stronger than lexical ranking and Graphify remains project-structural.
+Pinned Wikimap provides deterministic section retrieval for unresolved lookup.
+Tao Agent OS keeps policy facets on top so explicit workflow rules remain
+stronger than lexical ranking. General document-graph neighbours are not search
+results; routing follows only explicit dependencies of already selected docs.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence
 
-from workflow_doc_graph import expand_doc_matches
 from workflow_search_facets import facet_docs, query_terms
 from workflow_wikimap import WIKIMAP_VERSION, search_wikimap
 from support.stage_timing import stage
@@ -20,8 +20,6 @@ from support.stage_timing import stage
 
 RAW_TERM_WEIGHT = 2
 EXPANDED_TERM_WEIGHT = 1
-GRAPH_RELATION_BOOST = 12
-GRAPH_SEED_LIMIT = 12
 POLICY_FACET_BASE_SCORE = 1_000
 WIKIMAP_RANK_BASE_SCORE = 500
 
@@ -94,7 +92,7 @@ def _search_docs_outcome(root: Path, query: str, max_results: int = 8) -> Search
     queries = [query]
     if expanded_terms:
         queries.append(" ".join(expanded_terms))
-    wikimap = search_wikimap(root, queries, max(max_results * 2, GRAPH_SEED_LIMIT))
+    wikimap = search_wikimap(root, queries, max_results * 2)
     if wikimap.available:
         results = _wikimap_results(
             root,
@@ -140,7 +138,6 @@ def _legacy_search_docs(
     """Preserve the previous in-process scorer as an offline recovery path."""
 
     descriptions = _parse_index_descriptions(root)
-    documents: dict[str, Dict[str, object]] = {}
     results: List[Dict[str, object]] = []
 
     for path in sorted(root.rglob("*.md")):
@@ -182,7 +179,7 @@ def _legacy_search_docs(
         score += _score_terms(raw_terms, RAW_TERM_WEIGHT, lower_desc, lower_title, lower_headings, lower_body)
         score += _score_terms(expanded_terms, EXPANDED_TERM_WEIGHT, lower_desc, lower_title, lower_headings, lower_body)
 
-        documents[rel] = {
+        item: Dict[str, object] = {
             "path": rel,
             "title": title,
             "description": index_desc,
@@ -190,9 +187,8 @@ def _legacy_search_docs(
             "matched_facets": [facet for facet in matched_facets if rel in facet_docs(facet)],
         }
         if score > 0:
-            results.append(documents[rel])
+            results.append(item)
 
-    _append_graph_expansions(root, descriptions, documents, results, doc_boosts, max_results)
     results.sort(key=lambda x: (-int(x["score"]), str(x["path"])))
     return results[:max_results]
 
@@ -236,46 +232,8 @@ def _wikimap_results(
             documents[rel] = item
             results.append(item)
 
-    _append_graph_expansions(root, descriptions, documents, results, doc_boosts, max_results)
     results.sort(key=lambda item: (-int(item["score"]), str(item["path"])))
     return results[:max_results]
-
-
-def _append_graph_expansions(
-    root: Path,
-    descriptions: dict[str, str],
-    documents: dict[str, Dict[str, object]],
-    results: List[Dict[str, object]],
-    doc_boosts: dict[str, int],
-    max_results: int,
-) -> None:
-    seed_candidates = list(doc_boosts) or [str(item["path"]) for item in results[:GRAPH_SEED_LIMIT]]
-    seed_docs = _unique_strings(seed_candidates)
-    if not seed_docs:
-        return
-    result_paths = {str(item["path"]) for item in results}
-    # The graph walk that turns search hits into their neighbours.
-    with stage("doc_graph_expand"):
-        graph_matches = expand_doc_matches(
-            root,
-            seed_docs,
-            max_depth=1,
-            max_docs=max(max_results * 2, GRAPH_SEED_LIMIT),
-        )
-    for match in graph_matches:
-        path = str(match["path"])
-        item = documents.get(path) or _document_item(root, path, descriptions, ())
-        if not item:
-            continue
-        depth = int(match.get("depth") or 1)
-        item["score"] = int(item.get("score") or 0) + max(1, GRAPH_RELATION_BOOST - depth)
-        reasons = item.setdefault("graph_reasons", [])
-        if isinstance(reasons, list):
-            reasons.append(f"{match['relation']} via {match['source']}")
-        if path not in result_paths:
-            results.append(item)
-            result_paths.add(path)
-            documents[path] = item
 
 
 def _document_item(
@@ -315,17 +273,6 @@ def _first_title(text: str) -> str:
         if line.startswith("# "):
             return line[2:].strip()
     return ""
-
-
-def _unique_strings(values: Sequence[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        result.append(value)
-    return result
 
 
 def _score_terms(

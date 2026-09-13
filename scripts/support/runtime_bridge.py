@@ -181,11 +181,13 @@ RUNTIME_CAPSULE_BRIDGE_PHRASES = [
 ]
 
 RUNTIME_BRIDGE_GRAPH_PHRASES = [
-    "Use the route/search output from that start hook for the user's current request; route/search owns natural-language document discovery.",
+    "Use the route output from that start hook as the deterministic document manifest for the current request; normal code routes do not run broad natural-language or document-graph expansion.",
+    "Treat the route's docs field as selection provenance, never as a third reading list; read required_docs and only the reference_docs needed for a concrete unresolved in-scope decision.",
     "Do not wait for the user to name document keywords; use request artifacts and paths as candidates, then verify the change-owning work surface with bounded read-only repository evidence before task-specific reading or edits.",
     "Only repository-verified owner paths may be passed through --surface-path; request path references and dirty Git paths remain surface_candidates until owner proof succeeds.",
-    "Use workflow-doc-surfaces.json and the local document graph as routing/search inputs; treat graph neighbors as reference_docs unless the route marks them as required_docs.",
-    "If routing/search misses a clearly relevant platform, concern, or document surface, stop and report the gap instead of proceeding from memory.",
+    "Use workflow-doc-surfaces.json for verified owner/action selection and follow only explicit requires_docs dependencies from already selected documents; ordinary links and graph neighbors never form a reading queue.",
+    "Use Wikimap only for an unresolved analysis or guidance-discovery question, and use Graphify only when bounded direct repository search cannot resolve a structural ownership, dependency, or impact question. Refresh Graphify explicitly on demand, never automatically on checkout or commit.",
+    "If deterministic routing misses a clearly relevant platform, concern, document surface, or explicit dependency, stop and report the gap instead of proceeding from memory or widening discovery automatically.",
 ]
 
 RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES = [
@@ -249,11 +251,13 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
         f"- {RUNTIME_READING_BRIDGE_PHRASE}",
         f"- {RUNTIME_LOOKUP_BRIDGE_PHRASE}",
         f"- {RUNTIME_START_BRIDGE_PHRASE}",
-        "- Use the route/search output from that start hook for the user's current request; route/search owns natural-language document discovery.",
+        "- Use the route output from that start hook as the deterministic document manifest for the current request; normal code routes do not run broad natural-language or document-graph expansion.",
+        "- Treat the route's docs field as selection provenance, never as a third reading list; read required_docs and only the reference_docs needed for a concrete unresolved in-scope decision.",
         "- Do not wait for the user to name document keywords; use request artifacts and paths as candidates, then verify the change-owning work surface with bounded read-only repository evidence before task-specific reading or edits.",
         "- Only repository-verified owner paths may be passed through --surface-path; request path references and dirty Git paths remain surface_candidates until owner proof succeeds.",
-        "- Use workflow-doc-surfaces.json and the local document graph as routing/search inputs; treat graph neighbors as reference_docs unless the route marks them as required_docs.",
-        "- If routing/search misses a clearly relevant platform, concern, or document surface, stop and report the gap instead of proceeding from memory.",
+        "- Use workflow-doc-surfaces.json for verified owner/action selection and follow only explicit requires_docs dependencies from already selected documents; ordinary links and graph neighbors never form a reading queue.",
+        "- Use Wikimap only for an unresolved analysis or guidance-discovery question, and use Graphify only when bounded direct repository search cannot resolve a structural ownership, dependency, or impact question. Refresh Graphify explicitly on demand, never automatically on checkout or commit.",
+        "- If deterministic routing misses a clearly relevant platform, concern, document surface, or explicit dependency, stop and report the gap instead of proceeding from memory or widening discovery automatically.",
         *[f"- {phrase}" for phrase in RUNTIME_CAPSULE_BRIDGE_PHRASES],
         f"- {RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE}",
         f"- {RUNTIME_FINISH_BRIDGE_PHRASE}",

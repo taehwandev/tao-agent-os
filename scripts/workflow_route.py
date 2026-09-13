@@ -10,7 +10,6 @@ from workflow_catalog import (
     COMMANDS,
     CONCERN_REFERENCE_DOCS,
     CONCERNS,
-    CORE_DOCS,
     PLATFORM_CONCERNS,
     PLATFORMS,
     RISK_CONCERNS_REQUIRED_WHEN_INFERRED,
@@ -25,7 +24,7 @@ from workflow_common import (
     QUESTION_ROUTE_COMMANDS,
     unique,
 )
-from workflow_doc_graph import expand_doc_matches, graph_required_docs
+from workflow_doc_graph import expand_required_doc_matches, graph_required_docs
 from workflow_gate_policy import (
     MULTI_AGENT_GATE,
     SKILL_CURATE_HOOK,
@@ -41,7 +40,7 @@ from workflow_gate_policy import (
     skill_feedback_policy,
 )
 from workflow_graphify_route import graphify_route_context
-from workflow_doc_resolution import doc_size, resolve_guidance_docs
+from workflow_doc_resolution import doc_size, is_pointer_entrypoint, resolve_guidance_docs
 from workflow_doc_surfaces import infer_surface_docs, required_surface_docs
 from workflow_parallel import parallel_execution_plan
 from workflow_search import SearchOutcome, search_docs_outcome
@@ -220,8 +219,10 @@ def _resolve_documents(
     # Once a lookup has that anchor, searching the guidance catalog again only
     # creates unrelated reading candidates. Explicit policy selection still runs.
     owner_lookup = command == "analysis" and any(path.strip() for path in surface_paths)
-    docs: list[str] = [*CORE_DOCS, *profile.docs]
-    docs.extend(automatic_docs(command))
+    # Command and enforced-gate procedures stay reachable even when their
+    # detailed form is on demand. Generic core catalogs and discipline cards do
+    # not become candidates merely because the route has room for them.
+    docs: list[str] = [*profile.docs, *automatic_docs(command)]
     docs.extend(
         reference
         for gate, reference in ON_DEMAND_GATE_REFERENCES.items()
@@ -238,6 +239,7 @@ def _resolve_documents(
             command, platform, selection_concerns, profile.docs, []
         )
         owner_surface_docs = []
+        reference_surface_docs: list[str] = []
         advisory_sources = selected_sources
         advisory_graph_required: list[str] = []
     else:
@@ -249,12 +251,13 @@ def _resolve_documents(
         )
         if owner_lookup:
             search_outcome = SearchOutcome(results=[], backend="owner-lookup")
-        elif request_text.strip():
+        elif command == "analysis" and request_text.strip() and not advisory:
             search_outcome = search_docs_outcome(ROOT, request_text, max_results=12)
         else:
-            # No request text means nothing was searched. Reporting it as an
-            # empty Wikimap result told agents a search had completed.
-            search_outcome = SearchOutcome(results=[], backend="not-run")
+            # Normal code routes are deterministic: command, concern and
+            # verified owner/action surfaces select their documents. Broad
+            # natural-language discovery is reserved for unresolved analysis.
+            search_outcome = SearchOutcome(results=[], backend="deterministic-route")
         search_seed_docs = [str(item["path"]) for item in search_outcome.results]
         # `required_surface_docs` stamps each match's selection_reason, so the
         # evidence-backed subset is read after it, not before. A verified owner
@@ -270,6 +273,11 @@ def _resolve_documents(
             in {"verified_owner_path", "explicit_required_priority", "independent_change"}
             for doc in match.get("docs", [])
         ])
+        # A verified owner or specific change-action rule replaces the broader
+        # platform ecosystem candidate set. Keep only its own not-yet-required
+        # surface docs available on demand; an unresolved route retains the
+        # wider discovery candidates.
+        reference_surface_docs = owner_surface_docs or surface_docs
         selected_sources = route_required_docs(
             command, platform, selection_concerns, profile.docs, eligible_surface_docs,
             owner_surface_docs=owner_surface_docs,
@@ -304,32 +312,12 @@ def _resolve_documents(
                     explicit_docs = resolve_guidance_docs(ROOT, match.get("docs", []))
                     selected_sources = unique([*selected_sources, *explicit_docs])
                     advisory_sources = unique([*advisory_sources, *explicit_docs])
-        graph_seeds = (selected_sources if command == "analysis" else
-                       unique([*selected_sources, *surface_docs, *search_seed_docs]))
-        doc_graph_matches = expand_doc_matches(
-            ROOT,
-            graph_seeds,
-            max_depth=1,
-            max_docs=24,
-            relation_prefixes=("frontmatter:", "markdown:", "compat:"),
-        )
-        # A requires edge is authoritative only when its source was selected.
-        # Search hits do not get to make their own dependencies mandatory.
-        requires_matches = [
-            (match, set(resolve_guidance_docs(ROOT, [str(match["source"])])))
-            for match in doc_graph_matches
-            if str(match.get("relation", "")).startswith("frontmatter:requires")
-        ]
-        graph_required = graph_required_docs(
-            match for match, sources in requires_matches if sources & set(selected_sources)
-        )
-        # An advisory route requires only what its own required sources require;
-        # a demoted gate document's dependencies are demoted with it.
+        doc_graph_matches = expand_required_doc_matches(ROOT, selected_sources)
+        graph_required = graph_required_docs(doc_graph_matches)
+        # An advisory route requires only dependencies of its own required
+        # sources. Dependencies of demoted gate docs remain references.
         advisory_graph_required = (
-            graph_required_docs(
-                match for match, sources in requires_matches
-                if sources & set(advisory_sources)
-            )
+            graph_required_docs(expand_required_doc_matches(ROOT, advisory_sources))
             if advisory
             else graph_required
         )
@@ -339,21 +327,23 @@ def _resolve_documents(
             # a second reading queue after the code owner has been resolved.
             docs = list(selected_sources)
             surface_docs = []
+            reference_surface_docs = []
             doc_graph_matches = [
                 match for match in doc_graph_matches if str(match["path"]) in graph_required
             ]
     graph_docs = [str(match["path"]) for match in doc_graph_matches]
-    docs.extend(surface_docs)
+    docs.extend(reference_surface_docs)
     docs.extend(search_seed_docs)
     docs.extend(graph_docs)
 
-    if platform and not owner_lookup:
+    if platform and not owner_lookup and not owner_surface_docs:
         docs.extend(PLATFORMS[platform])
 
     for concern in concerns:
         docs.extend(CONCERNS.get(concern, ()))
-        docs.extend(CONCERN_REFERENCE_DOCS.get(concern, ()))
-        if platform:
+        if concern in selection_concerns or not owner_surface_docs:
+            docs.extend(CONCERN_REFERENCE_DOCS.get(concern, ()))
+        if platform and (concern in selection_concerns or not owner_surface_docs):
             docs.extend(PLATFORM_CONCERNS.get((platform, concern), ()))
 
     routed_docs = unique(canonical_doc_path(doc) for doc in docs)
@@ -366,16 +356,25 @@ def _resolve_documents(
     else:
         required_docs = full_required
         graph_promoted = [doc for doc in graph_required if doc not in selected_sources]
-    # Every routed document stays reachable in exactly one of the two lists.
-    # Filtering out entrypoints whose reference was promoted would read better,
-    # but it breaks the invariant that `required_docs | reference_docs` covers
-    # everything the router resolved, which callers rely on. The full required
-    # set is part of that: a document an advisory route demoted may be a
-    # resolved reference that no routed entrypoint names directly.
+    # The manifest contains required documents and only genuinely optional
+    # candidates. A generated pointer whose real reference is already required
+    # adds no decision content and is omitted rather than advertised as another
+    # read. Use the full route's required set for this check so advisory and
+    # execution manifests cover the same documents.
     manifest_docs = unique([*routed_docs, *full_required])
     required_set = set(required_docs)
-    reference_docs = [doc for doc in manifest_docs if doc not in required_set]
-    missing = [doc for doc in manifest_docs if not (ROOT / doc).exists()]
+    full_required_set = set(full_required)
+    reference_docs = [
+        doc
+        for doc in manifest_docs
+        if doc not in required_set
+        and not (
+            is_pointer_entrypoint(ROOT, doc)
+            and set(resolve_guidance_docs(ROOT, [doc])).issubset(full_required_set)
+        )
+    ]
+    readable_docs = unique([*required_docs, *reference_docs])
+    missing = [doc for doc in readable_docs if not (ROOT / doc).exists()]
     return RoutedDocuments(
         routed=routed_docs,
         required=required_docs,
@@ -444,13 +443,13 @@ def _route_notes(
     )
     if documents.graph_promoted:
         notes.append(
-            "Expanded related candidate docs from the local document graph; explicit `requires_docs` edges become required docs."
+            "Followed explicit `requires_docs` frontmatter from selected documents; no general document-graph neighbors were expanded."
         )
     elif documents.graph_matches:
         # Claiming an edge promoted something when none did sends a reader
         # looking in `required_docs` for a graph document that is not there.
         notes.append(
-            "Expanded related candidate docs from the local document graph; no `requires_docs` edge promoted a required doc, so these neighbors stay on-demand reference candidates."
+            "Kept explicit dependencies of on-demand source documents on demand; no general document-graph neighbors were expanded."
         )
     return notes
 
@@ -492,8 +491,13 @@ def _document_search_notes(
             "explicit required guidance and dependencies. Reopen discovery only "
             "for an unresolved question, not to fill an optional reading queue."
         ]
-
     notes: list[str] = []
+    if search_outcome.backend == "deterministic-route":
+        if resolution["status"] == "invalid_manifest":
+            notes.append(
+                "The route manifest names missing documents. Stop once with the missing paths; do not retry document discovery until the manifest or files are repaired."
+            )
+        return notes
     if search_seed_docs:
         notes.append(
             "Wikimap supplied natural-language seed documents to the router; seeds remain reference candidates unless an explicit route rule or required relation promotes them."
@@ -797,6 +801,12 @@ def _document_resolution(
             "status": "not_searched",
             "terminal": True,
             "reason": "No request text was given, so natural-language document search did not run.",
+        }
+    if search_outcome.backend == "deterministic-route":
+        return {
+            "status": "resolved",
+            "terminal": True,
+            "reason": "Deterministic command, concern, and owner/action surface rules selected documents without natural-language search.",
         }
     if not search_seed_docs:
         source = "Wikimap" if search_outcome.backend == "wikimap" else "local recovery search"

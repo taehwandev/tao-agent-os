@@ -26,6 +26,7 @@ if str(SCRIPTS) not in sys.path:
 
 import workflow_doc_graph_build as build
 import workflow_doc_graph_cache as cache
+import workflow_doc_graph as route_graph
 
 
 class DocGraphCacheTests(unittest.TestCase):
@@ -270,6 +271,38 @@ class DocGraphCacheTests(unittest.TestCase):
                 second = cache.document_key(project, docs)
 
         self.assertNotEqual(first, second)
+
+    def test_required_dependency_walk_does_not_build_the_corpus_graph(self) -> None:
+        """Routing follows explicit dependencies without scanning all documents."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "source.md").write_text(
+                "---\nrequires_docs:\n  - child.md\n---\n\n"
+                "[optional neighbor](unrelated.md)\n",
+                encoding="utf-8",
+            )
+            (project / "child.md").write_text(
+                "---\nrequires: [nested.md]\n---\n",
+                encoding="utf-8",
+            )
+            (project / "nested.md").write_text("# nested\n", encoding="utf-8")
+            (project / "unrelated.md").write_text("# unrelated\n", encoding="utf-8")
+
+            with patch.object(
+                route_graph,
+                "build_doc_graph",
+                side_effect=AssertionError("corpus graph was built"),
+            ):
+                matches = route_graph.expand_required_doc_matches(
+                    project, ["source.md"]
+                )
+
+        self.assertEqual(["child.md", "nested.md"], [item["path"] for item in matches])
+        self.assertNotIn("unrelated.md", {item["path"] for item in matches})
+        self.assertTrue(
+            all(item["relation"] == "frontmatter:requires" for item in matches)
+        )
 
     def _module_copy(self, directory: str) -> Path:
         """A directory shaped like `scripts/`, so no tracked file is touched."""

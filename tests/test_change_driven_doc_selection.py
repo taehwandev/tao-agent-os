@@ -273,6 +273,17 @@ class PlatformNameAloneTests(unittest.TestCase):
                     doc, set(route["required_docs"]) | set(route["reference_docs"])
                 )
 
+    def test_an_ownership_lookup_keeps_the_platform_entrypoint_on_demand(self):
+        """Concrete work stays narrow without making later ownership lookup blind."""
+
+        route = route_for(
+            "analysis", "android", "안드로이드에서 이 기능의 모듈 소유권은 어디인가?"
+        )
+        architecture = "platforms/android/skills/android-architecture/SKILL.md"
+
+        self.assertNotIn(architecture, route["required_docs"])
+        self.assertIn(architecture, route["reference_docs"])
+
     def test_the_platform_contract_stays_small(self):
         """Item 3: the always-applicable contract is small, the detail is not."""
 
@@ -468,8 +479,8 @@ class PathSurfaceScopeTests(unittest.TestCase):
             with self.subTest(doc=doc):
                 self.assertNotIn(doc, required)
 
-    def test_the_ecosystem_stays_a_reference_candidate(self):
-        """Narrowing what is required must not remove what is reachable."""
+    def test_a_verified_surface_does_not_emit_the_whole_ecosystem(self):
+        """The route can rediscover broader cards if the action later needs them."""
 
         route = resolve_docs("task", "android", [], request_classified=True,
                              surface_paths=self.COMPOSE_SCREEN)
@@ -477,7 +488,7 @@ class PathSurfaceScopeTests(unittest.TestCase):
 
         for doc in (self.SOURCE_MAP, self.STRUCTURE, self.PREVIEWS):
             with self.subTest(doc=doc):
-                self.assertIn(doc, reachable)
+                self.assertNotIn(doc, reachable)
 
     def test_a_reference_only_surface_never_becomes_required(self):
         from workflow_doc_surfaces import infer_surface_docs, required_surface_docs
@@ -538,10 +549,9 @@ class NamedFrameworkExcludesTheOtherTests(unittest.TestCase):
             self.assertIn(doc, required)
         for doc in resolved([must_not]):
             self.assertNotIn(doc, required)
-            # Excluded from the mandate, not from the repository: a request can
-            # still turn out to touch the other framework, and the reader has
-            # to be able to reach its card when it does.
-            self.assertIn(doc, reachable)
+            # An explicitly selected framework makes the other framework an
+            # unrelated candidate, not an on-demand reading queue entry.
+            self.assertNotIn(doc, reachable)
 
     def test_a_swiftui_request_is_not_required_to_read_uikit(self):
         for prompt in (
@@ -573,6 +583,41 @@ class NamedFrameworkExcludesTheOtherTests(unittest.TestCase):
 
         for doc in resolved([self.SWIFTUI, self.UIKIT]):
             self.assertIn(doc, reachable)
+
+
+class NextAppRouterSelectionTests(unittest.TestCase):
+    """A verified Next.js app owner selects the action, not the web library."""
+
+    OWNER = ["src/app/[locale]/(walled)/page.tsx"]
+    PERFORMANCE = (
+        "common/skills/web-performance-verification/SKILL.md",
+        "common/skills/performance-verification/SKILL.md",
+    )
+
+    def test_korean_slow_variants_select_only_performance_guidance(self):
+        for wording in ("느려", "느린", "느림", "느리다"):
+            with self.subTest(wording=wording):
+                route = route_for(
+                    "bugfix", "web",
+                    f"홈 초기 피드 렌더링이 {wording}. 이 부분만 수정해줘",
+                    self.OWNER,
+                )
+                required = set(route["required_docs"])
+                reachable = required | set(route["reference_docs"])
+
+                self.assertTrue(resolved(self.PERFORMANCE).issubset(required))
+                self.assertTrue(
+                    any(
+                        match["name"] == "web_react_paths"
+                        for match in route.get("doc_surface_matches", [])
+                    )
+                )
+                self.assertTrue(
+                    resolved([
+                        "platforms/web/skills/web-design-system/SKILL.md",
+                        "platforms/web/skills/web-state-data/SKILL.md",
+                    ]).isdisjoint(reachable)
+                )
 
 
 class CardsThatExistMustBeReachableTests(unittest.TestCase):
@@ -842,6 +887,31 @@ class AnExclusionNamesASubjectTests(unittest.TestCase):
             with self.subTest(prompt=prompt):
                 self.assert_required_is(prompt, self.API, True)
                 self.assert_required_is(prompt, self.WORK, False)
+
+    def test_a_korean_action_joint_ends_the_subject(self):
+        """A trailing prohibition must not absorb the action before its joint."""
+
+        for prompt in (
+            "WorkManager 스케줄을 고치되 DTO 파싱은 변경하지 말고",
+            "WorkManager 스케줄을 고치고 DTO 파싱은 변경하지 말고",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, self.WORK, True)
+                self.assert_required_is(prompt, self.API, False)
+
+        for prompt in (
+            "DTO 파싱을 수정하면서 WorkManager는 손대지 마세요",
+            "DTO 파싱을 수정하되 WorkManager는 손대지 마세요",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, self.API, True)
+                self.assert_required_is(prompt, self.WORK, False)
+
+    def test_two_korean_prohibitions_keep_their_subjects_separate(self):
+        prompt = "WorkManager는 건드리지 않으면서 DTO 파싱도 변경하지 마"
+
+        self.assert_required_is(prompt, self.WORK, False)
+        self.assert_required_is(prompt, self.API, False)
 
     def test_work_asked_for_beside_an_exclusion_keeps_its_card(self):
         for prompt, card in (

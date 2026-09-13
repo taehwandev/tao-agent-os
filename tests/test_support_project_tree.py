@@ -261,13 +261,10 @@ class PrunedTraversalTests(unittest.TestCase):
 
 
 class DocumentGraphCostTests(unittest.TestCase):
-    """One graph per process, however many route contracts ask for it.
+    """Normal route contracts never pay for the document corpus graph.
 
-    `resolve_docs` runs once per route contract -- twenty-six of them in
-    workflow validation -- and each asks the graph to expand its matches. The
-    build walks and reads every guidance document, so losing the cache would
-    multiply the review hook's cost by the number of routes without changing
-    any answer.
+    General graph neighbours do not decide required reading. Building even one
+    cached graph still walks the corpus before the first small task can start.
     """
 
     @staticmethod
@@ -279,7 +276,7 @@ class DocumentGraphCostTests(unittest.TestCase):
         except AttributeError:
             pass
 
-    def test_the_graph_is_built_once_for_many_route_contracts(self) -> None:
+    def test_normal_routes_do_not_build_the_graph(self) -> None:
         self._clear_cache()
         self.addCleanup(self._clear_cache)
         builds: list[int] = []
@@ -293,7 +290,7 @@ class DocumentGraphCostTests(unittest.TestCase):
             for command in ("task", "bugfix", "review", "ship"):
                 resolve_docs(command, None, [], ())
 
-        self.assertEqual(1, len(builds))
+        self.assertEqual(0, len(builds))
 
 
 class CallerResultsAreUnchangedTests(unittest.TestCase):

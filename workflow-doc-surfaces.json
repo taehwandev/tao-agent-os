@@ -517,7 +517,7 @@
         "\\b(jank|stutter|dropped frames?|frame time|scroll performance|recompositions?)\\b",
         "\\b(slow|laggy|sluggish|janky)\\b",
         "\\b(performance|profiling|benchmark)\\b",
-        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824)"
+        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824|\\ub290\\ub9ac|\\ub290\\ub9b0|\\ub290\\ub9bc)"
       ],
       "doc_sets": [
         "android_ui_performance"
@@ -689,7 +689,7 @@
         "\\b(jank|stutter|dropped frames?|frame time|scroll performance|recompositions?)\\b",
         "\\b(slow|laggy|sluggish|janky)\\b",
         "\\b(performance|profiling|benchmark)\\b",
-        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824)"
+        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824|\\ub290\\ub9ac|\\ub290\\ub9b0|\\ub290\\ub9bc)"
       ],
       "doc_sets": [
         "ios_ui_performance"
@@ -719,7 +719,7 @@
         "\\b(jank|stutter|dropped frames?|frame time|scroll performance|recompositions?)\\b",
         "\\b(slow|laggy|sluggish|janky)\\b",
         "\\b(performance|profiling|benchmark)\\b",
-        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824)"
+        "(\\uc131\\ub2a5|\\ubc84\\ubc85|\\ub04a\\uae40|\\uc7b0\\ud06c|\\ub9ac\\ucef4\\ud3ec\\uc9c0\\uc158|\\ub290\\ub824|\\ub290\\ub9ac|\\ub290\\ub9b0|\\ub290\\ub9bc)"
       ],
       "doc_sets": [
         "web_ui_performance"
@@ -1804,6 +1804,8 @@
       "patterns": [
         "app/**/page.tsx",
         "app/**/layout.tsx",
+        "src/app/**/page.tsx",
+        "src/app/**/layout.tsx",
         "pages/**/*.tsx",
         "src/**/pages/**/*.tsx",
         "src/**/routes/**/*.tsx",
@@ -1892,6 +1894,8 @@
       "patterns": [
         "app/**/page.tsx",
         "app/**/layout.tsx",
+        "src/app/**/page.tsx",
+        "src/app/**/layout.tsx",
         "pages/**/*.tsx",
         "src/**/pages/**/*.tsx",
         "src/**/routes/**/*.tsx",

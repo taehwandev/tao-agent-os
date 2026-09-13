@@ -259,7 +259,8 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         ):
             self.assertIn(guidance_area(doc), required_areas(route))
 
-        self.assertIn("AGENTS.md", route["reference_docs"])
+        self.assertNotIn("AGENTS.md", route["reference_docs"])
+        self.assertNotIn("index.md", route["reference_docs"])
 
         for surface_path in surface_paths:
             self.assertNotIn(required_doc(surface_path), route["required_docs"])
@@ -1043,7 +1044,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
 
         self.assertIn(required_doc("platforms/android/skills/android-compose-ui/SKILL.md"), route["required_docs"])
         self.assertIn(guidance_area("platforms/android/skills/android-review/SKILL.md"), routed_areas(route))
-        self.assertIn(
+        self.assertNotIn(
             guidance_area("platforms/android/skills/source-coverage/references/compose-performance-source-map.md"),
             routed_areas(route),
         )
@@ -1207,21 +1208,16 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn(guidance_area("common/skills/task-intake-effort-routing/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("common/skills/source-driven-development/SKILL.md"), routed_areas(route))
         self.assertTrue(any(match["name"] == "natural_language_doc_routing" for match in route["doc_surface_matches"]))
-        self.assertEqual("wikimap", route["document_search"]["backend"])
-        self.assertTrue(route["document_search"]["candidates"])
-        self.assertTrue(
-            set(route["document_search"]["candidates"]).issubset(
-                set(route["required_docs"]) | set(route["reference_docs"])
-            )
-        )
+        self.assertEqual("deterministic-route", route["document_search"]["backend"])
+        self.assertEqual([], route["document_search"]["candidates"])
 
-    def test_document_search_no_matches_is_terminal_not_a_retry_loop(self) -> None:
+    def test_code_route_does_not_run_document_search(self) -> None:
         outcome = SearchOutcome(
             results=[],
             backend="wikimap",
             backend_version="1.0.0",
         )
-        with patch("workflow_route.search_docs_outcome", return_value=outcome):
+        with patch("workflow_route.search_docs_outcome", return_value=outcome) as search:
             route = resolve_docs(
                 "workflow-setup",
                 None,
@@ -1230,11 +1226,12 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                 request_text="no matching project document should be found",
             )
 
-        self.assertEqual("no_matches", route["document_search"]["status"])
+        search.assert_not_called()
+        self.assertEqual("resolved", route["document_search"]["status"])
+        self.assertEqual("deterministic-route", route["document_search"]["backend"])
         self.assertTrue(route["document_search"]["terminal"])
         self.assertEqual([], route["missing"])
         self.assertTrue(route["required_docs"])
-        self.assertTrue(any("terminal no-source outcome" in note for note in route["notes"]))
 
     def test_missing_required_document_is_invalid_manifest_not_search_retry(self) -> None:
         with patch(
@@ -1265,7 +1262,7 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn(guidance_area("workflows/skills/scripted-agent-workflow/SKILL.md"), routed_areas(route))
         self.assertTrue(any(match["name"] == "planning_change_documentation" for match in route["doc_surface_matches"]))
 
-    def test_route_exposes_document_graph_neighbors_as_reference_docs(self) -> None:
+    def test_route_does_not_expose_general_document_graph_neighbors(self) -> None:
         route = resolve_docs(
             "workflow-setup",
             None,
@@ -1274,30 +1271,24 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             request_text="훅은 보완이고 자연어 검색 가능한 문서 라우팅을 강화해줘",
         )
 
-        self.assertIn("doc_graph_matches", route)
-        # A markdown-link graph neighbor reaches the agent as a reference doc.
-        # `local-tools` anchored this property independently of the oversize
-        # guard, which is why it outlived it: a small file demonstrating
-        # graph-neighbor exposure on its own merits rather than as a side
-        # effect of a size demotion.
-        neighbours = {match["path"] for match in route["doc_graph_matches"]}
-        self.assertIn("common/skills/local-tools/SKILL.md", neighbours)
-        self.assertIn("common/skills/local-tools/SKILL.md", route["reference_docs"])
+        neighbours = {match["path"] for match in route.get("doc_graph_matches", [])}
+        self.assertNotIn("common/skills/local-tools/SKILL.md", neighbours)
+        self.assertNotIn("common/skills/local-tools/SKILL.md", route["reference_docs"])
 
-    def test_query_uses_document_graph_to_promote_related_skill_entrypoints(self) -> None:
+    def test_query_uses_policy_facets_without_graph_expansion(self) -> None:
         results = search_docs(ROOT, "훅으로 문서 검색하고 읽도록", max_results=12)
-        graph_items = [
+        matching = [
             item
             for item in results
             if item["path"] == "workflows/skills/scripted-agent-workflow/SKILL.md"
         ]
 
-        self.assertTrue(graph_items, results)
+        self.assertTrue(matching, results)
         self.assertTrue(
-            graph_items[0].get("graph_reasons")
-            or "natural_language_doc_routing" in graph_items[0].get("matched_facets", []),
-            graph_items[0],
+            "natural_language_doc_routing" in matching[0].get("matched_facets", []),
+            matching[0],
         )
+        self.assertNotIn("graph_reasons", matching[0])
 
     def test_query_promotes_skill_bundle_migration_for_structure_cleanup(self) -> None:
         results = search_docs(

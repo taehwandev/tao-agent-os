@@ -164,12 +164,11 @@ class TheHooksAreActuallyInstrumentedTests(unittest.TestCase):
 
 
 class DiscoveryStagesTests(unittest.TestCase):
-    """Routing is most of a start, and search is most of routing.
+    """Normal routing stays cheap; unresolved analysis exposes search cost.
 
-    A single `preflight` number said a start was slow without saying which
-    part: profiling put 63% of it in document discovery, split between a
-    wikimap index refresh and a graph build. Recording them separately is
-    what lets the next reduction pick between those two rather than guess.
+    A single `preflight` number used to hide a Wikimap refresh and document
+    graph build in every work route. Those stages must now be absent from
+    normal work and still visible when analysis deliberately invokes Wikimap.
     """
 
     def setUp(self) -> None:
@@ -178,8 +177,8 @@ class DiscoveryStagesTests(unittest.TestCase):
         import workflow_doc_graph_build
         from workflow_wikimap import clear_wikimap_cache
 
-        # Both caches are per process, which is why every hook pays them once
-        # and why a test that does not clear them measures the second call.
+        # Clear both caches so a forbidden normal-route call cannot hide behind
+        # state left by an earlier test.
         reset_stages()
         workflow_doc_graph_build.clear_doc_graph_cache()
         clear_wikimap_cache()
@@ -187,7 +186,7 @@ class DiscoveryStagesTests(unittest.TestCase):
         self.addCleanup(workflow_doc_graph_build.clear_doc_graph_cache)
         self.addCleanup(clear_wikimap_cache)
 
-    def test_a_cold_route_records_search_and_graph_separately(self) -> None:
+    def test_a_normal_route_skips_search_and_graph_work(self) -> None:
         from workflow_route import resolve_docs
 
         resolve_docs(
@@ -197,9 +196,13 @@ class DiscoveryStagesTests(unittest.TestCase):
         )
         timings = recorded_stages()
 
-        for expected in ("doc_search", "doc_graph_build", "wikimap_index"):
+        self.assertIn("required_docs", timings)
+        for expected in (
+            "doc_search", "doc_graph_build", "doc_graph_expand",
+            "wikimap_index", "wikimap_search",
+        ):
             with self.subTest(stage=expected):
-                self.assertIn(expected, timings)
+                self.assertNotIn(expected, timings)
 
     def test_the_lesson_summary_reports_what_it_costs(self) -> None:
         """It reads the whole candidate inbox, which grows with the store.
@@ -214,7 +217,7 @@ class DiscoveryStagesTests(unittest.TestCase):
 
         self.assertIn("lesson_summary", recorded_stages())
 
-    def test_the_parts_of_a_search_are_reported_separately(self) -> None:
+    def test_unresolved_analysis_records_search_without_a_graph_build(self) -> None:
         """One number for a stage cannot say which half to look at.
 
         Profiling a start put 384 ms in document search, 196 of it refreshing
@@ -226,16 +229,17 @@ class DiscoveryStagesTests(unittest.TestCase):
         from workflow_route import resolve_docs
 
         resolve_docs(
-            "task", None, [],
+            "analysis", None, [],
             request_text="bound every local git read",
             project_root=ROOT,
         )
         timings = recorded_stages()
 
-        for expected in ("wikimap_index", "wikimap_search", "required_docs",
-                         "doc_graph_expand"):
+        for expected in ("doc_search", "wikimap_index", "wikimap_search", "required_docs"):
             with self.subTest(stage=expected):
                 self.assertIn(expected, timings)
+        self.assertNotIn("doc_graph_build", timings)
+        self.assertNotIn("doc_graph_expand", timings)
 
     def test_search_covers_the_index_refresh_inside_it(self) -> None:
         """Nested stages must nest, or the numbers cannot be read as parts."""
@@ -243,7 +247,7 @@ class DiscoveryStagesTests(unittest.TestCase):
         from workflow_route import resolve_docs
 
         resolve_docs(
-            "task", None, [],
+            "analysis", None, [],
             request_text="bound every local git read",
             project_root=ROOT,
         )

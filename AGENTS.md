@@ -195,11 +195,25 @@ legacy run.
 
 ## Documents And Search
 
-The route owns natural-language guidance discovery. Wikimap results are
+Normal implementation routes use a deterministic minimal manifest: the command
+workflow, guaranteed gate and risk contracts, and request-specific documents
+selected by a repository-verified owner path or change-action rule. They do not
+run broad natural-language document search or expand general document-graph
+neighbors. From an already selected document, follow only explicit
+`requires_docs` frontmatter; ordinary links never become a reading queue.
+The route's `docs` field records selection provenance and eligibility; it is not
+a third reading list. Read only `required_docs`, plus a `reference_docs` entry
+when a concrete unresolved in-scope decision makes that reference applicable.
+
+Use Wikimap only when an analysis or guidance-discovery request still has an
+unresolved question after bounded direct evidence. Its results are reference
 candidates; only route policy or an explicit required relation promotes a
-required document. Graphify owns target-code architecture and relationship
-analysis. An empty search is a terminal no-match outcome; a missing required
-document is an invalid manifest and stops work.
+required document. Use Graphify only when bounded direct repository search
+cannot resolve a structural ownership, dependency, or impact question. Refresh
+Graphify explicitly on demand, never automatically on checkout or commit. A
+stale or unavailable graph falls back to bounded direct repository evidence,
+not an automatic rebuild. An empty search is a terminal no-match outcome; a
+missing required document is an invalid manifest and stops work.
 
 Apply the Need-Driven Reading Contract in
 `common/skills/agent-operating-skill/SKILL.md` before expanding reading,
@@ -225,15 +239,17 @@ by itself a reason to read its architecture. Platform guidance becomes required
 as soon as something request-specific asks for it: a concern the caller names,
 or a repository-verified owner path.
 
-A concern inferred from request keywords routes its documents as references,
-because the same keyword fires on "not a performance change" as readily as on a
-performance change. Security, auth, billing, credential-broker, and migration
-are the exception and stay required on inference alone: a false positive costs
-one card, while a miss changes a permission, a charge, a secret, or a migration
-without the card that says how not to break it. Record in scope which inferred
-risk concern does not apply rather than skipping it. Release is not on that
-list because `release` and `ship` already require its cards as their command
-documents.
+A concern inferred from request keywords offers its compact common card as a
+reference, because the same keyword fires on "not a performance change" as
+readily as on a performance change. Once a verified owner or specific action
+rule selects the applicable platform guidance, do not also emit that inferred
+concern's broad platform bundle. Security, auth, billing, credential-broker,
+and migration are the exception and stay required on inference alone: a false
+positive costs one card, while a miss changes a permission, a charge, a secret,
+or a migration without the card that says how not to break it. Record in scope
+which inferred risk concern does not apply rather than skipping it. Release is
+not on that list because `release` and `ship` already require its cards as their
+command documents.
 
 The command's own workflow documents are selected before the selection budget,
 not out of it. Concerns are chosen ahead of the tier walk, so counting them
@@ -247,17 +263,19 @@ generic tiers rather than out of the single slot they leave. A rule may name
 broader rules it `narrows`: moving one control matches both "Compose UI work"
 and "layout change", and the narrower rule stands in the broader one's place so
 placing a button does not require the state, module and lifecycle cards. A
-narrowed document stays reachable as a reference; narrowing never makes one
-unreadable. Where a file sits does not decide what the change is -- a DTO or
-mapper under a `ui/` package is a data change, and the UI path rules exclude
-those names for that reason.
+narrowed document is not emitted in the current manifest merely to remain
+reachable; a later unresolved question can discover it through its own rule.
+Where a file sits does not decide what the change is -- a DTO or mapper under a
+`ui/` package is a data change, and the UI path rules exclude those names for
+that reason.
 
 A path rule says which surface was touched, never what the change does, so it
 carries only the contract any change to that surface applies. What the change
 is -- layout, state, performance, a new screen, a wire contract -- comes from a
 change-action rule, and those select what that decision needs. A path rule may
 also mark a wider set `reference_only`: touching a Compose file is a good reason
-to offer the platform's ecosystem as candidates and a poor reason to require it.
+to offer the platform's ecosystem while the action is unresolved and a poor
+reason to retain it after a specific owner/action rule has decided the manifest.
 Before this, one touched Compose file made 162 KB across 21 documents required-
 eligible, and the document cap then kept whichever tier came first: a scroll
 performance task required the previews and screen-structure references and never
@@ -301,12 +319,13 @@ or authorize a separate UI investigation. Preserve explicit required instruction
 and dependencies; stop once the answer is supported instead of repeating unchanged
 recommendations. Implementation routes retain their own required guidance.
 
-Document retrieval is not read authorization. Once owner paths are verified,
-keyword-only surface matches remain reference candidates unless backed by an
-owner path or explicit `required_priority` rule. Before owner resolution,
-specific request-intent routing remains available for discovery. Route evidence records eligibility and
-the selection reason. A graph `requires` edge may promote a dependency only
-from an already selected source, never from an incidental search hit. Required
+Document retrieval is not read authorization. Once owner paths or a specific
+change-action rule are verified, broader keyword-only and ecosystem matches are
+removed from that route's manifest unless backed by the owner path or explicit
+`required_priority` rule. Before owner resolution, request-intent routing
+remains available for discovery. Route evidence records eligibility and the
+selection reason. A graph `requires` edge may promote a dependency only from an
+already selected source, never from an incidental search hit. Required
 dependencies are not dropped to satisfy the optional selection budget.
 
 For `docs`, `prd`, and `task`, mandatory selection keeps the command workflow,

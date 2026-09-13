@@ -112,6 +112,13 @@ _CLAUSE_JOINT = (
     r"when|unless|though|although|instead|yet)\b)"
 )
 
+_KOREAN_ACTION_JOINT = r"(?:하되|되|면서|하고|고)"
+_KOREAN_NEGATED_CHANGE = (
+    r"\s*(?:은|는|을|를)?\s*"
+    r"(?:수정|변경|편집|건드리|손대)(?:하)?지\s*"
+    r"(?:말고|말아줘|마세요|마|않고|않은\s*채|않으면서|않인\s*채)"
+)
+
 # A prohibition and the subject it governs. Read as spans inside the clause
 # rather than as the whole clause: "fix only the DTO parser without touching
 # WorkManager" is a prohibition too, and requiring the clause to *be* one meant
@@ -122,9 +129,14 @@ _PROHIBITION_SPANS = (
     r"\b(?:do\s+not|don't|must\s+not|never)\s+"
     r"(?:change|modify|edit|fix|touch|alter)\s+(?P<subject>[^,.;]+?)"
     + _CLAUSE_JOINT,
-    r"(?P<subject>[^,.;]+?)\s*(?:은|는|을|를)?\s*"
-    r"(?:수정|변경|편집|건드리|손대)(?:하)?지\s*"
-    r"(?:말고|말아줘|마세요|마|않고|않은\s*채|않으면서|않인\s*채)",
+    # An affirmative action before a Korean prohibition is not part of the
+    # prohibited subject.  Start after a connective when one exists.  The
+    # start-of-clause fallback refuses to cross such a connective, so it cannot
+    # swallow the requested action while searching for a later negation.
+    r"(?:(?<=하되)|(?<=되)|(?<=면서)|(?<=하고)|(?<=고))\s*"
+    r"(?P<subject>[^,.;]+?)" + _KOREAN_NEGATED_CHANGE,
+    r"^(?P<subject>(?:(?!" + _KOREAN_ACTION_JOINT + r"\s).)+?)"
+    + _KOREAN_NEGATED_CHANGE,
 )
 
 
@@ -142,15 +154,21 @@ def _excluded_subject(clause: str, rule: dict[str, Any]) -> bool:
     rules for the change being made.
     """
 
-    remainder = clause
+    removals: list[tuple[int, int]] = []
     forbidden = False
     for pattern in _PROHIBITION_SPANS:
         for match in re.finditer(pattern, clause, re.IGNORECASE):
             if rule_matches_request(rule, match.group("subject")):
                 forbidden = True
-            remainder = remainder.replace(match.group(0), " ")
+            removals.append((match.start(), match.end()))
     if not forbidden:
         return False
+    remainder = clause
+    # Patterns are grouped by language, not by source position.  Apply spans
+    # from right to left so removing one prohibition never invalidates the
+    # offsets of another prohibition in the same clause.
+    for start, end in sorted(removals, reverse=True):
+        remainder = remainder[:start] + " " + remainder[end:]
     return not rule_matches_request(rule, remainder)
 
 
@@ -187,8 +205,9 @@ def required_surface_docs(matches: list[dict[str, object]]) -> list[str]:
     "this is Compose UI work" and "this is a layout change"; the second is the
     truer description, and without this the wider rule still required the state,
     module and lifecycle cards that placing a control does not decide. Narrowing
-    only removes documents from the required set -- they stay reachable as
-    reference docs, so nothing becomes unreadable.
+    removes documents from the current manifest when a more specific rule owns
+    the decision. The broader card remains discoverable through its own rule or
+    an unresolved lookup; it is not listed beside a request that excluded it.
     """
     selected: list[str] = []
     narrowed: set[str] = set()

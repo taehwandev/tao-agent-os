@@ -313,7 +313,8 @@ class WorkflowCatalogTests(unittest.TestCase):
             ["common/skills/agent-operating-skill/SKILL.md"],
             route["required_docs"],
         )
-        self.assertIn("AGENTS.md", route["reference_docs"])
+        self.assertNotIn("AGENTS.md", route["reference_docs"])
+        self.assertNotIn("index.md", route["reference_docs"])
         parallel = route["parallel_execution"]
         self.assertEqual("serial_lightweight_analysis", parallel["strategy"])
         self.assertEqual(0, parallel["delegation_policy"]["maximum_workers"])
@@ -678,9 +679,9 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertEqual("same_failure_after_repair_or_unsafe_repair", route["stop_condition"])
         for legacy_field in ("attempt_limit", "retry_limit", "retry_scope"):
             self.assertNotIn(legacy_field, route)
-        self.assertIn(guidance_area("common/skills/code-conventions/SKILL.md"), routed_areas(route))
-        self.assertIn(guidance_area("common/skills/llm-coding-discipline/SKILL.md"), routed_areas(route))
-        self.assertIn(guidance_area("common/skills/agent-editing-safety/SKILL.md"), routed_areas(route))
+        self.assertNotIn(guidance_area("common/skills/code-conventions/SKILL.md"), routed_areas(route))
+        self.assertNotIn(guidance_area("common/skills/llm-coding-discipline/SKILL.md"), routed_areas(route))
+        self.assertNotIn(guidance_area("common/skills/agent-editing-safety/SKILL.md"), routed_areas(route))
         self.assertIn(required_doc("common/skills/testing/SKILL.md"), route["required_docs"])
         # The testing concern now requires only its own card. The ambiguity
         # gate's substantive entrypoint remains required, while its detailed
@@ -689,9 +690,7 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertNotIn(
             required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["required_docs"]
         )
-        # On demand means still offered: without this the test passes when the
-        # detail is dropped from the route altogether.
-        self.assertIn(
+        self.assertNotIn(
             required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["reference_docs"]
         )
         self.assertIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["reference_docs"])
