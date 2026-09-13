@@ -91,6 +91,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Repair only an existing Graphify checkout block; --check previews changes.",
     )
     parser.add_argument(
+        "--disable-rebuild-hooks",
+        action="store_true",
+        help=(
+            "Remove only recognized Graphify post-checkout and post-commit rebuild "
+            "blocks so graph updates are explicit and on demand; --check previews changes."
+        ),
+    )
+    parser.add_argument(
         "--format",
         choices=("summary", "json"),
         default="summary",
@@ -112,12 +120,15 @@ def validate_arguments(
         parser.error("--repair-graph-integrity supports project targets only")
     if args.repair_checkout_hook and args.global_scope:
         parser.error("--repair-checkout-hook supports project targets only")
+    if args.disable_rebuild_hooks and args.global_scope:
+        parser.error("--disable-rebuild-hooks supports project targets only")
     repair_modes = sum(
         (
             args.repair_input_policy,
             args.repair_document_links,
             args.repair_graph_integrity,
             args.repair_checkout_hook,
+            args.disable_rebuild_hooks,
         )
     )
     if repair_modes > 1:
@@ -143,6 +154,15 @@ def configure_project(
             "scope": "project", "project": str(project),
             "checkout_hook": repair, "success": repair["ready"],
             "readiness": {"ready": repair["ready"]},
+        }
+    if args.disable_rebuild_hooks:
+        from support.graphify_checkout_repair import disable_rebuild_hooks
+
+        hooks = disable_rebuild_hooks(project, dry_run=args.check)
+        return {
+            "scope": "project", "project": str(project),
+            "rebuild_hooks": hooks, "success": hooks["ready"],
+            "readiness": {"ready": hooks["ready"]},
         }
     document_links: dict[str, object] | None = None
     graph_repair: dict[str, object] | None = None
@@ -210,6 +230,15 @@ def print_repair_summary(report: dict[str, object], args: argparse.Namespace) ->
         )
         if repair.get("reason"):
             print(f"  {repair['reason']}")
+        return True
+    if args.disable_rebuild_hooks:
+        hooks = report["rebuild_hooks"]
+        print(
+            f"{'SUCCESS' if hooks['ready'] else 'FAIL'} graphify-on-demand "
+            f"{report['project']} changed={hooks['changed']} dry-run={hooks['dry_run']}"
+        )
+        if hooks.get("reason"):
+            print(f"  {hooks['reason']}")
         return True
     if args.repair_input_policy:
         print(

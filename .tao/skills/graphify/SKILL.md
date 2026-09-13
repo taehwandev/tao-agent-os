@@ -14,13 +14,13 @@ target repository root. The query flow may read an existing graph from the
 CLI's root-level default, but vocabulary, reflection, saved-result, rebuild,
 and export writes stay under `.agents/local/graphify-out/`.
 
-**Read from wherever the graph actually is.** The installed commit hooks write
-to the CLI's own default, `graphify-out/` at the repository root, whenever that
-assignment is not in their environment — which is the ordinary case, because
-they are installed by `graphify hook install` and not by this skill. Calling
-that directory legacy and refusing to read it left this repository's own agents
-pointed at an empty path while the only graph on disk, rebuilt on every branch
-switch, sat in the one they were told never to open.
+**Read from wherever the graph actually is.** Older or explicitly opted-in
+commit hooks may write to the CLI's own default, `graphify-out/` at the
+repository root, whenever that assignment is not in their environment. Calling
+that directory legacy and refusing to read it can leave an agent pointed at an
+empty path while the only usable graph is elsewhere. Tao's default is on-demand
+refresh; do not install or depend on checkout/commit rebuild hooks unless the
+user explicitly requests that tradeoff.
 
 Resolve the graph through the Tao readiness check before querying. It selects
 the graph that actually exists and evaluates the matching sibling manifest;
@@ -123,9 +123,12 @@ Neither is part of the default build. When the user runs `/graphify add <url>` t
 
 ---
 
-## For the commit hook and native AGENTS.md integration
+## For optional commit hooks and native AGENTS.md integration
 
-When the user asks to install the post-commit auto-rebuild hook or wire graphify into a project's AGENTS.md, see `references/hooks.md`.
+Only when the user explicitly asks to install auto-rebuild hooks or wire
+Graphify into a project's AGENTS.md, see `references/hooks.md`. Normal Tao
+operation queries a fresh graph on demand and does not rebuild on checkout or
+commit.
 
 ---
 

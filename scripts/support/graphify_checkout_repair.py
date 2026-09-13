@@ -11,6 +11,8 @@ from pathlib import Path
 
 _START = "# graphify-checkout-hook-start"
 _END = "# graphify-checkout-hook-end"
+_COMMIT_START = "# graphify-hook-start"
+_COMMIT_END = "# graphify-hook-end"
 _VERSION = "# tao-graphify-checkout:v1"
 _GUARD = '''BRANCH_SWITCH=$3
 # tao-graphify-checkout:v1
@@ -63,6 +65,103 @@ def repair_checkout_hook(project: Path, *, dry_run: bool = False) -> dict[str, o
     return result
 
 
+def disable_rebuild_hooks(project: Path, *, dry_run: bool = False) -> dict[str, object]:
+    """Remove recognized Graphify rebuild blocks while preserving other hooks."""
+
+    result: dict[str, object] = {
+        "ready": False,
+        "changed": False,
+        "dry_run": dry_run,
+        "hooks": [],
+    }
+    try:
+        project = project.resolve()
+        top = Path(_git(project, "rev-parse", "--show-toplevel")).resolve()
+        if project != top:
+            raise ValueError("project must be the Git checkout root")
+        common = (project / _git(project, "rev-parse", "--git-common-dir")).resolve()
+        targets: list[tuple[str, Path, str, str]] = []
+        for name, start_marker, end_marker in (
+            ("post-checkout", _START, _END),
+            ("post-commit", _COMMIT_START, _COMMIT_END),
+        ):
+            hook = project / _git(project, "rev-parse", "--git-path", f"hooks/{name}")
+            resolved = hook.resolve()
+            if not (resolved.is_relative_to(common) or resolved.is_relative_to(project)):
+                raise ValueError(f"external {name} hook is outside this project's repair scope")
+            targets.append((name, hook, start_marker, end_marker))
+
+        # Validate every target before writing either one. A malformed commit
+        # hook must not leave checkout rebuilding disabled only halfway.
+        for _, hook, start_marker, end_marker in targets:
+            _disable_hook(
+                hook,
+                start_marker=start_marker,
+                end_marker=end_marker,
+                dry_run=True,
+            )
+
+        hook_results: list[dict[str, object]] = []
+        for name, hook, start_marker, end_marker in targets:
+            hook_result = _disable_hook(
+                hook,
+                start_marker=start_marker,
+                end_marker=end_marker,
+                dry_run=dry_run,
+            )
+            hook_result["hook"] = name
+            hook_results.append(hook_result)
+        result.update(
+            ready=all(bool(item["ready"]) for item in hook_results),
+            changed=any(bool(item["changed"]) for item in hook_results),
+            hooks=hook_results,
+        )
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as error:
+        result["reason"] = str(error)
+    return result
+
+
+def _disable_hook(
+    hook: Path,
+    *,
+    start_marker: str,
+    end_marker: str,
+    dry_run: bool,
+) -> dict[str, object]:
+    if not hook.exists():
+        return {"ready": True, "changed": False, "path": str(hook), "status": "absent"}
+    if hook.is_symlink() or not hook.is_file():
+        raise ValueError(f"{hook.name} must be a regular non-symlink file")
+    original = hook.read_bytes()
+    text = original.decode("utf-8")
+    if start_marker not in text and end_marker not in text:
+        return {"ready": True, "changed": False, "path": str(hook), "status": "unmanaged"}
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise ValueError(f"{hook.name} must contain one recognized Graphify block")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start) + len(end_marker)
+    block = text[start:end]
+    if "# Installed by: graphify hook install" not in block:
+        raise ValueError(f"{hook.name} Graphify block is not recognized")
+    updated_text = text[:start] + text[end:]
+    while "\n\n\n" in updated_text:
+        updated_text = updated_text.replace("\n\n\n", "\n\n")
+    updated = updated_text.encode("utf-8")
+    if not dry_run:
+        _write_hook(
+            hook,
+            original,
+            updated,
+            backup_suffix=".tao-before-on-demand",
+        )
+    return {
+        "ready": True,
+        "changed": True,
+        "path": str(hook),
+        "status": "would_disable" if dry_run else "disabled",
+    }
+
+
 def _git(project: Path, *args: str) -> str:
     return subprocess.run(
         ["git", *args], cwd=project, check=True, capture_output=True, text=True
@@ -94,8 +193,18 @@ def _patched(content: str) -> str:
 
 
 def _write_repair(hook: Path, original: bytes, updated: bytes) -> None:
+    _write_hook(hook, original, updated, backup_suffix=".tao-before-repair")
+
+
+def _write_hook(
+    hook: Path,
+    original: bytes,
+    updated: bytes,
+    *,
+    backup_suffix: str,
+) -> None:
     mode = stat.S_IMODE(hook.stat().st_mode)
-    backup = hook.with_name(hook.name + ".tao-before-repair")
+    backup = hook.with_name(hook.name + backup_suffix)
     if not backup.exists():
         with backup.open("xb") as stream:
             stream.write(original)

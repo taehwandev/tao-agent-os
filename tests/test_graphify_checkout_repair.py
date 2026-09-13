@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from support.graphify_checkout_repair import repair_checkout_hook
+from support.graphify_checkout_repair import disable_rebuild_hooks, repair_checkout_hook
 
 # The relevant upstream shell/Python nesting, with the expensive extractor
 # replaced by an observable boundary. Git, shell, arguments and repair are real.
@@ -41,6 +41,15 @@ except Exception:
 exec(_src)
 "
 # graphify-checkout-hook-end
+# user-after
+"""
+
+COMMIT_SCRIPT = """#!/bin/sh
+# user-before
+# graphify-hook-start
+# Installed by: graphify hook install
+echo graphify-rebuild
+# graphify-hook-end
 # user-after
 """
 
@@ -169,6 +178,62 @@ class GraphifyCheckoutRepairTests(unittest.TestCase):
         self.assertTrue(report["checkout_hook"]["changed"])
         self.assertEqual(SCRIPT, self.hook.read_text())
         self.assertFalse((self.project / ".agents/local/graphify-out").exists())
+
+    def test_on_demand_mode_removes_only_recognized_rebuild_blocks(self) -> None:
+        commit_hook = self.project / ".git/hooks/post-commit"
+        commit_hook.write_text(COMMIT_SCRIPT)
+        commit_hook.chmod(0o755)
+
+        preview = disable_rebuild_hooks(self.project, dry_run=True)
+        self.assertTrue(preview["ready"])
+        self.assertTrue(preview["changed"])
+        self.assertEqual(SCRIPT, self.hook.read_text())
+        self.assertEqual(COMMIT_SCRIPT, commit_hook.read_text())
+
+        result = disable_rebuild_hooks(self.project)
+        self.assertTrue(result["ready"])
+        self.assertTrue(result["changed"])
+        for hook in (self.hook, commit_hook):
+            text = hook.read_text()
+            self.assertIn("# user-before", text)
+            self.assertIn("# user-after", text)
+            self.assertNotIn("graphify-hook-start", text)
+            self.assertNotIn("graphify-checkout-hook-start", text)
+            self.assertTrue(hook.with_name(hook.name + ".tao-before-on-demand").is_file())
+
+        again = disable_rebuild_hooks(self.project)
+        self.assertTrue(again["ready"])
+        self.assertFalse(again["changed"])
+
+    def test_on_demand_mode_validates_both_hooks_before_writing(self) -> None:
+        commit_hook = self.project / ".git/hooks/post-commit"
+        malformed = COMMIT_SCRIPT.replace(
+            "# Installed by: graphify hook install", "# unknown owner"
+        )
+        commit_hook.write_text(malformed)
+
+        result = disable_rebuild_hooks(self.project)
+
+        self.assertFalse(result["ready"])
+        self.assertEqual(SCRIPT, self.hook.read_text())
+        self.assertEqual(malformed, commit_hook.read_text())
+        self.assertFalse(
+            self.hook.with_name("post-checkout.tao-before-on-demand").exists()
+        )
+
+    def test_on_demand_cli_preview_preserves_hooks(self) -> None:
+        commit_hook = self.project / ".git/hooks/post-commit"
+        commit_hook.write_text(COMMIT_SCRIPT)
+        done = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/setup-project-graphify.py"),
+             "--project", str(self.project), "--disable-rebuild-hooks", "--check",
+             "--format", "json"], capture_output=True, text=True, check=True,
+        )
+        report = json.loads(done.stdout)["projects"][0]
+        self.assertTrue(report["success"])
+        self.assertTrue(report["rebuild_hooks"]["changed"])
+        self.assertEqual(SCRIPT, self.hook.read_text())
+        self.assertEqual(COMMIT_SCRIPT, commit_hook.read_text())
 
 
 if __name__ == "__main__":
