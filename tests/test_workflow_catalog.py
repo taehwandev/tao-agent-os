@@ -682,9 +682,18 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertIn(guidance_area("common/skills/llm-coding-discipline/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("common/skills/agent-editing-safety/SKILL.md"), routed_areas(route))
         self.assertIn(required_doc("common/skills/testing/SKILL.md"), route["required_docs"])
-        # The testing concern now requires only its 10 KB card, so the budget
-        # still has room for the ambiguity gate's own contract.
-        self.assertIn(required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["required_docs"])
+        # The testing concern now requires only its own card. The ambiguity
+        # gate's substantive entrypoint remains required, while its detailed
+        # procedure stays reachable on demand instead of filling spare budget.
+        self.assertIn(route_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["required_docs"])
+        self.assertNotIn(
+            required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["required_docs"]
+        )
+        # On demand means still offered: without this the test passes when the
+        # detail is dropped from the route altogether.
+        self.assertIn(
+            required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["reference_docs"]
+        )
         self.assertIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["reference_docs"])
         self.assertIn(route_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["reference_docs"])
         self.assertNotIn(required_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["required_docs"])
