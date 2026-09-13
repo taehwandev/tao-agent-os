@@ -101,6 +101,14 @@ RUNTIME_LOOKUP_BRIDGE_PHRASE = (
     "readiness. Report unfinished work accurately and revalidate scope and authority on resume."
 )
 RUNTIME_START_BRIDGE_PHRASE = (
+    "Interpret intent, sequence, scope and authority from the conversation, not a phrase recognizer. "
+    "A clear execution request is actionable when first made: perform authorized steps in order; "
+    "do not end with only a plan or promise. Do not require a second confirmation merely because "
+    "you announced a plan. Planning-only requests remain planning-only. Never infer approval from silence "
+    "or extend it to deferred, prohibited or unrelated actions. Continue the next authorized step until "
+    "complete or a concrete blocker, required decision, approval boundary or interruption prevents it; "
+    "report actual partial work and what remains when blocked. This is runtime judgment, not a new "
+    "classification gate or Stop auto-resume rule. "
     "For multi-step work requiring a tracked lifecycle, run Tao Agent OS agent-hook.py start once; do not separately repeat "
     "workflow list, classify, route, or preflight. Always pass --request with the real user request. "
     "A work route additionally requires --intent-envelope and --runtime-session-id: build the "

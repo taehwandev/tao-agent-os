@@ -168,7 +168,7 @@ class InstallTests(unittest.TestCase):
             (home / ".gemini" / "config").mkdir(parents=True)
             (home / ".antigravity").mkdir(parents=True)
 
-            with unittest.mock.patch("pathlib.Path.home", return_value=home), unittest.mock.patch("support.agy_setup.Path.home", return_value=home):
+            with unittest.mock.patch("support.agy_setup.Path.home", return_value=home):
                 configure_agy(
                     False,
                     root=ROOT,
@@ -177,6 +177,9 @@ class InstallTests(unittest.TestCase):
                     spill_available=False,
                 )
 
+            runtime_bridge = home / ".antigravity" / "AGENTS.md"
+            self.assertTrue(runtime_bridge.is_file())
+            self.assertIn(str(ROOT), runtime_bridge.read_text(encoding="utf-8"))
             data = read_json(cli_settings)
             statusline_cmd = data["statusLine"]["command"]
             self.assertTrue(statusline_cmd.startswith(f"{_STATUSLINE_MARKER} "))

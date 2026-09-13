@@ -13,7 +13,6 @@ from support.runtime_bridge import (
 from support.setup_config_files import merge_permissions_allow, quote, read_json, write_json
 from support.stable_launcher import stable_launcher_path
 
-AGY_RUNTIME_BRIDGE_PATH = Path.home() / ".antigravity" / "AGENTS.md"
 AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES = runtime_bridge_required_phrases("Antigravity", "AGENTS.md")
 _STATUSLINE_ALIAS = "agy-statusline"
 _STATUSLINE_MARKER = "TAO_STATUSLINE=1"
@@ -28,12 +27,13 @@ def configure_agy(
     spill_available: bool = True,
 ) -> list[dict]:
     results = []
-    status = _merge_agy_runtime_bridge(AGY_RUNTIME_BRIDGE_PATH, dry_run, root=root)
+    runtime_bridge_path = Path.home() / ".antigravity" / "AGENTS.md"
+    status = _merge_agy_runtime_bridge(runtime_bridge_path, dry_run, root=root)
     results.append({
         "tool": "agy",
         "hook": "runtime_bridge.AGENTS",
         "status": status,
-        "path": str(AGY_RUNTIME_BRIDGE_PATH),
+        "path": str(runtime_bridge_path),
     })
 
     if launcher_path is None:

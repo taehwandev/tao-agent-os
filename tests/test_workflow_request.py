@@ -160,7 +160,7 @@ class WorkflowRequestContinuationTests(unittest.TestCase):
                 result = subprocess.run(argv, input=json.dumps({"prompt": prompt}),
                                         cwd=ROOT, capture_output=True, text=True, check=True)
                 route = json.loads(result.stdout)
-                self.assertEqual("resolve_context", route["intake_advice"]["response_mode"])
+                self.assertEqual({"effort": "quick"}, route["intake_advice"])
                 self.assertEqual(["common/skills/agent-operating-skill/SKILL.md"],
                                  route["required_docs"])
                 self.assertIsNone(route["request_classification"])
@@ -184,7 +184,7 @@ class WorkflowRequestContinuationTests(unittest.TestCase):
                 result = subprocess.run(argv, input=json.dumps({"prompt": prompt}),
                                         cwd=ROOT, capture_output=True, text=True, check=True)
                 route = json.loads(result.stdout)
-                self.assertNotEqual("answer_first", route["intake_advice"]["response_mode"])
+                self.assertEqual({"effort"}, set(route["intake_advice"]))
                 self.assertNotEqual("none", route["command"])
                 self.assertIsNone(route["request_classification"])
                 self.assertTrue(route["advisory"])
@@ -195,36 +195,37 @@ class WorkflowRequestContinuationTests(unittest.TestCase):
         self.assertEqual("context-dependent", result["clarity"])
         self.assertNotEqual("work", result["response_mode"])
 
-    def test_auto_input_preserves_advice_in_json_and_rendered_output(self) -> None:
+    def test_auto_input_publishes_no_intent_verdict(self) -> None:
         argv = [sys.executable, str(ROOT / "scripts/workflow.py"), "route", "auto", "--advisory",
                 "--continuation-scope", "Known parser correction and acceptance case"]
         payload = json.dumps({"prompt": "해결해 그럼"})
         result = subprocess.run([*argv, "--format", "json"], input=payload,
                                 cwd=ROOT, capture_output=True, text=True, check=True)
         route = json.loads(result.stdout)
-        self.assertEqual("resolve_context", route["intake_advice"]["response_mode"])
-        self.assertEqual("context-dependent", route["intake_advice"]["clarity"])
-        self.assertFalse(route["intake_advice"]["grill_me"])
+        self.assertEqual({"effort": "standard"}, route["intake_advice"])
         self.assertIsNone(route["request_classification"])
         self.assertTrue(route["advisory"])
         result = subprocess.run([*argv, "--hook-stdin"], input=payload, cwd=ROOT, capture_output=True,
                                 text=True, check=True)
-        self.assertIn("resolve_context", result.stdout)
-        self.assertIn("Resolve the current request against prior scope", result.stdout)
+        self.assertNotIn("Intake advice", result.stdout)
+        self.assertNotIn("resolve_context", result.stdout)
         self.assertNotIn("Required next action: run a user-visible", result.stdout)
 
     def test_real_hook_without_history_defers_missing_scope_to_agent(self) -> None:
         argv = [sys.executable, str(ROOT / "scripts/workflow.py"), "route", "auto",
                 "--advisory", "--hook-stdin", "--format", "json"]
-        for prompt, expected in (("해결해 그럼", "resolve_context"),
-                                 ("작업해줘", "resolve_context"),
-                                 ("Use Grill-Me before work", "clarify_first"),
-                                 ("what does this do?", "answer_first")):
+        for prompt in ("해결해 그럼",
+                       "작업해줘",
+                       "Use Grill-Me before work",
+                       "what does this do?",
+                       "여기까지한거 모두 분리해서 커밋하고나서 진행해줘",
+                       "진행해",
+                       "계획만 설명해줘. 수정과 머지는 하지 마"):
             with self.subTest(prompt=prompt):
                 process = subprocess.run(argv, input=json.dumps({"prompt": prompt}),
                                          cwd=ROOT, capture_output=True, text=True, check=True)
                 route = json.loads(process.stdout)
-                self.assertEqual(expected, route["intake_advice"]["response_mode"])
+                self.assertEqual({"effort"}, set(route["intake_advice"]))
                 self.assertIsNone(route["request_classification"])
                 self.assertTrue(route["advisory"])
 
@@ -236,7 +237,22 @@ class WorkflowRequestContinuationTests(unittest.TestCase):
                          _hook_payload_text=json.dumps({"prompt": "deploy the production app"}))
         _resolve_auto_command(args)
         self.assertEqual("review", args.command)
-        self.assertEqual("prepare_intent", args._auto_intake_advice["response_mode"])
+        self.assertEqual({"effort": "standard"}, args._auto_intake_advice)
+
+    def test_hook_never_promotes_classifier_response_mode_to_runtime_instruction(self) -> None:
+        from argparse import Namespace
+        from unittest.mock import patch
+        from workflow import _resolve_auto_command
+
+        for mode in ("answer_first", "clarify_first", "prepare_intent", "work"):
+            args = Namespace(command="auto", request="arbitrary request", continuation_scope="")
+            with patch("workflow.classify_request", return_value={
+                "route_shape": "task", "response_mode": mode, "clarity": "clear-scoped",
+                "grill_me": True, "reason": "legacy instruction must not reach runtime",
+            }):
+                _resolve_auto_command(args)
+            self.assertEqual("task", args.command)  # Retrieval hint only.
+            self.assertEqual({"effort": "standard"}, args._auto_intake_advice)
 
     def test_action_without_a_current_or_continuation_target_is_triaged(self) -> None:
         result = classify_request("작업해줘")
