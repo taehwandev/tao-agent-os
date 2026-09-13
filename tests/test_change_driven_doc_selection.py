@@ -778,5 +778,91 @@ class AKeystoreRequestStillReachesTheSecurityCardTests(unittest.TestCase):
             self.assertIn(doc, required)
 
 
+class AnExclusionNamesASubjectTests(unittest.TestCase):
+    """Whose exclusion it is decides which card goes, and no vocabulary is kept.
+
+    Two readings were wrong. A rule whose name ends in `_change` asked only
+    whether the clause held *an* exclusion, which cannot tell whose: "fix only
+    the DTO parser without touching WorkManager" silenced the data-contract
+    rule describing the very work being asked for. And the subject ran to the
+    next `,.;`, so "do not change WorkManager while correcting the DTO parser"
+    swallowed the request into the prohibition.
+
+    The subject is whatever the rule's own patterns match, so a rule is read
+    with its own words and nothing is listed here. These cases use the rules'
+    vocabulary -- 누수, doze, background sync, foreground service -- precisely
+    because a fixed noun list would not reach them.
+    """
+
+    WORK = "platforms/android/skills/android-background-work/SKILL.md"
+    LIFE = "platforms/android/skills/android-memory-lifecycle/SKILL.md"
+    API = "common/skills/api-contract-compatibility/SKILL.md"
+
+    def assert_required_is(self, prompt, card, expected):
+        route = route_for("bugfix", "android", prompt)
+        required = set(route["required_docs"])
+        for doc in resolved([card]):
+            if expected:
+                self.assertIn(doc, required)
+            else:
+                self.assertNotIn(doc, required)
+
+    def test_an_exclusion_written_in_the_rules_own_words_is_read(self):
+        for prompt, card in (
+            ("메모리 누수는 건드리지 말고 DTO 파싱만 고쳐줘", self.LIFE),
+            ("Do not touch the memory leak; fix only the DTO parser", self.LIFE),
+            ("viewLifecycleOwner는 수정하지 말고 DTO 파싱만 고쳐줘", self.LIFE),
+            ("Doze 처리는 변경하지 말고 DTO 파싱만 고쳐줘", self.WORK),
+            ("Do not change the background sync; fix only the DTO parser", self.WORK),
+            ("Do not touch the foreground service; fix only the DTO parser", self.WORK),
+            ("응답 DTO 매핑은 건드리지 말고 WorkManager만 고쳐줘", self.API),
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, card, False)
+
+    def test_an_exclusion_does_not_silence_the_work_being_asked_for(self):
+        """A change rule used to drop on any exclusion in the clause. The DTO
+        parser is the work here, so its contract guidance has to survive an
+        exclusion aimed at something else."""
+
+        for prompt in (
+            "Fix only the DTO parser without touching WorkManager",
+            "WorkManager는 변경하지 않고 DTO 파싱만 수정해줘",
+            "Do not change WorkManager while correcting the DTO parser",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, self.API, True)
+                self.assert_required_is(prompt, self.WORK, False)
+
+    def test_a_joint_ends_the_subject(self):
+        """Without a boundary the prohibition swallowed the request after it."""
+
+        for action in ("correcting", "normalizing", "reworking"):
+            prompt = f"Do not change WorkManager while {action} the DTO parser"
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, self.API, True)
+                self.assert_required_is(prompt, self.WORK, False)
+
+    def test_work_asked_for_beside_an_exclusion_keeps_its_card(self):
+        for prompt, card in (
+            ("API는 보존하면서 WorkManager 스케줄을 고쳐줘", self.WORK),
+            ("Fix the WorkManager schedule without changing the API", self.WORK),
+            ("DTO는 건드리지 말고 WorkManager 작업만 고쳐줘", self.WORK),
+            ("Without touching the DTO parser, fix the WorkManager job", self.WORK),
+            ("Fix the view binding leak without touching the DTO parser", self.LIFE),
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, card, True)
+
+    def test_a_request_with_no_exclusion_is_untouched(self):
+        for prompt, card in (
+            ("WorkManager 작업이 절전 모드에서 실행되지 않습니다", self.WORK),
+            ("Fragment onViewCreated에서 뷰 바인딩이 새고 있습니다", self.LIFE),
+            ("응답 DTO 파싱에서 null 처리가 빠져 크래시가 납니다", self.API),
+        ):
+            with self.subTest(prompt=prompt):
+                self.assert_required_is(prompt, card, True)
+
+
 if __name__ == "__main__":
     unittest.main()
