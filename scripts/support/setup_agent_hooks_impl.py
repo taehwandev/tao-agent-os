@@ -11,7 +11,7 @@ from pathlib import Path
 
 from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
-from support.codex_permissions import merge_codex_worktree_roots
+from support.codex_permissions import merge_codex_worktree_roots, reset_tao_permission_default
 from support.codex_setup import merge_codex_stop_gate
 from support.codex_statusline_setup import merge_codex_status_line
 from support.graphify_setup import (
@@ -94,7 +94,16 @@ def main() -> None:
         default=[],
         help="Limit user-level runtime bridge setup to one or more runtimes.",
     )
+    parser.add_argument(
+        "--reset-codex-permission-default",
+        action="store_true",
+        help="Only remove an explicitly selected tao-workspace default; preserve all other settings.",
+    )
     args = parser.parse_args()
+
+    if args.reset_codex_permission_default:
+        _reset_codex_default(args, parser)
+        return
 
     if (args.graphify or args.skip_graphify) and not (args.target or args.github_projects):
         parser.error("--graphify/--skip-graphify requires --target or --github-projects")
@@ -161,6 +170,20 @@ def main() -> None:
 
     print_results(results, dry_run)
     fail_if_setup_incomplete(args, results)
+
+
+def _reset_codex_default(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    if args.target or args.github_projects or args.graphify or args.skip_graphify or args.runtime not in ([], ["codex"]):
+        parser.error("--reset-codex-permission-default cannot be combined with other setup targets")
+    target = Path.home() / ".codex" / "config.toml"
+    try:
+        status = reset_tao_permission_default(target, args.dry_run or args.check)
+    except ValueError as error:
+        parser.error(str(error))
+    print(f"Codex default selection: {status}. No network, filesystem, or approval policy was added.")
+    print("Existing sessions retain host-applied permissions; reconnect and verify effective access separately.")
+    if args.check and status == "would_remove":
+        raise SystemExit(1)
 
 
 def configure_target_projects(
@@ -298,6 +321,15 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         [worktree_root(root)],
         dry_run,
     )
+    if reset_tao_permission_default(config_target, dry_run=True) == "would_remove":
+        print(
+            "Codex notice: default_permissions selects tao-workspace. Older Tao setup "
+            "selected it automatically; the current file cannot prove who selected it. "
+            "To return default selection to the host, explicitly run "
+            "setup-agent-hooks.py --reset-codex-permission-default. "
+            "Setup readiness does not verify this session's network or Full access.",
+            file=sys.stderr,
+        )
     return [
         {
             "tool": "codex",

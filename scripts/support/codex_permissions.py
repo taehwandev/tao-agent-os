@@ -11,6 +11,32 @@ TAO_WORKSPACE_PROFILE = "tao-workspace"
 _TABLE_HEADER = re.compile(r"(?m)^[ \t]*\[([^\]\n]+)\][ \t]*(?:#.*)?$")
 
 
+def reset_tao_permission_default(target: Path, dry_run: bool) -> str:
+    """Remove only an explicitly requested Tao default selection, never its profile."""
+    if not target.exists():
+        return "ok"
+    original = target.read_text(encoding="utf-8")
+    header = _TABLE_HEADER.search(original)
+    top = original[:header.start()] if header else original
+    pattern = re.compile(
+        r"(?m)^[ \t]*default_permissions[ \t]*=[ \t]*"
+        r"(['\"])tao-workspace\1[ \t]*(?:#[^\n]*)?(?:\n|$)"
+    )
+    matches = list(pattern.finditer(top))
+    if not matches:
+        return "ok"
+    if _assignment_count(top, "default_permissions") != 1:
+        raise ValueError("Ambiguous default_permissions; configuration was not changed")
+    if dry_run:
+        return "would_remove"
+    match = matches[0]
+    updated = original[:match.start()] + original[match.end():]
+    if target.read_text(encoding="utf-8") != original:
+        raise ValueError("Concurrent Codex configuration change; retry after inspection")
+    target.write_text(updated, encoding="utf-8")
+    return "removed"
+
+
 def merge_codex_worktree_roots(
     target: Path,
     roots: list[Path],

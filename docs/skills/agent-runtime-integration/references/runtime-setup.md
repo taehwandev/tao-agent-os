@@ -132,9 +132,20 @@ The setup also maintains a Tao-owned `tao-workspace` permission profile in
 profile and adds only exact generated worktree roots. A scoped target repair,
 for example `setup-agent-hooks --runtime codex --target <TARGET_REPO>`, adds
 `<TARGET_REPO>/.tao/worktrees` and does not write `.claude/settings.json`.
-Existing user roots and unrelated settings are preserved. A foreign default
-profile or legacy `approval_policy`/`sandbox_mode` is an ownership conflict and
-must be reported rather than replaced.
+Existing user roots, default selection, `approval_policy`, `sandbox_mode`, and
+network settings are preserved. Setup never selects this optional profile.
+Older setup selected `default_permissions = "tao-workspace"` automatically;
+updating alone does not undo a saved selection, whose provenance is unknown.
+Setup reports a notice when that selection remains, without changing it.
+With the user's explicit authorization, run
+`python3 scripts/setup-agent-hooks.py --reset-codex-permission-default` to
+remove only that top-level Tao selection. `--dry-run` previews the change;
+`--check` exits nonzero when removal would occur. This migration does not run
+other installers, remove the optional profile, or grant network/Full access.
+Other selected profiles and explicit user policies remain untouched.
+Reconnect the host and verify effective permissions separately: setup readiness
+is not proof of network access, and changing a file does not change the active
+session's sandbox. A DNS error alone does not identify which policy is active.
 The installed Codex bridge also distinguishes tool-session state from execution
 evidence. A result that only supplies a running cell or session id does not
 prove that an escalated command started. The canonical waiting and recovery

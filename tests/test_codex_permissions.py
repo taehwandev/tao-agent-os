@@ -1,18 +1,106 @@
 from __future__ import annotations
 
 import sys
+import io
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from support.codex_permissions import merge_codex_worktree_roots
+from support.codex_permissions import merge_codex_worktree_roots, reset_tao_permission_default
 
 
 class CodexPermissionsTests(unittest.TestCase):
+    def test_explicit_reset_preserves_everything_except_tao_default(self) -> None:
+        for selection in ('"tao-workspace"', "'tao-workspace'"):
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "config.toml"
+                prefix = 'approval_policy = "on-request"\n'
+                suffix = (
+                    '[permissions.tao-workspace]\nextends = ":workspace"\n'
+                    '[permissions.tao-workspace.network]\nenabled = false\n'
+                    '[custom]\ndefault_permissions = "tao-workspace"\n'
+                )
+                original = prefix + f'default_permissions = {selection} # prior selection\n' + suffix
+                target.write_text(original)
+                self.assertEqual("would_remove", reset_tao_permission_default(target, True))
+                self.assertEqual(original, target.read_text())
+                self.assertEqual("removed", reset_tao_permission_default(target, False))
+                self.assertEqual(prefix + suffix, target.read_text())
+                self.assertEqual("ok", reset_tao_permission_default(target, False))
+                merge_codex_worktree_roots(target, [Path(directory) / "worktrees"], False)
+                self.assertTrue(target.read_text().startswith(prefix + '[permissions.'))
+
+    def test_reset_leaves_foreign_and_nested_selections_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "config.toml"
+            for original in (
+                'default_permissions = "personal"\n',
+                'sandbox_mode = "danger-full-access"\n',
+                '[custom]\ndefault_permissions = "tao-workspace"\n',
+            ):
+                with self.subTest(original=original):
+                    target.write_text(original)
+                    self.assertEqual("ok", reset_tao_permission_default(target, False))
+                    self.assertEqual(original, target.read_text())
+
+    def test_reset_rejects_duplicate_defaults_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "config.toml"
+            original = 'default_permissions = "tao-workspace"\ndefault_permissions = "personal"\n'
+            target.write_text(original)
+            with self.assertRaisesRegex(ValueError, "Ambiguous"):
+                reset_tao_permission_default(target, False)
+            self.assertEqual(original, target.read_text())
+
+    def test_reset_cli_does_not_run_other_installers(self) -> None:
+        from support import setup_agent_hooks_impl as setup
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / ".codex" / "config.toml"
+            target.parent.mkdir()
+            target.write_text('default_permissions = "tao-workspace"\nmodel = "keep"\n')
+            with patch.object(Path, "home", return_value=Path(directory)), patch.object(
+                sys, "argv", ["setup-agent-hooks.py", "--reset-codex-permission-default"]
+            ), patch.object(setup, "ensure_stable_launcher") as launcher:
+                setup.main()
+            launcher.assert_not_called()
+            self.assertEqual('model = "keep"\n', target.read_text())
+
+    def test_setup_notices_tao_selection_without_resetting_it(self) -> None:
+        from support import setup_agent_hooks_impl as setup
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / ".codex" / "config.toml"
+            target.parent.mkdir()
+            original = 'default_permissions = "tao-workspace"\n'
+            target.write_text(original)
+            output = io.StringIO()
+            with patch.object(Path, "home", return_value=Path(directory)), patch(
+                "sys.stderr", output
+            ):
+                setup.configure_codex(True, root=ROOT)
+            self.assertEqual(original, target.read_text())
+            self.assertIn("--reset-codex-permission-default", output.getvalue())
+            self.assertIn("cannot prove who selected it", output.getvalue())
+            self.assertIn("does not verify", output.getvalue())
+
+    def test_reset_check_reports_pending_migration_without_writing(self) -> None:
+        from support import setup_agent_hooks_impl as setup
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / ".codex" / "config.toml"
+            target.parent.mkdir()
+            original = 'default_permissions = "tao-workspace"\n'
+            target.write_text(original)
+            with patch.object(Path, "home", return_value=Path(directory)), patch.object(
+                sys, "argv", ["setup-agent-hooks.py", "--reset-codex-permission-default", "--check"]
+            ), self.assertRaises(SystemExit) as result:
+                setup.main()
+            self.assertEqual(1, result.exception.code)
+            self.assertEqual(original, target.read_text())
+
     def test_worktree_roots_create_workspace_profile_and_are_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "config.toml"
