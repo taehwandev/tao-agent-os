@@ -104,6 +104,10 @@ class StructureReviewEvidenceAdvisory(unittest.TestCase):
             lines = module._hook_summary_from_preflight(preflight)
 
         self.assertIn(
+            "Review hook requires --review-outcome pass or findings, matching the actual review result.",
+            lines,
+        )
+        self.assertIn(
             "Review hook conditionally requires --structure-review-evidence when changed "
             "development files exceed review-pressure or source-size limits.",
             lines,

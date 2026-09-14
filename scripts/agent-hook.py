@@ -328,6 +328,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     gates = [gate for gate in (route.get("gates") or []) if isinstance(gate, str)]
     if any(hook.get("hook") == "review" for hook in hooks):
         flags = required_review_evidence_flags(gates)
+        lines.append("Review hook requires --review-outcome pass or findings, matching the actual review result.")
         lines.append("Review hook requires evidence paths: " + " ".join(flags))
         lines.append(
             "Review hook conditionally requires --structure-review-evidence when changed "
