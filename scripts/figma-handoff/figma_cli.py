@@ -60,6 +60,8 @@ def _execute(args: Any, file_key: str, node_id: str, output_dir: Path, token: st
     )
     write_json(raw_dir / "nodes.json", raw_responses)
     if node_id not in documents:
+        for warning in warnings:
+            print(f"WARNING: {warning}", file=sys.stderr)
         print(
             f"ERROR: Figma start node {node_id} was not fetched. "
             f"Raw node response was written to {raw_dir / 'nodes.json'}.",
