@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import sys
 import io
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -47,6 +47,30 @@ class CodexPermissionsTests(unittest.TestCase):
                     target.write_text(original)
                     self.assertEqual("ok", reset_tao_permission_default(target, False))
                     self.assertEqual(original, target.read_text())
+
+    def test_reset_leaves_a_selection_under_an_array_of_tables_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "config.toml"
+            original = 'model = "keep"\n[[profiles]]\ndefault_permissions = "tao-workspace"\n'
+            target.write_text(original)
+            self.assertEqual("ok", reset_tao_permission_default(target, False))
+            self.assertEqual(original, target.read_text())
+
+    def test_setup_reports_ambiguous_defaults_without_aborting(self) -> None:
+        from support import setup_agent_hooks_impl as setup
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / ".codex" / "config.toml"
+            target.parent.mkdir()
+            original = 'default_permissions = "tao-workspace"\ndefault_permissions = "personal"\n'
+            target.write_text(original)
+            output = io.StringIO()
+            with patch.object(Path, "home", return_value=Path(directory)), patch(
+                "sys.stderr", output
+            ):
+                results = setup.configure_codex(True, root=ROOT)
+            self.assertTrue(results)
+            self.assertEqual(original, target.read_text())
+            self.assertIn("Ambiguous default_permissions", output.getvalue())
 
     def test_reset_rejects_duplicate_defaults_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
