@@ -9,6 +9,9 @@ from pathlib import Path
 
 TAO_WORKSPACE_PROFILE = "tao-workspace"
 _TABLE_HEADER = re.compile(r"(?m)^[ \t]*\[([^\]\n]+)\][ \t]*(?:#.*)?$")
+# Where the top level ends: a `[table]` or an `[[array.of.tables]]`. A key under
+# either one is nested, so the reset must never read it as the top-level selection.
+_TOP_LEVEL_END = re.compile(r"(?m)^[ \t]*\[\[?[^\]\n]+\]\]?[ \t]*(?:#.*)?$")
 
 
 def reset_tao_permission_default(target: Path, dry_run: bool) -> str:
@@ -16,7 +19,7 @@ def reset_tao_permission_default(target: Path, dry_run: bool) -> str:
     if not target.exists():
         return "ok"
     original = target.read_text(encoding="utf-8")
-    header = _TABLE_HEADER.search(original)
+    header = _TOP_LEVEL_END.search(original)
     top = original[:header.start()] if header else original
     pattern = re.compile(
         r"(?m)^[ \t]*default_permissions[ \t]*=[ \t]*"

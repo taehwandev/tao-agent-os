@@ -186,6 +186,34 @@ def _reset_codex_default(args: argparse.Namespace, parser: argparse.ArgumentPars
         raise SystemExit(1)
 
 
+def _notice_tao_permission_default(config_target: Path) -> None:
+    """Point at the explicit reset when a Tao default remains; never change or abort setup.
+
+    This is a read-only notice inside ordinary setup. A configuration the reset
+    would refuse (more than one top-level default) is reported the same way
+    rather than raised, because the notice must not stop the installers after it.
+    """
+
+    try:
+        status = reset_tao_permission_default(config_target, dry_run=True)
+    except ValueError as error:
+        print(
+            f"Codex notice: {error}. Resolve the duplicate top-level default_permissions "
+            "in ~/.codex/config.toml before using --reset-codex-permission-default.",
+            file=sys.stderr,
+        )
+        return
+    if status == "would_remove":
+        print(
+            "Codex notice: default_permissions selects tao-workspace. Older Tao setup "
+            "selected it automatically; the current file cannot prove who selected it. "
+            "To return default selection to the host, explicitly run "
+            "setup-agent-hooks.py --reset-codex-permission-default. "
+            "Setup readiness does not verify this session's network or Full access.",
+            file=sys.stderr,
+        )
+
+
 def configure_target_projects(
     args: argparse.Namespace,
     *,
@@ -321,15 +349,7 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         [worktree_root(root)],
         dry_run,
     )
-    if reset_tao_permission_default(config_target, dry_run=True) == "would_remove":
-        print(
-            "Codex notice: default_permissions selects tao-workspace. Older Tao setup "
-            "selected it automatically; the current file cannot prove who selected it. "
-            "To return default selection to the host, explicitly run "
-            "setup-agent-hooks.py --reset-codex-permission-default. "
-            "Setup readiness does not verify this session's network or Full access.",
-            file=sys.stderr,
-        )
+    _notice_tao_permission_default(config_target)
     return [
         {
             "tool": "codex",
