@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from agent_hook_continuation import work_checkpoint_advice
 from agent_review_hook import record_review_prerequisite_readiness
 from workflow_effect_policy import effect_decision
-from workflow_route import resolve_docs
+from workflow_route import ROOT, resolve_docs
 
 
 class SmallChangeTests(unittest.TestCase):
@@ -33,6 +33,60 @@ class SmallChangeTests(unittest.TestCase):
 
     def test_compact_start_does_not_require_an_extra_checkpoint(self):
         self.assertEqual([], work_checkpoint_advice(SimpleNamespace(command="small-change")))
+
+    def test_named_routine_concerns_stay_optional_until_evidence_selects_docs(self):
+        cases = (
+            ('android', ['ui', 'testing']),
+            ('ios', ['ui', 'testing']),
+            ('web', ['ui', 'verification']),
+            (None, ['state', 'error']),
+        )
+        for platform, concerns in cases:
+            with self.subTest(platform=platform, concerns=concerns):
+                route = resolve_docs('small-change', platform, concerns)
+                self.assertEqual(3, len(route['required_docs']))
+                self.assertTrue(route['reference_docs'])
+
+    def test_verified_owner_promotes_only_its_specific_surface_contract(self):
+        route = resolve_docs(
+            'small-change',
+            'android',
+            ['ui', 'testing'],
+            surface_paths=[
+                'feature/example/src/main/kotlin/com/example/ui/ProfileScreen.kt'
+            ],
+        )
+
+        required = route['required_docs']
+        self.assertGreater(len(required), 3)
+        self.assertIn(
+            'platforms/android/skills/android-compose-ui/references/current-guidance.md',
+            required,
+        )
+        self.assertNotIn(
+            'common/skills/testing/references/current-guidance.md', required
+        )
+        self.assertNotIn(
+            'platforms/android/skills/android-external-skill-source-coverage/'
+            'references/current-guidance.md',
+            required,
+        )
+
+    def test_reported_android_input_case_drops_broad_concern_bundle(self):
+        route = resolve_docs(
+            'small-change',
+            'android',
+            ['ui', 'testing'],
+            request_text=(
+                '경력에 글자수 초과하는 글 복붙 안됨 -> 복붙은 되고, '
+                '초과 시 오류 표시되게 수정 필요'
+            ),
+        )
+
+        required = route['required_docs']
+        required_bytes = sum((ROOT / path).stat().st_size for path in required)
+        self.assertEqual(3, len(required))
+        self.assertLess(required_bytes, 20_000)
 
     def test_risky_concerns_require_full_route(self):
         for concern in ('auth', 'api', 'security', 'architecture', 'deployment'):

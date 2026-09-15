@@ -951,7 +951,9 @@ def _route_required_docs(
         # away in `reference_docs`.
         return unique([*_unbudgeted_required_docs(platform, concerns, set(), advisory=True),
                        *resolve_guidance_docs(ROOT, surface_docs or [])])
-    compact = _compact_required_docs(command, platform, concerns)
+    compact = _compact_required_docs(
+        command, platform, concerns, owner_surface_docs=owner_surface_docs
+    )
     if compact is not None:
         # A compact set is the command's whole reading contract, already small;
         # it has no separate gate tier to withhold.
@@ -1020,7 +1022,11 @@ def _route_required_docs(
 
 
 def _compact_required_docs(
-    command: str, platform: Optional[str], concerns: list[str]
+    command: str,
+    platform: Optional[str],
+    concerns: list[str],
+    *,
+    owner_surface_docs: list[str] | None = None,
 ) -> list[str] | None:
     """The routes whose required set is compact, or None for the full policy."""
 
@@ -1052,9 +1058,26 @@ def _compact_required_docs(
     # review-and-commit reference. The caller asked about verification and was
     # handed branch strategy, which is the opposite of honouring the signal.
     if command == "small-change":
-        return unique([OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT,
-                       "common/skills/agent-operating-skill/references/small-change.md",
-                       *_named_concern_docs(platform, concerns)])
+        # A small change already has a test gate and a bounded review contract.
+        # Treat named, non-risk concerns as reference candidates: runtime
+        # classification commonly labels routine work `ui` and `testing`, and
+        # requiring every document behind those broad labels turned one input
+        # fix into 14 documents / 118 KB before the owner was inspected.
+        #
+        # Repository-verified owner paths and explicit action rules are the
+        # evidence that can promote task-specific guidance here. Risk-sensitive
+        # concerns are rejected by the route before work, so this compact rule
+        # cannot hide their required full-route contracts.
+        owner_docs = resolve_guidance_docs(
+            ROOT,
+            [canonical_doc_path(doc) for doc in (owner_surface_docs or [])],
+        )
+        return unique([
+            OPERATING_SKILL,
+            REVIEW_AND_COMMIT_ENTRYPOINT,
+            "common/skills/agent-operating-skill/references/small-change.md",
+            *owner_docs,
+        ])
     if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
         commit_docs = resolve_guidance_docs(
             ROOT, ["common/skills/commit-workflow/SKILL.md"]

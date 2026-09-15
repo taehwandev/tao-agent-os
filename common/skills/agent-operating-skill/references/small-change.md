@@ -16,6 +16,13 @@ The compact manifest is request intake, work surface resolution, source docs,
 tests and review hook. Record the owner and nearest falsifying check once, then
 edit, verify and review. Read applicable source contracts. Include documentation
 impact and side effects in the final review, not separate ceremony gates.
+Broad concern labels stay optional on this route. Labels such as `ui`, `state`,
+`testing`, or `verification` describe where attention may be needed, but do not
+by themselves make every linked procedure a required pre-edit read. Promote
+task-specific guidance only from a repository-verified owner path or an explicit
+change-action rule, and open another concern reference only for a concrete
+unresolved decision. Risk-sensitive concerns still require the matching full
+route.
 No separate alignment, cycle, split-decision, retrospective or handoff record is
 required on this route. A normal final response still explains the result.
 Reuse the start/gate batch continuation record; add a semantic checkpoint only
