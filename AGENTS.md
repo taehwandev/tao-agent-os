@@ -251,6 +251,12 @@ which inferred risk concern does not apply rather than skipping it. Release is
 not on that list because `release` and `ship` already require its cards as their
 command documents.
 
+Treat `--concern` as a verified assertion, not as a classification hint. Pass it
+only when the user explicitly names that concern or repository evidence proves
+the specific owner/action. Do not translate generic surface wording such as
+"screen", "screen transition", "route", or "UI" into `compose` or `navigation`;
+the request inference and verified surface/action rules own those cases.
+
 The command's own workflow documents are selected before the selection budget,
 not out of it. Concerns are chosen ahead of the tier walk, so counting them
 against the document cap let one keyword-inferred concern evict the procedure

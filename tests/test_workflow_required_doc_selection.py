@@ -922,6 +922,64 @@ class RequiredDocumentReasonTests(unittest.TestCase):
         for doc in compose:
             self.assertEqual("concern_named:compose", reasons[doc])
 
+    def test_plain_android_compose_concern_does_not_require_specialized_source_or_entry_docs(self) -> None:
+        route = resolve_docs(
+            "feature",
+            "android",
+            ["compose"],
+            request_classified=True,
+            request_text="입력창 활성 상태를 바꿔줘",
+        )
+
+        for doc in (
+            "platforms/android/skills/android-external-skill-source-coverage/references/current-guidance.md",
+            "platforms/android/skills/source-coverage/SKILL.md",
+            "platforms/android/skills/android-compose-ui/references/official-source-surfaces.md",
+            "platforms/android/skills/android-module-structure/references/compose-entry-contracts.md",
+        ):
+            self.assertNotIn(doc, route["required_docs"])
+        self.assertLessEqual(len(route["required_docs"]), 10)
+
+    def test_plain_android_navigation_concern_does_not_assume_deep_links(self) -> None:
+        route = resolve_docs(
+            "feature",
+            "android",
+            ["navigation"],
+            request_classified=True,
+            request_text="사용자를 누르면 화면 안의 작성 상태로 전환돼",
+        )
+
+        self.assertNotIn(
+            "platforms/android/skills/android-architecture/references/navigation-deep-links.md",
+            route["required_docs"],
+        )
+
+    def test_chatty_screen_state_followup_stays_off_specialized_android_cards(self) -> None:
+        route = resolve_docs(
+            "feature",
+            "android",
+            ["compose", "navigation"],
+            request_classified=True,
+            request_text=(
+                "아 그리고 사용자 누르면 화면 전환되니깐 하단에 입력창 + "
+                "입력 전송 버튼 셋다 비활성화야."
+            ),
+            surface_paths=[
+                "feature/chatty/ui/src/main/kotlin/example/ChattyNewMessageScreen.kt",
+                "feature/chatty/ui/src/main/kotlin/example/ChattyNewMessageRoute.kt",
+            ],
+        )
+
+        for doc in (
+            "platforms/android/skills/android-external-skill-source-coverage/references/current-guidance.md",
+            "platforms/android/skills/source-coverage/SKILL.md",
+            "platforms/android/skills/android-compose-ui/references/official-source-surfaces.md",
+            "platforms/android/skills/android-module-structure/references/compose-entry-contracts.md",
+            "platforms/android/skills/android-architecture/references/navigation-deep-links.md",
+        ):
+            self.assertNotIn(doc, route["required_docs"])
+        self.assertLessEqual(len(route["required_docs"]), 10)
+
     def test_an_inferred_non_risk_concern_is_never_credited(self) -> None:
         """It cannot require a document, so it cannot be why one is required."""
 

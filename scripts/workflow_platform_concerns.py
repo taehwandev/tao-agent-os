@@ -55,7 +55,6 @@ ANDROID_COMPOSE_SOURCES_DOC = f"{_ANDROID_COMPOSE_REFS}/official-source-surfaces
 ANDROID_COMPOSE_DOCS = (
     "platforms/android/skills/android-compose-ui/SKILL.md",
     "platforms/android/skills/android-review/SKILL.md",
-    *ANDROID_EXTERNAL_SKILL_DOCS,
 )
 # Compose and UI work that crosses a module boundary needs the Compose-capable
 # API rules and the entry-contract completion packet; `performance` does not,
@@ -132,8 +131,16 @@ PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
         "platforms/android/skills/android-security/SKILL.md",
         "platforms/android/skills/android-review/SKILL.md",
     ),
-    ("android", "compose"): ANDROID_COMPOSE_BOUNDARY_DOCS,
-    ("android", "performance"): (*ANDROID_COMPOSE_DOCS, ANDROID_COMPOSE_PERF_DOC),
+    # A plain Compose concern needs the authoring and review contract only.
+    # Cross-module entry contracts and external source maps are selected by
+    # their specific action/skill-source rules instead of riding on every UI
+    # change.
+    ("android", "compose"): ANDROID_COMPOSE_DOCS,
+    ("android", "performance"): (
+        *ANDROID_COMPOSE_DOCS,
+        *ANDROID_EXTERNAL_SKILL_DOCS,
+        ANDROID_COMPOSE_PERF_DOC,
+    ),
     ("android", "api"): (
         ANDROID_MODULE_STRUCTURE_DOC,
         ANDROID_MODULE_COMPOSE_ENTRY_DOC,
@@ -167,9 +174,11 @@ PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
         "platforms/android/skills/android-compose-ui/SKILL.md",
         ANDROID_COMPOSE_PREVIEW_DOC,
     ),
+    # "Navigation" can mean an in-screen state transition.  Deep-link and
+    # back-stack requests earn the sibling card through the dedicated action
+    # rule in workflow-doc-surfaces.json.
     ("android", "navigation"): (
         "platforms/android/skills/android-architecture/SKILL.md",
-        ANDROID_ARCH_NAVIGATION_DOC,
     ),
     ("android", "webview"): (
         ANDROID_ARCH_WEBVIEW_DOC,
