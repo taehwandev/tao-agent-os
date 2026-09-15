@@ -255,9 +255,15 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         for doc in (
             "common/skills/agent-operating-skill/SKILL.md",
             "workflows/skills/review-and-commit/SKILL.md",
-            "common/skills/commit-workflow/SKILL.md",
         ):
             self.assertIn(guidance_area(doc), required_areas(route))
+        self.assertIn(
+            "common/skills/commit-workflow/references/current-guidance.md",
+            route["reference_docs"],
+        )
+        self.assertNotIn(
+            "common/skills/commit-workflow/SKILL.md", route["reference_docs"]
+        )
 
         self.assertNotIn("AGENTS.md", route["reference_docs"])
         self.assertNotIn("index.md", route["reference_docs"])
