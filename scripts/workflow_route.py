@@ -54,6 +54,8 @@ REVIEW_AND_COMMIT_ENTRYPOINT = "workflows/skills/review-and-commit/SKILL.md"
 REVIEW_AND_COMMIT_REFERENCE = (
     "workflows/skills/review-and-commit/references/current-guidance.md"
 )
+COMMIT_WORKFLOW_ENTRYPOINT = "common/skills/commit-workflow/SKILL.md"
+COMMIT_WORKFLOW_REFERENCE = "common/skills/commit-workflow/references/current-guidance.md"
 MULTI_AGENT_ENTRYPOINT = "workflows/skills/multi-agent-collaboration/SKILL.md"
 MULTI_AGENT_REFERENCE = (
     "workflows/skills/multi-agent-collaboration/references/current-guidance.md"
@@ -361,7 +363,15 @@ def _resolve_documents(
     # adds no decision content and is omitted rather than advertised as another
     # read. Use the full route's required set for this check so advisory and
     # execution manifests cover the same documents.
-    manifest_docs = unique([*routed_docs, *full_required])
+    # The ordinary commit route's detailed card remains reachable, not mandatory.
+    # Its generated pointer adds no decision content once the compact review
+    # entrypoint owns the publication minimum.
+    reference_candidates = routed_docs
+    if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
+        reference_candidates = [
+            doc for doc in routed_docs if doc != COMMIT_WORKFLOW_ENTRYPOINT
+        ] + [COMMIT_WORKFLOW_REFERENCE]
+    manifest_docs = unique([*reference_candidates, *full_required])
     required_set = set(required_docs)
     full_required_set = set(full_required)
     reference_docs = [
@@ -1079,10 +1089,7 @@ def _compact_required_docs(
             *owner_docs,
         ])
     if command in LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS:
-        commit_docs = resolve_guidance_docs(
-            ROOT, ["common/skills/commit-workflow/SKILL.md"]
-        )
-        compact = [OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT, *commit_docs]
+        compact = [OPERATING_SKILL, REVIEW_AND_COMMIT_ENTRYPOINT]
         named = _named_concern_docs(platform, concerns)
         return unique([*compact, *named])
     return None
@@ -1091,8 +1098,8 @@ def _compact_required_docs(
 def _named_concern_docs(platform: Optional[str], concerns: list[str]) -> list[str]:
     """The documents a caller's own concerns ask for, and nothing besides.
 
-    Concerns inside the publication family add nothing: the commit workflow
-    reference already covers the staged diff, worktree, remote, visibility,
+    Concerns inside the publication family add nothing: the compact review
+    entrypoint covers the staged diff, worktree, remote, visibility,
     push, and idempotent PR checks that `commit`, `push`, `pr` and `branch`
     would each point at.
     """

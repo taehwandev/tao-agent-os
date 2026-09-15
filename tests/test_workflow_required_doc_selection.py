@@ -413,10 +413,17 @@ class RequiredDocMembershipTests(unittest.TestCase):
             [
                 OPERATING_SKILL,
                 REVIEW_AND_COMMIT_ENTRYPOINT,
-                "common/skills/commit-workflow/references/current-guidance.md",
             ],
             route["required_docs"],
         )
+        self.assertIn(
+            "common/skills/commit-workflow/references/current-guidance.md",
+            route["reference_docs"],
+        )
+        self.assertNotIn(
+            "common/skills/commit-workflow/SKILL.md", route["reference_docs"]
+        )
+        self.assertLess(sum((ROOT / doc).stat().st_size for doc in route["required_docs"]), 12000)
         self.assertNotIn(REVIEW_AND_COMMIT_REFERENCE, route["required_docs"])
         self.assertFalse(
             any("release-" in doc for doc in route["required_docs"]),
@@ -428,7 +435,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
 
         A concern outside the publication family used to drop the compact route
         and fall through to the budgeted tier walk. One `--concern verification`
-        then returned 11 documents where 3 were needed, and six of the eight it
+        then returned 11 documents where three were needed, and six of the eight it
         added came from the walk rather than the concern: branch-strategy twice,
         worktree-hygiene, the review-and-commit reference. The caller asked
         about verification and was handed branch strategy.
@@ -462,7 +469,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
                 )
 
     def test_a_publication_concern_still_adds_nothing(self) -> None:
-        """The commit reference already covers branch, push and PR checks."""
+        """The compact review card already covers branch, push and PR checks."""
 
         docs = resolve_docs(
             "commit", None, ["commit", "branch", "push", "pull-request"],
@@ -473,7 +480,6 @@ class RequiredDocMembershipTests(unittest.TestCase):
             [
                 OPERATING_SKILL,
                 REVIEW_AND_COMMIT_ENTRYPOINT,
-                "common/skills/commit-workflow/references/current-guidance.md",
             ],
             docs,
         )
