@@ -66,6 +66,13 @@ For low-risk local corrections with one owner and at most four changed files,
 select `small-change` using `common/skills/agent-operating-skill/references/small-change.md`. Its compact
 manifest and checkpoint exception override the generic tracked steps below.
 
+For a repo-owned development app rebuild, relaunch, or restart that only
+verifies the current checkout without changing tracked source, docs, or
+configuration, select the `test` verification route. A local build wrapper
+compiling an app does not by itself make this a `build` implementation task.
+Verify the generated bundle and exact running process, not an unrelated
+commit-range diff. A requested source change follows its own code route.
+
 For tracked work:
 
 ```text
@@ -96,8 +103,10 @@ For tracked work:
    names and required fields. Batch only gates that are simultaneously ready.
    Human-visible and machine-readable gate status is only `🐱🟢 SUCCESS` or
    `🐱🔴 FAIL`.
-8. Run the review hook with the active evidence path and all requested review,
-   docs, boundary, structure, and side-effect evidence.
+8. Run the review hook only when the active route requires it, with the active
+   evidence path and all requested review, docs, boundary, structure, and
+   side-effect evidence. A verification-only route does not gain a review gate
+   from this generic lifecycle list.
 9. Immediately before finish, compare the route gate list with the ledger and
    record all missing gates. Run `finish` once before the final report,
    commit, release, or handoff.
