@@ -68,6 +68,35 @@ State what the check can and cannot prove. Geometry does not prove contrast or
 copy quality. A screenshot does not prove that the command executed. A visible
 button does not prove that the trusted boundary behind it was reached.
 
+## Comparison Oracle And Evidence Budget
+
+Define the comparison target before operating the UI. Use one of these explicit
+oracles: a requirement or state invariant, the approved design frame, a known-good
+build, or the pre-change behavior when the task claims a regression or improvement.
+Current-state observation by itself can prove a state invariant, but it cannot
+prove that behavior improved or that a regression disappeared.
+
+For a before/after claim, run the same bounded scenario against the baseline and
+candidate with the same device, display/orientation, flavor, theme, data state,
+and entry point. Capture the baseline before replacing its build. On Android,
+prefer the device MCP's in-memory `capture_baseline` and `compare_current` tools
+when available; their pixel and semantic deltas describe what changed and do not
+decide whether the candidate is correct. When the baseline cannot be reproduced,
+verify only the explicit current-state invariant and report the comparative claim
+as unverified.
+
+Collect the smallest evidence pair that can falsify the acceptance criterion:
+one baseline observation and one candidate observation for a stable state. Repeat
+only after a failed action, an unstable state, or a conflicting result, and state
+why the extra observation was needed. Reuse a valid pair while the build, device
+state, scenario, and acceptance criterion remain unchanged; do not wander through
+screens or recapture identical states for confidence alone.
+
+Motion claims require matched temporal evidence, such as baseline and candidate
+recordings or bounded frame sequences covering the same trigger and interval. A
+single frame, a static pixel delta, or an element hierarchy cannot prove that an
+animation was removed, added, or timed correctly.
+
 ## Figma parity gate
 
 When a Figma frame or screenshot is part of the requirement, visual parity is a

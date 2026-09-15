@@ -70,6 +70,14 @@ operation. Never silently choose the first of several devices. Inspect a fresh
 screenshot or hierarchy before acting, then verify the observable outcome.
 Keep device data out of commits and use content authorized for the host.
 
+Define the observable acceptance criterion and its oracle before the first UI
+action. For a regression or improvement claim, load the UI visual verification
+contract and capture the known-good or pre-change state before replacing its
+build. Prefer the configured adapter's in-memory `capture_baseline` and
+`compare_current` tools when available. Their static delta is evidence to judge
+against the criterion, not an automatic pass; motion still needs a matched
+recording or bounded frame sequence.
+
 Report installation, protocol connection, device observation and end-to-end
 behavior verification separately. No connected device means device acceptance
 is unverified; continue independent source checks. A local device adapter does
