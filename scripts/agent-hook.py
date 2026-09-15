@@ -334,10 +334,25 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "Review hook conditionally requires --structure-review-evidence when changed "
             "development files exceed review-pressure or source-size limits."
         )
+        lines.extend(_closeout_reuse_lines())
     lines.extend(_closeout_gate_lines(gates))
     lines.extend(_gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
     return lines
+
+
+def _closeout_reuse_lines() -> list[str]:
+    """Keep final review monotonic instead of reopening implementation loops."""
+
+    return [
+        "Closeout reuse: unchanged HEAD, worktree bytes, target, and external freshness reuse "
+        "completed reads and test/build/device evidence; review the final diff once. Edit a "
+        "review finding only when reproducer, impact, current-diff causality, owner, and the "
+        "nearest falsifying check prove a blocking regression. Otherwise record a follow-up. "
+        "Allow one repair, then rerun only the affected check and incremental review. Use the "
+        "advertised review shape, its VibeGuard result, and gate-batch remaining gates; do not "
+        "repeat an audit, use --help, dump the ledger, or retry another design during closeout."
+    ]
 
 
 def _closeout_gate_lines(gates: list[str]) -> list[str]:

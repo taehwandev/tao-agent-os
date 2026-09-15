@@ -172,6 +172,36 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("Required hooks:", summary)
         self.assertIn("Closeout gate reminder:", summary)
 
+    def test_review_routes_advertise_monotonic_closeout_without_document_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "preflight.json"
+            evidence.write_text(json.dumps({"route": {
+                "command": "task",
+                "required_docs": ["already-read.md"],
+                "reference_docs": ["not-needed.md"],
+                "hooks": [{"hook": "review", "required": True}],
+                "gates": ["tests", "review hook"],
+            }}), encoding="utf-8")
+            original = Path.read_text
+            reads = []
+
+            def read_manifest(path, *args, **kwargs):
+                reads.append(path)
+                return original(path, *args, **kwargs)
+
+            with patch.object(Path, "read_text", read_manifest):
+                summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+
+        self.assertEqual([evidence], reads)
+        self.assertIn("Closeout reuse:", summary)
+        self.assertIn("unchanged HEAD, worktree bytes, target, and external freshness", summary)
+        self.assertIn("reproducer, impact, current-diff causality", summary)
+        self.assertIn("Allow one repair", summary)
+        self.assertIn("rerun only the affected check and incremental review", summary)
+        self.assertIn("its VibeGuard result", summary)
+        self.assertIn("use --help, dump the ledger", summary)
+        self.assertNotIn("not-needed.md", summary)
+
     def test_review_rejects_an_unwritable_output_parent_before_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as project_directory:
             project = Path(project_directory)
