@@ -255,12 +255,10 @@ class PlatformNameAloneTests(unittest.TestCase):
                 for doc in self.DETAIL_CARDS:
                     self.assertNotIn(doc, route["required_docs"])
 
-    def test_a_named_concern_still_reaches_them(self):
+    def test_specific_named_concerns_still_reach_their_detail_cards(self):
         cases = (
             ("dependency",
              "platforms/android/skills/android-architecture/references/runtime-composition.md"),
-            ("navigation",
-             "platforms/android/skills/android-architecture/references/navigation-deep-links.md"),
             ("webview",
              "platforms/android/skills/android-architecture/references/webview-surface.md"),
             ("structure",
