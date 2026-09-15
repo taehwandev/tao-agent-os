@@ -61,6 +61,7 @@ class SetupAgentHooksTests(unittest.TestCase):
             home = root / "home"
             project = root / "project"
             (home / ".codex").mkdir(parents=True)
+            (home / ".codex" / "config.toml").write_text('default_permissions = ":workspace"\n')
             project.mkdir()
             args = setup_agent_hooks_impl.argparse.Namespace(
                 target=str(project),

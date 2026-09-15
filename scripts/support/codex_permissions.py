@@ -15,7 +15,7 @@ _TOP_LEVEL_END = re.compile(r"(?m)^[ \t]*\[\[?[^\]\n]+\]\]?[ \t]*(?:#.*)?$")
 
 
 def reset_tao_permission_default(target: Path, dry_run: bool) -> str:
-    """Remove only an explicitly requested Tao default selection, never its profile."""
+    """Reset Tao selection to the built-in workspace default, preserving profiles."""
     if not target.exists():
         return "ok"
     original = target.read_text(encoding="utf-8")
@@ -26,18 +26,24 @@ def reset_tao_permission_default(target: Path, dry_run: bool) -> str:
         r"(['\"])tao-workspace\1[ \t]*(?:#[^\n]*)?(?:\n|$)"
     )
     matches = list(pattern.finditer(top))
-    if not matches:
+    count = _assignment_count(top, "default_permissions")
+    has_profiles = any(h.group(1).strip().startswith("permissions.") for h in _TABLE_HEADER.finditer(original))
+    if not matches and (count or not has_profiles):
         return "ok"
-    if _assignment_count(top, "default_permissions") != 1:
+    if matches and count != 1:
         raise ValueError("Ambiguous default_permissions; configuration was not changed")
     if dry_run:
-        return "would_remove"
-    match = matches[0]
-    updated = original[:match.start()] + original[match.end():]
+        return "would_update"
+    default = 'default_permissions = ":workspace"\n'
+    if matches:
+        match = matches[0]
+        updated = original[:match.start()] + default + original[match.end():]
+    else:
+        updated = default + original
     if target.read_text(encoding="utf-8") != original:
         raise ValueError("Concurrent Codex configuration change; retry after inspection")
     target.write_text(updated, encoding="utf-8")
-    return "removed"
+    return "installed"
 
 
 def merge_codex_worktree_roots(
@@ -48,6 +54,12 @@ def merge_codex_worktree_roots(
     """Add an optional Tao profile without selecting the user's permission policy."""
 
     original = target.read_text(encoding="utf-8") if target.exists() else ""
+    header = _TOP_LEVEL_END.search(original)
+    top = original[:header.start()] if header else original
+    if not _assignment_count(top, "default_permissions"):
+        if any(h.group(1).strip().startswith("permissions.") for h in _TABLE_HEADER.finditer(original)):
+            return "missing"
+        return "ok: optional Tao profile skipped because no default_permissions is selected"
     root_strings = list(dict.fromkeys(str(root.expanduser().resolve()) for root in roots))
     if _permission_ownership_conflicts(original, root_strings):
         return "missing"

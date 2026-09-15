@@ -15,6 +15,23 @@ from support.codex_permissions import merge_codex_worktree_roots, reset_tao_perm
 
 
 class CodexPermissionsTests(unittest.TestCase):
+    def test_reset_repairs_missing_default_with_retained_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "config.toml"
+            original = '[permissions.tao-workspace]\nextends = ":workspace"\n'
+            target.write_text(original)
+            self.assertEqual("would_update", reset_tao_permission_default(target, True))
+            self.assertEqual(original, target.read_text())
+            self.assertEqual("installed", reset_tao_permission_default(target, False))
+            self.assertEqual('default_permissions = ":workspace"\n' + original, target.read_text())
+            self.assertEqual("ok", reset_tao_permission_default(target, False))
+
+    def test_fresh_install_does_not_create_profiles_without_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "config.toml"
+            self.assertTrue(merge_codex_worktree_roots(target, [Path(directory)], False).startswith("ok:"))
+            self.assertFalse(target.exists())
+
     def test_explicit_reset_preserves_everything_except_tao_default(self) -> None:
         for selection in ('"tao-workspace"', "'tao-workspace'"):
             with self.subTest(selection=selection), tempfile.TemporaryDirectory() as directory:
@@ -27,13 +44,13 @@ class CodexPermissionsTests(unittest.TestCase):
                 )
                 original = prefix + f'default_permissions = {selection} # prior selection\n' + suffix
                 target.write_text(original)
-                self.assertEqual("would_remove", reset_tao_permission_default(target, True))
+                self.assertEqual("would_update", reset_tao_permission_default(target, True))
                 self.assertEqual(original, target.read_text())
-                self.assertEqual("removed", reset_tao_permission_default(target, False))
-                self.assertEqual(prefix + suffix, target.read_text())
+                self.assertEqual("installed", reset_tao_permission_default(target, False))
+                self.assertEqual(prefix + 'default_permissions = ":workspace"\n' + suffix, target.read_text())
                 self.assertEqual("ok", reset_tao_permission_default(target, False))
                 merge_codex_worktree_roots(target, [Path(directory) / "worktrees"], False)
-                self.assertTrue(target.read_text().startswith(prefix + '[permissions.'))
+                self.assertTrue(target.read_text().startswith(prefix + 'default_permissions = ":workspace"\n[permissions.' ))
 
     def test_reset_leaves_foreign_and_nested_selections_untouched(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -92,7 +109,7 @@ class CodexPermissionsTests(unittest.TestCase):
             ), patch.object(setup, "ensure_stable_launcher") as launcher:
                 setup.main()
             launcher.assert_not_called()
-            self.assertEqual('model = "keep"\n', target.read_text())
+            self.assertEqual('default_permissions = ":workspace"\nmodel = "keep"\n', target.read_text())
 
     def test_setup_notices_tao_selection_without_resetting_it(self) -> None:
         from support import setup_agent_hooks_impl as setup
@@ -130,6 +147,7 @@ class CodexPermissionsTests(unittest.TestCase):
             target = Path(directory) / "config.toml"
             roots = [Path(directory) / "project" / ".tao" / "worktrees"]
 
+            target.write_text('default_permissions = ":workspace"\n')
             first = merge_codex_worktree_roots(target, roots, dry_run=False)
             first_text = target.read_text(encoding="utf-8")
             second = merge_codex_worktree_roots(target, roots, dry_run=False)
@@ -138,7 +156,7 @@ class CodexPermissionsTests(unittest.TestCase):
         self.assertEqual("installed", first)
         self.assertEqual("ok", second)
         self.assertEqual(first_text, second_text)
-        self.assertNotIn('default_permissions =', second_text)
+        self.assertIn('default_permissions = ":workspace"', second_text)
         self.assertIn('[permissions.tao-workspace]', second_text)
         self.assertIn('extends = ":workspace"', second_text)
         self.assertIn(f'"{roots[0].resolve()}" = true', second_text)
@@ -190,11 +208,14 @@ class CodexPermissionsTests(unittest.TestCase):
                     dry_run=False,
                 )
 
-                self.assertEqual("installed", status)
+                self.assertTrue(status == "installed" if original.startswith("default_permissions") else status.startswith("ok:"))
                 updated = target.read_text(encoding="utf-8")
                 self.assertTrue(updated.startswith(original))
                 self.assertEqual(original.count("default_permissions ="), updated.count("default_permissions ="))
-                self.assertIn('[permissions.tao-workspace.workspace_roots]', updated)
+                if original.startswith('default_permissions'):
+                    self.assertIn('[permissions.tao-workspace.workspace_roots]', updated)
+                else:
+                    self.assertEqual(original, updated)
 
     def test_nested_default_permissions_key_does_not_replace_profile_default(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -211,7 +232,7 @@ class CodexPermissionsTests(unittest.TestCase):
             )
             text = target.read_text(encoding="utf-8")
 
-        self.assertEqual("installed", status)
+        self.assertTrue(status.startswith("ok:"))
         self.assertTrue(text.startswith('[custom]\n'))
         self.assertIn('[custom]\ndefault_permissions = "custom-value"', text)
 
@@ -232,7 +253,7 @@ class CodexPermissionsTests(unittest.TestCase):
     def test_dry_run_does_not_select_or_create_a_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "config.toml"
-            self.assertEqual("missing", merge_codex_worktree_roots(target, [Path(directory)], True))
+            self.assertTrue(merge_codex_worktree_roots(target, [Path(directory)], True).startswith("ok:"))
             self.assertFalse(target.exists())
 
 

@@ -134,13 +134,18 @@ for example `setup-agent-hooks --runtime codex --target <TARGET_REPO>`, adds
 `<TARGET_REPO>/.tao/worktrees` and does not write `.claude/settings.json`.
 Existing user roots, default selection, `approval_policy`, `sandbox_mode`, and
 network settings are preserved. Setup never selects this optional profile.
+Without a selected default, setup skips creating optional profiles; existing
+profiles without a default are reported as incomplete. Codex 0.154.0 rejects
+profiles without `default_permissions`, so TOML syntax checks alone are insufficient.
 Older setup selected `default_permissions = "tao-workspace"` automatically;
 updating alone does not undo a saved selection, whose provenance is unknown.
 Setup reports a notice when that selection remains, without changing it.
 With the user's explicit authorization, run
 `python3 scripts/setup-agent-hooks.py --reset-codex-permission-default` to
-remove only that top-level Tao selection. `--dry-run` previews the change;
-`--check` exits nonzero when removal would occur. This migration does not run
+replace that top-level Tao selection with the built-in `:workspace` default,
+or repair a missing default when profiles remain. Never delete only the default
+while retaining profiles. `--dry-run` previews the change;
+`--check` exits nonzero when repair would occur. This migration does not run
 other installers, remove the optional profile, or grant network/Full access.
 Other selected profiles and explicit user policies remain untouched.
 Reconnect the host and verify effective permissions separately: setup readiness

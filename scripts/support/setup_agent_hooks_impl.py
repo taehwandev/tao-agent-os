@@ -97,7 +97,7 @@ def main() -> None:
     parser.add_argument(
         "--reset-codex-permission-default",
         action="store_true",
-        help="Only remove an explicitly selected tao-workspace default; preserve all other settings.",
+        help="Reset Tao or missing profile selection to :workspace; preserve other settings.",
     )
     args = parser.parse_args()
 
@@ -182,7 +182,7 @@ def _reset_codex_default(args: argparse.Namespace, parser: argparse.ArgumentPars
         parser.error(str(error))
     print(f"Codex default selection: {status}. No network, filesystem, or approval policy was added.")
     print("Existing sessions retain host-applied permissions; reconnect and verify effective access separately.")
-    if args.check and status == "would_remove":
+    if args.check and status == "would_update":
         raise SystemExit(1)
 
 
@@ -203,11 +203,11 @@ def _notice_tao_permission_default(config_target: Path) -> None:
             file=sys.stderr,
         )
         return
-    if status == "would_remove":
+    if status == "would_update":
         print(
-            "Codex notice: default_permissions selects tao-workspace. Older Tao setup "
+            "Codex notice: default_permissions selects tao-workspace or is missing with profiles. Older Tao setup "
             "selected it automatically; the current file cannot prove who selected it. "
-            "To return default selection to the host, explicitly run "
+            "To select the built-in :workspace default, explicitly run "
             "setup-agent-hooks.py --reset-codex-permission-default. "
             "Setup readiness does not verify this session's network or Full access.",
             file=sys.stderr,
