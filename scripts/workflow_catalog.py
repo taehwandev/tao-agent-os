@@ -147,7 +147,10 @@ COMMANDS: Dict[str, Profile] = {
             "common/skills/doubt-driven-development/SKILL.md",
         ),
         gates=("PRD/ARD applicability", "acceptance criteria", "implementation", "verification", "handoff"),
-        notes=("Lifecycle alias for a scoped build slice; use `product` for broad product delivery.",),
+        notes=(
+            "Lifecycle alias for a scoped source implementation slice; use `product` for broad product delivery. "
+            "A no-source-change local development app rebuild or relaunch belongs to `test`, not `build`.",
+        ),
     ),
     "test": Profile(
         docs=(
@@ -157,7 +160,11 @@ COMMANDS: Dict[str, Profile] = {
             "common/skills/browser-runtime-testing/SKILL.md",
         ),
         gates=("test scope", "run checks", "evidence", "handoff"),
-        notes=("Lifecycle alias for verification-only work or test evidence collection.",),
+        notes=(
+            "Lifecycle alias for verification-only work or test evidence collection. "
+            "A repo-owned development app rebuild, relaunch, or restart with no tracked source diff "
+            "belongs here: verify the bundle and exact process without an unrelated commit-range review.",
+        ),
     ),
     "webperf": Profile(
         docs=(

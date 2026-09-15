@@ -302,6 +302,26 @@ class WorkflowCatalogTests(unittest.TestCase):
         spec_route = resolve_docs("spec", None, [], request_classified=True)
         self.assertTrue(spec_route["required_docs"])
 
+    def test_no_source_change_app_restart_uses_test_contract(self) -> None:
+        # The actual short follow-up remains advisory: prior scope tells the
+        # runtime what to verify, but never authorizes a route by itself.
+        intake = classify_request(
+            "진행해",
+            continuation_scope="Rebuild and relaunch the repo-owned development app without changing source",
+        )
+        self.assertEqual("triage", intake["recommended_route"])
+
+        test_route = resolve_docs("test", None, [], request_classified=True)
+        build_route = resolve_docs("build", None, [], request_classified=True)
+        self.assertIn("rebuild, relaunch, or restart", COMMANDS["test"].notes[0])
+        self.assertIn("belongs to `test`, not `build`", COMMANDS["build"].notes[0])
+        self.assertIn("select the `test` verification route", (ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertNotIn("review hook", test_route["gates"])
+        self.assertIn("review hook", build_route["gates"])
+        self.assertLess(len(test_route["gates"]), len(build_route["gates"]))
+        self.assertFalse(next(h for h in test_route["hooks"] if h["hook"] == "review")["required"])
+        self.assertTrue(next(h for h in build_route["hooks"] if h["hook"] == "review")["required"])
+
     def test_analysis_route_stays_lightweight(self) -> None:
         route = resolve_docs("analysis", None, [], request_classified=True)
 
