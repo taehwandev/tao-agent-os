@@ -1538,7 +1538,6 @@
     {
       "name": "graphify_integration",
       "patterns": [
-        "scripts/support/setup_agent_hooks_impl.py",
         "scripts/support/graphify_*.py",
         "scripts/workflow_graphify_route.py",
         "docs/skills/graphify-project-integration/**",
@@ -1558,6 +1557,7 @@
       "name": "runtime_setup",
       "patterns": [
         "scripts/setup-agent-hooks.py",
+        "scripts/support/setup_agent_hooks_impl.py",
         "scripts/project-discover.py",
         "scripts/agent-entry.py",
         "docs/skills/agent-runtime-integration/references/runtime-setup.md"
@@ -1610,8 +1610,7 @@
         "scripts/agent_route_state.py",
         "scripts/agent-finish-check.py",
         "scripts/agent_*",
-        "scripts/agent-*",
-        "scripts/support/*setup*.py"
+        "scripts/agent-*"
       ],
       "docs": [
         "workflows/skills/scripted-agent-workflow/SKILL.md",

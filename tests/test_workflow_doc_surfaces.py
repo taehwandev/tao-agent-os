@@ -384,19 +384,40 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("graphify readiness", route["gates"])
         self.assertTrue(any(match["name"] == "target_project_graphify" for match in route["doc_surface_matches"]))
 
-    def test_graphify_path_surface_promotes_readiness_docs(self) -> None:
+    def test_graphify_setup_request_promotes_readiness_docs(self) -> None:
         route = resolve_docs(
             "task",
             None,
-            [],
+            ["graphify"],
             request_classified=True,
+            request_text="Fix Graphify setup wiring.",
             surface_paths=["scripts/support/setup_agent_hooks_impl.py"],
         )
 
         self.assertIn(guidance_area("docs/skills/agent-bootstrap/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("docs/skills/graphify-project-integration/SKILL.md"), required_areas(route))
         self.assertIn("graphify readiness", route["gates"])
-        self.assertTrue(any(match["name"] == "graphify_integration" for match in route["doc_surface_matches"]))
+        self.assertTrue(any(match["name"] == "target_project_graphify" for match in route["doc_surface_matches"]))
+
+    def test_codex_permission_setup_path_does_not_load_unrelated_guidance(self) -> None:
+        route = resolve_docs(
+            "workflow-setup",
+            None,
+            [],
+            request_classified=True,
+            request_text="Add the shared Tao root to the Codex workspace profile.",
+            surface_paths=["scripts/support/setup_agent_hooks_impl.py"],
+        )
+
+        names = {match["name"] for match in route["doc_surface_matches"]}
+        self.assertIn("runtime_setup", names)
+        self.assertNotIn("graphify_integration", names)
+        self.assertNotIn("workflow_router", names)
+        self.assertNotIn("graphify readiness", route["gates"])
+        self.assertNotIn(
+            guidance_area("docs/skills/graphify-project-integration/SKILL.md"),
+            required_areas(route),
+        )
 
     def test_classified_graphify_evidence_still_infers_route_concern(self) -> None:
         request = "apply the confirmed change in scripts/workflow_doc_surfaces.py"
