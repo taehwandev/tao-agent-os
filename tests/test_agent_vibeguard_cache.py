@@ -190,7 +190,7 @@ class VibeguardCacheTests(unittest.TestCase):
         else:
             os.environ["TAO_STATE_HOME"] = self._old_state_home
 
-    def test_vibeguard_cache_reuses_same_git_state_and_invalidates_on_status_change(self) -> None:
+    def test_vibeguard_cache_reuses_staged_bytes_and_invalidates_on_content_change(self) -> None:
         calls: list[list[str]] = []
         state = {"status": ""}
 
@@ -251,14 +251,23 @@ class VibeguardCacheTests(unittest.TestCase):
                 vibeguard_command=command,
                 parse_overall=parse,
             )
+            state["status"] = "M  app.py\0"
+            staged = cached_vibeguard(
+                project=project,
+                rules=rules,
+                run_command=run_command,
+                vibeguard_command=command,
+                parse_overall=parse,
+            )
 
         audit_calls = [command for command in calls if command == ["vibeguard", "audit", "."]]
         self.assertEqual(2, len(audit_calls))
         self.assertFalse(first["cached"])
         self.assertTrue(second["cached"])
         self.assertFalse(third["cached"])
+        self.assertTrue(staged["cached"])
         status_calls = [command for command in calls if command[:2] == ["git", "status"]]
-        self.assertEqual(3, len(status_calls))
+        self.assertEqual(4, len(status_calls))
         self.assertTrue(all("-z" in command for command in status_calls))
 
     def test_supplied_short_status_does_not_replace_current_nul_listing(self) -> None:
@@ -280,14 +289,14 @@ class VibeguardCacheTests(unittest.TestCase):
             project = Path(temp_dir)
             (project / "app.py").write_text("same bytes\n", encoding="utf-8")
             state = _git_state(project, run_command, {"returncode": 0, "stdout": ""})
-            # Staging changes status without changing bytes. Identity must come
-            # from the fresh listing even if the caller repeats stale context.
+            # Staging moves the same change between porcelain columns without
+            # changing what VibeGuard reads.
             listing = "M  app.py\0"
             staged = _git_state(project, run_command, {"returncode": 0, "stdout": ""})
 
-        self.assertEqual(" M app.py\0", state["status"])
+        self.assertEqual("M app.py\0", state["status"])
         self.assertEqual(state["dirty_content"], staged["dirty_content"])
-        self.assertNotEqual(state, staged)
+        self.assertEqual(state, staged)
         self.assertEqual(4, len(calls))  # HEAD plus one listing for each state.
 
     def test_failed_listing_or_unreadable_path_never_reuses_or_writes_cache(self) -> None:

@@ -327,8 +327,10 @@ result; otherwise it runs those checks itself. Read-only work against a path
 outside Git skips the structurally unavailable diff check, while a writing task
 outside Git still fails closed. It uses the task-local VibeGuard audit cache
 when both the target project git state and Tao Agent OS rules git state are
-unchanged. Failed VibeGuard invocations must not be cached; rerun the tool after
-transient failures. Finish-check writes
+unchanged. Moving identical bytes between unstaged and staged state preserves
+that cache entry; a changed path, file byte, HEAD, rule state, or audit command
+invalidates it. Failed VibeGuard invocations must not be cached; rerun the tool
+after transient failures. Finish-check writes
 `<TARGET_REPO>/.tao/finish.json`.
 It also writes `gate_signals`, `missed_gates`, and
 `retrospective_required`. When `retrospective_required` is true, it writes a

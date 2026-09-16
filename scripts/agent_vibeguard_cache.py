@@ -19,8 +19,10 @@ OverallParser = Callable[[str], Any]
 # nothing and was keyed by a fixed marker. Entries from either cannot be
 # trusted to describe the bytes they audited, so every one is discarded.
 # Schema 4 uses the same NUL-delimited listing for status identity and content,
-# replacing schema 3's separate line-oriented status query.
-CACHE_SCHEMA_VERSION = 4
+# replacing schema 3's separate line-oriented status query. Schema 5
+# normalizes the index/worktree columns so staging unchanged bytes does not
+# invalidate a successful audit.
+CACHE_SCHEMA_VERSION = 5
 
 
 def skipped_vibeguard(project: Path) -> dict[str, Any]:
@@ -184,14 +186,35 @@ def _git_state(
     )
     if listing.get("returncode") != 0:
         return None
-    dirty = _dirty_content_digest(path, str(listing.get("stdout", "")))
+    status_text = str(listing.get("stdout", ""))
+    dirty = _dirty_content_digest(path, status_text)
     if dirty is None:
         return None
     return {
         "head": str(head.get("stdout", "")).strip(),
-        "status": str(listing.get("stdout", "")),
+        "status": _staging_independent_status(status_text),
         "dirty_content": dirty,
     }
+
+
+def _staging_independent_status(status_text: str) -> str:
+    """Keep changed-path identity while ignoring index/worktree placement."""
+
+    normalized: list[str] = []
+    records = status_text.split("\0")
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if len(record) < 3:
+            continue
+        code, target = record[:2], record[3:]
+        change = "".join(sorted(set(code) - {" "}))
+        normalized.append(f"{change} {target}")
+        if code[0] in "RC" and index < len(records):
+            normalized.append(f"from {records[index]}")
+            index += 1
+    return "\0".join(normalized) + ("\0" if normalized else "")
 
 
 def _dirty_content_digest(path: Path, status_text: str) -> str | None:
