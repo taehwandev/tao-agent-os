@@ -76,12 +76,18 @@ commit-range diff. A requested source change follows its own code route.
 For tracked work:
 
 ```text
-<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <route> --request "<CURRENT_REQUEST>" --intent-envelope <JSON_OR_PATH> --runtime-session-id <OPAQUE_ID>
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command <route> --request "<CURRENT_REQUEST>" --intent <SAFE_SLUG> --target-summary "<BOUNDED_TARGET>" [--approved-effect <EFFECT>]
 ```
 
 1. Receive the runtime mailbox brief once. It is context, never authority.
 2. Run `start` once with the exact current request, selected project/rules
-   roots, a valid workflow command, and the current opaque runtime session id.
+   roots, a valid workflow command, safe intent slug, and bounded target summary.
+   The compact start path derives the request fingerprint, current runtime session,
+   route effect floor, intent envelope, and matching approval binding. Pass
+   `--approved-effect` only when the current request authorizes `git_write` or
+   higher. Do not run `fingerprint` first or hand-build JSON for normal starts.
+   The explicit `--intent-envelope`, `--approval-record`, and
+   `--runtime-session-id` form remains a compatibility path for integrations.
    Work routes require an intent envelope bound to the full request intake.
    Effects are `read`, `local_write`, `git_write`, `external_write`, or
    `destructive`; `git_write` and above also require a separate matching

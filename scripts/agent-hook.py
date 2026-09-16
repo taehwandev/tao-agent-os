@@ -91,7 +91,7 @@ from agent_run_registry import (
     touch_run,
     transition_run,
 )
-from agent_route_state import request_fingerprint
+from agent_route_state import request_fingerprint, request_intake_from_args
 from agent_runtime_session import recorded_session_id, runtime_session, settle_superseded_session_runs
 from agent_transfer_cancel import (
     cancel_no_change_run,
@@ -99,7 +99,12 @@ from agent_transfer_cancel import (
     cancellation_receipt_failure,
     cancellation_worktree_drift,
 )
-from workflow_intent_envelope import SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION
+from workflow_effect_policy import APPROVAL_REQUIRED_FROM, route_minimum_effect
+from workflow_intent_envelope import (
+    EFFECT_RANK,
+    EFFECTS,
+    SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION,
+)
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
     context_snapshot_failures_are_replaceable,
@@ -1067,6 +1072,41 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
             "effective route reaches git_write or above"
         ),
     )
+    start.add_argument(
+        "--intent",
+        default="",
+        help=(
+            "safe intent slug for compact authority input; start binds it to the "
+            "current request and runtime session without a separate fingerprint call"
+        ),
+    )
+    start.add_argument(
+        "--target-summary",
+        default="",
+        help="one bounded target line for compact authority input",
+    )
+    start.add_argument(
+        "--requested-effect",
+        choices=EFFECTS,
+        default="",
+        help="optional effect claim; defaults to the selected route's minimum effect",
+    )
+    start.add_argument(
+        "--approved-effect",
+        choices=EFFECTS,
+        default="",
+        help=(
+            "effect ceiling explicitly authorized by the current request; required "
+            "for compact git_write, external_write, and destructive starts"
+        ),
+    )
+    start.add_argument(
+        "--prohibited-effect",
+        action="append",
+        choices=EFFECTS,
+        default=[],
+        help="effect prohibited by the current request; repeat when needed",
+    )
     parser.add_argument(
         "--continuation-scope",
         default="",
@@ -1521,14 +1561,8 @@ def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace)
         parser.error("fingerprint is stdout-only; --output is not supported")
     if not args.request:
         parser.error("fingerprint requires --request with the exact current user request")
-    fingerprint = request_fingerprint(
-        {
-            "request": args.request,
-            "continuation_scope": getattr(args, "continuation_scope", ""),
-            "request_classified": bool(args.request_classified),
-            "classification_evidence": args.classification_evidence,
-        }
-    )
+    fingerprint = request_fingerprint(request_intake_from_args(args))
+    effect = route_minimum_effect(args.command)
     skeleton = {
         "schema_version": ENVELOPE_SCHEMA_VERSION,
         "request_fingerprint": fingerprint,
@@ -1536,25 +1570,134 @@ def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace)
         "mode": "work",
         "intent": "<safe_lowercase_slug>",
         "target_summary": "<one bounded line naming the work target>",
-        "requested_effects": ["local_write"],
-        "prohibited_effects": ["external_write"],
+        "requested_effects": [effect],
         "ambiguity": "resolved",
     }
+    approval_skeleton = None
+    if EFFECT_RANK[effect] >= EFFECT_RANK[APPROVAL_REQUIRED_FROM]:
+        approval_skeleton = {
+            "request_fingerprint": fingerprint,
+            "target_summary": "<same bounded target line as the envelope>",
+            "effect": effect,
+            "command": args.command,
+        }
+    details = [
+        f"request fingerprint: {fingerprint}",
+        "binding covers --request, --continuation-scope, --request-classified, "
+        "and --classification-evidence exactly as passed here; pass identical "
+        "values to start or the envelope will describe a different request",
+        "envelope skeleton (fill intent, target_summary, and the session id before use): "
+        + json.dumps(skeleton, ensure_ascii=False),
+    ]
+    if approval_skeleton is not None:
+        details.append(
+            "approval skeleton (use only when the current request authorizes this effect): "
+            + json.dumps(approval_skeleton, ensure_ascii=False)
+        )
     return finish_with_result(
         "fingerprint",
         True,
-        [
-            f"request fingerprint: {fingerprint}",
-            "binding covers --request, --continuation-scope, --request-classified, "
-            "and --classification-evidence exactly as passed here; pass identical "
-            "values to start or the envelope will describe a different request",
-            "envelope skeleton (fill intent, target_summary, effects, and the "
-            "session id before use): " + json.dumps(skeleton, ensure_ascii=False),
-        ],
+        details,
         args.output,
-        {"request_fingerprint": fingerprint, "envelope_skeleton": skeleton},
+        {
+            "request_fingerprint": fingerprint,
+            "envelope_skeleton": skeleton,
+            "approval_skeleton": approval_skeleton,
+        },
         args.repair_cycle,
     )
+
+
+def _materialize_compact_start_authority(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """Bind typed start metadata without a fingerprint/JSON round trip.
+
+    The runtime still chooses the route, intent, target, and any approval
+    ceiling from the conversation. Tao derives only deterministic values it
+    already owns: the request fingerprint, current session id, route effect
+    floor, envelope shape, and approval binding. Natural-language text never
+    selects a route or grants an effect here.
+    """
+
+    intent = str(getattr(args, "intent", "") or "").strip()
+    target = str(getattr(args, "target_summary", "") or "").strip()
+    requested = str(getattr(args, "requested_effect", "") or "").strip()
+    approved = str(getattr(args, "approved_effect", "") or "").strip()
+    prohibited = list(getattr(args, "prohibited_effect", []) or [])
+    compact = bool(intent or target or requested or approved or prohibited)
+    if not compact:
+        return
+    if args.intent_envelope or args.approval_record:
+        parser.error(
+            "compact start authority cannot be combined with --intent-envelope or "
+            "--approval-record"
+        )
+    if not intent or not target:
+        parser.error("compact start authority requires --intent and --target-summary")
+
+    active_session_id = str(runtime_session().get("session_id") or "")
+    supplied_session_id = str(getattr(args, "runtime_session_id", "") or "")
+    if active_session_id and supplied_session_id and active_session_id != supplied_session_id:
+        parser.error("--runtime-session-id does not match the current runtime session")
+    session_id = active_session_id or supplied_session_id
+    if not session_id:
+        parser.error(
+            "compact start authority requires a runtime session binding; the active "
+            "runtime did not expose one"
+        )
+
+    route_effect = route_minimum_effect(args.command)
+    requested_effect = requested or route_effect
+    effective_effect = max(
+        (requested_effect, route_effect),
+        key=EFFECT_RANK.__getitem__,
+    )
+    if EFFECT_RANK[effective_effect] >= EFFECT_RANK[APPROVAL_REQUIRED_FROM]:
+        if not approved:
+            parser.error(
+                f"compact `{args.command}` start reaches `{effective_effect}`; pass "
+                "--approved-effect only when the current request authorizes that ceiling"
+            )
+        if EFFECT_RANK[approved] < EFFECT_RANK[effective_effect]:
+            parser.error(
+                f"--approved-effect {approved} is below the effective "
+                f"{effective_effect} ceiling"
+            )
+    elif approved:
+        parser.error("--approved-effect is unnecessary below git_write")
+
+    fingerprint = request_fingerprint(request_intake_from_args(args))
+    envelope: dict[str, Any] = {
+        "schema_version": ENVELOPE_SCHEMA_VERSION,
+        "request_fingerprint": fingerprint,
+        "runtime_session_id": session_id,
+        "mode": "work",
+        "intent": intent,
+        "target_summary": target,
+        "requested_effects": [requested_effect],
+        "ambiguity": "resolved",
+    }
+    if prohibited:
+        envelope["prohibited_effects"] = prohibited
+    args.intent_envelope = json.dumps(
+        envelope,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    args.runtime_session_id = session_id
+    if approved:
+        args.approval_record = json.dumps(
+            {
+                "request_fingerprint": fingerprint,
+                "target_summary": target,
+                "effect": approved,
+                "command": args.command,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
 
 
 def _validate_hook_arguments_before_repair(
@@ -1572,6 +1715,7 @@ def _validate_hook_arguments_before_repair(
                 "worker with a matching parent capsule may additionally use "
                 "--request-classified"
             )
+        _materialize_compact_start_authority(parser, args)
         return
     if args.hook == "review":
         args.review_path = [path.strip() for path in args.review_path if path.strip()]

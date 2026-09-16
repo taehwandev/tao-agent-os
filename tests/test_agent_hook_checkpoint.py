@@ -263,6 +263,96 @@ class CheckpointCommandTests(unittest.TestCase):
         self.assertIn(expected, stdout.getvalue())
         self.assertIn('"request_fingerprint"', stdout.getvalue())
 
+    def test_fingerprint_uses_the_route_effect_and_prints_git_approval_shape(self) -> None:
+        parser = agent_hook.build_parser()
+        args = parser.parse_args(
+            ["fingerprint", "--command", "commit", "--request", "commit it"]
+        )
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            returncode = agent_hook._fingerprint_hook(parser, args)
+
+        self.assertEqual(0, returncode)
+        self.assertIn('"requested_effects": ["git_write"]', stdout.getvalue())
+        self.assertIn('"effect": "git_write"', stdout.getvalue())
+        self.assertIn('"command": "commit"', stdout.getvalue())
+
+    def test_compact_start_builds_bound_local_authority_without_json(self) -> None:
+        parser = agent_hook.build_parser()
+        args = parser.parse_args(
+            [
+                "start",
+                "--command", "bugfix",
+                "--request", "fix the parser",
+                "--intent", "fix_parser",
+                "--target-summary", "the parser authority input",
+            ]
+        )
+
+        with patch.object(
+            agent_hook,
+            "runtime_session",
+            return_value={"session_id": "runtime-session-01"},
+        ):
+            agent_hook._validate_hook_arguments_before_repair(parser, args)
+
+        envelope = json.loads(args.intent_envelope)
+        self.assertEqual("runtime-session-01", args.runtime_session_id)
+        self.assertEqual(["local_write"], envelope["requested_effects"])
+        self.assertEqual("fix_parser", envelope["intent"])
+        self.assertEqual("", args.approval_record)
+
+    def test_compact_git_start_builds_a_separate_bound_approval(self) -> None:
+        parser = agent_hook.build_parser()
+        args = parser.parse_args(
+            [
+                "start",
+                "--command", "commit",
+                "--request", "commit it",
+                "--intent", "commit_change",
+                "--target-summary", "the reviewed parser change",
+                "--approved-effect", "git_write",
+            ]
+        )
+
+        with patch.object(
+            agent_hook,
+            "runtime_session",
+            return_value={"session_id": "runtime-session-01"},
+        ):
+            agent_hook._validate_hook_arguments_before_repair(parser, args)
+
+        envelope = json.loads(args.intent_envelope)
+        approval = json.loads(args.approval_record)
+        self.assertEqual(["git_write"], envelope["requested_effects"])
+        self.assertEqual(envelope["request_fingerprint"], approval["request_fingerprint"])
+        self.assertEqual(envelope["target_summary"], approval["target_summary"])
+        self.assertEqual("commit", approval["command"])
+
+    def test_compact_git_start_refuses_to_invent_user_approval(self) -> None:
+        parser = agent_hook.build_parser()
+        args = parser.parse_args(
+            [
+                "start",
+                "--command", "commit",
+                "--request", "review the change",
+                "--intent", "commit_change",
+                "--target-summary", "the reviewed parser change",
+            ]
+        )
+
+        with (
+            patch.object(
+                agent_hook,
+                "runtime_session",
+                return_value={"session_id": "runtime-session-01"},
+            ),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            agent_hook._validate_hook_arguments_before_repair(parser, args)
+
     def test_fingerprint_hook_binds_the_continuation_scope(self) -> None:
         """The helper must hash the same full intake the start call will bind.
 
