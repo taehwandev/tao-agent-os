@@ -116,6 +116,8 @@ def resolve_runtime_evidence(
     project: Path,
     session: dict[str, str] | None = None,
     states: "frozenset[str] | None" = None,
+    *,
+    latest_of_several: bool = False,
 ) -> Path | None:
     """Resolve one exact run in ``states`` from its runtime session binding.
 
@@ -131,6 +133,15 @@ def resolve_runtime_evidence(
     ``states`` defaults to the active set.  Resolution is otherwise identical,
     so a caller that needs a settled run's evidence gets the same exact binding
     rather than a looser scan.
+
+    ``latest_of_several`` returns the most recently written match instead of
+    refusing when more than one matches, and belongs only to a settled-state
+    question.  For an active claim the single-match rule is the point: "which
+    run am I under" must never be guessed, and a second live claim is exactly
+    what it exists to catch.  A settled state asks something different -- did
+    this session finish work in this project -- and there a second completed
+    run is more evidence, not an ambiguity.  Requiring uniqueness there made
+    the answer flip to "no" on a session's second finish of the day.
     """
 
     project = project.resolve()
@@ -191,7 +202,17 @@ def resolve_runtime_evidence(
     # to catch.
     if not complete and resolved_keys != set(bindings):
         return None
+    if latest_of_several and matches:
+        return max(matches, key=_evidence_mtime)
     return matches[0] if len(matches) == 1 else None
+
+
+def _evidence_mtime(path: Path) -> float:
+    """Sort key for settled evidence; an unreadable file sorts oldest."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return float("-inf")
 
 
 def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[str]:

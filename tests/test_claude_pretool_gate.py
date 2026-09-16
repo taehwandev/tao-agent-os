@@ -3075,8 +3075,20 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
 
     SESSION = "finished-session"
 
-    def _finished_project(self, base: Path, *, state: str = "completed") -> Path:
+    def _finished_project(
+        self, base: Path, *, state: str = "completed", finishes: int = 1
+    ) -> Path:
         project = _opt_in_project(base)
+        # Earlier runs are opened and completed first, because the linked-worktree
+        # marker below points `.git` at a path that does not exist and a new run's
+        # continuation checkpoint cannot read git state through it.
+        for _ in range(finishes - 1):
+            _write_preflight(project, self.SESSION)
+            earlier = resolve_runtime_evidence(
+                project, {"runtime": "claude", "session_id": self.SESSION}
+            )
+            assert earlier is not None
+            transition_run(project, earlier, "completed")
         _write_preflight(project, self.SESSION)
         _require_linked_worktree(project, linked=True)
         policy = project / gate.WORKTREE_POLICY_PATH
@@ -3166,6 +3178,57 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertIn("preflight", _reason(out).lower())
+
+    def test_a_session_that_finished_twice_can_still_publish(self) -> None:
+        """One session finishes several runs in a repository over a day's work.
+
+        The allowance asked the resolver for the session's completed run, and
+        that resolver answers only when exactly one run matches, because for an
+        active claim "which run am I under" must never be guessed. A second
+        finish therefore made the answer ambiguous and silently withdrew the
+        allowance: the first publication of the day went through and every one
+        after it was refused, which reads as the gate breaking at random.
+
+        Which completed run is irrelevant here. The question is whether this
+        session finished work in this project, and a second attested finish is
+        more evidence of that, not less.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp), finishes=2)
+
+            code, out = self._decide(project, "git push origin work")
+
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
+
+    def test_codex_publishes_on_its_own_finish_too(self) -> None:
+        """codex_pretool_gate.py runs this module, so the fix is one fix.
+
+        The runtime is part of the binding, so a Codex session resolves its own
+        completed runs and not a Claude session's. What must not differ is the
+        rule: finishing twice cannot withdraw the allowance in either runtime.
+        """
+
+        with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}):
+            with tempfile.TemporaryDirectory() as tmp:
+                project = _opt_in_project(Path(tmp))
+                session = {"runtime": "codex", "session_id": self.SESSION}
+                for _ in range(2):
+                    _write_preflight(project, self.SESSION, runtime="codex")
+                    evidence = resolve_runtime_evidence(project, session)
+                    assert evidence is not None
+                    transition_run(project, evidence, "completed")
+                _require_linked_worktree(project, linked=True)
+                policy = project / gate.WORKTREE_POLICY_PATH
+                declared = json.loads(policy.read_text(encoding="utf-8"))
+                declared["require_workflow_entry"] = True
+                policy.write_text(json.dumps(declared), encoding="utf-8")
+
+                code, out = self._decide(project, "git push origin work")
+
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
 
     def test_a_stale_finish_does_not_publish(self) -> None:
         """An abandoned session cannot come back days later on its old finish."""

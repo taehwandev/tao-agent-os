@@ -590,6 +590,12 @@ def finished_session_evidence(root: Path, session_id: str) -> Path | None:
     passed. So this is not "some old run existed", it is "this session's work
     was attested" -- which is the state the lifecycle puts a session in right
     before it commits.
+
+    A session finishes more than one run in a repository over a day's work, so
+    this asks for the latest of them rather than for the only one. Requiring a
+    single match let the first publication through and refused every one after
+    it, which reads as the gate failing at random. Freshness below still
+    decides whether that finish is recent enough to publish on.
     """
 
     if not session_id:
@@ -601,6 +607,7 @@ def finished_session_evidence(root: Path, session_id: str) -> Path | None:
         root,
         {"runtime": runtime_name(), "session_id": session_id},
         frozenset({"completed"}),
+        latest_of_several=True,
     )
 
 
