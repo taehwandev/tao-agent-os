@@ -24,6 +24,7 @@ from support.setup_config_files import (
     merge_codex_prefix_rules,
     merge_permissions_allow,
 )
+from support.codex_setup import CODEX_PRETOOL_MATCHER, merge_codex_pre_tool_gate
 from support.graphify_setup import (
     GLOBAL_PLATFORM_SKILL_DIRS,
     _normalize_runtime_integrations,
@@ -986,6 +987,36 @@ class SetupAgentHooksTests(unittest.TestCase):
         )
         self.assertEqual(first_snapshot, second_snapshot)
 
+    def test_codex_pretool_setup_preserves_neighboring_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_home:
+            target = Path(temp_home) / "hooks.json"
+            target.write_text(json.dumps({
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [{"type": "command", "command": "graphify hook-check"}],
+                        }
+                    ]
+                }
+            }))
+            command = "TAO_HOOK_SOFT_FAIL=1 launcher codex-pretool-gate"
+
+            first = merge_codex_pre_tool_gate(target, command, dry_run=False)
+            second = merge_codex_pre_tool_gate(target, command, dry_run=False)
+            groups = json.loads(target.read_text())["hooks"]["PreToolUse"]
+
+        self.assertEqual("installed", first)
+        self.assertEqual("ok", second)
+        self.assertTrue(any(group.get("matcher") == "Bash" for group in groups))
+        managed = [
+            group
+            for group in groups
+            if group.get("matcher") == CODEX_PRETOOL_MATCHER
+        ]
+        self.assertEqual(1, len(managed))
+        self.assertEqual(command, managed[0]["hooks"][0]["command"])
+
     def test_every_runtime_reports_where_its_status_line_stands(self) -> None:
         # Codex uses built-in items rather than a command, but setup still owns
         # enabling and reporting its remaining-quota items.
@@ -1214,6 +1245,28 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertEqual(0, result.returncode)
         self.assertNotIn(
             "unsupported Tao Agent OS script alias: codex-stop-gate",
+            result.stderr,
+        )
+
+    def test_stable_launcher_supports_codex_pretool_gate_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_home:
+            with patch.dict(os.environ, {"HOME": temp_home}):
+                ensure_stable_launcher(ROOT, dry_run=False)
+                launcher = stable_launcher_path()
+
+                result = subprocess.run(
+                    [str(launcher), "codex-pretool-gate"],
+                    cwd=str(ROOT),
+                    input="{}",
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+
+        self.assertEqual(0, result.returncode)
+        self.assertNotIn(
+            "unsupported Tao Agent OS script alias: codex-pretool-gate",
             result.stderr,
         )
 

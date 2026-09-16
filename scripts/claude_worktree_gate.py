@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -31,7 +32,16 @@ WORKTREE_POLICY_SCHEMA_VERSION = 1
 WORKTREE_POLICY_REQUIRED_KEYS = frozenset(
     {"schema_version", "require_linked_worktree", "protected_branches"}
 )
-WORKTREE_POLICY_OPTIONAL_KEYS = frozenset({"require_workflow_entry"})
+WORKTREE_POLICY_OPTIONAL_KEYS = frozenset(
+    {
+        "require_workflow_entry",
+        "require_ticketed_product_branch",
+        "ticket_key_pattern",
+        "product_path_prefixes",
+        "product_file_names",
+        "product_suffixes",
+    }
+)
 REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
 MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
 
@@ -109,11 +119,39 @@ def worktree_policy(root: Path) -> dict | None:
         and all(isinstance(branch, str) and branch.strip() for branch in branches)
         and all(
             isinstance(parsed[name], bool)
-            for name in WORKTREE_POLICY_OPTIONAL_KEYS
+            for name in ("require_workflow_entry", "require_ticketed_product_branch")
             if name in parsed
         )
+        and _ticket_policy_is_valid(parsed)
     )
     return parsed if valid else default_worktree_policy()
+
+
+def _ticket_policy_is_valid(policy: dict) -> bool:
+    if policy.get("require_ticketed_product_branch") is not True:
+        return not any(
+            key in policy
+            for key in (
+                "ticket_key_pattern",
+                "product_path_prefixes",
+                "product_file_names",
+                "product_suffixes",
+            )
+        )
+    pattern = policy.get("ticket_key_pattern")
+    if not isinstance(pattern, str) or not pattern.strip():
+        return False
+    try:
+        re.compile(pattern)
+    except re.error:
+        return False
+    for key in ("product_path_prefixes", "product_file_names", "product_suffixes"):
+        values = policy.get(key)
+        if not isinstance(values, list) or not values:
+            return False
+        if not all(isinstance(value, str) and value.strip() for value in values):
+            return False
+    return True
 
 
 def policy_requires_workflow_entry(root: Path) -> bool:
@@ -133,6 +171,38 @@ def policy_requires_workflow_entry(root: Path) -> bool:
 
     policy = worktree_policy(root)
     return bool(policy and policy.get("require_workflow_entry") is True)
+
+
+def ticketed_product_branch_denial(root: Path, target: Path) -> str | None:
+    """Return a denial when a declared product path has no ticketed branch."""
+
+    policy = worktree_policy(root)
+    if not policy or policy.get("require_ticketed_product_branch") is not True:
+        return None
+    try:
+        relative = target.resolve(strict=False).relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    path = relative.as_posix()
+    product_path = any(
+        path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/")
+        for prefix in policy["product_path_prefixes"]
+    )
+    product_path = product_path or relative.name in policy["product_file_names"]
+    product_path = product_path or any(
+        path.endswith(suffix) for suffix in policy["product_suffixes"]
+    )
+    if not product_path:
+        return None
+    branch = current_branch(root)
+    if re.search(policy["ticket_key_pattern"], branch):
+        return None
+    return (
+        "Tao Agent OS ticket gate: product code cannot be edited on the "
+        f"ticketless branch `{branch or '<detached>'}` ({path}). Create or reuse "
+        "the task ticket, then use its key in the dedicated worktree branch. "
+        "Documentation, agent rules, and local runtime files remain exempt."
+    )
 
 
 def current_branch(root: Path) -> str:

@@ -80,13 +80,13 @@ def _require_linked_worktree(project: Path, *, linked: bool = False) -> None:
 
 def _write_preflight(
     project: Path, session_id: str | None = None, *,
-    command: str = "task", read_only: bool = False,
+    command: str = "task", read_only: bool = False, runtime: str = "claude",
 ) -> None:
     """Write preflight evidence the way `start` does, stamped with its session."""
     if session_id is None:
         (project / ".tao" / "preflight.json").write_text("{}", encoding="utf-8")
         return
-    session = {"runtime": "claude", "session_id": session_id}
+    session = {"runtime": runtime, "session_id": session_id}
     if resolve_runtime_evidence(project, session) is not None:
         return
     route = {"command": command, "gates": ["finish"], "required_docs": []}
@@ -2988,6 +2988,81 @@ class DeclaredPolicyGovernsLinkedWorktreesTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertIn("Allow it only if that is what you meant", _reason(out))
+
+
+class TicketedProductBranchPolicyTests(unittest.TestCase):
+    def _policy(self, project: Path) -> None:
+        policy = project / gate.WORKTREE_POLICY_PATH
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        policy.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "require_linked_worktree": True,
+                    "protected_branches": ["develop", "main"],
+                    "require_workflow_entry": True,
+                    "require_ticketed_product_branch": True,
+                    "ticket_key_pattern": "(?:CCE|CCQ)-[0-9]+",
+                    "product_path_prefixes": ["app", "feature"],
+                    "product_file_names": ["gradle.properties"],
+                    "product_suffixes": [".gradle.kts"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_product_edit_requires_a_ticket_key_in_the_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self._policy(project)
+            target = project / "feature/chat/Screen.kt"
+            with patch.object(worktree_gate, "current_branch", return_value="taehwan/fix/chat"):
+                reason = worktree_gate.ticketed_product_branch_denial(project, target)
+
+        self.assertIn("ticketless branch", reason or "")
+
+    def test_ticketed_branch_allows_product_edit_and_docs_stay_exempt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self._policy(project)
+            with patch.object(
+                worktree_gate,
+                "current_branch",
+                return_value="taehwan/fix/CCE-1234_chat",
+            ):
+                product_reason = worktree_gate.ticketed_product_branch_denial(
+                    project, project / "feature/chat/Screen.kt"
+                )
+            with patch.object(worktree_gate, "current_branch", return_value="docs/update"):
+                docs_reason = worktree_gate.ticketed_product_branch_denial(
+                    project, project / ".agents/shared/rule.md"
+                )
+
+        self.assertIsNone(product_reason)
+        self.assertIsNone(docs_reason)
+
+
+class CodexRuntimePreToolGateTests(unittest.TestCase):
+    def test_codex_uses_codex_bound_run_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
+            project = _opt_in_project(Path(tmp))
+            session_id = "codex-pretool-session"
+            with patch.dict(
+                os.environ,
+                {"TAO_PRETOOL_RUNTIME": "codex", STATE_HOME_ENV: state},
+            ):
+                _write_preflight(project, session_id, runtime="codex")
+                code, out = _decide(
+                    {
+                        "tool_name": "Write",
+                        "cwd": str(project),
+                        "session_id": session_id,
+                        "tool_input": {"file_path": str(project / "note.md")},
+                    }
+                )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
 
 
 class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):

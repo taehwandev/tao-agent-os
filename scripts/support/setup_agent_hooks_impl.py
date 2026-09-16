@@ -12,7 +12,7 @@ from pathlib import Path
 from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
 from support.codex_permissions import merge_codex_worktree_roots, reset_tao_permission_default
-from support.codex_setup import merge_codex_stop_gate
+from support.codex_setup import merge_codex_pre_tool_gate, merge_codex_stop_gate
 from support.codex_statusline_setup import merge_codex_status_line
 from support.graphify_setup import (
     CANONICAL_SKILL_PATH,
@@ -337,6 +337,13 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         cleanup_entries=codex_legacy_prefix_rule_entries(scripts_dir),
     )
     hooks_target = Path.home() / ".codex" / "hooks.json"
+    pretool_command = (
+        f"TAO_HOOK_SOFT_FAIL=1 {quote(str(stable_launcher_path()))} "
+        "codex-pretool-gate"
+    )
+    pretool_status = merge_codex_pre_tool_gate(
+        hooks_target, pretool_command, dry_run
+    )
     stop_command = (
         f"TAO_HOOK_SOFT_FAIL=1 {quote(str(stable_launcher_path()))} "
         "codex-stop-gate"
@@ -362,6 +369,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
             "hook": "rules.TaoAgentOSPython",
             "status": rules_status,
             "path": str(rules_target),
+        },
+        {
+            "tool": "codex",
+            "hook": "PreToolUse_workflow_gate",
+            "status": pretool_status,
+            "path": str(hooks_target),
         },
         {
             "tool": "codex",

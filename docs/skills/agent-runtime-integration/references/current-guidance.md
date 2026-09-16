@@ -264,14 +264,17 @@ Codex:
   or alter Claude project settings.
 - Use `<TAO_LAUNCHER> start` once for multi-step work; do not run a second
   classify, route, or preflight sequence after it succeeds.
-- Keep the managed Codex `Stop` closeout hook enabled when the optional
+- Keep the managed Codex `PreToolUse` and `Stop` hooks enabled when the optional
   user-level runtime bridge is installed. It resolves only the active run bound
   to the current `CODEX_THREAD_ID` and delegates retrospective and reusable-skill
   enforcement to the provider-neutral `finish` validators; it must not infer
   outcomes from prompts, transcripts, diffs, or the last assistant message.
 - Preserve unrelated entries when merging `~/.codex/hooks.json`. Identify the
-  managed entry by the stable `codex-stop-gate` alias, not by event, timeout, or
-  neighboring hook shape.
+  managed entries by the stable `codex-pretool-gate` and `codex-stop-gate`
+  aliases, not by event, timeout, or neighboring hook shape. The pretool hook
+  performs only deterministic mutation, worktree, ticket-branch, and active-run
+  checks; routing, document selection, VibeGuard, and review stay outside the
+  per-tool path.
 - Tao Agent OS command permissions belong in user-level
   `~/.codex/rules/default.rules` as narrow `prefix_rule` entries for the
   current `<TAO_ROOT>/scripts/*.py` files.

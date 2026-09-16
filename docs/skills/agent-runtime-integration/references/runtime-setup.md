@@ -200,15 +200,24 @@ the user gives that product its next normal prompt; the runtime then consumes
 the addressed local brief once and continues under its own current request and
 normal lifecycle.
 
-Claude's runtime bridge is otherwise advisory: unlike the Codex prefix rule,
-prose alone does not stop a file edit when the agent skipped `start`. To make
-workflow entry and continuation enforceable, `setup-agent-hooks.py` installs:
+Runtime bridges are advisory: prose alone does not stop a file edit when the
+agent skipped `start`. To make workflow entry and worktree policy enforceable,
+`setup-agent-hooks.py` installs the same low-cost PreToolUse policy engine for
+Claude and Codex. The engine classifies the pending tool call and reads existing
+run evidence; it does not route, search documents, run VibeGuard, or review.
+Claude additionally installs continuation hooks:
 
 - a `SessionStart` continuation hook for `startup|resume|fork`;
 - the Claude `PreToolUse` workflow/checkpoint gate for
   `Edit|Write|MultiEdit|NotebookEdit`;
 - matching `PostToolUse` and `PostToolUseFailure` continuation hooks; and
 - the existing `Stop` finish gate.
+
+Codex installs `codex-pretool-gate` for
+`Edit|Write|MultiEdit|ApplyPatch|Bash` and keeps `codex-stop-gate` for closeout.
+The thin Codex adapter reuses the policy engine while resolving evidence against
+the Codex runtime session, so the two runtimes enforce the same repository
+declarations without running duplicate project-local worktree guards.
 
 Setup also installs a managed `statusLine` entry, so where this session lives,
 the runtime's own remaining quota, and the run currently open stay on screen

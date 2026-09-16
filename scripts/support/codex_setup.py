@@ -7,7 +7,52 @@ from pathlib import Path
 from support.setup_config_files import read_json, write_json
 
 
+MANAGED_PRETOOL_ALIAS = "codex-pretool-gate"
 MANAGED_STOP_ALIAS = "codex-stop-gate"
+CODEX_PRETOOL_MATCHER = "Edit|Write|MultiEdit|ApplyPatch|Bash"
+
+
+def merge_codex_pre_tool_gate(target: Path, command: str, dry_run: bool) -> str:
+    """Install one managed PreToolUse gate without replacing user hooks."""
+
+    config = read_json(target)
+    hooks = config.get("hooks")
+    if not isinstance(hooks, dict):
+        hooks = {}
+    groups = hooks.get("PreToolUse")
+    if not isinstance(groups, list):
+        groups = []
+
+    current = False
+    stale = False
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        for hook in group.get("hooks") or []:
+            if not isinstance(hook, dict):
+                continue
+            hook_command = str(hook.get("command") or "")
+            if hook_command == command and group.get("matcher") == CODEX_PRETOOL_MATCHER:
+                current = True
+            elif MANAGED_PRETOOL_ALIAS in hook_command:
+                stale = True
+
+    if current and not stale:
+        return "ok"
+    if dry_run:
+        return "would_update" if current or stale else "missing"
+
+    cleaned = _without_managed_hooks(groups, MANAGED_PRETOOL_ALIAS)
+    cleaned.append(
+        {
+            "matcher": CODEX_PRETOOL_MATCHER,
+            "hooks": [{"type": "command", "command": command, "timeout": 10}],
+        }
+    )
+    hooks["PreToolUse"] = cleaned
+    config["hooks"] = hooks
+    write_json(target, config)
+    return "installed"
 
 
 def merge_codex_stop_gate(target: Path, command: str, dry_run: bool) -> str:
@@ -43,7 +88,7 @@ def merge_codex_stop_gate(target: Path, command: str, dry_run: bool) -> str:
     if dry_run:
         return "would_update" if current or stale else "missing"
 
-    cleaned = _without_managed_stop_hooks(groups)
+    cleaned = _without_managed_hooks(groups, MANAGED_STOP_ALIAS)
     cleaned.append(
         {
             "hooks": [
@@ -57,7 +102,7 @@ def merge_codex_stop_gate(target: Path, command: str, dry_run: bool) -> str:
     return "installed"
 
 
-def _without_managed_stop_hooks(groups: list) -> list:
+def _without_managed_hooks(groups: list, managed_alias: str) -> list:
     cleaned: list = []
     for group in groups:
         if not isinstance(group, dict):
@@ -72,7 +117,7 @@ def _without_managed_stop_hooks(groups: list) -> list:
             for hook in group_hooks
             if not (
                 isinstance(hook, dict)
-                and MANAGED_STOP_ALIAS in str(hook.get("command") or "")
+                and managed_alias in str(hook.get("command") or "")
             )
         ]
         if remaining:

@@ -70,6 +70,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         path_arguments,
         raw_path_arguments,
         policy_requires_workflow_entry,
+        ticketed_product_branch_denial,
         worktree_denial,
         worktree_policy,
         COMPUTED_TEXT,
@@ -137,6 +138,9 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
         # repository asked for the stricter path.
         return False
 
+    def ticketed_product_branch_denial(root: Path, target: Path) -> str | None:
+        return None
+
     def worktree_denial(root: Path, cause: str = "") -> str | None:
         return None
 
@@ -201,7 +205,7 @@ def continuation_adapter():
     return __getattr__("ClaudeContinuationAdapter")
 
 
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "ApplyPatch"}
 GATED_TOOLS = EDIT_TOOLS | BASH_TOOLS
 # Only Write creates a file from nothing; Edit/MultiEdit require an existing
 # file, so new-file sprawl flows through Write.
@@ -267,15 +271,25 @@ SOURCE_SUFFIXES = {
 }
 
 
-GATE_DISABLE_HINT = (
-    "Set TAO_CLAUDE_GATE=0 in the runtime environment to turn this gate off "
-    "for the session."
-)
+def runtime_name() -> str:
+    runtime = os.environ.get("TAO_PRETOOL_RUNTIME", "claude").strip().lower()
+    return runtime if runtime in {"claude", "codex"} else "claude"
+
+
+def runtime_setting(name: str) -> str:
+    return f"TAO_{runtime_name().upper()}_GATE{name}"
+
+
+def gate_disable_hint() -> str:
+    return (
+        f"Set {runtime_setting('')}=0 in the runtime environment to turn this "
+        "gate off for the session."
+    )
 
 
 def gate_enabled() -> bool:
     """Escape hatch for runtimes that cannot supply a session id."""
-    return os.environ.get("TAO_CLAUDE_GATE", "").strip() != "0"
+    return os.environ.get(runtime_setting(""), "").strip() != "0"
 
 
 def allow() -> int:
@@ -324,7 +338,7 @@ def deny(reason: str) -> int:
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": f"{reason} {GATE_DISABLE_HINT}",
+                    "permissionDecisionReason": f"{reason} {gate_disable_hint()}",
                 }
             }
         )
@@ -359,7 +373,7 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
 
 
 def max_age_seconds() -> int:
-    raw = os.environ.get("TAO_CLAUDE_GATE_MAX_AGE_SECONDS", "").strip()
+    raw = os.environ.get(runtime_setting("_MAX_AGE_SECONDS"), "").strip()
     if not raw:
         return DEFAULT_MAX_AGE_SECONDS
     try:
@@ -510,7 +524,7 @@ def deny_reason(
         f"Run `{stable_launcher_path()} start --project "
         f"{root} --rules <TAO_ROOT> --command <route> --request \"<user "
         f"request>\"`, read the route required_docs, then {retry}. Set "
-        "TAO_CLAUDE_GATE_MAX_AGE_SECONDS to tune the freshness window."
+        f"{runtime_setting('_MAX_AGE_SECONDS')} to tune the freshness window."
     )
 
 
@@ -565,7 +579,7 @@ def session_evidence(root: Path, session_id: str) -> Path | None:
         return None
     return reader.resolve_runtime_evidence(
         root,
-        {"runtime": "claude", "session_id": session_id},
+        {"runtime": runtime_name(), "session_id": session_id},
     )
 
 
@@ -585,7 +599,7 @@ def finished_session_evidence(root: Path, session_id: str) -> Path | None:
         return None
     return reader.resolve_runtime_evidence(
         root,
-        {"runtime": "claude", "session_id": session_id},
+        {"runtime": runtime_name(), "session_id": session_id},
         frozenset({"completed"}),
     )
 
@@ -699,7 +713,7 @@ def record_session_project(root: Path, session_id: str) -> None:
 
 
 def new_file_budget() -> int:
-    raw = os.environ.get("TAO_CLAUDE_GATE_NEW_FILE_BUDGET", "").strip()
+    raw = os.environ.get(runtime_setting("_NEW_FILE_BUDGET"), "").strip()
     if not raw:
         return DEFAULT_NEW_FILE_BUDGET
     try:
@@ -803,7 +817,7 @@ def sprawl_deny_reason(count: int, budget: int, ack: Path, target: Path, root: P
         "it. Turning a task into many files, layers, or abstractions burns tokens and review "
         "time. Collapse the change into fewer files, or -- if each new file protects a concrete "
         f"present risk -- record the per-file justification by writing it to {ack}, then retry. "
-        "Tune with TAO_CLAUDE_GATE_NEW_FILE_BUDGET."
+        f"Tune with {runtime_setting('_NEW_FILE_BUDGET')}."
     )
 
 
@@ -917,6 +931,12 @@ def _isolated_checkout_verdict(
     """
 
     session_id = str(payload.get("session_id") or "")
+    target = write_target_path(payload, cwd)
+    if target is not None:
+        for governed in governed_roots or [root]:
+            ticket_reason = ticketed_product_branch_denial(governed, target)
+            if ticket_reason:
+                return deny(ticket_reason)
     # Every governed project, for the same reason the mutation and worktree
     # checks already use all of them: a command writing into a second project
     # is governed by that project's workflow entry too, and reading only the
@@ -951,7 +971,11 @@ def _isolated_checkout_verdict(
         # the mutation checkpoint. Do not turn that registry race into an
         # uncheckpointed edit.
         return deny(deny_reason(root, session_id, tool))
-    if tool in EDIT_TOOLS and is_run_local_continuation_evidence(root, evidence):
+    if (
+        runtime_name() == "claude"
+        and tool in EDIT_TOOLS
+        and is_run_local_continuation_evidence(root, evidence)
+    ):
         adapter = continuation_adapter()
         if adapter is not None:
             continuation_reason = adapter.pre_mutation(
@@ -1527,7 +1551,10 @@ def _ordinary_git_invocation(tokens: list[str]) -> bool:
 def _declared_project_root() -> Path | None:
     """The project the runtime says this session belongs to."""
 
-    declared = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
+    declared = os.environ.get(
+        "CLAUDE_PROJECT_DIR" if runtime_name() == "claude" else "CODEX_PROJECT_DIR",
+        "",
+    ).strip()
     if not declared:
         return None
     try:
