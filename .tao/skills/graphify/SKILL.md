@@ -1,6 +1,6 @@
 ---
 name: graphify
-description: "Use when the question is about how a codebase hangs together — what depends on what, which module owns a behaviour, what a change would reach, how a subsystem is organised — or when asked to build or refresh a knowledge graph from a folder of code, docs, papers, images or video. Answers it from a persistent graph with community detection and query/path/explain tools. Not for finding or reading a known file, a symbol, or a string: search the repository directly for those, which is faster and exact."
+description: "Use when the corpus is mixed — code together with documents, papers, images, video, saved reasoning, or community-level concepts — or when asked to build or refresh a knowledge graph over such a folder. Answers from a persistent graph with community detection and query/path/explain tools. Not for code structure on its own: what depends on what, which module owns a behaviour, and what a change would reach are CodeGraph's, and calling both for the same question is prohibited. Not for finding or reading a known file, symbol, or string: search the repository directly, which is faster and exact."
 ---
 
 # /graphify
