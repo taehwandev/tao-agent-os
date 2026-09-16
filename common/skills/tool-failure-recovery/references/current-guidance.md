@@ -54,34 +54,54 @@ service state:
   manager supports it.
 - Report the blocker when the needed condition cannot be changed safely.
 
-### Stalled Local Commands
+### Pending Commands And Approval Requests
 
-For an idempotent local command that normally completes immediately, use one bounded wait after a transport-only result. If it reports no progress and read-only target-state evidence still shows no side effect, interrupt the invocation, confirm it terminated, reconcile possible side effects, and continue through another supported path. Do not spend multiple minutes repeating empty waits.
+A cell or session id is transport state, not completion, failure, or proof that
+an approval dialog is visible. Resume the same invocation with its matching
+wait tool. Use bounded waits and report observed progress; silence or unchanged
+files alone do not establish that execution is impossible.
 
-This recovery does not apply to non-idempotent actions or external writes. Those require direct completion, failure, or target evidence before retrying.
+- Keep one unresolved escalation request at a time when the client can replace
+  older requests. Continue only independent work that needs no new approval;
+  do not submit another escalation to test whether the first one is pending.
+- If the tool explicitly reports that a newer request superseded an older one,
+  treat the older invocation as cancelled. Reconcile possible effects before
+  retrying through the supported approval path. This is not a user denial.
+- Separate temporary-file preparation from the command needing escalation.
+  Prefer the supported executable and explicit arguments over compound shell
+  commands when the approval matcher requires that shape. Keep the same scope,
+  target, and required approval; never disguise a denied action with a wrapper.
+- For an idempotent local command that normally completes immediately, use one
+  bounded wait and then a confirmed interrupt once it reports no progress and
+  read-only target-state evidence still shows no side effect. Outside that
+  recovery, cancel only for a user stop, an explicit failure/timeout, or
+  evidence that the request cannot progress. Before retrying, confirm it is no
+  longer pending and reconcile side effects. Never automatically retry a
+  non-idempotent external write; inspect its target state first.
+- An unavailable process listing proves only that the diagnostic was unavailable.
+  Scope process checks to the known invocation and return only needed status;
+  do not dump unrelated command lines or environment values.
 
 ### Do Not Misdiagnose A Gate Refusal
 
-A workspace gate refuses on the invocation's working directory, not on the
-executable being run. Before concluding that an interpreter, a network path, or
-a credential is unavailable:
+Identify which boundary refused the invocation before changing its form. A
+workspace gate may inspect the invocation cwd, the tool's workdir, or an
+explicit command target; these are not interchangeable across adapters.
 
-- Check the working directory first. When the session's cwd is the main
-  checkout of a worktree-gated project, every mutating tool is refused,
-  including read-only invocations such as `git ls-remote`. Passing an explicit
-  target path (`git -C <worktree>`) does not help because the gate reads the
-  invocation's cwd. Move the cwd itself (`cd <worktree>`) instead.
-- Run a control command before blaming the environment. If the same binary
-  succeeds against a known-good target, the refusal is a gate decision, not a
-  missing tool, a network outage, or an authentication failure.
-- Run the command the gate prescribes verbatim. Appending a pipe or
-  redirection (`... 2>&1 | head`, or a bare `--help`) can make the start hook
-  itself fail the gate's own allowlist match, so the gate returns the same
-  "run the start hook" message that the hook was meant to clear. That reads as
-  a deadlock in which the gate blocks its own remedy; dropping the pipe
-  resolves it.
-- Correct an earlier wrong diagnosis explicitly when the real cause is found,
-  because a reported blocker changes what the requester does next.
+- Confirm the actual repo root and linked-worktree identity with read-only Git
+  evidence. Then inspect the refusing gate's documented target resolution.
+  If it resolves an explicit `git -C <worktree>` target, use that form; if it
+  inspects invocation cwd, set the supported tool cwd. A shell `cd` alone may
+  not affect a pre-execution gate. Do not assert that either form always works.
+- Correct a proven target mismatch through the gate's supported mechanism.
+  Never use a bypass flag, edit the guard, or wrap a denied command to evade it.
+  If the gate still rejects the verified target, report that precise blocker.
+- Run the gate's prescribed recovery command in its supported form. Pipes,
+  redirections, or extra arguments can prevent an allowlist match; prepare any
+  input separately instead of repeatedly submitting the same rejected shape.
+- Keep gate refusal, sandbox denial, network failure, and missing credentials
+  distinct. A successful local control command does not prove remote access.
+  Correct an earlier diagnosis when direct evidence changes it.
 
 ## Common Scenarios
 

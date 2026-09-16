@@ -20,6 +20,10 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
    safety and verification dependencies. Other documents are candidates, not a
    reading queue. A platform name, graph neighbor or spare budget is insufficient.
    Do not repeat successful routing with `index.md` or another broad catalog.
+   Before the first branch/worktree setup or edit, resolve the target repo's
+   required isolation location and branch naming rules. Do not postpone that
+   check until commit/PR preparation or assume a temporary directory is valid.
+   Reuse a correctly bound existing worktree; this adds no setup to read-only work.
 3. Before an additional read or investigation, identify the unresolved decision
    in the current task and why that source can resolve it. Start with the owning
    definition and nearest relevant test. Expand samples, callers or modules only
