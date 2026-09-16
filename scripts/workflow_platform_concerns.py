@@ -56,9 +56,11 @@ ANDROID_COMPOSE_DOCS = (
     "platforms/android/skills/android-compose-ui/SKILL.md",
     "platforms/android/skills/android-review/SKILL.md",
 )
-# Compose and UI work that crosses a module boundary needs the Compose-capable
-# API rules and the entry-contract completion packet; `performance` does not,
-# so it keeps the plain Compose set.
+# `ui` is the concern that crosses a module boundary, so it gets the
+# Compose-capable API rules and the entry-contract completion packet. `compose`
+# and `performance` keep the plain Compose set: a plain Compose change authors
+# inside one module, and the entry contract reaches it through the `api` concern
+# or a doc-surface action rule when the work actually crosses a boundary.
 ANDROID_COMPOSE_BOUNDARY_DOCS = (
     *ANDROID_COMPOSE_DOCS,
     ANDROID_MODULE_COMPOSE_ENTRY_DOC,
