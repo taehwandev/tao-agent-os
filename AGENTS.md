@@ -231,12 +231,15 @@ as already read. Check its staleness notice after edits. Do not initialize an
 index during ordinary feature work; an absent or stale index falls back to
 bounded direct evidence.
 
-Use Graphify when the question spans code and documents, papers, images, video,
-saved reasoning, or community-level concepts that CodeGraph does not model.
-Refresh Graphify explicitly on demand, never automatically on checkout or
-commit. A stale or unavailable graph falls back to bounded direct repository
-evidence, not an automatic rebuild. An empty search is a terminal no-match
-outcome; a missing required document is an invalid manifest and stops work.
+Do not invoke Graphify as a fallback, cross-check, or second pass for normal
+repository code work, and never call both tools for the same code-structure
+question. Use Graphify only when the user explicitly requests it or the primary
+corpus includes documents, papers, images, video, saved reasoning, or
+community-level concepts that CodeGraph does not model. Refresh Graphify only
+for that explicit mixed-corpus work, never automatically on checkout or commit.
+A stale or unavailable graph falls back to bounded direct repository evidence,
+not an automatic rebuild. An empty search is a terminal no-match outcome; a
+missing required document is an invalid manifest and stops work.
 
 Apply the Need-Driven Reading Contract in
 `common/skills/agent-operating-skill/SKILL.md` before expanding reading,
