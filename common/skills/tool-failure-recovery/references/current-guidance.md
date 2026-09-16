@@ -54,6 +54,12 @@ service state:
   manager supports it.
 - Report the blocker when the needed condition cannot be changed safely.
 
+### Stalled Local Commands
+
+For an idempotent local command that normally completes immediately, use one bounded wait after a transport-only result. If it reports no progress and read-only target-state evidence still shows no side effect, interrupt the invocation, confirm it terminated, reconcile possible side effects, and continue through another supported path. Do not spend multiple minutes repeating empty waits.
+
+This recovery does not apply to non-idempotent actions or external writes. Those require direct completion, failure, or target evidence before retrying.
+
 ### Do Not Misdiagnose A Gate Refusal
 
 A workspace gate refuses on the invocation's working directory, not on the

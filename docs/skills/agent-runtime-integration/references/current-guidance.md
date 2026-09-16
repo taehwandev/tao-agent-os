@@ -291,11 +291,14 @@ Codex:
   `scripts/support/runtime_bridge.py` for the canonical waiting and recovery
   contract. Quiet waits call for read-only diagnosis, not automatic cancellation
   or inferred denial. Keep one pending equivalent request and resume it with the
-  matching wait tool. Cancel only for a user stop, an explicit failure/timeout,
-  or evidence that the request cannot progress; unconfirmed execution alone is
-  not that evidence. Before retrying, confirm the cancelled request is no longer
-  pending and reconcile possible side effects. Never automatically retry a
-  non-idempotent external write.
+  matching wait tool. For an idempotent local command that normally completes
+  immediately, the phrase allows one bounded wait and then a confirmed
+  interrupt once it reports no progress and target-state evidence still shows
+  no side effect. Outside that recovery, cancel only for a user stop, an
+  explicit failure/timeout, or evidence that the request cannot progress;
+  unconfirmed execution alone is not that evidence. Before retrying, confirm
+  the cancelled request is no longer pending and reconcile possible side
+  effects. Never automatically retry a non-idempotent external write.
 - `setup-agent-hooks.py` should leave only absolute, parameter-free
   Tao Agent OS script prefix rules in the managed Codex block and remove stale
   Tao Agent OS rules that were saved with `$HOME`, `${HOME}`, `~`, relative

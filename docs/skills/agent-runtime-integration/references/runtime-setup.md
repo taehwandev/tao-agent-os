@@ -158,11 +158,14 @@ contract is `CODEX_APPROVAL_WAIT_BRIDGE_PHRASE` in
 `scripts/support/runtime_bridge.py`. Quiet waits call for read-only process or
 target-state diagnosis, not automatic cancellation. Keep one pending equivalent
 request and resume it with the matching wait tool. Do not attribute the delay
-to hooks or tests without evidence. Cancel only for a user stop, an explicit
-failure/timeout, or evidence that the request cannot progress; unconfirmed
-execution alone is not that evidence. Before retrying, confirm the cancelled
-request is no longer pending and reconcile possible side effects. Never
-automatically retry a non-idempotent external write.
+to hooks or tests without evidence. For an idempotent local command that
+normally completes immediately, the phrase allows one bounded wait and then a
+confirmed interrupt once it reports no progress and target-state evidence still
+shows no side effect. Outside that recovery, cancel only for a user stop, an
+explicit failure/timeout, or evidence that the request cannot progress;
+unconfirmed execution alone is not that evidence. Before retrying, confirm the
+cancelled request is no longer pending and reconcile possible side effects.
+Never automatically retry a non-idempotent external write.
 `start` binds evidence to Codex's exact `CODEX_THREAD_ID`; the Stop gate acts
 only when that same session still owns an active run. It continues the turn
 once with the remaining `finish` and same-closeout skill-maintenance work, then
