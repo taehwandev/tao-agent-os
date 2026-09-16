@@ -100,12 +100,19 @@ EXPLICIT_CONCERN_EXCLUSION_PATTERNS.update({
         r"bypassed?|dropped?|left\s+out|out\s+of\s+scope)\b",
         r"\bgraphify\b.{0,40}\b(?:must not|should not|do not|don't)\s+"
         r"(?:be\s+)?(?:run|used|invoked|called|included|installed|enabled)\b",
+        # Comparing or migrating to another code-index tool must not require a
+        # fresh Graphify graph merely because the old tool is named.
+        r"\b(?:replace|replacing|migrate(?:\s+away)?\s+from)\s+graphify\b",
+        r"\b(?:use|adopt|try)\b[^.!?]{0,40}\binstead\s+of\s+graphify\b",
+        r"\bgraphify\b[^.!?]{0,40}\b(?:replacement|alternative)\b",
         r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프).{0,40}"
         r"(?:실행|사용|설치)(?:은|는|을|를)?\s*(?:제외|금지|하지\s*마|하지\s*않)",
         r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프).{0,40}"
         r"(?:돌리면\s*안|돌리지\s*마|안\s*돌)",
         r"(?:graphify|그래피|그래프|프로젝트 그래프|지식 그래프)"
         r"(?:\s*(?:가|이|를|을))?\s*없이",
+        r"(?:graphify|그래피파이|그래피|프로젝트 그래프|지식 그래프)"
+        r"(?:\s*(?:는|은|를|을))?[^.!?]{0,40}(?:대신|대체|교체|갈아타)",
         # Korean drops the verb freely: "Graphify 는 하지 마" carries no
         # 실행/사용/설치 for the verb-anchored patterns above to attach to, so a
         # bare topic-marked negation or removal verb ("그래피는 빼줘") has to be
@@ -132,6 +139,10 @@ EXPLICIT_CONCERN_EXCLUSION_NEGATION_PATTERNS = {
         # stems only, so a plain "Graphify 는 하지 마" stays an exclusion.
         r"(?:제외|생략|무시|배제|스킵)하지\s*(?:마|말|않)",
         r"(?:빼|건너뛰)지\s*(?:마|말|않)",
+        r"\b(?:do not|don'?t|must not|mustn'?t|should not|shouldn'?t|never)\s+"
+        r"(?:replace|migrate(?:\s+away)?\s+from)\s+graphify\b",
+        r"(?:graphify|그래피파이|그래피)"
+        r"(?:\s*(?:는|은|를|을))?\s*(?:대체|교체)하지\s*(?:마|말|않)",
     ),
 }
 

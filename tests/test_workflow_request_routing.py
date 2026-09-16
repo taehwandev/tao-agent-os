@@ -199,6 +199,25 @@ class ConcernInferenceTests(unittest.TestCase):
             with self.subTest(request=request):
                 self.assertIn("graphify", infer_concerns_from_request(request))
 
+    def test_graphify_replacement_questions_do_not_require_graphify_readiness(self) -> None:
+        for request in (
+            "Use CodeGraph instead of Graphify.",
+            "Can CodeGraph replace Graphify?",
+            "Graphify replacement을 검토해줘.",
+            "그래피파이 대신 CodeGraph를 적용해줘.",
+            "Graphify를 CodeGraph로 교체할 수 있는지 확인해줘.",
+        ):
+            with self.subTest(request=request):
+                self.assertNotIn("graphify", infer_concerns_from_request(request))
+
+    def test_graphify_replacement_negation_keeps_the_concern(self) -> None:
+        for request in (
+            "Do not replace Graphify.",
+            "Graphify는 대체하지 마.",
+        ):
+            with self.subTest(request=request):
+                self.assertIn("graphify", infer_concerns_from_request(request))
+
     def test_attached_hangul_particles_match_complete_latin_keywords(self) -> None:
         self.assertIn("graphify", infer_concerns_from_request("Graphify를 실행해줘"))
         self.assertNotIn("graphify", infer_concerns_from_request("graphifyer를 검토해줘"))

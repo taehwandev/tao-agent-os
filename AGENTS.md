@@ -223,12 +223,20 @@ when a concrete unresolved in-scope decision makes that reference applicable.
 Use Wikimap only when an analysis or guidance-discovery request still has an
 unresolved question after bounded direct evidence. Its results are reference
 candidates; only route policy or an explicit required relation promotes a
-required document. Use Graphify only when bounded direct repository search
-cannot resolve a structural ownership, dependency, or impact question. Refresh
-Graphify explicitly on demand, never automatically on checkout or commit. A
-stale or unavailable graph falls back to bounded direct repository evidence,
-not an automatic rebuild. An empty search is a terminal no-match outcome; a
-missing required document is an invalid manifest and stops work.
+required document. For code-only ownership, call flow, dependency, or impact
+questions, use CodeGraph after bounded direct search when the target already
+has a current `.codegraph` index. Ask one precise `codegraph_explore` question,
+cap dense results to the fewest useful files, and treat returned verbatim source
+as already read. Check its staleness notice after edits. Do not initialize an
+index during ordinary feature work; an absent or stale index falls back to
+bounded direct evidence.
+
+Use Graphify when the question spans code and documents, papers, images, video,
+saved reasoning, or community-level concepts that CodeGraph does not model.
+Refresh Graphify explicitly on demand, never automatically on checkout or
+commit. A stale or unavailable graph falls back to bounded direct repository
+evidence, not an automatic rebuild. An empty search is a terminal no-match
+outcome; a missing required document is an invalid manifest and stops work.
 
 Apply the Need-Driven Reading Contract in
 `common/skills/agent-operating-skill/SKILL.md` before expanding reading,
