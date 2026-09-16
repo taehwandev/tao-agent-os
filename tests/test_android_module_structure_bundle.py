@@ -109,8 +109,8 @@ class BundlePieceRoutabilityTests(unittest.TestCase):
         self.assertNotIn(SKILL_SOURCE, required)
         self.assertNotIn(COMPOSE_ENTRY, required)
 
-    def test_compose_concern_delivers_the_compose_entry_contract_rules(self) -> None:
-        required = android_route("compose")["required_docs"]
+    def test_ui_concern_delivers_the_compose_entry_contract_rules(self) -> None:
+        required = android_route("ui")["required_docs"]
 
         self.assertIn(COMPOSE_ENTRY, required)
         self.assertNotIn(DI_BUILD, required)
