@@ -28,7 +28,8 @@ from support.runtime_bridge import (
     runtime_bridge_block,
     runtime_bridge_required_phrases,
 )
-from workflow_gate_policy import CODE_WORK_COMMANDS, MULTI_AGENT_GATE
+from workflow_gate_policy import MULTI_AGENT_GATE
+from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
 from workflow_parallel import parallel_execution_plan
 from workflow_route import resolve_docs
 
@@ -420,12 +421,16 @@ class DelegationEvidenceTests(unittest.TestCase):
 
 
 class AutomaticDelegationRoutingTests(unittest.TestCase):
-    def test_code_work_routes_require_multi_agent_guidance(self) -> None:
-        for command in sorted(CODE_WORK_COMMANDS):
+    def test_code_work_routes_keep_multi_agent_guidance_on_demand(self) -> None:
+        for command in sorted(SCOPE_CHANGE_LIFECYCLE_COMMANDS - {"test"}):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
-                self.assertIn(MULTI_AGENT_SKILL, route["required_docs"])
+                self.assertNotIn(MULTI_AGENT_SKILL, route["required_docs"])
                 self.assertNotIn(MULTI_AGENT_SKILL, route["reference_docs"])
+                self.assertEqual(
+                    "automatic_when_eligible",
+                    route["parallel_execution"]["delegation_policy"]["mode"],
+                )
 
     def test_parallel_plan_requires_automatic_delegation_when_eligible(self) -> None:
         plan = parallel_execution_plan(

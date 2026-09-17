@@ -293,7 +293,7 @@ class AgentSkillLearningTests(unittest.TestCase):
         self.assertEqual(0, help_result.returncode, help_result.stderr)
         hook_command = next(
             hook["command"]
-            for hook in route_hooks("bugfix")
+            for hook in route_hooks("review")
             if hook["hook"] == "skill-feedback"
         )
         for signal in FEEDBACK_SIGNALS:

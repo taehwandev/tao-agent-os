@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from workflow_doc_surfaces import infer_surface_docs
-from workflow_gate_policy import CODE_WORK_COMMANDS
+from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
 from workflow_route import resolve_docs
 
 
@@ -25,13 +25,16 @@ _PREFLIGHT_SPEC.loader.exec_module(agent_preflight)
 
 
 class WorkSurfaceResolutionRoutingTests(unittest.TestCase):
-    def test_code_route_requires_resolution_before_source_docs(self) -> None:
-        for command in CODE_WORK_COMMANDS:
+    def test_code_route_records_owner_changes_in_the_scope_policy(self) -> None:
+        for command in sorted(SCOPE_CHANGE_LIFECYCLE_COMMANDS - {"test"}):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
-                self.assertLess(
-                    route["gates"].index("work surface resolution"),
-                    route["gates"].index("source docs"),
+                self.assertEqual(["tests", "review hook"], route["gates"])
+                self.assertNotIn("work surface resolution", route["gates"])
+                self.assertNotIn("source docs", route["gates"])
+                self.assertIn(
+                    "owner",
+                    route["scope_change_policy"]["trigger"],
                 )
 
     def test_phrase_only_framework_is_not_a_policy_match(self) -> None:

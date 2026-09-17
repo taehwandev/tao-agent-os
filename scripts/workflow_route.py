@@ -593,6 +593,8 @@ def _required_doc_reasons(
     gate_docs = resolved(
         [doc for gate, doc in GUARANTEED_GATE_DOCS.items() if gate in gates]
     ) | resolved(automatic_docs(command))
+    if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+        gate_docs.add(FINAL_TEST_CONTRACT)
     if "review hook" in gates:
         gate_docs |= resolved(REVIEW_HOOK_GATE_DOCS)
     surface_docs: dict[str, str] = {}
@@ -1115,7 +1117,11 @@ def _scope_change_required_docs(
     platform_docs = (
         []
         if not platform or concerns or owner_docs or explicit_surface_docs
-        else resolve_guidance_docs(ROOT, PLATFORMS[platform])
+        # A platform name proves the shared architecture contract, not every
+        # module, state, UI, lifecycle and review procedure on that platform.
+        # The catalog keeps its core contract first; the remaining platform
+        # cards stay routed as references until a concern or owner selects one.
+        else resolve_guidance_docs(ROOT, PLATFORMS[platform][:1])
     )
     ambiguity_docs = (
         ["workflows/skills/ambiguity-gate/SKILL.md"]
@@ -1124,17 +1130,30 @@ def _scope_change_required_docs(
         else []
     )
     review_docs = [] if command == "test" else [REVIEW_AND_COMMIT_ENTRYPOINT]
-    return unique([
+    selected = unique([
         OPERATING_SKILL,
         *command_docs,
         FINAL_TEST_CONTRACT,
         *review_docs,
         *ambiguity_docs,
         *_named_concern_docs(platform, concerns),
-        *explicit_surface_docs,
         *owner_docs,
-        *platform_docs,
     ])
+    # A request match is stronger than a keyword guess, but its card bundle may
+    # still contain optional ecosystem detail. Keep verified owner documents
+    # and named concerns unbudgeted; spend the existing selection budget on
+    # request-intent and platform-default tiers just as the full policy does.
+    # Without this boundary a Compose feature expanded from 8 required docs to
+    # 24 when the compact lifecycle was introduced.
+    return _select_within_budget(
+        command,
+        [explicit_surface_docs, platform_docs],
+        selected,
+        explicit_docs=explicit_surface_docs,
+        prespent_bytes=sum(
+            doc_size(ROOT, doc) for doc in unique([*command_docs, *owner_docs])
+        ),
+    )
 
 
 def _compact_required_docs(

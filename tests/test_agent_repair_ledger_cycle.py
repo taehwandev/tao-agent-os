@@ -1167,29 +1167,21 @@ class RepairLedgerCycleTests(unittest.TestCase):
             self.assertIn("request intake", gates_after)
             self.assertIn("reproduce", gates_after)
 
-    def test_source_docs_gate_covers_policy_and_repair_workflows(self) -> None:
-        implementation_anchors = {
-            "bugfix": "fix",
-            "code-simplify": "small refactor",
-            "refactor": "small refactor",
-            "workflow-setup": "install or repair",
-        }
+    def test_scope_change_routes_keep_policy_docs_without_intermediate_gates(self) -> None:
         for command in ("bugfix", "code-simplify", "refactor", "workflow-setup"):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
-                self.assertIn(SOURCE_DOCS_GATE, route["gates"])
-                self.assertIn(DOCUMENTATION_IMPACT_GATE, route["gates"])
-                self.assertIn(CYCLE_CONTRACT_GATE, route["gates"])
-                self.assertIn(route_doc("common/skills/source-driven-development/SKILL.md"), route["docs"])
-                self.assertIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["docs"])
-                implementation_anchor = implementation_anchors[command]
-                self.assertLess(
-                    route["gates"].index(DOCUMENTATION_IMPACT_GATE),
-                    route["gates"].index(implementation_anchor),
+                self.assertEqual(["tests", "review hook"], route["gates"])
+                self.assertNotIn(SOURCE_DOCS_GATE, route["gates"])
+                self.assertNotIn(DOCUMENTATION_IMPACT_GATE, route["gates"])
+                self.assertNotIn(CYCLE_CONTRACT_GATE, route["gates"])
+                self.assertNotIn(route_doc("common/skills/source-driven-development/SKILL.md"), route["docs"])
+                self.assertNotIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["docs"])
+                self.assertEqual(
+                    "on_material_change",
+                    route["scope_change_policy"]["mode"],
                 )
-                self.assertLess(route["gates"].index(CYCLE_CONTRACT_GATE), route["gates"].index(implementation_anchor))
-                self.assertLess(route["gates"].index(SOURCE_DOCS_GATE), route["gates"].index(AMBIGUITY_GATE))
 
     def test_repair_cycle_cli_requires_target_evidence_and_resume_checkpoint(self) -> None:
         result = subprocess.run(
