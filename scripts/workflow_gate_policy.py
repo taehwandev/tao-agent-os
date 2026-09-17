@@ -102,9 +102,7 @@ SOURCE_DOCS_COMMANDS = WORK_PRODUCING_COMMANDS | {
     # is the gate that makes an agent say what it read there. Being here also
     # keeps it inside the retrospective check every route ends with.
     "cleanup",
-    "commit",
     "docs-review",
-    "git_commit",
     "multi-agent",
     "plan",
     "planning",
@@ -114,6 +112,11 @@ SOURCE_DOCS_COMMANDS = WORK_PRODUCING_COMMANDS | {
     "triage",
     "webperf",
 }
+
+# Commit routes publish an already reviewed worktree. Their deterministic
+# command documents remain in the route manifest, while the final review hook
+# validates staged scope and drift. Re-recording source-doc and retrospective
+# evidence here only repeats the completed work route before commit readiness.
 
 # Every user-visible workflow performs one lightweight retrospective check.
 # The check itself is required; observation storage and later skill maintenance

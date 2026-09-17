@@ -432,11 +432,20 @@ class FinishGatePolicyTests(unittest.TestCase):
                 else:
                     self.assertIn(SOURCE_DOCS_GATE, route["gates"])
 
-        for command in ("ambiguity", "commit", "git_commit", "retrospective", "triage"):
+        for command in ("ambiguity", "retrospective", "triage"):
             with self.subTest(restored_command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
                 self.assertIn(SOURCE_DOCS_GATE, route["gates"])
+
+        for command in ("commit", "git_commit"):
+            with self.subTest(commit_command=command):
+                route = resolve_docs(command, None, [], request_classified=True)
+
+                self.assertEqual(
+                    ["request intake", "review hook", "commit readiness"],
+                    route["gates"],
+                )
 
     def test_workspace_scope_checkpoint_evidence_is_validated_when_present(self) -> None:
         failures = validate_gate_evidence(

@@ -306,7 +306,12 @@ class LessonStoreTests(unittest.TestCase):
     # This is a real trade: bounded work and ordinary code work are no longer
     # visible to the same-closeout skill-maintenance loop. They retain final
     # tests and review, while specialized routes keep retrospective learning.
-    REFLECTION_EXEMPT_COMMANDS = {"small-change", *SCOPE_CHANGE_LIFECYCLE_COMMANDS}
+    REFLECTION_EXEMPT_COMMANDS = {
+        "small-change",
+        "commit",
+        "git_commit",
+        *SCOPE_CHANGE_LIFECYCLE_COMMANDS,
+    }
 
     def test_every_route_requires_reflection_but_skill_feedback_hook_stays_optional(self) -> None:
         self.assertEqual(
