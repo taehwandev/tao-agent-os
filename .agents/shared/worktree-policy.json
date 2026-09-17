@@ -1,5 +1,6 @@
 {
  "schema_version": 1,
  "require_linked_worktree": true,
- "protected_branches": ["develop", "main"]
+ "protected_branches": ["develop", "main"],
+ "require_workflow_entry": true
 }
