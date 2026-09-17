@@ -446,7 +446,7 @@ For every task that may change code, configuration, dependencies, data,
 deployment, or credentials:
 
 1. Run `vibeguard audit .` before editing.
-2. If the audit reports stale VibeGuard guardrails, run `npx --yes @taehwandev/vibeguard@latest update .` once, then rerun `vibeguard audit .`. The default refresh interval is 7 days; do not update more often unless the user asks or the audit reports stale guardrails.
+2. Do not run VibeGuard `setup` or `update` during ordinary work. Run either operation only when the user explicitly requests that exact VibeGuard maintenance action.
 3. If `vibeguard` is unavailable, run `npx --yes @taehwandev/vibeguard@latest audit .` instead and use the same `npx --yes @taehwandev/vibeguard@latest ...` form for fixes.
 4. If fixable findings exist, run `vibeguard audit . --fix` before implementing.
 5. Never print detected secret values. Keep real secrets only in ignored runtime env files and keep env templates such as `.env.example` and `.env.sample` value-free.
@@ -462,7 +462,7 @@ deployment, or credentials:
 15. Keep VibeGuard scoped to guardrails. Do not clone, vendor, install, or link external playbooks or rule libraries unless the user explicitly asks for that separate setup.
 16. Preserve existing repo-local instructions. Only update the managed VibeGuard block between the `vibeguard:start` and `vibeguard:end` markers.
 
-Refresh this managed block only when `vibeguard audit .` reports stale guardrails, or manually with `vibeguard update .` / `npx --yes @taehwandev/vibeguard@latest update .`.
+Refresh this managed block only during an explicitly requested VibeGuard `setup` or `update` task.
 <!-- vibeguard:end -->
 
 ## Supporting Map

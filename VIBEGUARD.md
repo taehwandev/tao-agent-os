@@ -80,6 +80,8 @@ vibeguard evidence install-claude-hook .
 
 - Before running `setup` or `update` in a target repo, inspect existing repo-local instructions, `.vibeguard.json`, `VIBEGUARD.md`, and managed VibeGuard blocks.
 
+- Do not run `setup` or `update` during ordinary audit, edit, review, commit, or push work. Run either operation only when the user explicitly requests that exact VibeGuard maintenance action.
+
 - If the target already has instructions or guardrails, ask an application drill before changing files: add pointer vs merge vs pin; audit-only vs refresh with update vs first-time setup; apply now vs prepare instructions only.
 
 - Existing custom guardrails should default to audit-only unless the user chooses to refresh the managed block.
@@ -92,15 +94,12 @@ vibeguard evidence install-claude-hook .
   vibeguard audit . --rules <TAO_ROOT>
   ```
 
-- Existing managed VibeGuard guardrails should be refreshed with `vibeguard update . --rules <TAO_ROOT>` only when that mode is selected, then checked with `vibeguard audit . --rules <TAO_ROOT>`. Use the package command only if no trusted binary is installed or the user explicitly requests the latest published package.
+- Existing managed VibeGuard guardrails should be refreshed with `vibeguard update . --rules <TAO_ROOT>` only when the user explicitly selects that operation, then checked with `vibeguard audit . --rules <TAO_ROOT>`. Use the package command only if no trusted binary is installed or the user explicitly requests the latest published package.
 
-- If an audit-only run reports `Needs review` solely because the managed
-  guardrails exceeded their refresh interval, do not turn that advisory into
-  an unauthorized `update`. A review or finish hook may accept that exact
-  advisory with `--allow-vibeguard-review` and a concrete reason stating that
-  refresh was not selected. This accepts the already executed audit; it does
-  not skip it. Any additional security, cost, data, structure, repository, or
-  environment finding remains blocking and requires its own resolution.
+- Automatic refresh reminders are disabled by default. A repository that wants
+  them must explicitly set `update.mode` to `scheduled` and choose a positive
+  `update.checkIntervalDays` value. A reminder still does not authorize an
+  `update`; it only reports the repository's selected schedule.
 
 - Normal Tao Agent OS maintenance should run audit-only before editing and before finishing.
 

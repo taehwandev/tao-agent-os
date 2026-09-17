@@ -7,7 +7,8 @@
     "visibility": "unknown"
   },
   "update": {
-    "checkIntervalDays": 7
+    "mode": "explicit",
+    "checkIntervalDays": 0
   },
   "autoFix": {
     "envGitignore": true,
