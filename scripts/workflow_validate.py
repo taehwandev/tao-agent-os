@@ -13,6 +13,7 @@ from workflow_catalog import (
 )
 from workflow_common import (
     QUESTION_ROUTE_COMMANDS,
+    REQUEST_INTAKE_EXEMPT_COMMANDS,
     REPAIR_CYCLE_LIMIT,
     REPAIR_POLICY,
     REPAIR_STOP_CONDITION,
@@ -111,7 +112,7 @@ def validate_route_contracts() -> list[str]:
             failures.append(f"{command}: {failure}")
 
         expected_gates = route_gates(command)
-        if command not in QUESTION_ROUTE_COMMANDS:
+        if command not in REQUEST_INTAKE_EXEMPT_COMMANDS:
             expected_gates = ["request intake", *expected_gates]
         if route["gates"] != expected_gates:
             failures.append(f"{command}: route gates do not match profile gates")

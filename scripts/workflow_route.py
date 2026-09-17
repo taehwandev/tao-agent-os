@@ -22,6 +22,7 @@ from workflow_common import (
     RESUME_SCOPE,
     ROOT,
     QUESTION_ROUTE_COMMANDS,
+    REQUEST_INTAKE_EXEMPT_COMMANDS,
     unique,
 )
 from workflow_doc_graph import expand_required_doc_matches, graph_required_docs
@@ -674,7 +675,10 @@ def resolve_docs(
     )
     graphify_requested = bool(graphify_context["requested"])
     gates = route_gates(command, graphify_required=graphify_requested)
-    if command not in QUESTION_ROUTE_COMMANDS:
+    # Compact start already binds the exact request and its authority for a
+    # small change. Asking the agent to restate that same intake in the ledger
+    # made a sub-four-file correction pay a manual gate before any edit.
+    if command not in REQUEST_INTAKE_EXEMPT_COMMANDS:
         gates = ["request intake", *gates]
 
     notes = _route_notes(
@@ -1084,7 +1088,6 @@ def _compact_required_docs(
         )
         return unique([
             OPERATING_SKILL,
-            REVIEW_AND_COMMIT_ENTRYPOINT,
             "common/skills/agent-operating-skill/references/small-change.md",
             *owner_docs,
         ])

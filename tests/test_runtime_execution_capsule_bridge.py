@@ -132,12 +132,14 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                     block.index(RUNTIME_FINISH_BRIDGE_PHRASE),
                 )
                 self.assertIn("exact gate list", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
-                self.assertIn("never call finish to discover", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("call finish to discover", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn("exit status", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn("successful gate command result", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn("before dependent edits, gates, review, or finish", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn("pending, rejected, or failed result stops", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn("Remaining route gates", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("record only gates that are actually missing", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
+                self.assertIn("Run the review hook once", RUNTIME_FINISH_GATE_ORDER_BRIDGE_PHRASE)
                 self.assertIn(RUNTIME_READING_BRIDGE_PHRASE, required)
                 self.assertLess(block.index(RUNTIME_READING_BRIDGE_PHRASE),
                                 block.index(RUNTIME_START_BRIDGE_PHRASE))
@@ -145,6 +147,8 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                 self.assertIn(RUNTIME_CONTINUATION_BRIDGE_PHRASE, block)
                 self.assertIn("--work-stdin", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
                 self.assertNotIn("--request", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
+                self.assertIn("only when", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
+                self.assertIn("Do not checkpoint routine phase transitions", RUNTIME_CONTINUATION_BRIDGE_PHRASE)
                 for phrase in RUNTIME_CAPSULE_BRIDGE_PHRASES:
                     self.assertIn(phrase, required)
                     self.assertIn(phrase, block)
@@ -202,11 +206,13 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                     )
 
                 normalized = " ".join(block.split())
-                # The classifier no longer carries work authority: a work route
-                # is opened by the intent envelope, so pinning the old
-                # "let the classifier decide" wording here would require the
-                # bridge to teach a contract the runtime now refuses.
+                # The classifier does not carry work authority. Compact start
+                # derives the bound authority, while the explicit envelope form
+                # remains an integration compatibility path.
+                self.assertIn("compact start derives", normalized.lower())
+                self.assertIn("compatibility path for integrations", normalized)
                 self.assertIn("--intent-envelope", normalized)
+                self.assertNotIn("Compute that fingerprint", normalized)
                 self.assertNotIn("let the classifier decide", normalized)
                 self.assertNotIn(
                     "For a classified or answered request, keep passing the current "

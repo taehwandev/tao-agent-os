@@ -72,20 +72,13 @@ def _capture_worktree_state_once(path: Path) -> WorktreeSnapshot:
     _capture_status(path, fingerprint, signature, budget)
     hash_git_component(
         fingerprint,
-        b"staged",
+        b"working-tree",
         path,
         "diff",
-        "--cached",
+        "HEAD",
         "--binary",
-        "--no-ext-diff",
-        "--no-textconv",
-    )
-    hash_git_component(
-        fingerprint,
-        b"unstaged",
-        path,
-        "diff",
-        "--binary",
+        "--no-renames",
+        "--diff-filter=a",
         "--no-ext-diff",
         "--no-textconv",
     )
@@ -126,75 +119,98 @@ def _capture_status(
     budget: UntrackedBudget,
 ) -> None:
     expecting_original_path = False
+    original_path_is_deleted = False
+    entries: list[tuple[bytes, bytes, bool, bytes]] = []
 
     def visit(record: bytes) -> None:
-        nonlocal expecting_original_path
-        hash_component(signature, b"status-record", record)
-        if fingerprint is not None:
-            hash_component(fingerprint, b"status-record", record)
+        nonlocal expecting_original_path, original_path_is_deleted
         if expecting_original_path:
             expecting_original_path = False
+            if original_path_is_deleted:
+                entries.append((b"1", record, False, b""))
+            original_path_is_deleted = False
             return
 
         kind, relative_bytes, renamed = _status_path(record)
         expecting_original_path = renamed
+        original_path_is_deleted = renamed and _rename_removes_original(record)
         if relative_bytes is None:
             return
         if kind in {b"1", b"2"} and _dirty_submodule(record):
             raise RuntimeError(
                 "dirty submodule state cannot be bound to an execution capsule"
             )
-        candidate = path / Path(os.fsdecode(relative_bytes))
-        try:
-            metadata = candidate.lstat()
-        except FileNotFoundError:
-            hash_component(signature, b"worktree-raced", relative_bytes)
-            if fingerprint is not None and kind == b"?":
-                hash_component(fingerprint, b"untracked-raced", relative_bytes)
-            return
-        _hash_metadata(signature, relative_bytes, metadata)
-        if kind != b"?":
-            return
-
-        budget.add_file(metadata.st_size)
-        if fingerprint is None:
-            return
-        hash_component(fingerprint, b"untracked-path", relative_bytes)
-        hash_component(
-            fingerprint,
-            b"untracked-mode",
-            str(stat.S_IMODE(metadata.st_mode)).encode("ascii"),
-        )
-        if stat.S_ISLNK(metadata.st_mode):
-            try:
-                payload = os.fsencode(os.readlink(candidate))
-            except FileNotFoundError:
-                hash_component(fingerprint, b"untracked-raced", relative_bytes)
-                return
-            budget.add_read_bytes(len(payload))
-            hash_component(fingerprint, b"untracked-content", payload)
-        elif stat.S_ISREG(metadata.st_mode):
-            try:
-                hash_file_component(
-                    fingerprint,
-                    b"untracked-content",
-                    candidate,
-                    budget,
-                )
-            except FileNotFoundError:
-                hash_component(fingerprint, b"untracked-raced", relative_bytes)
-        else:
-            hash_component(
-                fingerprint,
-                b"untracked-content",
-                str(metadata.st_mode).encode("ascii"),
-            )
+        xy = _status_xy(record)
+        added_like = kind == b"?" or kind == b"2" or b"A" in xy
+        entries.append((kind, relative_bytes, added_like, record))
 
     visit_git_null_records(
         path,
         ("status", "--porcelain=v2", "-z", "--untracked-files=all"),
         visit,
     )
+
+    for relative_bytes in sorted(
+        {relative for _kind, relative, _added, _record in entries}
+    ):
+        hash_component(signature, b"status-path", relative_bytes)
+        if fingerprint is not None:
+            hash_component(fingerprint, b"status-path", relative_bytes)
+
+    for kind, relative_bytes, added_like, record in sorted(
+        entries,
+        key=lambda entry: entry[1],
+    ):
+        xy = _status_xy(record)
+        if len(xy) == 2 and xy[0:1] != b"." and xy[1:2] != b".":
+            hash_component(signature, b"partial-status", record)
+            if fingerprint is not None:
+                hash_component(fingerprint, b"partial-status", record)
+        candidate = path / Path(os.fsdecode(relative_bytes))
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            hash_component(signature, b"worktree-raced", relative_bytes)
+            if fingerprint is not None:
+                hash_component(fingerprint, b"worktree-raced", relative_bytes)
+            continue
+        _hash_metadata(signature, relative_bytes, metadata)
+        if not added_like:
+            continue
+
+        budget.add_file(metadata.st_size)
+        if fingerprint is None:
+            continue
+        hash_component(fingerprint, b"added-path", relative_bytes)
+        hash_component(
+            fingerprint,
+            b"added-mode",
+            str(stat.S_IMODE(metadata.st_mode)).encode("ascii"),
+        )
+        if stat.S_ISLNK(metadata.st_mode):
+            try:
+                payload = os.fsencode(os.readlink(candidate))
+            except FileNotFoundError:
+                hash_component(fingerprint, b"added-raced", relative_bytes)
+                continue
+            budget.add_read_bytes(len(payload))
+            hash_component(fingerprint, b"added-content", payload)
+        elif stat.S_ISREG(metadata.st_mode):
+            try:
+                hash_file_component(
+                    fingerprint,
+                    b"added-content",
+                    candidate,
+                    budget,
+                )
+            except FileNotFoundError:
+                hash_component(fingerprint, b"added-raced", relative_bytes)
+        else:
+            hash_component(
+                fingerprint,
+                b"added-content",
+                str(metadata.st_mode).encode("ascii"),
+            )
 
 
 def _status_path(record: bytes) -> tuple[bytes, bytes | None, bool]:
@@ -213,6 +229,25 @@ def _status_path(record: bytes) -> tuple[bytes, bytes | None, bool]:
         fields = record.split(b" ", 10)
         return kind, fields[10] if len(fields) == 11 else None, False
     return kind, None, False
+
+
+def _status_xy(record: bytes) -> bytes:
+    """Return the porcelain-v2 XY field without retaining the full record."""
+
+    kind = record[:1]
+    if kind in {b"1", b"2", b"u"}:
+        fields = record.split(b" ", 2)
+        return fields[1] if len(fields) >= 2 else b""
+    return b""
+
+
+def _rename_removes_original(record: bytes) -> bool:
+    """Return whether a porcelain-v2 kind-2 record represents a rename."""
+
+    if record[:1] != b"2":
+        return False
+    fields = record.split(b" ", 9)
+    return len(fields) == 10 and fields[8].startswith(b"R")
 
 
 def _dirty_submodule(record: bytes) -> bool:

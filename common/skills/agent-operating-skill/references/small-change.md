@@ -12,10 +12,12 @@ the existing structural review limits. Count tests and documentation too. This i
 local fixes, small refactors and corrections, not an assertion that every terse
 request is small. Uncertain scope uses triage; broad work uses its full route.
 
-The compact manifest is request intake, work surface resolution, source docs,
-tests and review hook. Record the owner and nearest falsifying check once, then
-edit, verify and review. Read applicable source contracts. Include documentation
-impact and side effects in the final review, not separate ceremony gates.
+The compact manifest after start is tests and review hook. Resolve the owner and
+nearest falsifying check once in bounded repository inspection, then edit,
+verify and review. Compact start already binds the request and selects required
+docs, so do not restate intake, work-surface, or source-doc facts as manual
+ledger gates. Read applicable source contracts. Include documentation impact
+and side effects in the final review, not separate ceremony gates.
 Broad concern labels stay optional on this route. Labels such as `ui`, `state`,
 `testing`, or `verification` describe where attention may be needed, but do not
 by themselves make every linked procedure a required pre-edit read. Promote
@@ -25,7 +27,7 @@ unresolved decision. Risk-sensitive concerns still require the matching full
 route.
 No separate alignment, cycle, split-decision, retrospective or handoff record is
 required on this route. A normal final response still explains the result.
-Reuse the start/gate batch continuation record; add a semantic checkpoint only
+Reuse the start and review records; add a semantic checkpoint only
 when interruption or a changed decision makes it useful. This overrides the
 blanket checkpoint instruction in the project entrypoint for this route. Keep pre/post VibeGuard,
 the review hook and finish. Never invent a passed test to shorten the process.

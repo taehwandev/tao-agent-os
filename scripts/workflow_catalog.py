@@ -38,10 +38,12 @@ CORE_DOCS = (
 COMMANDS: Dict[str, Profile] = {
     "small-change": Profile(
         docs=("common/skills/agent-operating-skill/references/small-change.md",),
-        gates=("work surface resolution", "source docs", "tests", "review hook"),
+        gates=("tests", "review hook"),
         notes=(
-            "Use after direct evidence proves one local owner, at most four changed files "
-            "within existing structural review limits. Keep source contracts, focused tests and review. "
+            "Use after bounded direct evidence proves one local owner, at most four changed files "
+            "within existing structural review limits. Compact start binds intake and selects the "
+            "required docs; keep focused tests and one final review without duplicating those facts "
+            "as manual ledger gates. "
             "Escalate before broadening scope or changing permissions, security, persistence, "
             "public contracts, dependencies, deployment or external state.",
         ),

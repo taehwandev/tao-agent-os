@@ -400,14 +400,15 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertIn(phrase, agy_block)
             self.assertIn(phrase, codex_block)
 
-    def test_every_runtime_bridge_states_the_intent_envelope_contract(self) -> None:
-        """Work routes refuse a bridge that still promises request-text authority.
+    def test_every_runtime_bridge_states_the_compact_start_contract(self) -> None:
+        """Normal agents use one compact start instead of assembling authority.
 
         The start phrase is one shared constant, but it reaches each runtime
         through a separate call, and the verifier list is assembled separately
-        from the generated block. A runtime whose bridge kept the pre-envelope
-        wording sends its agent to build work-route arguments the runtime now
-        rejects, so every surface is asserted rather than the constant alone.
+        from the generated block. A runtime whose bridge keeps the compatibility
+        form as its normal path sends agents through fingerprint and JSON setup
+        before every edit, so every surface is asserted rather than the constant
+        alone.
         """
 
         agy_block = _agy_runtime_bridge_block(ROOT)
@@ -427,13 +428,12 @@ class RuntimeSetupTests(unittest.TestCase):
         ):
             self.assertIn(RUNTIME_START_BRIDGE_PHRASE, surface)
 
-        for required in (
-            "--intent-envelope",
-            "--runtime-session-id",
-            "--approval-record",
-            "--continuation-scope",
-        ):
+        for required in ("--intent", "--target-summary", "--approved-effect", "--continuation-scope"):
             self.assertIn(required, RUNTIME_START_BRIDGE_PHRASE)
+        self.assertIn("Do not run fingerprint first", RUNTIME_START_BRIDGE_PHRASE)
+        self.assertIn("compatibility path for integrations", RUNTIME_START_BRIDGE_PHRASE)
+        self.assertNotIn("Compute that fingerprint", RUNTIME_START_BRIDGE_PHRASE)
+        self.assertNotIn("build the envelope from the full conversation", RUNTIME_START_BRIDGE_PHRASE)
         self.assertNotIn("let the classifier decide", RUNTIME_START_BRIDGE_PHRASE)
 
     def test_every_runtime_bridge_exposes_the_project_local_agent_mailbox(self) -> None:

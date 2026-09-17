@@ -127,6 +127,31 @@ class WorktreeFingerprintTests(unittest.TestCase):
 
         self.assertNotEqual(signature, worktree_signature(self.project))
 
+    def test_staging_the_same_tracked_bytes_preserves_state_identity(self) -> None:
+        tracked = self.project / "tracked.txt"
+        tracked.write_text("changed\n", encoding="utf-8")
+        before = capture_worktree_state(self.project)
+
+        self._git("add", "tracked.txt")
+
+        self.assertEqual(before, capture_worktree_state(self.project))
+
+    def test_staging_the_same_new_file_preserves_state_identity(self) -> None:
+        (self.project / "new.txt").write_text("new\n", encoding="utf-8")
+        before = capture_worktree_state(self.project)
+
+        self._git("add", "new.txt")
+
+        self.assertEqual(before, capture_worktree_state(self.project))
+
+    def test_staging_the_same_rename_preserves_state_identity(self) -> None:
+        (self.project / "tracked.txt").rename(self.project / "moved.txt")
+        before = capture_worktree_state(self.project)
+
+        self._git("add", "--all")
+
+        self.assertEqual(before, capture_worktree_state(self.project))
+
     def test_untracked_symlink_removal_during_capture_retries_safely(self) -> None:
         local = self.project / "local-link"
         local.symlink_to("missing-target")

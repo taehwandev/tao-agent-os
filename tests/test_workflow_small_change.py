@@ -14,15 +14,17 @@ from workflow_route import ROOT, resolve_docs
 
 
 class SmallChangeTests(unittest.TestCase):
-    def test_compact_manifest_keeps_scope_sources_tests_and_review(self):
+    def test_compact_manifest_keeps_only_tests_and_review_after_start(self):
         route = resolve_docs('small-change', None, [])
-        self.assertEqual(['request intake', 'work surface resolution', 'source docs',
-                          'tests', 'review hook'], route['gates'])
+        self.assertEqual(['tests', 'review hook'], route['gates'])
         self.assertFalse(route['missing'])
         self.assertFalse(route['blocking'])
         self.assertFalse(route['skill_feedback']['enabled'])
         self.assertNotIn('retrospective', str(route['hooks']))
-        self.assertEqual(3, len(route['required_docs']))
+        self.assertEqual(2, len(route['required_docs']))
+        self.assertNotIn(
+            'workflows/skills/review-and-commit/SKILL.md', route['required_docs']
+        )
         self.assertEqual(['start', 'review', 'finish'],
                          [h['hook'] for h in route['hooks'] if h['required']])
         full = resolve_docs('bugfix', None, [])
@@ -44,7 +46,7 @@ class SmallChangeTests(unittest.TestCase):
         for platform, concerns in cases:
             with self.subTest(platform=platform, concerns=concerns):
                 route = resolve_docs('small-change', platform, concerns)
-                self.assertEqual(3, len(route['required_docs']))
+                self.assertEqual(2, len(route['required_docs']))
                 self.assertTrue(route['reference_docs'])
 
     def test_verified_owner_promotes_only_its_specific_surface_contract(self):
@@ -58,7 +60,7 @@ class SmallChangeTests(unittest.TestCase):
         )
 
         required = route['required_docs']
-        self.assertGreater(len(required), 3)
+        self.assertGreater(len(required), 2)
         self.assertIn(
             'platforms/android/skills/android-compose-ui/references/current-guidance.md',
             required,
@@ -85,7 +87,7 @@ class SmallChangeTests(unittest.TestCase):
 
         required = route['required_docs']
         required_bytes = sum((ROOT / path).stat().st_size for path in required)
-        self.assertEqual(3, len(required))
+        self.assertEqual(2, len(required))
         self.assertLess(required_bytes, 20_000)
 
     def test_risky_concerns_require_full_route(self):

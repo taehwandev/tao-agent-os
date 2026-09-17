@@ -8,6 +8,10 @@ from typing import Iterable, TypeVar
 
 ROOT = Path(__file__).resolve().parents[1]
 QUESTION_ROUTE_COMMANDS = {"triage", "ambiguity"}
+# Question routes do not claim work authority, while compact start already
+# binds the exact request for a bounded small change. Neither needs a second
+# human-authored request-intake ledger entry.
+REQUEST_INTAKE_EXEMPT_COMMANDS = QUESTION_ROUTE_COMMANDS | {"small-change"}
 ANSWER_ONLY_CLARITY = "direct-question"
 REPAIR_CYCLE_LIMIT = 1
 REPAIR_POLICY = "retrospective_repair_verify_resume"
