@@ -147,6 +147,15 @@ class WorkflowRequestIntakeTests(unittest.TestCase):
 
 
 class ConcernInferenceTests(unittest.TestCase):
+    def test_auth_concern_requires_a_korean_term_boundary(self) -> None:
+        self.assertNotIn(
+            "auth",
+            infer_concerns_from_request("클로드가 확인한것 같은 결함인가?"),
+        )
+        for request in ("인가 정책을 수정해줘", "인증/인가 흐름을 검토해줘"):
+            with self.subTest(request=request):
+                self.assertIn("auth", infer_concerns_from_request(request))
+
     def test_request_text_still_infers_non_authoritative_document_concerns(self) -> None:
         cases = (
             ("Add scenario regression tests", "testing"),

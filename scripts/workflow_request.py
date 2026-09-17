@@ -65,7 +65,10 @@ CODE_AUTHORING_REQUEST_PATTERNS = (
 
 _RISK_CONCERN_NOUNS = {
     "security": r"security|보안|취약점|취약성",
-    "auth": r"auth|authentication|authorization|permissions?|login|인증|인가|권한|로그인",
+    "auth": (
+        r"auth|authentication|authorization|permissions?|login|인증|"
+        r"(?<![가-힣])인가(?![가-힣])|권한|로그인"
+    ),
     "billing": r"billing|payments?|subscriptions?|결제|구독|청구",
     "migration": r"migration|마이그레이션",
 }
