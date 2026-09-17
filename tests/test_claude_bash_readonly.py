@@ -175,10 +175,10 @@ class CompoundShellCommandTests(unittest.TestCase):
     def test_runtime_hook_environment_assignments_keep_the_control_kind(self) -> None:
         """The runtime's own documented env prefixes must not void its hooks.
 
-        `CLAUDE_CODE_SESSION_ID` and `TAO_HOOK_SOFT_FAIL` are read only by this
-        runtime's tooling and never select what executes, but the executor-variable
-        fail-close treated them like `LD_PRELOAD`, so the gate denied the exact
-        start command its own denial message asks the caller to run.
+        These names are read only by Tao's own gate and launcher. They never
+        select what executes, but the executor-variable fail-close treated them
+        like `LD_PRELOAD`, so the gate denied the exact start command its own
+        denial message asks the caller to run.
         """
 
         launcher = str(worktree_gate.stable_launcher_path())
@@ -194,8 +194,19 @@ class CompoundShellCommandTests(unittest.TestCase):
             bash_readonly.RUNTIME_CONTROL_KIND,
         )
         self.assertEqual(
+            self._kind(f"TAO_ALLOW_MAIN_CHECKOUT_EDIT=1 {launcher} start --project /tmp/x"),
+            "workflow_start",
+        )
+        self.assertEqual(
+            self._kind(f"TAO_CODEX_GATE=0 {launcher} start --project /tmp/x"),
+            "workflow_start",
+        )
+        self.assertEqual(
             self._kind("CLAUDE_CODE_SESSION_ID=abc123 grep needle notes.txt"),
             "read_only",
+        )
+        self.assertEqual(
+            self._kind("TAO_CODEX_GATE=0 rm -rf build"), "mutating"
         )
         self.assertEqual(
             self._kind(f"LD_PRELOAD=/tmp/evil.so {launcher} start"), "mutating"

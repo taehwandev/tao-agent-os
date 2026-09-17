@@ -61,14 +61,20 @@ INERT_ENV_ASSIGNMENTS = frozenset(
     }
 )
 INERT_ENV_PREFIXES = ("LC_",)
-# These two are read only by this runtime's own tooling and never select what
-# executes: the session id labels which runtime session a hook binds to, and
-# the soft-fail flag only masks a hook's exit status. Refusing them made the
-# gate deny the exact `tao-hook start` remedy its own denial message names,
-# because the documented invocation carries the session id as a prefix.
+# These names are read only by this runtime's own tooling and never select what
+# executes: the session id labels which runtime session a hook binds to, the
+# gate flags change Tao's own decision, and the soft-fail flag only masks a
+# hook's exit status. Refusing them made the gate deny the exact `tao-hook
+# start` remedy its own denial message names, because documented recovery
+# invocations carry one of these assignments as a prefix. The command after the
+# assignment still receives its ordinary classification, so a write stays a
+# write.
 RUNTIME_HOOK_ENV_ASSIGNMENTS = frozenset(
     {
         "CLAUDE_CODE_SESSION_ID",
+        "TAO_ALLOW_MAIN_CHECKOUT_EDIT",
+        "TAO_CLAUDE_GATE",
+        "TAO_CODEX_GATE",
         "TAO_HOOK_SOFT_FAIL",
     }
 )
