@@ -154,6 +154,62 @@ class AgentHookSummaryTests(unittest.TestCase):
                     self.assertIn("approved identical pending action without reconfirming", summary)
                     self.assertIn("unless scope, target, risk or required approval freshness changed", summary)
 
+    def test_commit_summary_separates_reused_docs_and_prior_review_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / ("a" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text(json.dumps({
+                "project": str(project),
+                "rules": str(project),
+                "route": {
+                    "command": "commit",
+                    "required_docs": ["reused.md", "new.md"],
+                },
+            }), encoding="utf-8")
+            with (
+                patch.object(
+                    agent_hook,
+                    "required_doc_reuse",
+                    return_value={"reused": ["reused.md"], "unread": ["new.md"]},
+                ),
+                patch.object(
+                    agent_hook.ReviewReuse,
+                    "publication_candidate",
+                    return_value={"changed_paths": ["source.py"], "scope": "pathspec"},
+                ),
+            ):
+                summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+
+        self.assertIn("Already loaded", summary)
+        self.assertIn("reused.md", summary)
+        self.assertIn("Read now (1", summary)
+        self.assertIn("new.md", summary)
+        self.assertIn("Do not reopen", summary)
+        self.assertIn("source.py", summary)
+        self.assertIn("Do not search, reopen, or manually review", summary)
+
+    def test_scope_change_route_skips_intermediate_gate_instructions(self) -> None:
+        payload = {
+            "route": {
+                "command": "task",
+                "required_docs": [],
+                "scope_change_policy": {
+                    "mode": "on_material_change",
+                    "unchanged": "no_intermediate_gate_or_checkpoint",
+                    "action": "record_one_semantic_checkpoint",
+                },
+            }
+        }
+        with patch.object(Path, "read_text", return_value=json.dumps(payload)):
+            summary = "\n".join(
+                agent_hook._hook_summary_from_preflight(Path("manifest.json"))
+            )
+
+        self.assertIn("No intermediate gate", summary)
+        self.assertIn("A expands to A+B", summary)
+        self.assertIn("one semantic checkpoint", summary)
+
     def test_start_shows_required_manifest_without_expanding_reference_reading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             evidence = Path(directory) / "preflight.json"

@@ -53,6 +53,7 @@ from agent_preflight_runtime import (
 from agent_review_hook import review_hook, review_vibeguard_command, workflow_validate_failure_detail
 from agent_review_structure import structure_review
 from agent_vibeguard_cache import cached_vibeguard
+from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
 from support.agy_setup import AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES, _agy_runtime_bridge_block
 from support.claude_setup import _merge_claude_user_prompt_submit
 from support.permission_entries import agy_permission_entries, claude_permission_entries, codex_prefix_rule_entries
@@ -421,14 +422,17 @@ class FinishGatePolicyTests(unittest.TestCase):
             self.assertIn("repair_evidence", joined_failures)
             self.assertIn("resume_checkpoint", joined_failures)
 
-    def test_source_docs_gate_covers_source_driven_routes_only(self) -> None:
+    def test_source_docs_gate_is_reserved_for_specialized_routes(self) -> None:
         for command in sorted(SOURCE_DOCS_COMMANDS):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
-                self.assertIn(SOURCE_DOCS_GATE, route["gates"])
+                if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+                    self.assertNotIn(SOURCE_DOCS_GATE, route["gates"])
+                else:
+                    self.assertIn(SOURCE_DOCS_GATE, route["gates"])
 
-        for command in ("ambiguity", "commit", "git_commit", "retrospective", "test", "triage"):
+        for command in ("ambiguity", "commit", "git_commit", "retrospective", "triage"):
             with self.subTest(restored_command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
@@ -600,25 +604,25 @@ class FinishGatePolicyTests(unittest.TestCase):
 
         self.assertEqual([], failures)
 
-    def test_modify_and_analysis_routes_require_alignment_brief(self) -> None:
+    def test_alignment_brief_is_reserved_for_specialized_routes(self) -> None:
         for command in sorted(ALIGNMENT_BRIEF_COMMANDS):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
-                self.assertIn(ALIGNMENT_BRIEF_GATE, route["gates"])
+                if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+                    self.assertNotIn(ALIGNMENT_BRIEF_GATE, route["gates"])
+                else:
+                    self.assertIn(ALIGNMENT_BRIEF_GATE, route["gates"])
 
-    def test_feature_alignment_runs_before_acceptance_criteria(self) -> None:
+    def test_feature_uses_start_scope_instead_of_alignment_gate(self) -> None:
         route = resolve_docs("feature", None, [], request_classified=True)
 
-        self.assertLess(
-            route["gates"].index(ALIGNMENT_BRIEF_GATE),
-            route["gates"].index("PRD/ARD applicability"),
+        self.assertEqual(["tests", "review hook"], route["gates"])
+        self.assertEqual("start_intake", route["scope_change_policy"]["baseline"])
+        self.assertEqual(
+            "no_intermediate_gate_or_checkpoint",
+            route["scope_change_policy"]["unchanged"],
         )
-        self.assertLess(
-            route["gates"].index(ALIGNMENT_BRIEF_GATE),
-            route["gates"].index("acceptance criteria"),
-        )
-        self.assertIn(route_doc("common/skills/task-intake-effort-routing/SKILL.md"), route["docs"])
 
     def test_analysis_and_setup_alignment_runs_before_work_gates(self) -> None:
         planning_route = resolve_docs("planning", None, [], request_classified=True)
@@ -657,7 +661,8 @@ class FinishGatePolicyTests(unittest.TestCase):
         route = resolve_docs("workflow-setup", None, ["structure"], request_classified=True)
 
         self.assertTrue(route["required_docs"])
-        self.assertIn(SOURCE_DOCS_GATE, route["gates"])
+        self.assertEqual(["tests", "review hook"], route["gates"])
+        self.assertNotIn(SOURCE_DOCS_GATE, route["gates"])
 
     def test_docs_route_selects_required_docs_without_confirmation_gate(self) -> None:
         route = resolve_docs("docs", None, ["structure"], request_classified=True)

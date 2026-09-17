@@ -68,6 +68,7 @@ from support.stable_launcher import stable_launcher_path
 from workflow_catalog import (
     COMMANDS, CONCERN_REFERENCE_DOCS, CONCERNS, PLATFORMS, SPILL_ACTION_LABELS,
 )
+from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
 from workflow_doc_resolution import resolve_guidance_docs
 from workflow_route import CORE_REQUIRED_DOCS
 from workflow_gate_policy import (
@@ -279,7 +280,10 @@ class WorkflowCatalogTests(unittest.TestCase):
                 self.assertIn(command, COMMANDS)
                 route = resolve_docs(command, None, [], request_classified=True)
 
-                self.assertIn("request intake", route["gates"])
+                self.assertEqual(
+                    command not in SCOPE_CHANGE_LIFECYCLE_COMMANDS,
+                    "request intake" in route["gates"],
+                )
                 if command == "analysis":
                     self.assertEqual(
                         ["common/skills/agent-operating-skill/SKILL.md"],
@@ -663,15 +667,16 @@ class WorkflowCatalogTests(unittest.TestCase):
             ),
         )
 
-    def test_code_route_gets_automatic_gates_and_docs(self) -> None:
+    def test_code_route_uses_scope_change_lifecycle_and_final_checks(self) -> None:
         route = resolve_docs("feature", None, ["testing"], request_classified=True)
 
+        self.assertEqual([TEST_GATE, "review hook"], route["gates"])
+        self.assertEqual("on_material_change", route["scope_change_policy"]["mode"])
         for gate in (
             SOURCE_DOCS_GATE,
             AMBIGUITY_GATE,
             DOCUMENTATION_IMPACT_GATE,
             DOCUMENTATION_GATE,
-            TEST_GATE,
             CYCLE_CONTRACT_GATE,
             BOUNDARY_PLAN_GATE,
             MULTI_AGENT_GATE,
@@ -679,20 +684,11 @@ class WorkflowCatalogTests(unittest.TestCase):
             SIDE_EFFECT_AUDIT_GATE,
             RETROSPECTIVE_CHECK_GATE,
         ):
-            self.assertIn(gate, route["gates"])
+            self.assertNotIn(gate, route["gates"])
 
-        self.assertIn(route_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("workflows/skills/documentation-update/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("common/skills/product-spec-to-implementation/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("common/skills/source-driven-development/SKILL.md"), route["docs"])
         self.assertIn(route_doc("common/skills/testing/SKILL.md"), route["docs"])
         self.assertIn(route_doc("common/skills/scenario-driven-testing/SKILL.md"), route["docs"])
         self.assertIn(route_doc("common/skills/verification-policy/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("common/skills/code-structure-ownership/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("workflows/skills/multi-agent-collaboration/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("workflows/skills/development-cycle/SKILL.md"), route["docs"])
-        self.assertIn(route_doc("workflows/skills/retrospective-learning/SKILL.md"), route["docs"])
         self.assertEqual(1, route["repair_cycle_limit"])
         self.assertEqual("retrospective_repair_verify_resume", route["repair_policy"])
         self.assertEqual("first_failed_checkpoint", route["resume_scope"])
@@ -703,40 +699,19 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertNotIn(guidance_area("common/skills/llm-coding-discipline/SKILL.md"), routed_areas(route))
         self.assertNotIn(guidance_area("common/skills/agent-editing-safety/SKILL.md"), routed_areas(route))
         self.assertIn(required_doc("common/skills/testing/SKILL.md"), route["required_docs"])
-        # The testing concern now requires only its own card. The ambiguity
-        # gate's substantive entrypoint remains required, while its detailed
-        # procedure stays reachable on demand instead of filling spare budget.
-        self.assertIn(route_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["required_docs"])
-        self.assertNotIn(
-            required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["required_docs"]
-        )
-        self.assertNotIn(
-            required_doc("workflows/skills/ambiguity-gate/SKILL.md"), route["reference_docs"]
-        )
-        self.assertIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["reference_docs"])
         self.assertIn(route_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["reference_docs"])
         self.assertNotIn(required_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["required_docs"])
-        self.assertLess(route["gates"].index(SOURCE_DOCS_GATE), route["gates"].index(AMBIGUITY_GATE))
-        self.assertLess(route["gates"].index(SOURCE_DOCS_GATE), route["gates"].index(DOCUMENTATION_IMPACT_GATE))
-        self.assertLess(route["gates"].index(DOCUMENTATION_IMPACT_GATE), route["gates"].index("implementation"))
-        self.assertLess(route["gates"].index(SOURCE_DOCS_GATE), route["gates"].index("implementation"))
-        self.assertLess(route["gates"].index(AGENTIC_RUN_STATE_GATE), route["gates"].index("implementation"))
-        self.assertLess(route["gates"].index(CYCLE_CONTRACT_GATE), route["gates"].index("implementation"))
-        self.assertLess(route["gates"].index(AGENTIC_RUN_STATE_GATE), route["gates"].index(CYCLE_CONTRACT_GATE))
-        self.assertEqual(set(COMMANDS) - {"small-change"}, RETROSPECTIVE_CHECK_COMMANDS)
-        self.assertIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
-        self.assertLess(route["gates"].index("review hook"), route["gates"].index(RETROSPECTIVE_CHECK_GATE))
-        self.assertLess(route["gates"].index(RETROSPECTIVE_CHECK_GATE), route["gates"].index("handoff"))
-        self.assertTrue(route["skill_feedback"]["enabled"])
-        self.assertTrue(route["skill_feedback"]["evaluation_required"])
-        self.assertEqual(RETROSPECTIVE_CHECK_GATE, route["skill_feedback"]["evaluation_gate"])
-        self.assertTrue(route["skill_feedback"]["blocking"])
-        self.assertTrue(route["skill_feedback"]["threshold_followup_required"])
-        feedback_hooks = [hook for hook in route["hooks"] if hook["hook"] == SKILL_FEEDBACK_HOOK]
-        self.assertEqual(1, len(feedback_hooks))
-        self.assertFalse(feedback_hooks[0]["required"])
-        hook_names = [hook["hook"] for hook in route["hooks"]]
-        self.assertLess(hook_names.index(SKILL_FEEDBACK_HOOK), hook_names.index("finish"))
+        self.assertFalse(route["skill_feedback"]["enabled"])
+        self.assertFalse(route["skill_feedback"]["evaluation_required"])
+        self.assertFalse(route["skill_feedback"]["threshold_followup_required"])
+        self.assertEqual(
+            [],
+            [hook for hook in route["hooks"] if hook["hook"] == SKILL_FEEDBACK_HOOK],
+        )
+        self.assertEqual(
+            ["start", "review", "finish"],
+            [hook["hook"] for hook in route["hooks"]],
+        )
 
     def _contradictions(
         self, constraint: str, *, required: bool = True, field: str = "constraints"
@@ -839,12 +814,10 @@ class CleanupRouteStaysLightTests(unittest.TestCase):
             gates,
         )
 
-    def test_it_is_lighter_than_the_work_routes_it_replaces(self) -> None:
+    def test_scope_change_work_routes_are_lighter_than_destructive_cleanup(self) -> None:
         for work_route in ("task", "refactor"):
             with self.subTest(route=work_route):
-                self.assertLess(
-                    len(route_gates("cleanup")), len(route_gates(work_route)) // 2
-                )
+                self.assertLess(len(route_gates(work_route)), len(route_gates("cleanup")))
 
     def test_no_work_gate_reaches_it(self) -> None:
         """Each of these belongs to producing a change, not to removing a ref.

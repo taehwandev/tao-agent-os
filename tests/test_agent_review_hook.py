@@ -1014,11 +1014,6 @@ class ReviewHookTests(unittest.TestCase):
             [
                 "start",
                 "review",
-                "skill-feedback",
-                "skill-draft",
-                "skill-curate",
-                "skill-review",
-                "skill-maintenance",
                 "finish",
             ],
             [hook["hook"] for hook in route["hooks"]],

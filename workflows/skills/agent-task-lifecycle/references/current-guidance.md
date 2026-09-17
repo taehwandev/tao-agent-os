@@ -37,7 +37,8 @@ agents, subagents, or external launchers can use this state to continue,
 delegate, review, and recover work without guessing what already happened.
 This is a bounded state machine, not an autonomous polling loop.
 
-Use this compact state model for multi-step work:
+Use this compact state model for recovery and handoff. The states describe the
+work; they are not separate evidence gates for ordinary code tasks:
 
 ```text
 intake -> oriented -> scoped -> acting -> verifying -> reviewing -> done
@@ -71,38 +72,38 @@ memory.
    explicitly accepted fallback when the start hook cannot run.
 6. Work surface and required docs: after start, read the always-required runtime
    instructions and the work-surface resolution contract. For code routes,
-   resolve the change owner with bounded read-only repository inspection and
-   record the `work surface resolution` gate before reading task-specific
-   guidance. Then read every route `required_docs` / `Read First` entry before
+   resolve the change owner with bounded read-only repository inspection.
+   Then read every route `required_docs` / `Read First` entry before
    editing, coding, or reviewing. Treat
    `reference_docs` as lazy context and open one only when the current task
    touches that concern, platform, gate, or verification path. Required-document
    selection is owned by the route; reading those documents is a direct agent
    responsibility rather than a separate confirmation gate.
-7. Gate ledger: create a ledger for every route gate, mark each gate when it is
-   executed, and show a short `SUCCESS` or `FAIL` gate signal after each
-   completed or failed gate or task step.
-8. Agentic run state: record the current run state, next transition or resume
-   point, gate/command evidence, checkpoint or stop condition, and blocker
-   status. This is required before implementation work on scripted
-   work-producing routes and before delegating work to subagents or parallel
-   sessions.
+7. Scope-change lifecycle: for ordinary code routes, `start` establishes scope
+   A. Work inside A without intermediate gate or checkpoint calls. If the user
+   or repository evidence expands the work to A+B, write one semantic decision
+   checkpoint that updates the accepted scope and verification. Start a new
+   route only when the project, authority, effect ceiling, or external target
+   changes. At closeout, record the route's final tests and run review once.
+   Specialized routes such as product, publication, release, cleanup, and
+   multi-agent work retain the gates they explicitly list.
+8. Agentic run state: use a semantic checkpoint when work is interrupted,
+   transferred, materially re-scoped, blocked, or delegated. Ordinary state
+   transitions inside an unchanged scope do not need separate ledger records.
 9. Global lessons: when preflight includes accepted or promoted lessons from
    `~/.tao/`, check whether any apply to the current task before
    editing or reviewing.
-10. Alignment brief: before requirements analysis or modification work, record
-   the shared understanding, possible mismatches, and unsupported assumptions or
-   minimal blocker questions. Do this even when the task is too small for a full
-   PRD or Grill-Me session.
-11. Cycle contract: for work-producing routes, record the cycle type,
-    input/source scope, allowed and forbidden changes, acceptance or
-    verification method, stop condition, and checkpoint or next cycle before
-    editing. Keep code review as a separate review cycle unless the current
-    route is explicitly review or review-response work.
+10. Alignment and cycle contracts: `start` owns the initial intake. Record a
+    separate alignment or cycle gate only when a specialized route lists it.
+    For ordinary code work, put changed assumptions and acceptance criteria in
+    the one A+B scope checkpoint instead of repeating the intake before edits.
 
 ### Completion Evidence Fields
 
-When a finish gate requires evidence, record the actual decision. At minimum:
+When a specialized route lists one of these finish gates, record the actual
+decision. Ordinary code routes carry documentation, structure, boundary, and
+side-effect conclusions in their single final review rather than separate
+ledger entries. For listed gates:
 
 - `source docs`: state which route `required_docs` were read directly, which
   source-of-truth documents were searched and read (or that none existed), and

@@ -59,6 +59,8 @@ from agent_hook_runtime import (
 from agent_inprocess import run_script_main
 from agent_global_lessons import promote_lessons_for_repair
 from agent_review_hook import required_review_evidence_flags, review_hook
+from agent_review_reuse import ReviewReuse
+from agent_required_doc_reuse import required_doc_reuse
 from agent_repair_verification import create_repair_receipt
 from agent_repair_ledger import (
     CONFLICT as REPAIR_REBIND_CONFLICT,
@@ -77,6 +79,7 @@ from agent_skill_hooks import (
     skill_review_hook,
 )
 from agent_skill_catalog import FEEDBACK_SIGNALS
+from agent_task_affinity import task_affinity_denial
 from agent_review_structure import (
     REVIEW_ADDED_LINE_LIMIT,
     REVIEW_FUNCTION_LINE_LIMIT,
@@ -155,6 +158,31 @@ def _preflight_arguments(args: argparse.Namespace) -> list[str]:
 
 
 def start_hook(args: argparse.Namespace) -> int:
+    request_intake = {
+        "request": args.request,
+        "continuation_scope": getattr(args, "continuation_scope", ""),
+        "request_classified": bool(args.request_classified),
+        "classification_evidence": args.classification_evidence,
+    }
+    writable_route = (
+        not args.read_only
+        and EFFECT_RANK[route_minimum_effect(args.command)] > EFFECT_RANK["read"]
+    )
+    affinity_denial = (
+        task_affinity_denial(args.project, request_intake)
+        if writable_route
+        else None
+    )
+    if affinity_denial:
+        return finish_with_result(
+            "start",
+            False,
+            [affinity_denial],
+            args.output,
+            {},
+            args.repair_cycle,
+            invocation_error=True,
+        )
     # Establish the local-only state root before anything writes into it. The
     # continuation store proves local-only status by asking Git, so a checkout
     # that has never been ignored refuses every packet write -- and the Claude
@@ -162,12 +190,6 @@ def start_hook(args: argparse.Namespace) -> int:
     ensure_local_only_state_dir(args.project)
     evidence_path = preflight_evidence_path(args)
     prior_repair_binding = capture_failure_checkpoint_binding(evidence_path)
-    request_intake = {
-        "request": args.request,
-        "continuation_scope": getattr(args, "continuation_scope", ""),
-        "request_classified": bool(args.request_classified),
-        "classification_evidence": args.classification_evidence,
-    }
     # A run that was interrupted stays `running` forever unless the separate
     # maintenance entrypoint is invoked, and nothing in the lifecycle invokes
     # it. Without the sweep inside this claim one abandoned run permanently
@@ -276,6 +298,21 @@ def _is_invocation_error(result: dict[str, Any]) -> bool:
     return True
 
 
+def _isolated_run_preflight(path: Path, payload: dict[str, Any]) -> bool:
+    try:
+        project = Path(payload["project"]).resolve()
+        resolved = path.resolve()
+        run_id = resolved.parent.name
+        return (
+            resolved.name == "preflight.json"
+            and resolved.parent.parent == project / ".tao" / "runs"
+            and len(run_id) == 32
+            and all(character in "0123456789abcdef" for character in run_id)
+        )
+    except (OSError, TypeError, KeyError):
+        return False
+
+
 def _hook_summary_from_preflight(path: Path) -> list[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -291,10 +328,31 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         lines.append(str(reading_scope["guidance"]))
     if (payload.get("runtime_session") or {}).get("runtime") == "codex":
         lines.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
+    scope_change_policy = route.get("scope_change_policy") or {}
+    if scope_change_policy.get("mode") == "on_material_change":
+        lines.append(
+            "Scope-change lifecycle: No intermediate gate or checkpoint while the "
+            "start scope A is unchanged. If A expands to A+B, record one semantic "
+            "checkpoint. Start a new route only when the project, authority, effect "
+            "ceiling, or external target changes. Finish with the route's final tests "
+            "and review."
+        )
     docs = route.get("required_docs") or []
     if docs:
-        lines.append(f"Read first ({len(docs)} required docs):")
-        lines.extend(f"  {doc}" for doc in docs)
+        reuse = {"reused": [], "unread": list(docs)}
+        if _isolated_run_preflight(path, payload):
+            reuse = required_doc_reuse(path)
+        if reuse["reused"]:
+            lines.append(
+                "Already loaded from completed same-session evidence "
+                f"({len(reuse['reused'])} unchanged required docs; Do not reopen):"
+            )
+            lines.extend(f"  {doc}" for doc in reuse["reused"])
+        if reuse["unread"]:
+            label = "Read now" if reuse["reused"] else "Read first"
+            detail = "new or changed required docs" if reuse["reused"] else "required docs"
+            lines.append(f"{label} ({len(reuse['unread'])} {detail}):")
+            lines.extend(f"  {doc}" for doc in reuse["unread"])
         lines.append(
             "Reading boundary: reference docs are on demand, not a recursive reading "
             "queue. Reuse a complete reading only while unchanged and available in "
@@ -311,6 +369,22 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "A failed gate still requires the bound failure-repair lifecycle; do not silently cancel it."
         )
     if route.get("command") in {"commit", "git_commit"}:
+        candidate = (
+            ReviewReuse.publication_candidate(path)
+            if _isolated_run_preflight(path, payload)
+            else None
+        )
+        if candidate:
+            lines.append(
+                "Publication review reuse: exact prior attestation covers "
+                f"{len(candidate['changed_paths'])} unchanged paths:"
+            )
+            lines.extend(f"  {changed}" for changed in candidate["changed_paths"])
+            lines.append(
+                "Do not search, reopen, or manually review these files again. "
+                "Stage exactly these paths, then call review once; it will validate "
+                "current staged scope and drift. Any mismatch falls back to full review."
+            )
         lines.append(
             "Commit reuse: distinguish already-known context from fresh checks in "
             "the existing checkpoint; no separate inventory call. Reuse unchanged "

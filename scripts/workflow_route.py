@@ -23,6 +23,7 @@ from workflow_common import (
     ROOT,
     QUESTION_ROUTE_COMMANDS,
     REQUEST_INTAKE_EXEMPT_COMMANDS,
+    SCOPE_CHANGE_LIFECYCLE_COMMANDS,
     unique,
 )
 from workflow_doc_graph import expand_required_doc_matches, graph_required_docs
@@ -35,6 +36,7 @@ from workflow_gate_policy import (
     SKILL_REVIEW_HOOK,
     RETROSPECTIVE_CHECK_COMMANDS,
     RETROSPECTIVE_CHECK_GATE,
+    TEST_GATE,
     WORK_SURFACE_RESOLUTION_GATE,
     add_automatic_gates,
     automatic_docs,
@@ -744,6 +746,23 @@ def resolve_docs(
         "missing": missing,
         "blocking": blocking,
     }
+    if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+        route["scope_change_policy"] = {
+            "mode": "on_material_change",
+            "baseline": "start_intake",
+            "unchanged": "no_intermediate_gate_or_checkpoint",
+            "trigger": [
+                "owner",
+                "repository",
+                "effect_ceiling",
+                "acceptance_behavior",
+                "external_target",
+            ],
+            "action": (
+                "record_one_semantic_checkpoint; start_a_new_route_only_when_"
+                "project_authority_effect_or_external_target_changes"
+            ),
+        }
     route["required_doc_reasons"] = _required_doc_reasons(
         command=command,
         platform=platform,
@@ -1297,7 +1316,11 @@ def _select_within_budget(
 
 
 def route_gates(command: str, *, graphify_required: bool = False) -> list[str]:
-    gates = add_automatic_gates(command, list(COMMANDS[command].gates))
+    gates = (
+        [TEST_GATE]
+        if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS
+        else add_automatic_gates(command, list(COMMANDS[command].gates))
+    )
     if graphify_required and "graphify readiness" not in gates:
         for anchor in ("verify", "verification", "handoff", "report"):
             if anchor in gates:
@@ -1347,8 +1370,11 @@ def route_hooks(command: str) -> list[dict[str, object]]:
         {
             "hook": "finish",
             "required": True,
-            "when": ("after verification and review, before final report" if command == "small-change"
-                     else "after retrospective check and before final report, commit, release, or handoff"),
+            "when": (
+                "after verification and review, before final report"
+                if command == "small-change" or command in SCOPE_CHANGE_LIFECYCLE_COMMANDS
+                else "after retrospective check and before final report, commit, release, or handoff"
+            ),
             "command": (
                 f"{launcher} finish "
                 "--project <TARGET_REPO> --rules <TAO_ROOT> "

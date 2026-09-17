@@ -70,6 +70,7 @@ from support.runtime_bridge import (
 )
 from support.stable_launcher import stable_launcher_path
 from workflow_catalog import COMMANDS, CONCERNS, SPILL_ACTION_LABELS
+from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
 from workflow_gate_policy import (
     AGENTIC_RUN_STATE_GATE,
     AMBIGUITY_GATE,
@@ -173,10 +174,8 @@ class WorkflowParallelTests(unittest.TestCase):
             "small bounded task that one parent can complete without a worker",
             plan["delegation_policy"]["serial_fallbacks"],
         )
-        self.assertEqual("parallel", phases["orientation"]["mode"])
-        self.assertIn(SOURCE_DOCS_GATE, phases["orientation"]["gates"])
-        self.assertEqual("conditional_parallel", phases["implementation"]["mode"])
-        self.assertIn(MULTI_AGENT_GATE, phases["implementation"]["gates"])
+        self.assertNotIn("orientation", phases)
+        self.assertNotIn("implementation", phases)
         self.assertEqual("serial", phases["integration_review"]["mode"])
         self.assertIn("review hook", phases["integration_review"]["gates"])
         self.assertEqual("parallel", phases["verification"]["mode"])
@@ -195,13 +194,23 @@ class WorkflowParallelTests(unittest.TestCase):
         self.assertEqual("serial", phases["integration_review"]["mode"])
         self.assertIn("integration review", phases["integration_review"]["gates"])
 
-    def test_work_producing_routes_get_cycle_contract_but_review_stays_separate(self) -> None:
+    def test_specialized_work_routes_keep_cycle_contract(self) -> None:
         for command in sorted(WORK_PRODUCING_COMMANDS):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
-                self.assertIn(CYCLE_CONTRACT_GATE, route["gates"])
-                self.assertIn(route_doc("workflows/skills/cycle-contract/SKILL.md"), route["docs"])
+                if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+                    self.assertNotIn(CYCLE_CONTRACT_GATE, route["gates"])
+                    self.assertNotIn(
+                        route_doc("workflows/skills/cycle-contract/SKILL.md"),
+                        route["docs"],
+                    )
+                else:
+                    self.assertIn(CYCLE_CONTRACT_GATE, route["gates"])
+                    self.assertIn(
+                        route_doc("workflows/skills/cycle-contract/SKILL.md"),
+                        route["docs"],
+                    )
 
         for command in ("review", "docs-review", "test", "multi-agent", "triage"):
             with self.subTest(command=command):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 
 from agent_skill_state import CURRENT_TASK_REVIEW_THRESHOLD
+from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
 
 READ_ONLY_LOOKUP: ContextVar[bool] = ContextVar("read_only_lookup", default=False)
 
@@ -117,10 +118,14 @@ SOURCE_DOCS_COMMANDS = WORK_PRODUCING_COMMANDS | {
 # Every user-visible workflow performs one lightweight retrospective check.
 # The check itself is required; observation storage and later skill maintenance
 # remain a non-blocking side channel.
-RETROSPECTIVE_CHECK_COMMANDS = SOURCE_DOCS_COMMANDS | LIGHTWEIGHT_ANALYSIS_COMMANDS
+RETROSPECTIVE_CHECK_COMMANDS = (
+    SOURCE_DOCS_COMMANDS | LIGHTWEIGHT_ANALYSIS_COMMANDS
+) - SCOPE_CHANGE_LIFECYCLE_COMMANDS
 
 
 def automatic_gates(command: str) -> list[str]:
+    if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+        return [TEST_GATE]
     gates: list[str] = []
     if command in CODE_WORK_COMMANDS:
         gates.append(WORK_SURFACE_RESOLUTION_GATE)
@@ -177,13 +182,14 @@ def automatic_docs(command: str) -> list[str]:
     if WORK_SURFACE_RESOLUTION_GATE in gates:
         docs.append("common/skills/source-driven-development/SKILL.md")
     if TEST_GATE in gates:
-        docs.extend(
-            [
-                "common/skills/testing/SKILL.md",
-                "common/skills/scenario-driven-testing/SKILL.md",
-                "common/skills/verification-policy/SKILL.md",
-            ]
-        )
+        docs.append("common/skills/testing/SKILL.md")
+        if command not in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+            docs.extend(
+                [
+                    "common/skills/scenario-driven-testing/SKILL.md",
+                    "common/skills/verification-policy/SKILL.md",
+                ]
+            )
     if BOUNDARY_PLAN_GATE in gates:
         docs.append("common/skills/code-structure-ownership/SKILL.md")
     if MULTI_AGENT_GATE in gates:

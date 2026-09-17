@@ -91,6 +91,20 @@ class ReviewReuseTests(unittest.TestCase):
         self.assertEqual(commit.reused['attestation_id'], attestation['review_checks']['source_attestation'])
         self.assertNotIn('tests', attestation['review_checks'])
 
+    def test_publication_candidate_is_available_before_staging_and_fails_on_drift(self):
+        source = self.publish()
+        args = self.args('commit', 'b' * 32)
+
+        candidate = ReviewReuse.publication_candidate(args.evidence)
+
+        self.assertEqual(
+            ['extra.py', 'source.py'],
+            candidate['changed_paths'],
+        )
+        self.assertEqual(source.reused, None)
+        (self.project / 'source.py').write_text('value = 99\n')
+        self.assertIsNone(ReviewReuse.publication_candidate(args.evidence))
+
     def test_publication_does_not_recapture_and_late_edits_still_miss(self):
         source = self.cache()
         failures = []

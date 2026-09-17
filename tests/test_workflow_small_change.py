@@ -28,10 +28,8 @@ class SmallChangeTests(unittest.TestCase):
         self.assertEqual(['start', 'review', 'finish'],
                          [h['hook'] for h in route['hooks'] if h['required']])
         full = resolve_docs('bugfix', None, [])
-        self.assertIn('reproduce', full['gates'])
-        self.assertIn('cycle contract', full['gates'])
-        self.assertIn('side-effect audit', full['gates'])
-        self.assertGreater(len(full['gates']), len(route['gates']))
+        self.assertEqual(['tests', 'review hook'], full['gates'])
+        self.assertIn('scope_change_policy', full)
 
     def test_compact_start_does_not_require_an_extra_checkpoint(self):
         self.assertEqual([], work_checkpoint_advice(SimpleNamespace(command="small-change")))

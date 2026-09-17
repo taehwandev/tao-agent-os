@@ -8,10 +8,26 @@ from typing import Iterable, TypeVar
 
 ROOT = Path(__file__).resolve().parents[1]
 QUESTION_ROUTE_COMMANDS = {"triage", "ambiguity"}
+# Ordinary code work uses start as its scope baseline and validates the final
+# result once. A semantic checkpoint is needed only when that scope materially
+# expands; specialized product, publication, destructive, and delegation
+# routes keep their own gate models.
+SCOPE_CHANGE_LIFECYCLE_COMMANDS = {
+    "build",
+    "bugfix",
+    "code-simplify",
+    "feature",
+    "refactor",
+    "task",
+    "test",
+    "workflow-setup",
+}
 # Question routes do not claim work authority, while compact start already
-# binds the exact request for a bounded small change. Neither needs a second
-# human-authored request-intake ledger entry.
-REQUEST_INTAKE_EXEMPT_COMMANDS = QUESTION_ROUTE_COMMANDS | {"small-change"}
+# binds the exact request for bounded and ordinary code work. None needs a
+# second human-authored request-intake ledger entry.
+REQUEST_INTAKE_EXEMPT_COMMANDS = (
+    QUESTION_ROUTE_COMMANDS | SCOPE_CHANGE_LIFECYCLE_COMMANDS | {"small-change"}
+)
 ANSWER_ONLY_CLARITY = "direct-question"
 REPAIR_CYCLE_LIMIT = 1
 REPAIR_POLICY = "retrospective_repair_verify_resume"

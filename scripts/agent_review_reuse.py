@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json
@@ -57,8 +58,17 @@ class ReviewReuse:
     def capture(self) -> dict[str, Any] | None:
         return _capture(self)
 
-    def load(self) -> dict[str, Any] | None:
-        return _load(self)
+    def load(self, *, require_fully_staged: bool = True) -> dict[str, Any] | None:
+        return _load(self, require_fully_staged=require_fully_staged)
+
+    @classmethod
+    def publication_candidate(cls, evidence: Path) -> dict[str, Any] | None:
+        """Describe exact prior review coverage before publication staging.
+
+        The result is advisory. The review hook still performs its staged-scope
+        and drift checks after staging; any mismatch falls back to full review.
+        """
+        return _publication_candidate(cls, evidence)
 
     def complete(self, checks: dict[str, Any], failures: list[str]) -> None:
         if self.before is None:
@@ -99,6 +109,49 @@ class ReviewReuse:
             })
         except (OSError, RuntimeError, ValueError, TypeError, KeyError):
             pass
+
+
+def _publication_candidate(
+    reuse_type: type[ReviewReuse],
+    evidence: Path,
+) -> dict[str, Any] | None:
+    try:
+        preflight = reuse_type.read(evidence)
+        if (preflight.get('route') or {}).get('command') not in {'commit', 'git_commit'}:
+            return None
+        project = Path(preflight['project']).resolve()
+        rules = Path(preflight['rules']).resolve()
+        evidence.resolve().relative_to(project / '.tao' / 'runs')
+        cached = reuse_type.read(project / '.tao' / 'review-checks-latest.json')
+        snapshot = cached.get('snapshot')
+        if not isinstance(snapshot, dict):
+            return None
+        paths = snapshot.get('paths')
+        limits = snapshot.get('limits')
+        if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+            return None
+        expected_limits = {
+            'max_source_file_lines', 'max_function_lines',
+            'max_added_lines', 'max_changed_paths',
+        }
+        if not isinstance(limits, dict) or set(limits) != expected_limits:
+            return None
+        args = SimpleNamespace(
+            project=project,
+            rules=rules,
+            evidence=evidence,
+            review_scope=snapshot.get('scope', 'working-tree'),
+            **limits,
+        )
+        reuse = reuse_type(args, paths, {'kind': 'working-tree'})
+        if reuse.load(require_fully_staged=False) is None or reuse.before is None:
+            return None
+        return {
+            'scope': reuse.before['scope'],
+            'changed_paths': sorted(reuse.before['files']),
+        }
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError):
+        return None
 
 
 def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -> dict[str, Any]:
@@ -209,14 +262,21 @@ def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
         return None
 
 
-def _load(reuse: ReviewReuse) -> dict[str, Any] | None:
+def _load(
+    reuse: ReviewReuse,
+    *,
+    require_fully_staged: bool = True,
+) -> dict[str, Any] | None:
     if reuse.before is None:
         return None
     try:
         command = (reuse.read(reuse.evidence).get('route') or {}).get('command')
         if command not in {'commit', 'git_commit'}:
             return None
-        if reuse.git(reuse.project, 'diff', '--name-only', '-z') or reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z'):
+        if require_fully_staged and (
+            reuse.git(reuse.project, 'diff', '--name-only', '-z')
+            or reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z')
+        ):
             return None
         cached = reuse.read(reuse.path)
         if set(cached) != {'schema_version', 'snapshot', 'checks', 'evidence', 'attestation_id'}:

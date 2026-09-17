@@ -87,6 +87,7 @@ from workflow_gate_policy import (
     ALIGNMENT_BRIEF_COMMANDS,
     WORK_PRODUCING_COMMANDS,
 )
+from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
 from workflow_request import infer_concerns_from_request
 from workflow_request import classify_request
 from workflow_request import classified_route_block_reason
@@ -302,11 +303,10 @@ class LessonStoreTests(unittest.TestCase):
     # chain would make the fast path as expensive as the route it replaces, and
     # the work would go back to `task` and its nineteen gates.
     #
-    # This is a real trade: bounded work is no longer visible to the loop that
-    # turns a recurring gap into a skill-document change. It is accepted for
-    # this route only, and stated here so a second exemption cannot be added by
-    # editing a set.
-    REFLECTION_EXEMPT_COMMANDS = {"small-change"}
+    # This is a real trade: bounded work and ordinary code work are no longer
+    # visible to the same-closeout skill-maintenance loop. They retain final
+    # tests and review, while specialized routes keep retrospective learning.
+    REFLECTION_EXEMPT_COMMANDS = {"small-change", *SCOPE_CHANGE_LIFECYCLE_COMMANDS}
 
     def test_every_route_requires_reflection_but_skill_feedback_hook_stays_optional(self) -> None:
         self.assertEqual(
@@ -330,26 +330,27 @@ class LessonStoreTests(unittest.TestCase):
                 self.assertEqual(1, len(hooks))
                 self.assertFalse(hooks[0]["required"])
 
-    def test_the_reflection_exemption_is_earned_by_the_bounds_that_justify_it(self) -> None:
-        """The exemption above is defensible only while the route stays narrow.
+    def test_small_change_reflection_exemption_keeps_its_strict_bounds(self) -> None:
+        route = resolve_docs("small-change", None, [], request_classified=True)
+        self.assertNotIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
+        self.assertEqual(["tests", "review hook"], route["gates"])
+        for concern in ("auth", "api", "security", "architecture", "deployment"):
+            self.assertTrue(resolve_docs("small-change", None, [concern])["blocking"])
 
-        Written as one test so removing a bound fails here rather than quietly
-        widening what may skip reflection.
-        """
-
-        for command in sorted(self.REFLECTION_EXEMPT_COMMANDS):
+    def test_scope_change_routes_replace_reflection_with_final_validation(self) -> None:
+        for command in sorted(SCOPE_CHANGE_LIFECYCLE_COMMANDS):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
                 self.assertNotIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
-                # It keeps the checks that catch a bad change in the moment.
                 self.assertIn("tests", route["gates"])
-                self.assertIn("review hook", route["gates"])
-                # And it refuses the concerns whose lessons are worth keeping.
-                for concern in ("auth", "api", "security", "architecture", "deployment"):
-                    self.assertTrue(
-                        resolve_docs(command, None, [concern])["blocking"],
-                        f"{command} must escalate on {concern} to earn its exemption",
-                    )
+                self.assertEqual(
+                    command != "test",
+                    "review hook" in route["gates"],
+                )
+                self.assertEqual(
+                    "on_material_change",
+                    route["scope_change_policy"]["mode"],
+                )
 
 
 if __name__ == "__main__":

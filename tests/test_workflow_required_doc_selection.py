@@ -321,7 +321,12 @@ class RequiredDocMembershipTests(unittest.TestCase):
                     reachable = resolve_guidance_docs(
                         ROOT, [*route["reference_docs"], *route["required_docs"]]
                     )
-                    self.assertIn(detail, reachable)
+                    if command == "task" and detail.startswith(
+                        "common/skills/task-intake-effort-routing/"
+                    ):
+                        self.assertNotIn(detail, reachable)
+                    else:
+                        self.assertIn(detail, reachable)
 
     def test_focused_routes_still_require_explicit_risk_guidance(self) -> None:
         from workflow_route import _named_concern_docs
@@ -542,9 +547,9 @@ class RequiredDocMembershipTests(unittest.TestCase):
         self.assertIn("review hook", route["gates"])
         self.assertIn(REVIEW_AND_COMMIT_ENTRYPOINT, route["required_docs"])
 
-    def test_standard_code_routes_load_gate_details_on_demand(self) -> None:
-        """Common code routes must receive the concise gate contracts without
-        paying for the same broad Tao references before every GPT task."""
+    def test_standard_code_routes_load_only_final_gate_contracts(self) -> None:
+        """Compact code routes load the final review contract, while removed
+        intermediate gates no longer pull their documents into every task."""
 
         for command in ("task", "feature", "bugfix", "refactor"):
             with self.subTest(command=command):
@@ -554,15 +559,15 @@ class RequiredDocMembershipTests(unittest.TestCase):
 
                 self.assertIn(OPERATING_SKILL, required)
                 self.assertIn(REVIEW_AND_COMMIT_ENTRYPOINT, required)
-                self.assertIn(MULTI_AGENT_ENTRYPOINT, required)
-                self.assertIn(SOURCE_DRIVEN_REFERENCE, required)
+                self.assertNotIn(MULTI_AGENT_ENTRYPOINT, required)
+                self.assertNotIn(SOURCE_DRIVEN_REFERENCE, required)
                 self.assertNotIn("AGENTS.md", required)
                 self.assertNotIn(REVIEW_AND_COMMIT_REFERENCE, required)
                 self.assertNotIn(MULTI_AGENT_REFERENCE, required)
                 self.assertNotIn("AGENTS.md", references)
                 self.assertNotIn("index.md", references)
                 self.assertIn(REVIEW_AND_COMMIT_REFERENCE, references)
-                self.assertIn(MULTI_AGENT_REFERENCE, references)
+                self.assertNotIn(MULTI_AGENT_REFERENCE, references)
 
                 required_bytes = sum(doc_size(ROOT, doc) for doc in required)
                 self.assertLessEqual(required_bytes, 40_000)
