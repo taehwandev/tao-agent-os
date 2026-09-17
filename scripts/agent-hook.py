@@ -341,7 +341,9 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     if docs:
         reuse = {"reused": [], "unread": list(docs)}
         if _isolated_run_preflight(path, payload):
-            reuse = required_doc_reuse(path)
+            candidate = required_doc_reuse(path)
+            if candidate["reused"] or candidate["unread"]:
+                reuse = candidate
         if reuse["reused"]:
             lines.append(
                 "Already loaded from completed same-session evidence "

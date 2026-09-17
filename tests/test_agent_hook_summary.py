@@ -189,6 +189,30 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("source.py", summary)
         self.assertIn("Do not search, reopen, or manually review", summary)
 
+    def test_commit_summary_keeps_required_docs_when_reuse_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / ("a" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text(json.dumps({
+                "project": str(project),
+                "rules": str(project),
+                "route": {
+                    "command": "commit",
+                    "required_docs": ["first.md", "second.md"],
+                },
+            }), encoding="utf-8")
+            with patch.object(
+                agent_hook,
+                "required_doc_reuse",
+                return_value={"reused": [], "unread": []},
+            ):
+                summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+
+        self.assertIn("Read first (2 required docs)", summary)
+        self.assertIn("first.md", summary)
+        self.assertIn("second.md", summary)
+
     def test_scope_change_route_skips_intermediate_gate_instructions(self) -> None:
         payload = {
             "route": {
