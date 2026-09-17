@@ -187,6 +187,13 @@ def _append_request_match(
             "platforms": string_list(rule.get("platforms")),
             "reason": str(rule.get("reason") or ""),
             "required_priority": _required_priority(rule),
+            # A command-only rule keeps its documents discoverable but does
+            # not prove that every invocation needs the full bundle up front.
+            # Request patterns are direct evidence for this specific intake.
+            "request_specific": bool(
+                string_list(rule.get("request_any"))
+                or rule.get("request_all")
+            ),
             "narrows": string_list(rule.get("narrows")),
             # Carried for the same reason a path rule carries it. Reading the
             # flag only there made it a silent no-op on a request rule: the

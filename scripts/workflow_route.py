@@ -53,6 +53,7 @@ from support.stage_timing import stage
 
 
 OPERATING_SKILL = "common/skills/agent-operating-skill/SKILL.md"
+FINAL_TEST_CONTRACT = "common/skills/testing/references/final-check.md"
 REVIEW_AND_COMMIT_ENTRYPOINT = "workflows/skills/review-and-commit/SKILL.md"
 REVIEW_AND_COMMIT_REFERENCE = (
     "workflows/skills/review-and-commit/references/current-guidance.md"
@@ -271,6 +272,18 @@ def _resolve_documents(
         # that narrows a broader one carries that priority precisely so it can
         # stand in the broader rule's place.
         eligible_surface_docs = required_surface_docs(surface_matches)
+        scope_change_surface_docs = unique([
+            str(doc)
+            for match in surface_matches
+            if match.get("required_eligible")
+            and (
+                match.get("type") == "path_surface"
+                or match.get("request_specific")
+                or match.get("required_priority", 0)
+                or match.get("independent_change")
+            )
+            for doc in match.get("docs", [])
+        ])
         owner_surface_docs = unique([
             str(doc)
             for match in surface_matches
@@ -284,7 +297,15 @@ def _resolve_documents(
         # wider discovery candidates.
         reference_surface_docs = owner_surface_docs or surface_docs
         selected_sources = route_required_docs(
-            command, platform, selection_concerns, profile.docs, eligible_surface_docs,
+            command,
+            platform,
+            selection_concerns,
+            profile.docs,
+            (
+                scope_change_surface_docs
+                if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS
+                else eligible_surface_docs
+            ),
             owner_surface_docs=owner_surface_docs,
         )
         # Withholding gate documents frees budget that lower tiers would refill,
@@ -985,7 +1006,11 @@ def _route_required_docs(
         return unique([*_unbudgeted_required_docs(platform, concerns, set(), advisory=True),
                        *resolve_guidance_docs(ROOT, surface_docs or [])])
     compact = _compact_required_docs(
-        command, platform, concerns, owner_surface_docs=owner_surface_docs
+        command,
+        platform,
+        concerns,
+        surface_docs=surface_docs,
+        owner_surface_docs=owner_surface_docs,
     )
     if compact is not None:
         # A compact set is the command's whole reading contract, already small;
@@ -1054,11 +1079,70 @@ def _route_required_docs(
     return selected
 
 
+def _scope_change_required_docs(
+    command: str,
+    platform: Optional[str],
+    concerns: list[str],
+    surface_docs: list[str] | None,
+    owner_surface_docs: list[str] | None,
+) -> list[str]:
+    """Build the compact first-read contract for ordinary code work."""
+
+    if command in {"task", "workflow-setup"}:
+        command_docs = ["workflows/skills/agent-task-lifecycle/SKILL.md"]
+    elif command == "test":
+        command_docs = []
+    elif command in {"refactor", "code-simplify"}:
+        command_docs = resolve_guidance_docs(
+            ROOT, ["workflows/skills/refactor-cleanup/SKILL.md"]
+        )
+    else:
+        command_docs = resolve_guidance_docs(
+            ROOT,
+            [
+                canonical_doc_path(doc)
+                for doc in COMMAND_REQUIRED_DOCS.get(command, ())
+            ],
+        )
+    owner_docs = resolve_guidance_docs(
+        ROOT,
+        [canonical_doc_path(doc) for doc in (owner_surface_docs or [])],
+    )
+    explicit_surface_docs = resolve_guidance_docs(
+        ROOT,
+        [canonical_doc_path(doc) for doc in (surface_docs or [])],
+    )
+    platform_docs = (
+        []
+        if not platform or concerns or owner_docs or explicit_surface_docs
+        else resolve_guidance_docs(ROOT, PLATFORMS[platform])
+    )
+    ambiguity_docs = (
+        ["workflows/skills/ambiguity-gate/SKILL.md"]
+        if command in COMPACT_AMBIGUITY_COMMANDS
+        or command in FOCUSED_READING_COMMANDS
+        else []
+    )
+    review_docs = [] if command == "test" else [REVIEW_AND_COMMIT_ENTRYPOINT]
+    return unique([
+        OPERATING_SKILL,
+        *command_docs,
+        FINAL_TEST_CONTRACT,
+        *review_docs,
+        *ambiguity_docs,
+        *_named_concern_docs(platform, concerns),
+        *explicit_surface_docs,
+        *owner_docs,
+        *platform_docs,
+    ])
+
+
 def _compact_required_docs(
     command: str,
     platform: Optional[str],
     concerns: list[str],
     *,
+    surface_docs: list[str] | None = None,
     owner_surface_docs: list[str] | None = None,
 ) -> list[str] | None:
     """The routes whose required set is compact, or None for the full policy."""
@@ -1069,6 +1153,20 @@ def _compact_required_docs(
     # already-loaded root instructions.
     if command == "analysis":
         return [OPERATING_SKILL]
+
+    if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+        # Ordinary code work validates one final result. Keep the compact test
+        # and review contracts in front of the agent, then load exactly one
+        # command procedure for the work being done. Detailed testing, review,
+        # structure and recovery cards remain routed as references until an
+        # explicit concern, verified owner surface, or failure needs them.
+        return _scope_change_required_docs(
+            command,
+            platform,
+            concerns,
+            surface_docs,
+            owner_surface_docs,
+        )
 
     # Cleanup exists only to remove Git state already absorbed by an integration
     # branch. Its branch-cleanup reference contains all ownership, protected-ref,

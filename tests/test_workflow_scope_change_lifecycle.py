@@ -12,6 +12,7 @@ if str(SCRIPTS) not in sys.path:
 
 
 from workflow_common import SCOPE_CHANGE_LIFECYCLE_COMMANDS
+from workflow_doc_resolution import doc_size
 from workflow_route import resolve_docs
 
 
@@ -50,6 +51,46 @@ class ScopeChangeLifecycleTests(unittest.TestCase):
                 ),
             },
             route["scope_change_policy"],
+        )
+
+    def test_normal_code_routes_use_compact_initial_reading(self) -> None:
+        total_bytes = 0
+        for command in sorted(SCOPE_CHANGE_LIFECYCLE_COMMANDS):
+            with self.subTest(command=command):
+                route = resolve_docs(command, None, [], request_classified=True)
+                required = route["required_docs"]
+
+                self.assertIn(
+                    "common/skills/testing/references/final-check.md", required
+                )
+                self.assertNotIn(
+                    "common/skills/testing/references/current-guidance.md",
+                    required,
+                )
+                self.assertNotIn(
+                    "common/skills/code-review/references/current-guidance.md",
+                    required,
+                )
+                if command == "test":
+                    self.assertNotIn(
+                        "workflows/skills/review-and-commit/SKILL.md", required
+                    )
+                else:
+                    self.assertIn(
+                        "workflows/skills/review-and-commit/SKILL.md", required
+                    )
+                total_bytes += sum(doc_size(ROOT, doc) for doc in required)
+
+        self.assertLess(total_bytes, 100_000)
+
+    def test_explicit_testing_concern_still_promotes_detailed_guidance(self) -> None:
+        route = resolve_docs(
+            "feature", None, ["testing"], request_classified=True
+        )
+
+        self.assertIn(
+            "common/skills/testing/references/current-guidance.md",
+            route["required_docs"],
         )
 
     def test_specialized_routes_keep_their_existing_gate_models(self) -> None:
