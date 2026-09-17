@@ -2032,6 +2032,13 @@ def decide(payload: dict) -> int:
         target_root = workflow_start_target_root(tokens, effective_cwd)
         if target_root is not None:
             reason = worktree_denial(target_root)
+            if reason and _requests_main_checkout_override(tokens):
+                return ask(
+                    "The workflow start explicitly requests the documented "
+                    "main-checkout exception. Defer it to the runtime's native "
+                    "permission review.",
+                    tokens=tokens,
+                )
             return deny(reason) if reason else allow()
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:

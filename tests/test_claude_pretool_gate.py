@@ -1646,6 +1646,28 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("worktree gate", _reason(out))
 
+    def test_explicit_main_override_can_start_the_workflow_in_main_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "s",
+                    "tool_input": {
+                        "command": (
+                            "TAO_ALLOW_MAIN_CHECKOUT_EDIT=1 "
+                            f"{gate.stable_launcher_path()} start --project {project}"
+                        )
+                    },
+                }
+            )
+
+        self.assertEqual(0, code)
+        decision = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual("ask", decision["permissionDecision"])
+
     def test_exact_runtime_launcher_start_is_allowed_in_linked_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
