@@ -29,6 +29,7 @@ LOCAL_AGENT_CONFIG_PATHS = frozenset(
         ".agents/local/graphify-out/manifest.json",
         ".claude/settings.json",
         ".claude/settings.local.json",
+        ".codex/config.toml",
         ".codex/hooks.json",
     }
 )

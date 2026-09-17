@@ -1101,6 +1101,12 @@ def _worktree_policy_verdict(
         and all(candidate == cwd_root for candidate in denying)
         and (cwd_root / ".git").is_dir()
     )
+    if standing_in_the_protected_checkout and _requests_main_checkout_override(tokens):
+        return ask(
+            "The command explicitly requests the documented main-checkout exception. "
+            "Defer that exceptional write to the runtime's native permission review.",
+            tokens=tokens,
+        )
     # Text the shell computes is text this gate cannot read, and a prompt
     # cannot describe what it would do. `eval $(echo rm -rf build)` parses
     # as a simple command line and says nothing about the command that
@@ -1163,6 +1169,18 @@ def _worktree_policy_verdict(
             command_cwd=command_cwd,
         )
     )
+
+
+def _requests_main_checkout_override(tokens: list[str]) -> bool:
+    """Recognize the exact documented override only in the assignment prefix."""
+
+    expected = f"{MAIN_CHECKOUT_OVERRIDE_ENV}=1"
+    for token in tokens:
+        if "=" not in token or token.startswith("-"):
+            return False
+        if token == expected:
+            return True
+    return False
 
 
 def _protected_path_named(

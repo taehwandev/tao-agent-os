@@ -1906,6 +1906,37 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
+    def test_main_checkout_override_prefix_defers_to_native_permission_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "session_id": "bash-prefix-override",
+                    "tool_input": {
+                        "command": "TAO_ALLOW_MAIN_CHECKOUT_EDIT=1 python3 mutate.py"
+                    },
+                }
+            )
+
+        self.assertEqual(0, code)
+        decision = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual("ask", decision["permissionDecision"])
+
+    def test_main_checkout_override_prefix_requires_the_exact_value_and_position(self) -> None:
+        self.assertFalse(
+            gate._requests_main_checkout_override(
+                ["TAO_ALLOW_MAIN_CHECKOUT_EDIT=0", "python3", "mutate.py"]
+            )
+        )
+        self.assertFalse(
+            gate._requests_main_checkout_override(
+                ["python3", "mutate.py", "TAO_ALLOW_MAIN_CHECKOUT_EDIT=1"]
+            )
+        )
+
     def test_edit_outside_tao_project_is_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             code, out = _decide(

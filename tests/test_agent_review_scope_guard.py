@@ -724,6 +724,23 @@ class ReviewScopeGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not allowlisted"):
                 ReviewAttestation.local_config_subject(project, ["secret.env"])
 
+    def test_local_config_subject_accepts_codex_config_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+            (project / ".gitignore").write_text(".codex/\n", encoding="utf-8")
+            config = project / ".codex/config.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text('model = "gpt-5.6-sol"\n', encoding="utf-8")
+
+            subject = ReviewAttestation.local_config_subject(
+                project,
+                [".codex/config.toml"],
+            )
+
+            self.assertEqual("local-config", subject["kind"])
+            self.assertEqual(".codex/config.toml", subject["files"][0]["path"])
+
     def test_local_config_subject_requires_an_ignored_regular_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
