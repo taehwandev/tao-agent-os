@@ -298,15 +298,24 @@ def allow() -> int:
 
 
 def _approve(reason: str) -> int:
-    """Skip a prompt for a command the worktree policy explicitly permits.
+    """Skip a prompt when the active runtime supports an explicit approval.
 
     A successful hook with no output is only a deferral. Claude may still ask
     about the Bash command, which turned the worktree policy into an Enter-only
     machine even after the gate itself stopped denying ordinary work. Emit the
-    actual ``allow`` decision only for a simple Git invocation whose remaining
-    effects have been classified below; arbitrary Bash keeps Claude's normal
-    permission flow.
+    actual ``allow`` decision there only for a simple Git invocation whose
+    remaining effects have been classified below; arbitrary Bash keeps its
+    normal permission flow.
+
+    Codex 0.154 rejects Claude's ``permissionDecision: allow`` value. A clean
+    exit with no output is Codex's successful deferral path, so emitting the
+    Claude value there turns an approved command into a hook error and may make
+    the agent retry or rediscover the workflow. Denials and review requests
+    keep their explicit decisions in both runtimes.
     """
+
+    if runtime_name() == "codex":
+        return allow()
 
     print(
         json.dumps(

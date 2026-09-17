@@ -3043,6 +3043,30 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
 
 
 class CodexRuntimePreToolGateTests(unittest.TestCase):
+    def test_codex_approval_defers_without_claude_allow_output(self) -> None:
+        """Codex rejects Claude's explicit ``allow`` decision value.
+
+        A successful hook with no output already means continue in Codex.  The
+        shared policy may still emit explicit denials and review requests, but
+        its fast path must defer instead of handing Codex a Claude-only value.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}
+        ):
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            code, out = _decide(
+                {
+                    "tool_name": "Bash",
+                    "cwd": str(project),
+                    "tool_input": {"command": "git fetch origin"},
+                }
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
     def test_codex_uses_codex_bound_run_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
             project = _opt_in_project(Path(tmp))
@@ -3228,7 +3252,7 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
                 code, out = self._decide(project, "git push origin work")
 
         self.assertEqual(0, code)
-        self.assertIn("a successful finish", _reason(out))
+        self.assertEqual("", out)
 
     def test_a_stale_finish_does_not_publish(self) -> None:
         """An abandoned session cannot come back days later on its old finish."""
