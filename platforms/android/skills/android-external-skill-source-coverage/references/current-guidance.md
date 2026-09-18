@@ -284,11 +284,11 @@ Repository: `https://github.com/skydoves/compose-performance-skills`
 
 Top-level source docs:
 
-- `README.md`
-- `INDEX.md`
-- `CONTRIBUTING.md`
-- `docs/SPEC.md`
-- `docs/CORPUS.md`
+- `<source-repo>/README.md`
+- `<source-repo>/INDEX.md`
+- `<source-repo>/CONTRIBUTING.md`
+- `<source-repo>/docs/SPEC.md`
+- `<source-repo>/docs/CORPUS.md`
 
 Skill and reference coverage:
 

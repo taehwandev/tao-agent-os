@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_review_doc_references import doc_reference_failures
 from agent_review_hook import documentation_reference_failures
+from agent_review_structure import changed_source_paths
 
 FRONTMATTER = "---\nkeyflow_id: sys_x\nstatus: stable\ntype: human-reviewed-needed\n---\n\n"
 
@@ -55,6 +57,16 @@ class DocReferenceCheckTests(unittest.TestCase):
 
         self.assertEqual(1, len(failures))
         self.assertIn("gone.md", failures[0])
+
+    def test_a_vendored_skill_is_not_held_to_this_repositorys_paths(self) -> None:
+        """Its example paths name the repository the skill is pointed at."""
+        changed = self.write(
+            ".tao/skills/graphify/references/extraction-spec.md",
+            "A node id looks like `docs/v1/api/README.md`.\n",
+            frontmatter=False,
+        )
+
+        self.assertEqual([], doc_reference_failures(self.project, [changed], []))
 
     def test_a_mention_is_not_a_reference(self) -> None:
         """Only repository-rooted paths are references; `...` is a pattern.
@@ -174,6 +186,15 @@ class DocReferenceCheckTests(unittest.TestCase):
         )
 
 
+def _tracked(*paths: str):
+    """Stand in for the hook's tracked Markdown discovery command."""
+
+    def run(command, project):  # noqa: ANN001 - mirrors CommandRunner
+        return {"returncode": 0, "stdout": "\0".join(paths)}
+
+    return run
+
+
 class HookPassesTheRightPathsTests(unittest.TestCase):
     """The adapter between the diff and the checker, which the rules never see.
 
@@ -208,7 +229,9 @@ class HookPassesTheRightPathsTests(unittest.TestCase):
                 FRONTMATTER + "See `common/skills/a/old.md`.\n", encoding="utf-8"
             )
 
-            failures = documentation_reference_failures(project, structure)
+            failures = documentation_reference_failures(
+                project, structure, _tracked("keeper.md")
+            )
 
         self.assertTrue(failures)
         self.assertTrue(
@@ -227,7 +250,9 @@ class HookPassesTheRightPathsTests(unittest.TestCase):
                 FRONTMATTER + "See `common/skills/a/old.md`.\n", encoding="utf-8"
             )
 
-            failures = documentation_reference_failures(project, structure)
+            failures = documentation_reference_failures(
+                project, structure, _tracked("keeper.md")
+            )
 
         self.assertTrue(failures)
 
@@ -251,10 +276,180 @@ class HookPassesTheRightPathsTests(unittest.TestCase):
                 FRONTMATTER + "See `common/skills/gone/SKILL.md`.\n", encoding="utf-8"
             )
 
-            failures = documentation_reference_failures(snapshot, structure)
+            failures = documentation_reference_failures(
+                snapshot, structure, _tracked()
+            )
 
         self.assertTrue(failures)
         self.assertTrue(any("gone/SKILL.md" in failure for failure in failures))
+
+    def test_generated_output_is_not_searched_for_references(self) -> None:
+        """A reference inside a regenerated artifact is not a break to fix.
+
+        Widening the scan to reach a top-level README also reached
+        `.agents/local/graphify-out/` and `graphify-out/`, which are gitignored
+        and rebuilt. Failing review on one would be a check that starts red.
+        """
+        structure = {
+            "discovery": {"path_metadata": {"common/a/old.md": {"status": "D"}}}
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "graphify-out").mkdir(parents=True)
+            (project / "graphify-out" / "GRAPH_REPORT.md").write_text(
+                FRONTMATTER + "See `common/a/old.md`.\n", encoding="utf-8"
+            )
+            (project / "keeper.md").write_text(
+                FRONTMATTER + "Unrelated.\n", encoding="utf-8"
+            )
+
+            failures = documentation_reference_failures(
+                project, structure, _tracked("keeper.md")
+            )
+
+        self.assertEqual([], failures)
+
+    def test_external_repository_does_not_require_tao_frontmatter(self) -> None:
+        structure = {
+            "discovery": {"path_metadata": {"README.md": {"status": "M"}}}
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "README.md").write_text("# Project\n", encoding="utf-8")
+
+            failures = documentation_reference_failures(
+                project, structure, _tracked("README.md")
+            )
+
+        self.assertEqual([], failures)
+
+    def test_external_repository_still_checks_broken_links(self) -> None:
+        structure = {
+            "discovery": {"path_metadata": {"README.md": {"status": "M"}}}
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "README.md").write_text("[missing](missing.md)\n", encoding="utf-8")
+
+            failures = documentation_reference_failures(
+                project, structure, _tracked("README.md")
+            )
+
+        self.assertTrue(any("missing.md" in failure for failure in failures))
+
+    def test_tao_repository_keeps_its_frontmatter_contract(self) -> None:
+        structure = {
+            "discovery": {"path_metadata": {"README.md": {"status": "M"}}}
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for marker in (
+                "index.md",
+                "scripts/workflow.py",
+                "common/skills/agent-operating-skill/SKILL.md",
+            ):
+                path = project / marker
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("marker\n", encoding="utf-8")
+            (project / "README.md").write_text("# Tao\n", encoding="utf-8")
+
+            failures = documentation_reference_failures(
+                project, structure, _tracked("README.md")
+            )
+
+        self.assertTrue(any("frontmatter" in failure for failure in failures))
+
+
+class RealRepositoryTests(unittest.TestCase):
+    """Drive the adapter through git, not through a constructed metadata dict.
+
+    The stubbed deletion test in this file passed while the check was blind to
+    deletions because it supplied deleted metadata by hand. These tests build a
+    real repository so the shared discovery must produce that metadata itself.
+    """
+
+    def setUp(self) -> None:
+        self.project = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.project, ignore_errors=True)
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+
+    def git(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", str(self.project), *args],
+            capture_output=True, text=True, check=False,
+        )
+
+    def run_command(self, command, project):  # noqa: ANN001 - mirrors CommandRunner
+        result = subprocess.run(
+            command, cwd=str(project), capture_output=True, text=True, check=False
+        )
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+
+    def write(self, relative: str, body: str) -> None:
+        path = self.project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(FRONTMATTER + body, encoding="utf-8")
+
+    def commit_initial(self) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", "initial")
+
+    def check(self) -> list[str]:
+        discovery, _checked = changed_source_paths(self.project, self.run_command)
+        return documentation_reference_failures(
+            self.project, {"discovery": discovery}, self.run_command
+        )
+
+    def test_deleting_a_tracked_document_is_discovered_from_git(self) -> None:
+        self.write("common/a/old.md", "# Old\n")
+        self.write("keeper.md", "See `common/a/old.md`.\n")
+        self.commit_initial()
+        self.git("rm", "-q", "common/a/old.md")
+
+        failures = self.check()
+
+        self.assertTrue(failures)
+        self.assertTrue(any("keeper.md still references" in f for f in failures))
+
+    def test_deleting_a_document_nobody_references_passes(self) -> None:
+        self.write("common/a/old.md", "# Old\n")
+        self.write("keeper.md", "Unrelated.\n")
+        self.commit_initial()
+        self.git("rm", "-q", "common/a/old.md")
+
+        self.assertEqual([], self.check())
+
+    def test_a_renamed_document_is_discovered_from_git(self) -> None:
+        self.write("common/a/old.md", "# Old\n")
+        self.write("keeper.md", "See `common/a/old.md`.\n")
+        self.commit_initial()
+        self.git("mv", "common/a/old.md", "common/a/new.md")
+
+        failures = self.check()
+
+        self.assertTrue(failures)
+        self.assertTrue(any("keeper.md still references" in f for f in failures))
+
+    def test_an_ignored_artifact_is_not_searched(self) -> None:
+        """A regenerated report holding a stale path is not a break to fix."""
+        self.write("common/a/old.md", "# Old\n")
+        self.write("keeper.md", "Unrelated.\n")
+        (self.project / ".gitignore").write_text("graphify-out/\n", encoding="utf-8")
+        self.write("graphify-out/GRAPH_REPORT.md", "See `common/a/old.md`.\n")
+        self.commit_initial()
+        self.git("rm", "-q", "common/a/old.md")
+
+        self.assertEqual([], self.check())
 
 
 if __name__ == "__main__":

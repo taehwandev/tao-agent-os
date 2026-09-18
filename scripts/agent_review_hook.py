@@ -46,6 +46,11 @@ FinishWithResult = Callable[..., int]
 
 
 BASE_DRIFT_CANDIDATE_REFS = ("origin/develop", "origin/main", "origin/master")
+TAO_FRONTMATTER_ROOT_MARKERS = (
+    "index.md",
+    "scripts/workflow.py",
+    "common/skills/agent-operating-skill/SKILL.md",
+)
 
 # Which review evidence the hook will demand, stated once so `start` can
 # advertise it up front. The requirement was only discoverable by failing the
@@ -353,7 +358,7 @@ def _run_review_checks(
     failures.extend(
         net_deletion_failures(structure, (args.side_effect_audit_evidence or "").strip())
     )
-    failures.extend(documentation_reference_failures(source_project, structure))
+    failures.extend(documentation_reference_failures(source_project, structure, run_command))
 
     if local_config_scope:
         diff_check = local_config_diff_check(args.project, review_paths)
@@ -1136,8 +1141,14 @@ def review_input_invocation_failure_details(
         )
     return details
 
+def _tao_frontmatter_contract(project: Path) -> bool:
+    """Whether this checkout owns Tao's card metadata convention."""
+
+    return all((project / marker).is_file() for marker in TAO_FRONTMATTER_ROOT_MARKERS)
+
+
 def documentation_reference_failures(
-    project: Path, structure: dict[str, Any]
+    project: Path, structure: dict[str, Any], run_command: CommandRunner
 ) -> list[str]:
     """Check the references in changed Markdown rather than asking about them.
 
@@ -1175,7 +1186,18 @@ def documentation_reference_failures(
     )
     if not changed and not removed:
         return []
-    return doc_reference_failures(project, changed, removed)
+    tracked = None
+    if removed:
+        listed = run_command(["git", "ls-files", "-z", "*.md"], project)
+        if listed.get("returncode") == 0:
+            tracked = [item for item in listed["stdout"].split("\0") if item]
+    return doc_reference_failures(
+        project,
+        changed,
+        removed,
+        tracked,
+        require_tao_frontmatter=_tao_frontmatter_contract(project),
+    )
 
 
 def net_deletion_failures(structure: dict[str, Any], side_effect_evidence: str) -> list[str]:

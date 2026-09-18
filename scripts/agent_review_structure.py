@@ -558,7 +558,7 @@ def collect_head_diff(
 ) -> None:
     pathspec = _pathspec_args(review_paths)
     status = run_command(
-        ["git", "diff", "--name-status", "-z", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
+        ["git", "diff", "--name-status", "-z", "--diff-filter=ACDMRTUXB", "HEAD", *pathspec],
         project,
     )
     commands["diff_name_status"] = status
@@ -572,7 +572,7 @@ def collect_head_diff(
         command_errors.append("git diff changed source discovery failed")
 
     numstat = run_command(
-        ["git", "diff", "--numstat", "-z", "--diff-filter=ACMRTUXB", "HEAD", *pathspec],
+        ["git", "diff", "--numstat", "-z", "--diff-filter=ACDMRTUXB", "HEAD", *pathspec],
         project,
     )
     commands["diff_numstat"] = numstat
