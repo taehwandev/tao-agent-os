@@ -604,6 +604,33 @@ def review_hook(
     )
 
 
+def _evidence_path_failures(
+    project: Path, supplied: tuple[tuple[str, str], ...]
+) -> list[str]:
+    """Refuse an evidence argument that names a file instead of holding the text.
+
+    These arguments are recorded as written and never opened, so a path passes
+    the non-empty check and puts a filename in the ledger where the account
+    should be. The reviewer reading that ledger later has nothing. Whitespace
+    is what separates the two cases: an account is prose, a path is one token.
+    """
+
+    failures: list[str] = []
+    for flag, value in supplied:
+        if not value or any(character.isspace() for character in value):
+            continue
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = project / candidate
+        if candidate.is_file():
+            failures.append(
+                f"{flag} takes the evidence itself, and {value} names a file. "
+                "The hook records this argument as written without opening it, "
+                "so whatever that file holds would never reach the ledger."
+            )
+    return failures
+
+
 def record_review_input_evidence(
     args: Any,
     checks: dict[str, Any],
@@ -626,6 +653,18 @@ def record_review_input_evidence(
         route_gates=route_gates,
     )
     failures.extend(review_outcome_failures(review_outcome))
+    failures.extend(
+        _evidence_path_failures(
+            Path(args.project),
+            (
+                ("--code-review-evidence", review_evidence),
+                ("--docs-freshness-evidence", docs_evidence),
+                ("--structure-review-evidence", structure_evidence),
+                ("--boundary-plan-evidence", boundary_evidence),
+                ("--side-effect-audit-evidence", side_effect_evidence),
+            ),
+        )
+    )
     if not review_evidence:
         failures.append("code review evidence is required")
     if not docs_evidence:

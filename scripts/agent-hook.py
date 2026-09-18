@@ -410,7 +410,10 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     if any(hook.get("hook") == "review" for hook in hooks):
         flags = required_review_evidence_flags(gates)
         lines.append("Review hook requires --review-outcome pass or findings, matching the actual review result.")
-        lines.append("Review hook requires evidence paths: " + " ".join(flags))
+        lines.append(
+            "Review hook requires the evidence itself, not a file path holding it: "
+            + " ".join(flags)
+        )
         lines.append(
             "Review hook conditionally requires --structure-review-evidence when changed "
             "development files exceed review-pressure or source-size limits."

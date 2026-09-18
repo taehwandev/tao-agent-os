@@ -1204,6 +1204,90 @@ class StructureReviewEvidenceInvocationTests(unittest.TestCase):
         self.assertFalse(review_input_invocation_failure(failures))
 
 
+class EvidenceArgumentHoldsTheAccountTests(unittest.TestCase):
+    """The argument is recorded as written, so a path silently loses the review.
+
+    A real run wrote its review to a file and passed the filename. The
+    non-empty check passed, the ledger stored the filename, and the review was
+    never read by anything.
+    """
+
+    def failures_for(self, project: Path, **evidence: str) -> list[str]:
+        from agent_review_hook import _evidence_path_failures
+
+        return _evidence_path_failures(project, tuple(evidence.items()))
+
+    def test_a_path_to_an_existing_file_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            written = project / "review.md"
+            written.write_text("# Review\n", encoding="utf-8")
+
+            failures = self.failures_for(
+                project, **{"--code-review-evidence": str(written)}
+            )
+
+        self.assertEqual(1, len(failures))
+        self.assertIn("names a file", failures[0])
+        self.assertIn("--code-review-evidence", failures[0])
+
+    def test_a_relative_path_is_refused_too(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "notes").mkdir()
+            (project / "notes" / "review.md").write_text("x\n", encoding="utf-8")
+
+            failures = self.failures_for(
+                project, **{"--docs-freshness-evidence": "notes/review.md"}
+            )
+
+        self.assertTrue(failures)
+
+    def test_an_ordinary_account_passes(self) -> None:
+        """Prose has whitespace, so it never reaches the path branch."""
+        with tempfile.TemporaryDirectory() as tmp:
+            failures = self.failures_for(
+                Path(tmp),
+                **{
+                    "--code-review-evidence": "Read the diff; the mapper now "
+                    "stores teamId and restores it.",
+                    "--docs-freshness-evidence": "No documented sentence changed.",
+                },
+            )
+
+        self.assertEqual([], failures)
+
+    def test_a_path_that_names_nothing_is_not_refused(self) -> None:
+        """Only a real file proves the mistake; a bare word is someone's shorthand."""
+        with tempfile.TemporaryDirectory() as tmp:
+            failures = self.failures_for(
+                Path(tmp), **{"--code-review-evidence": "unchanged"}
+            )
+
+        self.assertEqual([], failures)
+
+    def test_every_evidence_flag_is_covered(self) -> None:
+        """Structure and boundary evidence lose the same way code review does."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            written = project / "note.md"
+            written.write_text("x\n", encoding="utf-8")
+            supplied = {
+                flag: str(written)
+                for flag in (
+                    "--code-review-evidence",
+                    "--docs-freshness-evidence",
+                    "--structure-review-evidence",
+                    "--boundary-plan-evidence",
+                    "--side-effect-audit-evidence",
+                )
+            }
+
+            failures = self.failures_for(project, **supplied)
+
+        self.assertEqual(5, len(failures))
+
+
 class ContentLossIsReviewableTests(unittest.TestCase):
     """A large removal must be accounted for whatever file type it happened in.
 
