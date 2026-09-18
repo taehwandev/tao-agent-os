@@ -3137,6 +3137,58 @@ class CodexRuntimePreToolGateTests(unittest.TestCase):
         self.assertEqual("", out)
 
 
+class FreshnessWindowIsTheSameForBothRuntimesTests(unittest.TestCase):
+    """The variable name carries the runtime, so only one of them was set.
+
+    `TAO_CLAUDE_GATE_MAX_AGE_SECONDS` was set to a day by hand and
+    `TAO_CODEX_GATE_MAX_AGE_SECONDS` never was, so Codex ran on the default
+    while Claude ran on a day -- and raising the variable that got named would
+    have changed nothing for Codex.
+    """
+
+    def test_both_runtimes_read_the_same_default(self) -> None:
+        for runtime in ("claude", "codex"):
+            with self.subTest(runtime=runtime):
+                with patch.dict(
+                    os.environ, {"TAO_PRETOOL_RUNTIME": runtime}, clear=False
+                ):
+                    os.environ.pop("TAO_CLAUDE_GATE_MAX_AGE_SECONDS", None)
+                    os.environ.pop("TAO_CODEX_GATE_MAX_AGE_SECONDS", None)
+                    self.assertEqual(24 * 60 * 60, gate.max_age_seconds())
+
+    def test_each_runtime_still_sets_its_own(self) -> None:
+        """The per-runtime name stays, so one runtime cannot change the other."""
+
+        with patch.dict(
+            os.environ,
+            {
+                "TAO_PRETOOL_RUNTIME": "codex",
+                "TAO_CLAUDE_GATE_MAX_AGE_SECONDS": "60",
+                "TAO_CODEX_GATE_MAX_AGE_SECONDS": "120",
+            },
+            clear=False,
+        ):
+            self.assertEqual(120, gate.max_age_seconds())
+            self.assertEqual(
+                "TAO_CODEX_GATE_MAX_AGE_SECONDS",
+                gate.runtime_setting("_MAX_AGE_SECONDS"),
+            )
+
+    def test_a_runtime_without_its_own_value_is_not_given_the_others(self) -> None:
+        """Claude's day-long setting must not be what Codex is running on."""
+
+        with patch.dict(
+            os.environ,
+            {
+                "TAO_PRETOOL_RUNTIME": "codex",
+                "TAO_CLAUDE_GATE_MAX_AGE_SECONDS": "60",
+            },
+            clear=False,
+        ):
+            os.environ.pop("TAO_CODEX_GATE_MAX_AGE_SECONDS", None)
+            self.assertEqual(24 * 60 * 60, gate.max_age_seconds())
+
+
 class PublicationWaitsForFinishTests(unittest.TestCase):
     """An open run has closed no gate ledger and carries no review attestation.
 

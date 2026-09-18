@@ -223,7 +223,13 @@ EDIT_ACTIVITY_SUFFIX = ".edited"
 SESSION_PROJECT_DIR = "claude-session-projects"
 OPT_IN_FILES = ("AGENTS.md", "CLAUDE.md", "CODEX.md")
 OPT_IN_TOKEN = "tao"
-DEFAULT_MAX_AGE_SECONDS = 8 * 60 * 60
+# A day, because the window says how long workflow entry and a finished run
+# stay good, which does not depend on which runtime is typing. Eight hours left
+# Codex stale while Claude ran on the day-long value its own settings file set,
+# and the per-runtime variable name meant raising Claude's changed nothing
+# there. Either runtime can still narrow or widen it with
+# TAO_<RUNTIME>_GATE_MAX_AGE_SECONDS.
+DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60
 # New source files past this count in one session must be collapsed or justified.
 # Matches the review-time signal in
 # agent_review_structure.REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT. Only code source
