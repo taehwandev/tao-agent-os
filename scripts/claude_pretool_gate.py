@@ -280,13 +280,6 @@ def runtime_setting(name: str) -> str:
     return f"TAO_{runtime_name().upper()}_GATE{name}"
 
 
-def gate_disable_hint() -> str:
-    return (
-        f"Set {runtime_setting('')}=0 in the runtime environment to turn this "
-        "gate off for the session."
-    )
-
-
 def gate_enabled() -> bool:
     """Escape hatch for runtimes that cannot supply a session id."""
     return os.environ.get(runtime_setting(""), "").strip() != "0"
@@ -347,7 +340,7 @@ def deny(reason: str) -> int:
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": f"{reason} {gate_disable_hint()}",
+                    "permissionDecisionReason": reason,
                 }
             }
         )

@@ -332,10 +332,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
             _require_linked_worktree(linked, linked=True)
 
             cases = {
-                "chain, a pipeline": (main, "npm test | tail -4"),
-                "the shell computes part of this line": (main, "npm test $(ls tests)"),
-                "what this Git command does here": (main, "git commit -m wip"),
-                "a path this line names": (linked, f"python3 tool.py --project {main}"),
+                "chains, pipes, and multiline": (main, "npm test | tail -4"),
+                "expand substitutions, backquotes, and variables": (main, "npm test $(ls tests)"),
+                "Git command writes to the protected checkout": (main, "git commit -m wip"),
+                "protected path named": (linked, f"python3 tool.py --project {main}"),
             }
             for expected, (cwd, command) in cases.items():
                 with self.subTest(cause=expected):
@@ -370,8 +370,9 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         reason = _reason(out)
         self.assertIn("git worktree add", reason)
-        self.assertIn(worktree_gate.MAIN_CHECKOUT_OVERRIDE_ENV, reason)
-        self.assertLess(reason.index("The reason is"), reason.index("Create or select"))
+        self.assertNotIn(worktree_gate.MAIN_CHECKOUT_OVERRIDE_ENV, reason)
+        self.assertLess(reason.index("Cause:"), reason.index("Next:"))
+        self.assertLess(len(reason), 400)
 
     def test_an_unnamed_cause_still_produces_the_refusal(self) -> None:
         """A cause it cannot name must never turn a denial into an allow."""
@@ -382,20 +383,12 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
             reason = worktree_gate.worktree_deny_reason(main, "main", "no such cause")
 
-        self.assertIn("cannot run a mutating tool", reason)
-        self.assertIn("Create or select", reason)
-        self.assertNotIn("The reason is", reason)
+        self.assertIn("worktree gate", reason)
+        self.assertIn("Next:", reason)
+        self.assertNotIn("Cause:", reason)
 
-    def test_the_worktree_denial_names_the_command_that_answers_it(self) -> None:
-        """Naming the remedy without its shape sent readers to a human.
-
-        The message said to create a worktree and stopped there. A chained
-        spelling -- `mkdir -p <dir> && git worktree add ...` -- is a mutation
-        here and earns this same refusal, so an agent that reached for the
-        obvious form read the denial twice and then asked its operator to run
-        the command by hand. The one spelling that works has to be in the text
-        that refuses the other ones.
-        """
+    def test_the_worktree_denial_is_concise_and_actionable(self) -> None:
+        """A frequent refusal keeps the executable remedy without the essay."""
 
         with tempfile.TemporaryDirectory() as tmp:
             main = _opt_in_project(Path(tmp))
@@ -403,8 +396,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
             reason = worktree_gate.worktree_deny_reason(main, "main")
 
         self.assertIn("git worktree add", reason)
-        self.assertIn("makes the missing parent directories itself", reason)
-        self.assertIn("`mkdir` ahead of it", reason)
+        self.assertIn("run alone", reason)
+        self.assertNotIn("missing parent directories", reason)
+        self.assertNotIn("`mkdir`", reason)
+        self.assertLess(len(reason), 400)
 
     def test_a_linked_worktree_may_edit_without_workflow_evidence(self) -> None:
         """The worktree is the isolation, so it is the thing worth requiring.
@@ -1978,7 +1973,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(STOP_DECISION, decision["permissionDecision"])
         self.assertIn("start hook", decision["permissionDecisionReason"])
         self.assertNotIn("Approve to proceed", decision["permissionDecisionReason"])
-        self.assertIn("TAO_CLAUDE_GATE=0", decision["permissionDecisionReason"])
+        self.assertNotIn("TAO_CLAUDE_GATE=0", decision["permissionDecisionReason"])
         # An edit is what this reader did, so it is what the message names.
         # Asserted as the whole sentence: a fragment check passed while the
         # sentence around it read "this project in this project".

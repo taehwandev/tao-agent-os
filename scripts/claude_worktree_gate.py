@@ -232,25 +232,15 @@ AUTHORING_GIT = "authoring_git"
 
 DENIAL_CAUSES = {
     UNREADABLE_SYNTAX: (
-        "The reason is this line's shape, not what it would do: it is a chain, a "
-        "pipeline, or spans more than one line, so the gate cannot read which "
-        "command runs here. A single command on one line is read on its own terms. "
+        "Cause: use one literal command; chains, pipes, and multiline input are "
+        "not accepted. "
     ),
     COMPUTED_TEXT: (
-        "The reason is that the shell computes part of this line -- a substitution, "
-        "a backquote, or a variable -- so its text does not say what will run, and "
-        "no reading of it can. Spell the value out. "
+        "Cause: expand substitutions, backquotes, and variables before running "
+        "the command. "
     ),
-    NAMED_TARGET: (
-        "The reason is a path this line names, not where it runs: the target is "
-        "inside the protected checkout, so running from a worktree does not move "
-        "the write out of it. "
-    ),
-    AUTHORING_GIT: (
-        "The reason is what this Git command does here: it writes new content "
-        "into this working tree, or reaches a path in it through an option, "
-        "which is the one thing the protected checkout is protected from. "
-    ),
+    NAMED_TARGET: "Cause: the command names a protected-checkout path. ",
+    AUTHORING_GIT: "Cause: this Git command writes to the protected checkout. ",
 }
 
 # A path is read wherever it is written, including inside a larger token, because
@@ -261,14 +251,7 @@ DENIAL_CAUSES = {
 # were the problem. Saying which path was found is the difference: three times in
 # one session the wrong operand was blamed, twice by the agent maintaining this
 # file, because the sentence above names no path at all.
-NAMED_TARGET_PATH = (
-    "The reason is a path this line names, not where it runs: `{named}` is inside "
-    "the protected checkout, so running from a worktree does not move the write "
-    "out of it. That path is read as a target wherever it appears, including "
-    "inside a larger token such as a `sed` expression or an argument handed to a "
-    "script, because a path named anywhere in a mutating line can be written by "
-    "it. "
-)
+NAMED_TARGET_PATH = "Cause: protected path named: `{named}`. "
 
 
 def named_target_cause(named: str = "") -> str:
@@ -289,18 +272,10 @@ def worktree_deny_reason(
         else DENIAL_CAUSES.get(cause, "")
     )
     return (
-        f"Tao Agent OS worktree gate: {location} cannot run a mutating tool in {root}. "
+        f"Tao worktree gate: write blocked in {location}: {root}. "
         f"{explanation}"
-        "Create or select the task's dedicated linked worktree, make that path the project root, "
-        "run the workflow start hook again there, and retry. The hook does not create a worktree "
-        "because branch, base, ticket, and local-file copy decisions belong to the repository workflow. "
-        "Creating one needs no exception and no operator: a lone `git worktree add <path> -b <branch> "
-        "<base>` is a bootstrap command this gate allows from here, and it makes the missing parent "
-        "directories itself. It has to stand alone on one readable line -- a `mkdir` ahead of it, a "
-        "substitution inside it, or a line continuation makes the whole line a mutation here and earns "
-        "this same denial, which is what sends a reader looking for an operator to run it. Everything "
-        "after it belongs in the new worktree, as `cd <worktree> && <command>`. "
-        f"Set {MAIN_CHECKOUT_OVERRIDE_ENV}=1 only for a user-approved exception."
+        "Next: use the task worktree and restart the workflow. If needed, run "
+        "alone: `git worktree add <path> -b <branch> <base>`."
     )
 
 
