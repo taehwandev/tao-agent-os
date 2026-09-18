@@ -19,6 +19,7 @@ from agent_review_boundary import format_boundary_note_requirements, missing_bou
 from agent_review_attestation import ReviewAttestation
 from agent_review_reuse import ReviewReuse
 from agent_review_commit_range import create_commit_snapshot, resolve_commit_range_subject
+from agent_review_doc_references import doc_reference_failures
 from agent_review_structure import REVIEW_ADDED_LINE_LIMIT, structure_review
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_review_subjects import (  # noqa: F401
@@ -352,6 +353,7 @@ def _run_review_checks(
     failures.extend(
         net_deletion_failures(structure, (args.side_effect_audit_evidence or "").strip())
     )
+    failures.extend(documentation_reference_failures(args.project, structure))
 
     if local_config_scope:
         diff_check = local_config_diff_check(args.project, review_paths)
@@ -1134,6 +1136,33 @@ def review_input_invocation_failure_details(
         )
     return details
 
+def documentation_reference_failures(
+    project: Path, structure: dict[str, Any]
+) -> list[str]:
+    """Check the references in changed Markdown rather than asking about them.
+
+    The docs route used to carry a `link/path check` gate whose evidence was the
+    agent stating that the links resolved. Nothing could refuse that sentence,
+    and the failure it named -- a document moves and the references to it stay
+    behind -- is not visible from the moved file at all. The diff is.
+    """
+
+    metadata = structure.get("discovery", {}).get("path_metadata") or {}
+    changed = sorted(
+        path
+        for path, item in metadata.items()
+        if path.endswith(".md") and (item or {}).get("status") != "D"
+    )
+    removed = sorted(
+        path
+        for path, item in metadata.items()
+        if path.endswith(".md") and (item or {}).get("status") == "D"
+    )
+    if not changed and not removed:
+        return []
+    return doc_reference_failures(project, changed, removed)
+
+
 def net_deletion_failures(structure: dict[str, Any], side_effect_evidence: str) -> list[str]:
     """Require the side-effect audit to name every large net removal in the diff.
 
@@ -1393,6 +1422,7 @@ def review_success_details(
         "review scope guard passed",
         "review hook left worktree unchanged",
         "diff whitespace check passed",
+        "documentation reference check passed",
         "workflow validation passed",
         _vibeguard_success_detail(vibeguard_overall, accepted_vibeguard_reason),
         "next required checkpoint: record every remaining route gate and run finish "
