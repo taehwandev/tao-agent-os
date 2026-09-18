@@ -353,7 +353,7 @@ def _run_review_checks(
     failures.extend(
         net_deletion_failures(structure, (args.side_effect_audit_evidence or "").strip())
     )
-    failures.extend(documentation_reference_failures(args.project, structure))
+    failures.extend(documentation_reference_failures(source_project, structure))
 
     if local_config_scope:
         diff_check = local_config_diff_check(args.project, review_paths)
@@ -1145,6 +1145,14 @@ def documentation_reference_failures(
     agent stating that the links resolved. Nothing could refuse that sentence,
     and the failure it named -- a document moves and the references to it stay
     behind -- is not visible from the moved file at all. The diff is.
+
+    ``project`` is the checkout under review, which for a commit range is the
+    snapshot rather than the working tree: reading the current files would pass
+    or fail on documents the review is not about.
+
+    A rename is a removal to every document that still points at the old name,
+    so ``previous_path`` joins the deleted paths. Reading status ``D`` alone
+    missed the most common way a document moves.
     """
 
     metadata = structure.get("discovery", {}).get("path_metadata") or {}
@@ -1154,9 +1162,16 @@ def documentation_reference_failures(
         if path.endswith(".md") and (item or {}).get("status") != "D"
     )
     removed = sorted(
-        path
-        for path, item in metadata.items()
-        if path.endswith(".md") and (item or {}).get("status") == "D"
+        {
+            path
+            for path, item in metadata.items()
+            if path.endswith(".md") and (item or {}).get("status") == "D"
+        }
+        | {
+            str((item or {}).get("previous_path") or "")
+            for item in metadata.values()
+            if str((item or {}).get("previous_path") or "").endswith(".md")
+        }
     )
     if not changed and not removed:
         return []
