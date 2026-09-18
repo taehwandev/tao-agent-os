@@ -55,6 +55,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         prefer_git_root,
     )
     from claude_bash_git import git_subcommand, names_unsafe_git_option
+    from claude_bash_readonly import strip_env_assignments
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -148,6 +149,11 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     NAMED_TARGET = "named_target"
     AUTHORING_GIT = "authoring_git"
     UNREADABLE_SYNTAX = "unreadable_syntax"
+
+    def strip_env_assignments(tokens: list[str]) -> "list[str] | None":
+        # A broken install reads no assignment prefix, which leaves the bare
+        # spelling judged exactly as before rather than inventing a verdict.
+        return tokens
 
     def git_subcommand(tokens: list[str]) -> tuple[str | None, list[str]]:
         # A broken install is not a policy violation, and the stubs around this
@@ -616,6 +622,18 @@ def finished_session_evidence(root: Path, session_id: str) -> Path | None:
 PUBLICATION_LEAVES_THIS_MACHINE = frozenset({"push", "tag"})
 
 
+def publication_before_finish_reason(root: Path) -> str:
+    """Said from both places that can answer a publishing command."""
+
+    return (
+        f"Tao lifecycle: this session's run in {root} is still open, so no gate "
+        "ledger is closed and no review attestation covers what this would "
+        "publish. Next: record the route's remaining gates, run the review "
+        "hook, then run finish. The publish is authorized once that finish "
+        "succeeds."
+    )
+
+
 def publishes_before_finish(tokens: list[str]) -> bool:
     """Whether this sends work outward while its run is still open.
 
@@ -626,10 +644,35 @@ def publishes_before_finish(tokens: list[str]) -> bool:
     request opened from it, is what other people start acting on.
     """
 
-    if not tokens or Path(tokens[0]).name != "git":
+    command = _command_behind_environment(tokens)
+    if not command or Path(command[0]).name != "git":
         return False
-    subcommand, _arguments = git_subcommand(tokens)
+    subcommand, _arguments = git_subcommand(command)
     return subcommand in PUBLICATION_LEAVES_THIS_MACHINE
+
+
+def _command_behind_environment(tokens: list[str]) -> list[str]:
+    """The command an assignment prefix or `env` runs, or nothing readable.
+
+    A shell runs `GIT_CONFIG_NOSYSTEM=1 git push` and `git push` identically,
+    and reading the first token called the first one something other than git.
+    `strip_env_assignments` answers None for an assignment that could change
+    what the program does, and that is not a command this may classify.
+
+    `env` states the same thing as a program. Its options do not: `-i`, `-u`
+    and `-S` change what runs, so an `env` carrying one is left unread.
+    """
+
+    command = strip_env_assignments(tokens) if tokens else None
+    if not command:
+        return []
+    if Path(command[0]).name != "env":
+        return command
+    rest = command[1:]
+    if not rest or rest[0].startswith("-"):
+        return []
+    behind = strip_env_assignments(rest)
+    return behind or []
 
 
 def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> bool:
@@ -978,13 +1021,7 @@ def _isolated_checkout_verdict(
                 and syntax_is_simple
                 and publishes_before_finish(tokens or [])
             ):
-                return deny(
-                    f"Tao lifecycle: this session's run in {governed} is still open, "
-                    "so no gate ledger is closed and no review attestation covers "
-                    "what this would publish. Next: record the route's remaining "
-                    "gates, run the review hook, then run finish. The publish is "
-                    "authorized once that finish succeeds."
-                )
+                return deny(publication_before_finish_reason(governed))
             continue
         if (
             tool in BASH_TOOLS
@@ -1166,6 +1203,23 @@ def _worktree_policy_verdict(
                     cwd_roots,
                 )
             )
+    # The routine tier answers for the checkout, and publishing asks a second
+    # question it never asked: whether anything has attested the work. Reaching
+    # here with an open run means no gate ledger is closed, exactly as in the
+    # isolated-checkout branch, which never saw this command because this
+    # function returns first.
+    if landing in {"allow", "defer", "ask"} and publishes_before_finish(tokens):
+        session_id = str(payload.get("session_id") or "")
+        open_run = next(
+            (
+                candidate
+                for candidate in (roots or [root])
+                if workflow_entry_allows(candidate, session_id)
+            ),
+            None,
+        )
+        if open_run is not None:
+            return deny(publication_before_finish_reason(open_run))
     if landing == "allow":
         return _approve(
             "This authors nothing in the protected checkout: it moves or "

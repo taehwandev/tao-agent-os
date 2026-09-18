@@ -3220,6 +3220,38 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
                     _code, out = self._decide(project, command)
                     self.assertNotIn("still open", out)
 
+    def test_an_environment_prefix_does_not_hide_the_push(self) -> None:
+        """A shell runs these exactly as it runs the bare spelling.
+
+        The hold read the first token, so an assignment in front of `git` made
+        the command something else entirely and it went through.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            for command in (
+                "env git push origin work",
+                "env TZ=UTC git tag v3",
+                "NO_COLOR=1 git push origin work",
+                "/usr/bin/git push origin work",
+            ):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertIn("still open", _reason(out), command)
+
+    def test_an_env_option_is_not_read_through(self) -> None:
+        """`env -i` and friends change what runs; this cannot summarize that.
+
+        Leaving it unread keeps it out of the publication allowance rather than
+        guessing a subcommand for it.
+        """
+        from claude_pretool_gate import publishes_before_finish
+
+        self.assertFalse(publishes_before_finish(["env", "-i", "git", "push"]))
+        self.assertFalse(publishes_before_finish(["LD_PRELOAD=x", "git", "push"]))
+
     def test_finishing_the_run_releases_the_push(self) -> None:
         """The refusal names a step, and taking that step has to be enough."""
 
