@@ -973,7 +973,13 @@ def structure_evidence_failures(structure: dict[str, Any], structure_evidence: s
         warning_summary = "; ".join(structure["warnings"][:5])
         if len(structure["warnings"]) > 5:
             warning_summary += "; ..."
-        failures.append(f"structure review evidence is required: {warning_summary}")
+        failures.append(
+            f"structure review evidence is required: {warning_summary}. "
+            "Pass --structure-review-evidence stating, for each file listed, "
+            "whether the addition expands that file's public owner surface and "
+            "why the code stays where it is; it holds that account itself, not "
+            "a path to a file holding it."
+        )
     failures.extend(raised_addition_limit_failures(structure, structure_evidence))
     boundary_requirements = structure.get("boundary_note_requirements", [])
     missing_fields = missing_boundary_note_fields(structure_evidence) if boundary_requirements else []

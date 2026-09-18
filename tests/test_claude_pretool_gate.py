@@ -3137,6 +3137,108 @@ class CodexRuntimePreToolGateTests(unittest.TestCase):
         self.assertEqual("", out)
 
 
+class PublicationWaitsForFinishTests(unittest.TestCase):
+    """An open run has closed no gate ledger and carries no review attestation.
+
+    The review hook printed "record every remaining route gate and run finish
+    before commit, push, release, or handoff" and nothing enforced it, so a
+    route published first and closed its gates afterwards.
+    """
+
+    SESSION = "open-run-session"
+
+    def _open_project(self, base: Path) -> Path:
+        project = _opt_in_project(base)
+        _write_preflight(project, self.SESSION)
+        _require_linked_worktree(project, linked=True)
+        policy = project / gate.WORKTREE_POLICY_PATH
+        declared = json.loads(policy.read_text(encoding="utf-8"))
+        declared["require_workflow_entry"] = True
+        policy.write_text(json.dumps(declared), encoding="utf-8")
+        return project
+
+    def _decide(self, project: Path, command: str) -> tuple[int, str]:
+        return _decide(
+            {
+                "tool_name": "Bash",
+                "cwd": str(project),
+                "session_id": self.SESSION,
+                "tool_input": {"command": command},
+            }
+        )
+
+    def test_the_run_is_open(self) -> None:
+        """The premise: workflow entry passes, which is why push used to."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            self.assertTrue(gate.workflow_entry_allows(project, self.SESSION))
+            self.assertIsNone(gate.finished_session_evidence(project, self.SESSION))
+
+    def test_pushing_before_finish_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+            code, out = self._decide(project, "git push origin work")
+
+        self.assertEqual(0, code)
+        reason = _reason(out)
+        self.assertIn("still open", reason)
+        self.assertIn("finish", reason)
+
+    def test_tagging_before_finish_is_refused(self) -> None:
+        """A tag is published the same way a branch is."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+            code, out = self._decide(project, "git tag v2")
+
+        self.assertEqual(0, code)
+        self.assertIn("still open", _reason(out))
+
+    def test_a_local_commit_is_left_alone(self) -> None:
+        """It can be amended or reset, and a task commits while it works.
+
+        Widening this to the local steps would refuse ordinary mid-task work
+        for a risk that only exists once the work leaves the machine.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            for command in ("git add -u", "git commit -m subject"):
+                with self.subTest(command=command):
+                    _code, out = self._decide(project, command)
+                    self.assertNotIn("still open", out)
+
+    def test_reading_is_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            for command in ("git status --short", "git log --oneline -3"):
+                with self.subTest(command=command):
+                    _code, out = self._decide(project, command)
+                    self.assertNotIn("still open", out)
+
+    def test_finishing_the_run_releases_the_push(self) -> None:
+        """The refusal names a step, and taking that step has to be enough."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+            refused = _reason(self._decide(project, "git push origin work")[1])
+
+            evidence = resolve_runtime_evidence(
+                project, {"runtime": "claude", "session_id": self.SESSION}
+            )
+            assert evidence is not None
+            transition_run(project, evidence, "completed")
+            code, out = self._decide(project, "git push origin work")
+
+        self.assertIn("still open", refused)
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
+
+
 class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
     """The lifecycle orders finish before commit, and finish settles the run.
 

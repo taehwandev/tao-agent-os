@@ -1174,6 +1174,35 @@ class StructureReviewEvidenceInvocationTests(unittest.TestCase):
         self.assertIn("no lifecycle checkpoint failed", details[-1])
         self.assertNotIn("repair-verify", " ".join(details))
 
+    def test_the_refusal_names_what_the_evidence_must_state(self) -> None:
+        """Naming the files it wants evidence about did not say what to write.
+
+        The boundary-note refusal lists its five fields and shows an example;
+        this one listed the files and stopped, so the shape was discoverable
+        only by reading this module -- which an agent did, opening it and
+        searching for `missing_boundary_note_fields` to find out.
+        """
+        from agent_review_hook import structure_evidence_failures
+
+        structure = {
+            "warnings": ["src/large.py is a changed development source/style file with 425 lines"],
+            "boundary_note_requirements": [],
+            "max_added_lines": 400,
+            "scope": "changed development files",
+            "checked_paths": ["src/large.py"],
+        }
+
+        failures = structure_evidence_failures(structure, "")
+
+        asking = [
+            failure
+            for failure in failures
+            if failure.startswith("structure review evidence is required: ")
+        ]
+        self.assertEqual(1, len(asking))
+        self.assertIn("public owner surface", asking[0])
+        self.assertIn("not a path", asking[0])
+
     def test_missing_vibeguard_allow_reason_is_a_correctable_invocation(self) -> None:
         from agent_review_hook import (
             review_input_invocation_failure,

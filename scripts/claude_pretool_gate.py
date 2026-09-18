@@ -613,6 +613,25 @@ def finished_session_evidence(root: Path, session_id: str) -> Path | None:
     )
 
 
+PUBLICATION_LEAVES_THIS_MACHINE = frozenset({"push", "tag"})
+
+
+def publishes_before_finish(tokens: list[str]) -> bool:
+    """Whether this sends work outward while its run is still open.
+
+    Only reached from the active-run branch, so the run has not finished: no
+    gate ledger is closed and no review attestation covers what is about to
+    leave. A local commit stays out of this set because it can be amended or
+    reset, and a task legitimately commits while it works; a push, and the pull
+    request opened from it, is what other people start acting on.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return False
+    subcommand, _arguments = git_subcommand(tokens)
+    return subcommand in PUBLICATION_LEAVES_THIS_MACHINE
+
+
 def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> bool:
     """Whether this is the commit or push that a successful finish authorized.
 
@@ -954,6 +973,18 @@ def _isolated_checkout_verdict(
     finish_authorized = False
     for governed in governed_roots or [root]:
         if workflow_entry_allows(governed, session_id):
+            if (
+                tool in BASH_TOOLS
+                and syntax_is_simple
+                and publishes_before_finish(tokens or [])
+            ):
+                return deny(
+                    f"Tao lifecycle: this session's run in {governed} is still open, "
+                    "so no gate ledger is closed and no review attestation covers "
+                    "what this would publish. Next: record the route's remaining "
+                    "gates, run the review hook, then run finish. The publish is "
+                    "authorized once that finish succeeds."
+                )
             continue
         if (
             tool in BASH_TOOLS
