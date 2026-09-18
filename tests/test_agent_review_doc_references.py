@@ -68,6 +68,16 @@ class DocReferenceCheckTests(unittest.TestCase):
 
         self.assertEqual([], doc_reference_failures(self.project, [changed], []))
 
+    def test_a_vendored_skill_still_has_its_own_links_checked(self) -> None:
+        """Exempting its foreign example paths exempted its real links too."""
+        changed = self.write(
+            ".tao/skills/vendor/guide.md", "[gone](missing.md)\n", frontmatter=False
+        )
+
+        failures = doc_reference_failures(self.project, [changed], [])
+
+        self.assertTrue(any("missing.md" in failure for failure in failures))
+
     def test_a_mention_is_not_a_reference(self) -> None:
         """Only repository-rooted paths are references; `...` is a pattern.
 

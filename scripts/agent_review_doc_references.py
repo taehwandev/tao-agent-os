@@ -34,9 +34,9 @@ FRONTMATTER_VALUES = {
 }
 KEYFLOW_ID = re.compile(r"[a-z][a-z0-9_]*\Z")
 # A bundled external skill is vendored, not owned: it carries its own header
-# (`name`/`description` rather than Tao's keys) and its example paths describe
-# whatever repository the skill is pointed at. Both rules skip it, because both
-# would otherwise be wrong about a tree this repository does not maintain.
+# (`name`/`description` rather than Tao's keys) and its repository-rooted example
+# paths describe whatever project the skill is pointed at. Those two rules skip
+# it. Its relative links still resolve inside this tree, so they are checked.
 VENDORED_TREES = (".tao/skills/",)
 # A backtick path is a reference only when it is rooted in this repository. A
 # bare `SKILL.md` names a sibling by filename, and `README.md` in a list of what
@@ -85,8 +85,6 @@ def _broken_link_failures(project: Path, changed: list[str]) -> list[str]:
     broken: list[str] = []
     unreadable: list[str] = []
     for relative in changed:
-        if relative.startswith(VENDORED_TREES):
-            continue
         path = project / relative
         text, error = _read(path)
         if error is not None:
@@ -98,6 +96,8 @@ def _broken_link_failures(project: Path, changed: list[str]) -> list[str]:
             resolved = (path.parent / target.split("#", 1)[0]).resolve()
             if not resolved.exists():
                 broken.append(f"{relative} -> {target}")
+        if relative.startswith(VENDORED_TREES):
+            continue
         for target in BACKTICK_PATH.findall(text):
             if "..." in target or not target.startswith(REPOSITORY_ROOTS):
                 continue
