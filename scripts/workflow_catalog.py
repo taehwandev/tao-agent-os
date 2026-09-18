@@ -210,15 +210,14 @@ COMMANDS: Dict[str, Profile] = {
         docs=("workflows/skills/refactor-cleanup/SKILL.md", "common/skills/refactoring/SKILL.md"),
         gates=("behavior baseline", "small refactor", "equivalence check", "handoff"),
     ),
-    # `source of truth` is the `source` field of `source docs`, which is
-    # validated and whose renderer already writes the source-of-truth sentence;
-    # `edit` restated a change Git and the review hook prove exactly; `handoff`
-    # took the agent's word for its own final report. What remains is the
-    # link/path check, which stays because a moved document breaks references
-    # silently -- it is next to become a real check rather than a sentence.
+    # No route-specific gate remains. `source of truth` is the `source` field of
+    # `source docs`, which is validated; `edit` restated a change Git and the
+    # review hook prove exactly; `handoff` took the agent's word for its own
+    # final report; and `link/path check` is now performed by the review hook,
+    # which reads the diff instead of asking whether the links resolved.
     "docs": Profile(
         docs=("workflows/skills/documentation-update/SKILL.md",),
-        gates=("link/path check",),
+        gates=(),
     ),
     "docs-review": Profile(
         docs=(
@@ -232,7 +231,6 @@ COMMANDS: Dict[str, Profile] = {
             "review readiness",
             "source review",
             "structure review",
-            "link/path check",
             "verification",
         ),
         notes=("Use for reviewing durable docs, wiki pages, operational guides, and runbooks.",),

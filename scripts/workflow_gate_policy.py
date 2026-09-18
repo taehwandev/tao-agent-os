@@ -275,7 +275,6 @@ def add_automatic_gates(command: str, gates: list[str]) -> list[str]:
                     "simplification plan",
                     "small refactor",
                     "edit",
-                    "link/path check",
                     "install or repair",
                     "sources",
                     "options",
