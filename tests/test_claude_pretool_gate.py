@@ -3334,9 +3334,9 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
             (["bash", "-lc", "git push origin work"], "publishes"),
             (["sh", "-ec", "git tag v3"], "publishes"),
             (["bash", "-c", "env git push origin work"], "publishes"),
-            # A read-only substitution is masked rather than refused, so the
-            # command around it stays readable and is held as what it is.
-            (["bash", "-c", "git push $(cat ref)"], "publishes"),
+            # A substitution runs a program the segment reader cannot see, so
+            # the line is held as unreadable rather than judged around it.
+            (["bash", "-c", "git push $(cat ref)"], "unreadable"),
             (["bash", "-c", "echo ok"], ""),
             (["sh", "-lc", "ls -la"], ""),
             (["bash", "-c", "git status"], ""),
@@ -3344,18 +3344,206 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
             with self.subTest(tokens=tokens):
                 self.assertEqual(expected, publishes_before_finish(tokens), tokens)
 
-    def test_a_payload_that_chains_commands_is_held(self) -> None:
-        """Which command runs is the question, and a chain does not answer it."""
-        from claude_pretool_gate import publishes_before_finish
+    def test_a_chain_is_judged_segment_by_segment(self) -> None:
+        """Calling every chain unreadable was wider than "hold publications".
 
-        for tokens in (
-            ["bash", "-c", "git push && echo done"],
-            ["sh", "-c", "echo hi; git push"],
-            ["bash", "-c", "git status | tee log"],
-            ["bash", "-c", "unbalanced 'quote"],
+        A chain answers the question perfectly well once each segment is asked
+        it: one publishing segment holds the line, and a line of ordinary
+        commands is left alone.
+        """
+        from claude_pretool_gate import publication_hold
+
+        for command, expected in (
+            ("git push origin work && echo done", "publishes"),
+            ("echo hi; git push origin work", "publishes"),
+            ("git status && git tag v3", "publishes"),
+            ("echo hi; echo bye", ""),
+            ("git status | tee log", ""),
+            ("git add -A && git commit -m x", ""),
+            ("unbalanced 'quote", "unreadable"),
+            ("echo $(git push)", "unreadable"),
         ):
-            with self.subTest(tokens=tokens):
-                self.assertEqual("unreadable", publishes_before_finish(tokens), tokens)
+            with self.subTest(command=command):
+                self.assertEqual(expected, publication_hold(command), command)
+
+    def test_a_shell_payload_chain_is_judged_the_same_way(self) -> None:
+        """The payload is a command line, so it gets the same answer."""
+        from claude_pretool_gate import publication_hold
+
+        for command, expected in (
+            ("bash -c 'git push && echo done'", "publishes"),
+            ("sh -c 'echo hi; git push'", "publishes"),
+            ("bash -c 'echo hi; echo bye'", ""),
+            ("bash -c 'git status | tee log'", ""),
+            ("bash -c \'unbalanced quote", "unreadable"),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(expected, publication_hold(command), command)
+
+    def test_wrappers_compose_in_any_order(self) -> None:
+        """Prefixes were stripped outside the loop that read the rest.
+
+        So `time git push` was held and `time -p git push`, `env time git
+        push` and `NO_COLOR=1 time git push` were not. One loop reads them all,
+        which closes the spellings nobody has written down yet as well.
+        """
+        from claude_pretool_gate import publication_hold
+
+        for command in (
+            "time -p git push origin work",
+            "/usr/bin/time git push origin work",
+            "env time git push origin work",
+            "command time git push origin work",
+            "NO_COLOR=1 time git push origin work",
+            "GIT_CONFIG_NOSYSTEM=1 env command exec time git push origin work",
+            "! time git push origin work",
+            "time ! git push origin work",
+            "env -i command -p /usr/bin/git push origin work",
+            "nohup setsid git push origin work",
+            "exec -a name env git tag v3",
+            "env -- command -- git push origin work",
+            "time -o out git push origin work",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("publishes", publication_hold(command), command)
+
+    def test_a_wrapper_with_arguments_this_does_not_model_is_held(self) -> None:
+        """`nice -n 5 cmd` and `timeout 30 cmd` put a value where a program goes.
+
+        Reading past it is how `env -P` was missed, so these are held instead.
+        The cost is a conservative refusal while a run is open, and the refusal
+        says how to clear it.
+        """
+        from claude_pretool_gate import publication_hold
+
+        for command in (
+            "nice git push origin work",
+            "nice -n 5 git push origin work",
+            "timeout 30 git push origin work",
+            "sudo git push origin work",
+            "xargs git push",
+            "! (git push origin work)",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("unreadable", publication_hold(command), command)
+
+    def test_a_wrapper_around_something_ordinary_is_not_held(self) -> None:
+        from claude_pretool_gate import publication_hold
+
+        for command in (
+            "time ls -la",
+            "env time git status",
+            "/usr/bin/time git log --oneline -3",
+            "command time echo ok",
+            "echo ok;# $(git push)",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("", publication_hold(command), command)
+
+    def test_shell_grammar_is_read_or_held_but_never_ignored(self) -> None:
+        """Splitting on punctuation alone read a line as if it had no grammar.
+
+        `!` and `time` stand in front of a command without changing which one
+        it is, so they are stepped over. A construct this does not model is
+        held instead of guessed at: `(git push)` and `if true; then git push;
+        fi` both name git somewhere the earlier reader was not looking.
+        """
+        from claude_pretool_gate import publication_hold
+
+        for command, expected in (
+            ("! git push origin work", "publishes"),
+            ("time git push origin work", "publishes"),
+            ("nohup git push origin work", "publishes"),
+            ("(git push origin work)", "unreadable"),
+            ("{ git push origin work; }", "unreadable"),
+            ("if true; then git push; fi", "unreadable"),
+            ("for x in 1; do git push; done", "unreadable"),
+            ("while true; do git tag v3; done", "unreadable"),
+            ("! git status", ""),
+            ("time ls -la", ""),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(expected, publication_hold(command), command)
+
+    def test_a_substitution_counts_where_the_shell_would_run_it(self) -> None:
+        """Searching the raw text refused commands that run nothing.
+
+        A single-quoted marker and one after a comment are text. Inside double
+        quotes it is not: `"$(git push)"` runs, and reading a quoted run
+        without looking at it missed exactly that.
+        """
+        from claude_pretool_gate import publication_hold
+
+        for command, expected in (
+            ("echo '$(git push)'", ""),
+            ("echo ok # $(git push)", ""),
+            ('echo "$(git push)"', "unreadable"),
+            ("echo `git push`", "unreadable"),
+            ("echo $(git push)", "unreadable"),
+            ("git log --pretty=format:%(refname) -1", ""),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(expected, publication_hold(command), command)
+
+    def test_the_gate_holds_grammar_that_publishes(self) -> None:
+        """Through `_decide`, which is where the earlier bypass lived."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            for command in (
+                "! git push origin work",
+                "time git push origin work",
+                "(git push origin work)",
+                "if true; then git push; fi",
+            ):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertIn("still open", _reason(out), command)
+
+    def test_the_gate_leaves_quoted_and_commented_markers_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            for command in ("echo '$(git push)'", "echo ok # $(git push)", "! git status"):
+                with self.subTest(command=command):
+                    _code, out = self._decide(project, command)
+                    self.assertNotIn("still open", out, command)
+
+    def test_the_gate_holds_a_chain_that_publishes(self) -> None:
+        """Through `_decide`, because that is where the bypass lived.
+
+        The hold sat behind `syntax_is_simple`, which a chain is not, and every
+        case for it asked the helper directly. None of them could see the guard.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            for command in (
+                "git push origin work && echo done",
+                "echo hi; git push origin work",
+                "git status && git tag v3",
+                "cd . && git push origin work",
+            ):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertIn("still open", _reason(out), command)
+
+    def test_the_gate_leaves_an_ordinary_chain_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            for command in (
+                "echo hi; echo bye",
+                "git status && git log --oneline -3",
+                "bash -c 'echo hi; echo bye'",
+            ):
+                with self.subTest(command=command):
+                    _code, out = self._decide(project, command)
+                    self.assertNotIn("still open", out, command)
 
     def test_finishing_the_run_releases_the_push(self) -> None:
         """The refusal names a step, and taking that step has to be enough."""

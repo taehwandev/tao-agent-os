@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -651,13 +652,7 @@ def publishes_before_finish(tokens: list[str]) -> str:
     and each was a separate option nobody had enumerated yet.
     """
 
-    command = _command_behind_environment(tokens)
-    if command is None:
-        return "unreadable"
-    if not command or Path(command[0]).name != "git":
-        return ""
-    subcommand, _arguments = git_subcommand(command)
-    return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
+    return _segment_hold(tokens, 0)
 
 
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
@@ -671,9 +666,6 @@ ENV_VALUE_OPTIONS = frozenset(
 ENV_FLAGS = frozenset({"-", "-i", "-0", "-v", "--ignore-environment", "--null", "--debug"})
 # Wrappers that run the command that follows them. `command -v git` is a
 # lookup, not a run, and resolves harmlessly: `git` alone has no subcommand.
-COMMAND_WRAPPERS = frozenset({"command", "exec"})
-WRAPPER_FLAGS = frozenset({"-p", "-v", "-V", "-c", "-l"})
-WRAPPER_VALUE_OPTIONS = frozenset({"-a"})
 # A shell given `-c` carries the command inside a string. That string is read
 # rather than refused, so the hold stays about publishing: `bash -c "echo ok"`
 # publishes nothing and `bash -lc "git push"` does, and only the option
@@ -713,15 +705,23 @@ def _past_env_options(tokens: list[str], index: int) -> "int | None":
     return index
 
 
-def _past_wrapper_options(tokens: list[str], index: int) -> "int | None":
+def _past_wrapper_options(tokens: list[str], index: int, name: str) -> "int | None":
+    """Step over one wrapper's options, or None for an option it does not model.
+
+    Unknown means unread, not skipped: `time -o out git push` puts a filename
+    where the program would be, and guessing past it is how `-P` got missed.
+    """
+
+    flags = WRAPPER_FLAGS_BY_NAME.get(name, frozenset())
+    values = WRAPPER_VALUES_BY_NAME.get(name, frozenset())
     while index < len(tokens) and tokens[index].startswith("-"):
-        option = tokens[index]
-        if option == "--":
+        option = tokens[index].split("=", 1)[0]
+        if tokens[index] == "--":
             return index + 1
-        if option in WRAPPER_VALUE_OPTIONS:
-            index += 2
+        if option in values:
+            index += 1 if "=" in tokens[index] else 2
             continue
-        if option in WRAPPER_FLAGS:
+        if option in flags:
             index += 1
             continue
         return None
@@ -750,29 +750,29 @@ def _command_behind_environment(
     of what its own comment claimed -- so `env -S "git push"` went through.
     """
 
-    index = _past_assignments(tokens, 0)
-    while index < len(tokens):
-        head = Path(tokens[index]).name
-        if head == "env":
+    index = 0
+    for _ in range(len(tokens) + 1):
+        index = _past_assignments(tokens, index)
+        if index >= len(tokens):
+            return []
+        head = tokens[index]
+        name = head if head == "!" else Path(head).name
+        if name == "env":
             stepped = _past_env_options(tokens, index + 1)
-            if stepped is None:
-                return None
-            index = _past_assignments(tokens, stepped)
-            continue
-        if head in COMMAND_WRAPPERS:
-            stepped = _past_wrapper_options(tokens, index + 1)
             if stepped is None:
                 return None
             index = stepped
             continue
-        if head in SHELL_PROGRAMS:
-            payload, readable = _shell_payload(tokens, index + 1)
-            if not readable:
+        if name in WRAPPER_FLAGS_BY_NAME:
+            stepped = _past_wrapper_options(tokens, index + 1, name)
+            if stepped is None:
                 return None
-            if payload is not None:
-                return _payload_program(payload, depth)
+            index = stepped
+            continue
+        if name in OPAQUE_WRAPPERS:
+            return None
         return tokens[index:]
-    return []
+    return None
 
 
 def _shell_payload(tokens: list[str], index: int) -> "tuple[str | None, bool]":
@@ -800,21 +800,163 @@ def _shell_payload(tokens: list[str], index: int) -> "tuple[str | None, bool]":
     return None, not saw_option
 
 
-def _payload_program(payload: str, depth: int) -> "list[str] | None":
-    """Ask the payload the same question, or refuse to guess at it.
+SHELL_PUNCTUATION_CHARS = ";&|<>"
+SUBSTITUTION_MARKERS = ("$(", "`", "<(", ">(")
+# Wrappers whose options are modelled, so the command after them is read.
+# `!` is the shell's own negation and takes nothing.
+WRAPPER_FLAGS_BY_NAME = {
+    "!": frozenset(),
+    "command": frozenset({"-p", "-v", "-V"}),
+    "exec": frozenset({"-c", "-l"}),
+    "nohup": frozenset(),
+    "setsid": frozenset({"-c", "-f", "-w"}),
+    "time": frozenset({"-p", "-a", "-v", "--portability", "--verbose", "--append"}),
+}
+WRAPPER_VALUES_BY_NAME = {
+    "exec": frozenset({"-a"}),
+    "time": frozenset({"-o", "-f", "--output", "--format"}),
+}
+# Wrappers that run another program through arguments this does not model --
+# `nice -n 5 cmd`, `timeout 30 cmd`, `xargs cmd` -- so the program behind them
+# is held rather than guessed at.
+OPAQUE_WRAPPERS = frozenset(
+    {
+        "chroot", "doas", "ionice", "nice", "script", "stdbuf", "sudo",
+        "taskset", "timeout", "unbuffer", "xargs",
+    }
+)
+# Words and brackets that open a construct this does not model. A segment
+# starting with one is held rather than read: `(git push)` and
+# `if true; then git push; fi` both name git somewhere this was not looking.
+SHELL_STRUCTURE_WORDS = frozenset(
+    {
+        "if", "then", "else", "elif", "fi", "for", "while", "until", "do",
+        "done", "case", "esac", "in", "select", "function", "coproc",
+        "{", "}", "(", ")", "[[", "]]",
+    }
+)
 
-    `bash_invocation` already decides whether a command line is one simple
-    command, separating punctuation and answering no for substitutions and
-    unbalanced quotes. A second parser here read `echo hi; git push` as an
-    `echo`, because splitting on whitespace alone leaves `hi;` a word.
+
+def _substitution_runs(command: str) -> bool:
+    """Whether a substitution marker sits where the shell would run it.
+
+    Looking for the marker in the raw text refused `echo '$(git push)'` and
+    `echo ok # $(git push)`, neither of which runs anything. Single quotes and
+    a comment hide it; double quotes do not, because `"$(git push)"` runs.
+    """
+
+    quote = ""
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if quote:
+            if character == quote:
+                quote = ""
+            elif quote == '"':
+                # Only single quotes hide a substitution; inside double quotes
+                # the shell still runs it.
+                if character == "\\":
+                    index += 1
+                elif command.startswith(SUBSTITUTION_MARKERS, index):
+                    return True
+            index += 1
+            continue
+        if character in "\'\"":
+            quote = character
+            index += 1
+            continue
+        if character == "\\":
+            index += 2
+            continue
+        # `;#` opens a comment as surely as ` #` does.
+        if character == "#" and (
+            index == 0
+            or command[index - 1].isspace()
+            or command[index - 1] in SHELL_PUNCTUATION_CHARS
+        ):
+            return False
+        if command.startswith(SUBSTITUTION_MARKERS, index):
+            return True
+        index += 1
+    return False
+
+
+def _command_segments(command: str) -> "list[list[str]] | None":
+    """The simple commands a line is made of, or None when it cannot be read.
+
+    A substitution runs a program this cannot see -- `echo $(git push)` names
+    `echo` and publishes anyway -- so a line carrying one is not segmented.
+    """
+
+    if _substitution_runs(command):
+        return None
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=SHELL_PUNCTUATION_CHARS)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return None
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token and set(token) <= set(SHELL_PUNCTUATION_CHARS):
+            if current:
+                segments.append(current)
+            current = []
+            continue
+        current.append(token)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def publication_hold(command: str, depth: int = 0) -> str:
+    """The strongest hold any segment of this command line asks for.
+
+    Running only on a lone simple command let `git push && echo done` past,
+    and calling every chain unreadable refused `bash -c "echo hi; echo bye"`.
+    Segments answer both: one publishing segment holds the line, and a line
+    whose segments all read and none publish is left alone.
     """
 
     if depth >= 3:
-        return None
-    _cwd, nested, simple = bash_invocation({"tool_input": {"command": payload}}, Path())
-    if not nested or not simple:
-        return None
-    return _command_behind_environment(nested, depth + 1)
+        return "unreadable"
+    segments = _command_segments(command)
+    if segments is None:
+        return "unreadable"
+    verdict = ""
+    for tokens in segments:
+        found = _segment_hold(tokens, depth)
+        if found == "publishes":
+            return "publishes"
+        if found == "unreadable":
+            verdict = "unreadable"
+    return verdict
+
+
+def _segment_hold(tokens: list[str], depth: int) -> str:
+    """One simple command: what it publishes, or that its program is hidden."""
+
+    command = _command_behind_environment(tokens, depth)
+    if command is None:
+        return "unreadable"
+    if not command:
+        return ""
+    # Checked on what the reader returned, so `! (git push)` is seen as the
+    # construct it is rather than as a command called `!`.
+    if command[0] in SHELL_STRUCTURE_WORDS or command[0][0] in "({":
+        return "unreadable"
+    if Path(command[0]).name in SHELL_PROGRAMS:
+        payload, readable = _shell_payload(command, 1)
+        if not readable:
+            return "unreadable"
+        # `bash script.sh` runs a script, which is an ordinary program.
+        return publication_hold(payload, depth + 1) if payload is not None else ""
+    if Path(command[0]).name != "git":
+        return ""
+    subcommand, _arguments = git_subcommand(command)
+    return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
 
 
 def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> bool:
@@ -1158,9 +1300,12 @@ def _isolated_checkout_verdict(
     finish_authorized = False
     for governed in governed_roots or [root]:
         if workflow_entry_allows(governed, session_id):
+            # Not behind `syntax_is_simple`: a chain is the shape a
+            # publication most often takes, and requiring a lone command let
+            # `git push && echo done` through.
             held = (
-                publishes_before_finish(tokens or [])
-                if tool in BASH_TOOLS and syntax_is_simple
+                publication_hold(bash_command(payload))
+                if tool in BASH_TOOLS
                 else ""
             )
             if held:
@@ -1355,7 +1500,11 @@ def _worktree_policy_verdict(
     # here with an open run means no gate ledger is closed, exactly as in the
     # isolated-checkout branch, which never saw this command because this
     # function returns first.
-    held = publishes_before_finish(tokens) if landing in {"allow", "defer", "ask"} else ""
+    held = (
+        publication_hold(bash_command(payload))
+        if landing in {"allow", "defer", "ask"} and tool in BASH_TOOLS
+        else ""
+    )
     if held:
         session_id = str(payload.get("session_id") or "")
         open_run = next(
