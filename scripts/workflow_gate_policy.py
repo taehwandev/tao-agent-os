@@ -209,6 +209,17 @@ def automatic_docs(command: str) -> list[str]:
     return docs
 
 
+# The markers a closing gate inserts before. `link/path check` is not one:
+# it is the first check after an edit, not the last step before the report,
+# so closing gates follow it rather than preceding it.
+CLOSING_ANCHORS = (
+    "verify",
+    "verification",
+    "handoff",
+    "commit readiness",
+)
+
+
 def add_automatic_gates(command: str, gates: list[str]) -> list[str]:
     result = list(gates)
     before_implementation = (
@@ -264,6 +275,7 @@ def add_automatic_gates(command: str, gates: list[str]) -> list[str]:
                     "simplification plan",
                     "small refactor",
                     "edit",
+                    "link/path check",
                     "install or repair",
                     "sources",
                     "options",
@@ -305,9 +317,9 @@ def add_automatic_gates(command: str, gates: list[str]) -> list[str]:
                 ),
             )
         elif gate == SIDE_EFFECT_AUDIT_GATE:
-            _insert_before_any(result, gate, anchors=("verify", "verification", "handoff", "commit readiness"))
+            _insert_before_any(result, gate, anchors=CLOSING_ANCHORS)
         elif gate in {DOCUMENTATION_GATE, TEST_GATE}:
-            _insert_before_any(result, gate, anchors=("verify", "verification", "handoff", "commit readiness"))
+            _insert_before_any(result, gate, anchors=CLOSING_ANCHORS)
         elif gate == RETROSPECTIVE_CHECK_GATE:
             _insert_before_any(
                 result,

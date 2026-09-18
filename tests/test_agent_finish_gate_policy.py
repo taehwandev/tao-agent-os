@@ -582,8 +582,16 @@ class FinishGatePolicyTests(unittest.TestCase):
         self.assertIn(SOURCE_DOCS_GATE, route["gates"])
         self.assertIn(DOCUMENTATION_IMPACT_GATE, route["gates"])
         self.assertIn(DOCUMENTATION_GATE, route["gates"])
-        self.assertLess(route["gates"].index(SOURCE_DOCS_GATE), route["gates"].index("edit"))
-        self.assertLess(route["gates"].index(DOCUMENTATION_IMPACT_GATE), route["gates"].index("edit"))
+        # The guarantee is that sources are read and the documentation decision
+        # is made before the work, not that a gate named `edit` exists. `edit`
+        # recorded the edit after making it, which Git and the review hook prove
+        # exactly; `link/path check` is the first gate after the work and is
+        # what the ordering now anchors on.
+        work = route["gates"].index("link/path check")
+        self.assertLess(route["gates"].index(SOURCE_DOCS_GATE), work)
+        self.assertLess(route["gates"].index(DOCUMENTATION_IMPACT_GATE), work)
+        self.assertLess(route["gates"].index(ALIGNMENT_BRIEF_GATE), work)
+        self.assertNotIn("edit", route["gates"])
         self.assertIn(route_doc("common/skills/source-driven-development/SKILL.md"), route["docs"])
 
     def test_prd_draft_evidence_requires_artifact_and_content(self) -> None:
