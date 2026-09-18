@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -55,7 +56,6 @@ try:  # The gate must never fail to load; the import is only used for a message.
         prefer_git_root,
     )
     from claude_bash_git import git_subcommand, names_unsafe_git_option
-    from claude_bash_readonly import strip_env_assignments
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -149,11 +149,6 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     NAMED_TARGET = "named_target"
     AUTHORING_GIT = "authoring_git"
     UNREADABLE_SYNTAX = "unreadable_syntax"
-
-    def strip_env_assignments(tokens: list[str]) -> "list[str] | None":
-        # A broken install reads no assignment prefix, which leaves the bare
-        # spelling judged exactly as before rather than inventing a verdict.
-        return tokens
 
     def git_subcommand(tokens: list[str]) -> tuple[str | None, list[str]]:
         # A broken install is not a policy violation, and the stubs around this
@@ -622,9 +617,17 @@ def finished_session_evidence(root: Path, session_id: str) -> Path | None:
 PUBLICATION_LEAVES_THIS_MACHINE = frozenset({"push", "tag"})
 
 
-def publication_before_finish_reason(root: Path) -> str:
+def publication_before_finish_reason(root: Path, *, unreadable: bool = False) -> str:
     """Said from both places that can answer a publishing command."""
 
+    if unreadable:
+        return (
+            f"Tao lifecycle: this session's run in {root} is still open, and "
+            "this command hides the program it runs behind a wrapper, so "
+            "whether it publishes cannot be read. Next: spell the command "
+            "plainly, or record the route's remaining gates, run the review "
+            "hook and run finish."
+        )
     return (
         f"Tao lifecycle: this session's run in {root} is still open, so no gate "
         "ledger is closed and no review attestation covers what this would "
@@ -634,45 +637,184 @@ def publication_before_finish_reason(root: Path) -> str:
     )
 
 
-def publishes_before_finish(tokens: list[str]) -> bool:
-    """Whether this sends work outward while its run is still open.
+def publishes_before_finish(tokens: list[str]) -> str:
+    """Why this is held while its run is open: `publishes`, `unreadable`, or "".
 
     Only reached from the active-run branch, so the run has not finished: no
     gate ledger is closed and no review attestation covers what is about to
     leave. A local commit stays out of this set because it can be amended or
     reset, and a task legitimately commits while it works; a push, and the pull
     request opened from it, is what other people start acting on.
+
+    `unreadable` is a wrapper that hides its program. Releasing those meant
+    `env -S`, `env -P` and `command` each walked the publication straight out,
+    and each was a separate option nobody had enumerated yet.
     """
 
     command = _command_behind_environment(tokens)
+    if command is None:
+        return "unreadable"
     if not command or Path(command[0]).name != "git":
-        return False
+        return ""
     subcommand, _arguments = git_subcommand(command)
-    return subcommand in PUBLICATION_LEAVES_THIS_MACHINE
+    return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
 
 
-def _command_behind_environment(tokens: list[str]) -> list[str]:
-    """The command an assignment prefix or `env` runs, or nothing readable.
+ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+# `env` options that consume the next word, so the word after them names a
+# value and not the program. `-P` is macOS's search path and was the one whose
+# absence let `env -P /usr/bin git push` read `/usr/bin` as the program.
+ENV_VALUE_OPTIONS = frozenset(
+    {"-u", "--unset", "-C", "--chdir", "-P", "--path", "-S", "--split-string"}
+)
+# Options that change the environment a program receives, never its identity.
+ENV_FLAGS = frozenset({"-", "-i", "-0", "-v", "--ignore-environment", "--null", "--debug"})
+# Wrappers that run the command that follows them. `command -v git` is a
+# lookup, not a run, and resolves harmlessly: `git` alone has no subcommand.
+COMMAND_WRAPPERS = frozenset({"command", "exec"})
+WRAPPER_FLAGS = frozenset({"-p", "-v", "-V", "-c", "-l"})
+WRAPPER_VALUE_OPTIONS = frozenset({"-a"})
+# A shell given `-c` carries the command inside a string. That string is read
+# rather than refused, so the hold stays about publishing: `bash -c "echo ok"`
+# publishes nothing and `bash -lc "git push"` does, and only the option
+# spelling differed.
+SHELL_PROGRAMS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
 
-    A shell runs `GIT_CONFIG_NOSYSTEM=1 git push` and `git push` identically,
-    and reading the first token called the first one something other than git.
-    `strip_env_assignments` answers None for an assignment that could change
-    what the program does, and that is not a command this may classify.
 
-    `env` states the same thing as a program. Its options do not: `-i`, `-u`
-    and `-S` change what runs, so an `env` carrying one is left unread.
+def _past_assignments(tokens: list[str], index: int) -> int:
+    while index < len(tokens) and ENV_ASSIGNMENT.match(tokens[index]):
+        index += 1
+    return index
+
+
+def _past_env_options(tokens: list[str], index: int) -> "int | None":
+    """Step over `env` options, or None for a form that hides the program.
+
+    `-S` and `--split-string` hold the command inside their own value, and an
+    option this does not know may do the same, so neither is guessed at.
     """
 
-    command = strip_env_assignments(tokens) if tokens else None
-    if not command:
-        return []
-    if Path(command[0]).name != "env":
-        return command
-    rest = command[1:]
-    if not rest or rest[0].startswith("-"):
-        return []
-    behind = strip_env_assignments(rest)
-    return behind or []
+    while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index] == "--":
+            # The standard end-of-options marker. Reading it as an option this
+            # does not know refused `env -- git status`, which names its
+            # program as plainly as any command here.
+            return index + 1
+        option = tokens[index].split("=", 1)[0]
+        if option in {"-S", "--split-string"}:
+            return None
+        if option in ENV_VALUE_OPTIONS:
+            index += 1 if "=" in tokens[index] else 2
+            continue
+        if option in ENV_FLAGS:
+            index += 1
+            continue
+        return None
+    return index
+
+
+def _past_wrapper_options(tokens: list[str], index: int) -> "int | None":
+    while index < len(tokens) and tokens[index].startswith("-"):
+        option = tokens[index]
+        if option == "--":
+            return index + 1
+        if option in WRAPPER_VALUE_OPTIONS:
+            index += 2
+            continue
+        if option in WRAPPER_FLAGS:
+            index += 1
+            continue
+        return None
+    return index
+
+
+def _command_behind_environment(
+    tokens: list[str], depth: int = 0
+) -> "list[str] | None":
+    """The program a prefix or wrapper runs, or None when it cannot be read.
+
+    `strip_env_assignments` refuses a prefix it cannot call inert, which is
+    right for the question it answers: `LD_PRELOAD=... cat` must not be
+    classified by `cat`, because the assignment changes what `cat` does. This
+    asks something narrower -- which program runs -- and there the assignment
+    does not matter: the shell executes git either way.
+
+    Stepping over it here therefore changes nothing else. The command
+    classifier, `strip_env_assignments` and the main-checkout override, which
+    reads the raw prefix, all keep their current meaning, so `add`, `commit`
+    and `reset` are judged exactly as before.
+
+    None is the answer for a wrapper whose program is not a token here, and the
+    caller holds it rather than releasing it. An earlier version answered `[]`
+    for that case, which the caller read as "not a publication" -- the opposite
+    of what its own comment claimed -- so `env -S "git push"` went through.
+    """
+
+    index = _past_assignments(tokens, 0)
+    while index < len(tokens):
+        head = Path(tokens[index]).name
+        if head == "env":
+            stepped = _past_env_options(tokens, index + 1)
+            if stepped is None:
+                return None
+            index = _past_assignments(tokens, stepped)
+            continue
+        if head in COMMAND_WRAPPERS:
+            stepped = _past_wrapper_options(tokens, index + 1)
+            if stepped is None:
+                return None
+            index = stepped
+            continue
+        if head in SHELL_PROGRAMS:
+            payload, readable = _shell_payload(tokens, index + 1)
+            if not readable:
+                return None
+            if payload is not None:
+                return _payload_program(payload, depth)
+        return tokens[index:]
+    return []
+
+
+def _shell_payload(tokens: list[str], index: int) -> "tuple[str | None, bool]":
+    """The string a shell's `-c` carries, and whether the form was read.
+
+    `-c` is not always its own token: `-lc` says the same thing, and matching
+    the exact token let `bash -lc "git push"` past. Anything before the payload
+    that is neither an understood option nor the end-of-options marker leaves
+    the form unread, because an option taking a value would shift which word
+    the payload is.
+    """
+
+    saw_option = False
+    while index < len(tokens) and tokens[index].startswith("-"):
+        token = tokens[index]
+        if token == "--":
+            return None, True
+        saw_option = True
+        if not token.startswith("--") and "c" in token[1:]:
+            following = index + 1
+            return (tokens[following], True) if following < len(tokens) else (None, False)
+        index += 1
+    # `bash script.sh` runs a script, which is an ordinary program, but an
+    # option this did not recognise may have taken the payload's place.
+    return None, not saw_option
+
+
+def _payload_program(payload: str, depth: int) -> "list[str] | None":
+    """Ask the payload the same question, or refuse to guess at it.
+
+    `bash_invocation` already decides whether a command line is one simple
+    command, separating punctuation and answering no for substitutions and
+    unbalanced quotes. A second parser here read `echo hi; git push` as an
+    `echo`, because splitting on whitespace alone leaves `hi;` a word.
+    """
+
+    if depth >= 3:
+        return None
+    _cwd, nested, simple = bash_invocation({"tool_input": {"command": payload}}, Path())
+    if not nested or not simple:
+        return None
+    return _command_behind_environment(nested, depth + 1)
 
 
 def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> bool:
@@ -1016,12 +1158,17 @@ def _isolated_checkout_verdict(
     finish_authorized = False
     for governed in governed_roots or [root]:
         if workflow_entry_allows(governed, session_id):
-            if (
-                tool in BASH_TOOLS
-                and syntax_is_simple
-                and publishes_before_finish(tokens or [])
-            ):
-                return deny(publication_before_finish_reason(governed))
+            held = (
+                publishes_before_finish(tokens or [])
+                if tool in BASH_TOOLS and syntax_is_simple
+                else ""
+            )
+            if held:
+                return deny(
+                    publication_before_finish_reason(
+                        governed, unreadable=held == "unreadable"
+                    )
+                )
             continue
         if (
             tool in BASH_TOOLS
@@ -1208,7 +1355,8 @@ def _worktree_policy_verdict(
     # here with an open run means no gate ledger is closed, exactly as in the
     # isolated-checkout branch, which never saw this command because this
     # function returns first.
-    if landing in {"allow", "defer", "ask"} and publishes_before_finish(tokens):
+    held = publishes_before_finish(tokens) if landing in {"allow", "defer", "ask"} else ""
+    if held:
         session_id = str(payload.get("session_id") or "")
         open_run = next(
             (
@@ -1219,7 +1367,11 @@ def _worktree_policy_verdict(
             None,
         )
         if open_run is not None:
-            return deny(publication_before_finish_reason(open_run))
+            return deny(
+                publication_before_finish_reason(
+                    open_run, unreadable=held == "unreadable"
+                )
+            )
     if landing == "allow":
         return _approve(
             "This authors nothing in the protected checkout: it moves or "

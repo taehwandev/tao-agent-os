@@ -3241,16 +3241,121 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertIn("still open", _reason(out), command)
 
-    def test_an_env_option_is_not_read_through(self) -> None:
-        """`env -i` and friends change what runs; this cannot summarize that.
+    def test_the_program_is_found_whatever_the_prefix_sets(self) -> None:
+        """Which program runs is a different question from what it then does.
 
-        Leaving it unread keeps it out of the publication allowance rather than
-        guessing a subcommand for it.
+        `strip_env_assignments` refuses a prefix it cannot call inert, which is
+        correct where it is asked. Here the shell executes git either way, so
+        the assignment is stepped over for identification only.
         """
         from claude_pretool_gate import publishes_before_finish
 
-        self.assertFalse(publishes_before_finish(["env", "-i", "git", "push"]))
-        self.assertFalse(publishes_before_finish(["LD_PRELOAD=x", "git", "push"]))
+        for tokens in (
+            ["GIT_CONFIG_NOSYSTEM=1", "git", "push"],
+            ["LD_PRELOAD=/tmp/x.so", "git", "push"],
+            ["env", "-i", "git", "push"],
+            ["env", "-u", "HOME", "git", "tag", "v3"],
+            ["env", "--unset=HOME", "git", "push"],
+            ["env", "GIT_CONFIG_NOSYSTEM=1", "git", "tag", "v3"],
+            ["A=1", "env", "B=2", "/usr/bin/git", "push"],
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertTrue(publishes_before_finish(tokens), tokens)
+
+    def test_a_hidden_program_is_held_rather_than_released(self) -> None:
+        """This case used to assert the bypass it was written to prevent.
+
+        `env -S` holds the command inside its own value, and reporting nothing
+        for it read as "not a publication", so it went through -- the opposite
+        of what the code comment beside it claimed. An option nobody has
+        enumerated yet does the same, which is why an unknown one is held too.
+        """
+        from claude_pretool_gate import publishes_before_finish
+
+        for tokens in (
+            ["env", "-S", "git push origin work"],
+            ["env", "--split-string=git push origin work"],
+            ["env", "--block-signal=INT", "git", "push"],
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertEqual("unreadable", publishes_before_finish(tokens), tokens)
+
+    def test_a_wrapper_that_runs_the_command_is_read_through(self) -> None:
+        """`command` and `exec` run what follows them, options included.
+
+        `env -P` is the same mistake in the other direction: macOS takes a
+        value there, so the search path was read as the program.
+        """
+        from claude_pretool_gate import publishes_before_finish
+
+        for tokens in (
+            ["command", "git", "push", "origin", "work"],
+            ["exec", "git", "push", "origin", "work"],
+            ["command", "-p", "git", "push"],
+            ["exec", "-a", "name", "git", "tag", "v3"],
+            ["env", "-P", "/usr/bin", "git", "push"],
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertEqual("publishes", publishes_before_finish(tokens), tokens)
+
+    def test_an_ordinary_command_is_not_held(self) -> None:
+        """The hold is for publication, and a lookup is not one.
+
+        `command -v git` resolves to `git` with no subcommand, which is how a
+        fail-closed reader stays usable. `--` is the standard end-of-options
+        marker: reading it as an unknown option refused commands that name
+        their program as plainly as any other.
+        """
+        from claude_pretool_gate import publishes_before_finish
+
+        for tokens in (
+            ["git", "status"],
+            ["NO_COLOR=1", "ls"],
+            ["env", "TZ=UTC", "ls", "-la"],
+            ["command", "-v", "git"],
+            ["git", "commit", "-m", "x"],
+            ["env", "--", "git", "status"],
+            ["command", "--", "git", "status"],
+            ["bash", "script.sh"],
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertEqual("", publishes_before_finish(tokens), tokens)
+
+    def test_a_shell_payload_is_read_rather_than_refused(self) -> None:
+        """Holding every `-c` string made the hold about shells, not publishing.
+
+        `-c` is also not always its own token: `-lc` and `-ec` say the same
+        thing, and matching the exact token let `bash -lc "git push"` past.
+        """
+        from claude_pretool_gate import publishes_before_finish
+
+        for tokens, expected in (
+            (["bash", "-c", "git push origin work"], "publishes"),
+            (["bash", "-lc", "git push origin work"], "publishes"),
+            (["sh", "-ec", "git tag v3"], "publishes"),
+            (["bash", "-c", "env git push origin work"], "publishes"),
+            # A read-only substitution is masked rather than refused, so the
+            # command around it stays readable and is held as what it is.
+            (["bash", "-c", "git push $(cat ref)"], "publishes"),
+            (["bash", "-c", "echo ok"], ""),
+            (["sh", "-lc", "ls -la"], ""),
+            (["bash", "-c", "git status"], ""),
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertEqual(expected, publishes_before_finish(tokens), tokens)
+
+    def test_a_payload_that_chains_commands_is_held(self) -> None:
+        """Which command runs is the question, and a chain does not answer it."""
+        from claude_pretool_gate import publishes_before_finish
+
+        for tokens in (
+            ["bash", "-c", "git push && echo done"],
+            ["sh", "-c", "echo hi; git push"],
+            ["bash", "-c", "git status | tee log"],
+            ["bash", "-c", "unbalanced 'quote"],
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertEqual("unreadable", publishes_before_finish(tokens), tokens)
 
     def test_finishing_the_run_releases_the_push(self) -> None:
         """The refusal names a step, and taking that step has to be enough."""
