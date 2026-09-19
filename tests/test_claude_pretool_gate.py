@@ -302,6 +302,34 @@ class ClaudePreToolGateTests(unittest.TestCase):
                                   "tool_input": {"command": "git status --short"}, "session_id": "read"})
             self.assertEqual("", out)
 
+    def test_http_reads_skip_write_entry_and_writes_follow_active_authority(self) -> None:
+        for route in (None, "triage", "bugfix"):
+            with self.subTest(route=route), tempfile.TemporaryDirectory() as tmp:
+                project = _opt_in_project(Path(tmp))
+                if route:
+                    _write_preflight(project, "http-session", command=route)
+                base = {"tool_name": "Bash", "cwd": str(project), "session_id": "http-session"}
+                _, read_out = _decide({**base, "tool_input": {
+                    "command": "curl -q -sS https://example.test/api/events | jq length"}})
+                self.assertEqual("", read_out)
+                _, write_out = _decide({**base, "tool_input": {
+                    "command": "curl -q -X POST https://example.test/api/items -d '{}'"}})
+                if route == "bugfix":
+                    self.assertEqual("", write_out, "Writable evidence must not inherit a read-only veto")
+                else:
+                    self.assertIn("deny", write_out)
+
+    def test_unverified_command_diagnostic_does_not_claim_a_proven_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project, "http-session", command="triage")
+            _, out = _decide({"tool_name": "Bash", "cwd": str(project), "session_id": "http-session",
+                              "tool_input": {"command": "curl https://example.test/"}})
+            reason = _reason(out)
+            self.assertIn("not proof it changes data", reason)
+            self.assertIn("curl -q", reason)
+            self.assertIn("rather than asking for the same approval again", reason)
+
     def test_bash_outside_tao_project_is_allowed(self) -> None:
         code, out = _decide({"tool_name": "Bash", "cwd": "/tmp", "session_id": "s"})
         self.assertEqual(0, code)
@@ -2053,14 +2081,15 @@ class ClaudePreToolGateTests(unittest.TestCase):
         # "running a command that changes this project" passed while the
         # sentence read "... changes this project in this project."
         self.assertIn(
-            "run the workflow start hook before running a command that "
-            "changes this project.",
+            "run the workflow start hook before running a command "
+            "not verified read-only for this project.",
             reason,
         )
         self.assertIn("retry the command", reason)
         self.assertNotIn("editing files", reason)
         self.assertNotIn("retry the edit", reason)
         self.assertNotIn("this project in this project", reason)
+        self.assertIn("not proof of a write", reason)
 
     def test_start_then_edit_is_allowed_and_stays_allowed(self) -> None:
         # Regression: an ordering-based gate denied this, the *correct*, flow

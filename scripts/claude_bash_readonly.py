@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from claude_bash_git import git_command_kind
+from claude_bash_http import curl_read_only
 from claude_bash_syntax import (
     ENV_ASSIGNMENT_RE,
     ENV_IDENTITY_ONLY_FLAGS,
@@ -876,6 +877,8 @@ def simple_command_kind(tokens: list[str]) -> str:
     if runner_kind is not None:
         return runner_kind
     executable = Path(command[0]).name
+    if executable == "curl":
+        return "read_only" if curl_read_only(command[1:]) else "mutating"
     # Bound the observed inventory pipeline to one inert consumer. Input may
     # become wc operands/options, but cannot choose a program or write output.
     # No general xargs, replacement, or interpreter-wrapper exemption.

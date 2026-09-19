@@ -236,6 +236,30 @@ overwrite those parent evidence files.
 
 ## Runtime Notes
 
+### Command effects and user authority
+
+The shared shell classifier used by Codex and Claude separates a verified read
+from a command requiring normal write checks. Its legacy `mutating` fallback
+also contains unverified commands: it is not proof of a side effect, nor a
+permanent ban on the executable. Do not request write authority merely to make
+a read pass. When the user has already authorized a write, carry that exact
+target and effect into writable workflow entry without asking the same question
+again. A previous read-only run does not revoke the user's later authorization.
+Native filesystem/network permissions remain independent of workflow evidence.
+
+HTTP inspection is provider-independent. Use `curl -q` (or `--disable` as the
+first argument) with GET/HEAD and stdout; this disables implicit curlrc actions
+without reading private configuration. Explicit headers, including `-H @file`,
+can supply authentication without printing its value. Supported presentation,
+timeout and read options are classified by `scripts/claude_bash_http.py`.
+Config loading, unknown options, uploads, request bodies, other methods and
+file outputs retain normal write checks; an authorized write can use them.
+Shell redirection, executable substitutions and chained writes are still
+classified independently. A read classification neither authorizes arbitrary
+external targets nor guarantees that a remote server implements GET safely.
+Never claim authentication or event inspection succeeded from classification
+tests alone; those require an observed service response within user scope.
+
 Codex:
 
 - Prefer repo-local `AGENTS.md` plus the routing block.

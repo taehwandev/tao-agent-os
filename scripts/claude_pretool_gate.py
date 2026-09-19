@@ -489,7 +489,7 @@ def stopped_action(tool: str) -> tuple[str, str]:
 
     if tool in BASH_TOOLS:
         return (
-            "running a command that changes this project",
+            "running a command not verified read-only for this project",
             "retry the command",
         )
     return ("editing files in this project", "retry the edit")
@@ -540,6 +540,12 @@ def deny_reason(
     else:
         cause = f"Preflight evidence at {evidence} does not satisfy the workflow entry gate."
     action, retry = stopped_action(tool)
+    if tool in BASH_TOOLS:
+        cause += (
+            " The command was not verified read-only; this is not proof of a write. "
+            "For HTTP reads use curl -q with GET/HEAD and stdout. For an already "
+            "approved write, reuse the user's exact scope in writable workflow entry."
+        )
     cause = f"{cause}{governed_because(root, cwd_roots)}"
     return (
         f"Tao Agent OS: run the workflow start hook before {action}. {cause} "
@@ -1010,8 +1016,12 @@ def _read_run_mutation_denial(roots: list[Path], session_id: str, kind: str) -> 
         if explicit or route_minimum_effect(command) == "read":
             return (
                 f"Active route `{command}` is read-only; start an authorized writable "
-                "route before this mutating tool call. Worktree isolation does not "
-                "waive the read-only contract."
+                "route for an approved write. This call was not verified read-only; "
+                "that is not proof it changes data. For HTTP inspection, use explicit "
+                "curl -q with GET/HEAD and stdout, without config/output/upload options. "
+                "If the user already authorized a write, carry that exact scope into "
+                "the writable route rather than asking for the same approval again. "
+                "Worktree isolation does not waive the read-only contract."
             )
     return None
 
