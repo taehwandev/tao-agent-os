@@ -48,6 +48,31 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
    working. Keep any expansion rationale in existing work context; add no new
    plan, per-read receipt, gate, hook or approval round merely to apply this rule.
 
+## Applying Hook Guidance At The Decision Point
+
+Use the active route's manifest, advertised evidence fields and hook results
+to guide execution. Hooks own mechanical admission and validation; the agent
+owns scope, evidence truth and the next authorized action. Do not reproduce
+hook checks as a manual checklist or read validator implementations preemptively.
+Read required instructions before the governed action; open an additional
+reference only when the supplied guidance leaves a concrete decision unresolved.
+
+Treat a rejection according to its reported boundary. An invalid argument or
+missing evidence field calls for correcting that input, not restarting the
+task or repairing product code. A real failed check needs diagnosis at its
+owner. A session/evidence mismatch needs reconciliation with the intended run;
+do not infer that finish revoked permission or create a replacement run merely
+because a command was blocked. Preserve actual approval and isolation limits.
+Successful hooks validate their stated checks, not behavioral equivalence or
+the correctness of an agent's explanation of a failure.
+
+For sustained goals, each new implementation unit retains its required tests,
+review and integration checks. Reuse applies only to evidence whose covered
+state and required freshness still match; it is not a reason to skip the next
+unit's verification. Judge process quality by whether each decision had the
+needed guidance and evidence, not by minimizing reads, tests or lifecycle calls.
+This contract adds no gate, receipt, approval round or mandatory preview.
+
 ## Read
 
 - `references/current-guidance.md` when the active lifecycle has an unresolved
