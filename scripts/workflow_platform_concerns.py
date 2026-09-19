@@ -72,7 +72,6 @@ ANDROID_STRUCTURE_DOCS = (
     ANDROID_MODULE_SPLIT_DOC,
     ANDROID_MODULE_REVIEW_DOC,
     ANDROID_ARCH_STRUCTURE_DOC,
-    *ANDROID_EXTERNAL_SKILL_DOCS,
 )
 # `dependency` covers both dependency direction between modules and Android
 # dependency injection, so it takes the layout and DI pieces rather than the
@@ -83,7 +82,6 @@ ANDROID_DEPENDENCY_DOCS = (
     ANDROID_MODULE_DI_DOC,
     ANDROID_ARCH_COMPOSITION_DOC,
     "platforms/android/skills/android-review/SKILL.md",
-    *ANDROID_EXTERNAL_SKILL_DOCS,
 )
 ANDROID_PLATFORM_SURFACE_DOCS = (
     ANDROID_MODULE_STRUCTURE_DOC,
@@ -121,14 +119,13 @@ PLATFORM_CONCERNS: Dict[Tuple[str, str], Tuple[str, ...]] = {
         ANDROID_MODULE_STRUCTURE_DOC,
         ANDROID_MODULE_BOUNDARY_DOC,
         ANDROID_MODULE_LAYOUT_DOC,
-        *ANDROID_EXTERNAL_SKILL_DOCS,
     ),
     # Without the source-coverage bundle. It answers "where is the official
     # source for this surface", which a change to where a credential is kept
     # does not ask, and at 29,694B it was larger than the 20,934B of security
-    # guidance it rode on. The other Android concerns still carry it: the
-    # manifest's own scope is Android work that cites external skill sources,
-    # and narrowing that is a separate decision.
+    # guidance it rode on. Module, architecture and dependency concerns likewise
+    # select their contracts without this source map; explicit skill-source
+    # work and the remaining platform-specific concerns retain coverage.
     ("android", "security"): (
         "platforms/android/skills/android-security/SKILL.md",
         "platforms/android/skills/android-review/SKILL.md",

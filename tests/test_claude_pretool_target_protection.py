@@ -32,6 +32,43 @@ from test_claude_pretool_gate import (
 
 
 class TargetProtectionTests(unittest.TestCase):
+    def test_observed_inventory_and_process_reads_need_no_run_in_main(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp) / "protected")
+            _require_linked_worktree(project)
+            commands = (
+                "rg --files src -g '*.tsx' -g '*.ts' -0 | xargs -0 wc -l | sort -nr | head -35",
+                f"ps -p 13527 -o pid=,command= && ls -d .next/dev && cat {ROOT}/AGENTS.md",
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    code, out = _decide({
+                        "tool_name": "Bash", "cwd": str(project), "session_id": "read-inventory",
+                        "tool_input": {"command": command},
+                    })
+                    self.assertEqual((0, ""), (code, out))
+            for command in ("rg --files -0 | xargs -0 rm", "ps -p 13527 > processes"):
+                code, out = _decide({
+                    "tool_name": "Bash", "cwd": str(project), "session_id": "read-inventory",
+                    "tool_input": {"command": command},
+                })
+                self.assertEqual(0, code)
+                self.assertIn("worktree gate", _reason(out))
+
+    def test_direct_start_judges_target_policy_not_shared_rules_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp) / "product")
+            _require_linked_worktree(project, linked=True)
+            command = f"{ROOT}/scripts/agent-hook.py start --project {project} --rules {ROOT}"
+            original = gate.worktree_denial
+            with patch.object(gate, "worktree_denial", side_effect=lambda root:
+                              "shared root is protected" if root == ROOT else original(root)):
+                code, out = _decide({
+                    "tool_name": "Bash", "cwd": str(project), "session_id": "direct-start",
+                    "tool_input": {"command": command},
+                })
+            self.assertEqual((0, ""), (code, out))
+
     def test_a_write_named_by_absolute_path_reaches_the_protected_checkout(
         self,
     ) -> None:

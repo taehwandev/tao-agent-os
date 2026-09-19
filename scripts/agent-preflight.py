@@ -41,6 +41,7 @@ from workflow_classified_exemption import (
 from workflow_intent_dual_run import route_intake_decision
 from workflow_intent_envelope import read_approval_record, read_intent_envelope
 from workflow_request import infer_concerns_from_request, inferred_concern_note
+from workflow_platform_inference import infer_platform
 from workflow_effect_policy import route_minimum_effect
 from workflow_route import resolve_docs
 
@@ -192,14 +193,22 @@ def route_payload(
             if path not in surface_paths
         ],
     }
+    # Intake above has already bound and authorized the current request plus
+    # continuation. Reuse its scope for document selection only, without
+    # promoting contextual words to explicit concerns or action authority.
+    document_context = "\n".join(filter(None, (
+        intent_text, getattr(args, "continuation_scope", ""),
+    )))
     route = resolve_docs(
         args.command,
-        args.platform[-1] if args.platform else None,
+        args.platform[-1] if args.platform else infer_platform(
+            args.request or "", getattr(args, "continuation_scope", "")
+        ),
         concerns,
         request_classification=request_classification,
         request_classified=args.request_classified,
         classification_evidence=args.classification_evidence or "",
-        request_text=intent_text,
+        request_text=document_context,
         surface_paths=surface_paths,
         project_root=args.project.resolve(),
         inferred_concerns=newly_inferred,

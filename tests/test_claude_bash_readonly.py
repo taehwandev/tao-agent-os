@@ -40,6 +40,43 @@ class CompoundShellCommandTests(unittest.TestCase):
         self.assertEqual(self._kind("ls -la | wc -l"), "read_only")
         self.assertEqual(self._kind("cat notes.txt | grep todo | tail -3"), "read_only")
 
+    def test_canonical_structure_preview_is_read_only_not_a_basename_allowance(self) -> None:
+        script = ROOT / "scripts/agent-structure-check.py"
+        self.assertEqual(self._kind(f"python3 {script} --project /tmp/project"), "read_only")
+        self.assertEqual(self._kind("python3 /tmp/agent-structure-check.py"), "mutating")
+        self.assertEqual(self._kind(f"python3 {script} > report.json"), "mutating")
+        self.assertEqual(self._kind(f"python3 {script} && touch changed"), "mutating")
+
+    def test_observed_file_size_inventory_and_process_inspection(self) -> None:
+        self.assertEqual(self._kind(
+            "rg --files src -g '*.tsx' -g '*.ts' -0 | xargs -0 wc -l | sort -nr | head -35"
+        ), "read_only")
+
+    def test_observed_process_inspection_with_shared_guidance(self) -> None:
+        self.assertEqual(self._kind(
+            f"ps -p 13527 -o pid=,command= && ls -d .next/dev && cat {ROOT}/AGENTS.md"
+        ), "read_only")
+
+    def test_xargs_allowance_does_not_admit_executors_or_output_writes(self) -> None:
+        for command in (
+            "rg --files -0 | xargs -0 rm", "xargs -0 sh -c 'touch file'",
+            "xargs -I {} wc -l {}", "xargs -0 python3", "xargs -0 wc -l > counts",
+            "xargs -0 wc -l && touch file", "ps -p 13527 > processes",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self._kind(command), "mutating")
+
+    def test_direct_trusted_hook_is_start_but_lookalikes_and_writes_are_not(self) -> None:
+        hook = ROOT / "scripts/agent-hook.py"
+        command = f"{hook} start --project /tmp/product --rules {ROOT}"
+        self.assertEqual(self._kind(command), "workflow_start")
+        for unsafe in (
+            command + " --output /tmp/evidence", command + " --out=/tmp/evidence",
+            command + " && touch file", "/tmp/agent-hook.py start",
+        ):
+            with self.subTest(command=unsafe):
+                self.assertEqual(self._kind(unsafe), "mutating")
+
     def test_one_mutating_part_makes_the_whole_command_mutating(self) -> None:
         self.assertEqual(self._kind("ls | rm -rf build"), "mutating")
         self.assertEqual(self._kind("grep -c x file && npm install"), "mutating")

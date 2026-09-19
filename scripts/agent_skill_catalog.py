@@ -14,6 +14,9 @@ NO_SKILL_IDS = frozenset({"none", "none_loaded", "no_skill_used"})
 PROJECT_SKILL_ROOTS = (
     Path(".agents/shared/llm-skills"),
     Path(".agents/local/skills"),
+    Path(".agent/skills"),
+    Path(".agents/skills"),
+    Path(".codex/skills"),
 )
 FEEDBACK_SIGNALS = frozenset(
     {
@@ -98,7 +101,10 @@ def canonical_skill_ids(project: Path, rules: Path) -> set[str]:
     ids = _skill_ids_under(rules.resolve())
     project_root = project.resolve()
     for relative in PROJECT_SKILL_ROOTS:
-        ids.update(_skill_ids_under(project_root / relative))
+        skill_root = project_root / relative
+        # A repository-local registration cannot point at an external catalog.
+        if skill_root.resolve().is_relative_to(project_root):
+            ids.update(_skill_ids_under(skill_root))
     return ids
 
 
@@ -116,6 +122,10 @@ def _skill_ids_under(root: Path) -> set[str]:
         return set()
     ids: set[str] = set()
     for skill_doc in iter_project_files(root, "SKILL.md", pruned=PRUNED_RUN_STATE):
+        # The walker does not follow directory links, but a SKILL.md file can
+        # itself be a link. Require a real document inside this trusted root.
+        if not skill_doc.resolve().is_relative_to(root.resolve()) or not skill_doc.is_file():
+            continue
         skill_id = normalize_skill_id(skill_doc.parent.name)
         if skill_id and _has_skill_container(skill_doc, root):
             ids.add(skill_id)

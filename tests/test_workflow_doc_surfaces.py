@@ -299,7 +299,9 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         # `security` left this list when the bundle came off that concern:
         # 29,694B of "where is the official source" against 20,934B of
         # security guidance, on a route a keystore change now reaches.
-        for concern in ("architecture", "testing", "module", "dependency", "migration", "devtools", "skills", "skill"):
+        # Module/DI placement keeps its boundary contracts; source audits have
+        # their own skill concern instead of riding on every structural edit.
+        for concern in ("testing", "migration", "devtools", "skills", "skill"):
             with self.subTest(concern=concern):
                 route = resolve_docs(
                     "workflow-setup",
@@ -1519,18 +1521,112 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         ]
 
         for path, match_name, expected_doc, absent_doc in cases:
-            with self.subTest(path=path):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                if path.endswith(".swift"):
+                    owner = project / path
+                    owner.parent.mkdir(parents=True)
+                    owner.write_text("import UIKit\nimport SwiftUI\n", encoding="utf-8")
                 route = resolve_docs(
                     "task",
                     None,
                     [],
                     request_classified=True,
                     surface_paths=[path],
+                    project_root=project,
                 )
 
                 self.assertIn(required_doc(expected_doc), route["required_docs"])
                 self.assertNotIn(required_doc(absent_doc), route["required_docs"])
                 self.assertTrue(any(match["name"] == match_name for match in route["doc_surface_matches"]))
+
+
+class SwiftFrameworkOwnerRoutingTests(unittest.TestCase):
+    def test_coordinator_name_and_ios_hint_do_not_override_appkit_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            owner = root / "Sources/StatusCoordinator.swift"
+            owner.parent.mkdir()
+            owner.write_text("import AppKit\nfinal class StatusCoordinator {}\n", encoding="utf-8")
+            route = resolve_docs("refactor", "ios", [], request_text="iOS 앱 리팩토링",
+                                 surface_paths=[str(owner.relative_to(root))], project_root=root)
+            self.assertEqual(route["platform"], "ios")
+            self.assertIn(required_doc("platforms/swift/skills/swift-code-structure/SKILL.md"), route["required_docs"])
+            self.assertFalse(any("ios-uikit-ui" in doc for doc in route["required_docs"]))
+            self.assertFalse(any(match["name"] == "ios_uikit_paths" for match in route["doc_surface_matches"]))
+
+    def test_framework_evidence_not_filename_selects_uikit_or_shared_swift(self):
+        cases = (
+            ("import UIKit\n", True),
+            ("import Foundation\n", False),
+            ("import SwiftUI\n", False),
+            ("import AppKit\n", False),
+            ("#if os(iOS)\nimport UIKit\n#else\nimport AppKit\n#endif\n", False),
+            ('// import UIKit\nlet example = "import UIKit"\nimport AppKit\n', False),
+            ('/* example\nimport UIKit\n*/\nimport Foundation\n', False),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            owner = root / "StatusCoordinator.swift"
+            for source, expect_uikit in cases:
+                with self.subTest(source=source):
+                    owner.write_text(source, encoding="utf-8")
+                    docs, matches = infer_surface_docs(command="refactor", surface_paths=[owner.name], project_root=root)
+                    self.assertEqual(any(match["name"] == "ios_uikit_paths" for match in matches), expect_uikit)
+                    self.assertIn("platforms/swift/skills/swift-code-structure/SKILL.md", docs)
+
+    def test_swiftui_is_cross_platform_unless_ios_is_established(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            owner = root / "HomeView.swift"
+            for source, platform, expected in (
+                ("import SwiftUI\n", None, False),
+                ("import SwiftUI\n", "swift", False),
+                ("import SwiftUI\n", "ios", True),
+                ("import SwiftUI\nimport AppKit\n", "ios", False),
+                ("import SwiftUI\n#if os(macOS)\n#endif\n", "ios", False),
+                ("import SwiftUI\n#if os(macOS)\nimport AppKit\n#elseif os(iOS)\n#endif\n", "ios", True),
+            ):
+                with self.subTest(source=source, platform=platform):
+                    owner.write_text(source, encoding="utf-8")
+                    _, matches = infer_surface_docs(command="refactor", platform=platform,
+                                                   surface_paths=[owner.name], project_root=root)
+                    self.assertEqual(any(match["name"] == "ios_swiftui_paths" for match in matches), expected)
+
+    def test_explicit_ios_keeps_real_uikit_branch_of_shared_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            owner = root / "SharedCoordinator.swift"
+            owner.write_text("#if os(macOS)\nimport AppKit\n#else\nimport UIKit\n#endif\n", encoding="utf-8")
+            _, matches = infer_surface_docs(command="refactor", platform="ios",
+                                           surface_paths=[owner.name], project_root=root)
+            self.assertTrue(any(match["name"] == "ios_uikit_paths" for match in matches))
+
+    def test_swift_field_lookup_does_not_expand_to_ui_implementation_guidance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            owner = root / "Record.swift"
+            owner.write_text("import Foundation\nstruct Record { let count: Int }\n", encoding="utf-8")
+            route = resolve_docs("analysis", "swift", [], request_text="Explain the count field",
+                                 surface_paths=[owner.name], project_root=root)
+            self.assertEqual(route["command"], "analysis")
+            for topic in ("ios-", "design-system", "performance", "visual-verification"):
+                self.assertFalse(any(topic in doc for doc in route["required_docs"]))
+
+    def test_unverified_missing_escaped_and_oversize_sources_cannot_supply_framework(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
+            root = Path(directory)
+            external = Path(outside) / "OutsideCoordinator.swift"
+            external.write_text("import UIKit\n", encoding="utf-8")
+            (root / "LinkCoordinator.swift").symlink_to(external)
+            huge = root / "HugeCoordinator.swift"
+            huge.write_text("import UIKit\n" + " " * 131072, encoding="utf-8")
+            for paths, project in ((["MissingCoordinator.swift"], root),
+                                   (["LinkCoordinator.swift"], root), ([str(external)], root),
+                                   ([huge.name], root), (["StatusCoordinator.swift"], None), ([], root)):
+                _, matches = infer_surface_docs(command="refactor", surface_paths=paths,
+                                               request_text=str(external), project_root=project)
+                self.assertFalse(any(match["name"] in {"ios_uikit_paths", "swift_native_paths"} for match in matches))
 
 
 class AndroidSiblingReferenceRoutingTests(unittest.TestCase):
@@ -1614,6 +1710,37 @@ class KoreanParticleRequestMatchingTests(unittest.TestCase):
             if rule.get("name") == name:
                 return rule
         self.fail(f"no request intent rule named {name}")
+
+    def test_android_di_composition_and_service_boundary_select_focused_rules(self) -> None:
+        request = "스킬 문서대로 앱 서비스 분리, 앱 모듈의 DI 조립과 서비스 구현 경계 점검 및 수정"
+        route = resolve_docs("refactor", "android", [], request_text=request)
+        prefix = "platforms/android/skills/android-module-structure/references/"
+        for filename in ("di-build-logic.md", "module-boundaries.md"):
+            self.assertIn(prefix + filename, route["required_docs"])
+        for unrelated in ("compose", "webview", "external-skill", "performance"):
+            self.assertFalse(any(unrelated in doc for doc in route["required_docs"]))
+
+    def test_android_di_patterns_do_not_match_unrelated_text_or_platforms(self) -> None:
+        for platform, request in (
+            ("android", "앱 문구만 수정해줘"),
+            ("android", "diagnostic 메시지 표시 수정"),
+            ("android", "DI 조립은 건드리지 말고 문구만 수정해줘"),
+            ("android", "Do not change dependency injection; fix the label"),
+            ("web", "DI 조립과 모듈 경계 분리"),
+        ):
+            with self.subTest(platform=platform, request=request):
+                route = resolve_docs("refactor", platform, [], request_text=request)
+                self.assertNotIn(
+                    "platforms/android/skills/android-module-structure/references/di-build-logic.md",
+                    route["required_docs"],
+                )
+
+    def test_negated_android_module_boundary_does_not_promote_boundary_card(self) -> None:
+        route = resolve_docs("refactor", "android", [], request_text="모듈 경계는 변경하지 말고 문구만 수정해줘")
+        self.assertNotIn(
+            "platforms/android/skills/android-module-structure/references/module-boundaries.md",
+            route["required_docs"],
+        )
 
     def test_keyword_with_attached_particle_matches_its_rule(self) -> None:
         cases = (

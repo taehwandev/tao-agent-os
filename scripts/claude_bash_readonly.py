@@ -118,6 +118,7 @@ READ_ONLY_COMMANDS = frozenset(
         "mdls",
         "nl",
         "printf",
+        "ps",
         "pwd",
         "realpath",
         "rg",
@@ -217,6 +218,10 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
         if tokens[1] in RUNTIME_WRITE_HOOKS:
             return "bootstrap"
         return RUNTIME_CONTROL_KIND if tokens[1] in RUNTIME_CONTROL_HOOKS else None
+    # The executable shebang entrypoint is the same trusted hook as the
+    # interpreter form below. Match the canonical sibling, never its basename.
+    if executable_path == Path(__file__).resolve().with_name("agent-hook.py"):
+        tokens = [sys.executable, *tokens]
     # Two tokens is enough for the installer, which takes no subcommand. The
     # hook below needs a third, and says so itself.
     #
@@ -236,6 +241,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     except (OSError, ValueError):
         return None
     here = Path(__file__).resolve()
+    if script == here.with_name("agent-structure-check.py"):
+        return "mutating" if writes_output else "read_only"
     # The installer is how a runtime is set up, repaired, and re-pointed at its
     # root. Classified as an ordinary mutation it could not run against a
     # protected checkout from anywhere, because any command naming a path under
@@ -869,6 +876,11 @@ def simple_command_kind(tokens: list[str]) -> str:
     if runner_kind is not None:
         return runner_kind
     executable = Path(command[0]).name
+    # Bound the observed inventory pipeline to one inert consumer. Input may
+    # become wc operands/options, but cannot choose a program or write output.
+    # No general xargs, replacement, or interpreter-wrapper exemption.
+    if executable == "xargs" and command[1:] == ["-0", "wc", "-l"]:
+        return "read_only"
     if executable in READ_ONLY_COMMANDS:
         if executable == "rg" and any(arg == "--pre" or arg.startswith("--pre=") for arg in command[1:]):
             return "mutating"

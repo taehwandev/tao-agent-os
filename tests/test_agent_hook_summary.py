@@ -36,6 +36,27 @@ agent_hook = _load_agent_hook()
 
 class AgentHookSummaryTests(unittest.TestCase):
 
+    def test_review_prerequisites_follow_manifest_order_not_a_generic_checklist(self):
+        cases = [
+            (["tests", "review hook", "retrospective check"], ["tests"]),
+            (["source docs", "diff review", "verification", "review hook"],
+             ["source docs", "diff review", "verification"]),
+            (["review hook", "commit readiness"], []),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "preflight.json"
+            for gates, expected in cases:
+                with self.subTest(gates=gates):
+                    evidence.write_text(json.dumps({"route": {
+                        "gates": gates, "hooks": [{"hook": "review", "required": True}],
+                    }}))
+                    summary = agent_hook._hook_summary_from_preflight(evidence)
+                    reminder = next(line for line in summary if line.startswith("Before review,"))
+                    self.assertIn(f"evidence for: {expected}.", reminder)
+                    self.assertNotIn("commit readiness", reminder)
+                    self.assertNotIn("retrospective check", reminder)
+                    self.assertEqual([evidence], list(Path(tmp).iterdir()))
+
     def test_fingerprint_output_never_overwrites_or_creates_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

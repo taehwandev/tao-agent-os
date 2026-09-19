@@ -31,6 +31,15 @@ ownership, deletion, or maintainability.
    near the change.
 3. Choose one ownership boundary: UI, state, domain, data, platform, contract, or test.
 4. Make the smallest move, rename, extraction, deletion, or adapter cleanup that improves that boundary.
+   After an extraction unit, check its structural boundaries before broad builds
+   or browser suites: `python3 <TAO_ROOT>/scripts/agent-structure-check.py
+   --project <TARGET_REPO> --review-path <OWNED_PATH>` (repeat the path option
+   for disjoint owners). This read-only preview uses the final review's checks;
+   it creates no lifecycle state and does not replace behavior tests or review.
+   Fix actual responsibility boundaries, not just declaration counts: do not
+   hide independently used types behind an umbrella export or indirect type
+   lookup solely to satisfy the counter. Keep private implementation details
+   private; separate independently owned public contracts by purpose.
 5. Avoid changing product behavior, formatting unrelated files, or mixing dependency updates.
 6. Verify behavior with the nearest existing check or a focused smoke path.
 7. Report the preserved behavior, structural change, unchanged contracts, verification, and any follow-up left separate.

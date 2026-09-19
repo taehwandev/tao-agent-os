@@ -34,6 +34,11 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
    workflow stage. PR metadata work does not itself require module-design rules;
    module creation needs the applicable platform's module rules. Read selected
    instruction files completely; reuse unchanged readings still in context.
+   Size a read to the tool's output limit, including the outer result limit
+   when batching calls. Keep large documents in separate results or consecutive
+   bounded ranges through EOF. A truncated result is incomplete: recover only
+   its missing ranges, not the same whole batch. Deduplicate paths selected by
+   multiple skills; an entrypoint's topic links are not all mandatory reads.
 5. Make only changes needed for the authorized outcome. An incidental finding
    is not permission for cleanup, redesign or environment changes. If required
    selection is excessive, report the conflict and repair its owner only with

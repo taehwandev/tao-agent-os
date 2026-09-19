@@ -198,6 +198,7 @@ def _resolve_documents(
     surface_paths: list[str],
     advisory: bool = False,
     required_concerns: Optional[list[str]] = None,
+    project_root: Path | None = None,
 ) -> RoutedDocuments:
     """Gather every document this route gets from, in the order they compose.
 
@@ -254,6 +255,7 @@ def _resolve_documents(
             platform=platform,
             request_text=request_text,
             surface_paths=surface_paths,
+            project_root=project_root,
         )
         if owner_lookup:
             search_outcome = SearchOutcome(results=[], backend="owner-lookup")
@@ -682,6 +684,7 @@ def resolve_docs(
         surface_paths=surface_paths or [],
         advisory=advisory,
         required_concerns=required_concerns,
+        project_root=project_root,
     )
     routed_docs = documents.routed
     required_docs = documents.required

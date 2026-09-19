@@ -43,6 +43,9 @@ slow, broad smoke check.
    manual path.
 2. Define expected versus actual behavior and the user or system impact.
 3. Inspect the nearest ownership boundary before changing code.
+   For optional product context, read the affected behavior's spec section
+   before expanding to a whole PRD or ARD. Expand only for an unresolved
+   contract; preserve explicitly required full-document reads.
 4. Check whether invalid, missing, stale, duplicated, out-of-order, or extreme
    boundary data can produce the failure.
 5. Fix the cause, not only the symptom, with the smallest behavior-preserving
@@ -76,9 +79,19 @@ boundary:
 Do not call the fix verified only because the observed symptom disappeared once.
 Name the root cause and the check that would fail if the bug returned.
 
+For a combined diagnosis and refactoring request, track the outcomes separately.
+An authorized extraction may be verified while the reported symptom remains
+unreproduced. Name each outcome in the final report and any goal checkpoint;
+do not mark the whole goal complete from refactor tests alone. Ask for the
+smallest missing diagnostic (for example a redacted message or relevant stack),
+not a broad log dump. A configured threshold is not proof of the observed
+cause, and changing that threshold must not substitute for diagnosis.
+
 ## Stop If
 
-- The failure cannot be reproduced and no reliable evidence points to a cause.
+- The failure cannot be reproduced and no reliable evidence points to a cause:
+  stop speculative bug fixes, but independently authorized refactoring may
+  continue with its own acceptance checks and an explicit unresolved symptom.
 - The likely fix crosses auth, billing, data loss, migration, or release
   boundaries without enough context.
 - The bug report conflicts with documented product behavior.

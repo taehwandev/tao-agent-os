@@ -48,6 +48,7 @@ def infer_surface_docs(
     request_text: str = "",
     surface_paths: Iterable[str] | None = None,
     root: Path = ROOT,
+    project_root: Path | None = None,
 ) -> tuple[list[str], list[dict[str, object]]]:
     """Return docs from semantic intent and explicitly verified owner paths."""
     rules = load_doc_surface_rules(root)
@@ -87,6 +88,7 @@ def infer_surface_docs(
         for path in (surface_paths or [])
         if normalize_path(path)
     )
+    swift_evidence: dict[str, tuple[set[str], bool, bool] | None] = {}
     for rule in rule_list(rules, "path_surfaces"):
         patterns = string_list(rule.get("patterns"))
         excluded_patterns = string_list(rule.get("exclude_patterns"))
@@ -96,11 +98,60 @@ def infer_surface_docs(
             if path_matches(path, patterns)
             and not path_matches(path, excluded_patterns)
         ]
+        framework = rule.get("swift_framework")
+        if framework:
+            for path in matched_paths:
+                if path not in swift_evidence:
+                    swift_evidence[path] = _swift_owner_evidence(project_root, path)
+            matched_paths = [path for path in matched_paths
+                             if _matches_swift_framework(framework, swift_evidence[path], platform)]
         if not matched_paths:
             continue
         docs.extend(_append_path_match(rules, rule, matched_paths, matches))
 
     return unique(docs), matches
+
+
+def _swift_owner_evidence(project_root: Path | None, path: str) -> tuple[set[str], bool, bool] | None:
+    """Inspect only an existing verified Swift owner, bounded to the target repo."""
+    if project_root is None or not path.endswith(".swift"):
+        return None
+    try:
+        root = project_root.resolve()
+        owner = (root / path).resolve()
+        if not owner.is_relative_to(root) or not owner.is_file():
+            return None
+        with owner.open("rb") as stream:
+            raw = stream.read(131073)
+        if len(raw) > 131072:
+            return None
+        source = raw.decode("utf-8")
+    except (OSError, UnicodeError, RuntimeError):
+        return None
+    # Imports in examples or comments are not framework evidence. Unhandled
+    # nested block comments conservatively leave the owner unclassified.
+    source = re.sub(r'"""[\s\S]*?"""|"(?:\\.|[^"\\])*"|/\*[\s\S]*?\*/|//[^\n]*', "", source)
+    if "/*" in source or "*/" in source:
+        return None
+    imports = set(re.findall(r"(?m)^\s*(?:@\w+\s+)*(?:public\s+|internal\s+)?import\s+(\w+)\b", source))
+    macos = "AppKit" in imports or bool(re.search(r"\bos\s*\(\s*macOS\s*\)", source))
+    ios = "UIKit" in imports or bool(re.search(r"\bos\s*\(\s*iOS\s*\)", source))
+    return imports, macos, ios
+
+
+def _matches_swift_framework(framework: object, evidence: tuple[set[str], bool, bool] | None,
+                             platform: str | None) -> bool:
+    if evidence is None:
+        return False
+    imports, macos, ios = evidence
+    if framework == "native":
+        return True
+    if framework == "UIKit":
+        return "UIKit" in imports and (not macos or platform == "ios")
+    if framework == "iOSSwiftUI":
+        return ("SwiftUI" in imports and (not macos or (platform == "ios" and ios))
+                and (platform == "ios" or "UIKit" in imports))
+    return False
 
 
 # Where one part of a sentence ends and the next begins. Listing joints is not

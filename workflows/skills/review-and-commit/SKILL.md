@@ -46,6 +46,13 @@ safety gate, and authority for the exact action. Reuse an open PR with the same
 head/base, give it a substantive body, and merge only after mergeability and
 required checks are known. Fast-forward a clean local `main` afterward.
 
+When an implementation request also authorizes commits, transition to the
+lightweight `commit` route for each ready unit; a goal continuing does not keep
+a finished implementation run open. A rejected command is not proof that
+unrelated staging must be changed. Check the declared action, completed-run
+binding and supported command form first; preserve unrelated staging and
+request new authority only for a genuinely necessary change to it.
+
 Load `common/skills/commit-workflow/references/current-guidance.md` only for an
 unresolved branch, tracker/signing, mixed/generated commit,
 security/migration/release risk, or publication exception.

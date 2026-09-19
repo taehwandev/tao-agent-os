@@ -208,6 +208,9 @@
       "platforms/ios/skills/ios-review/SKILL.md",
       "common/skills/ui-visual-verification/SKILL.md"
     ],
+    "swift_native_touch": [
+      "platforms/swift/skills/swift-code-structure/SKILL.md"
+    ],
     "ios_uikit_touch": [
       "platforms/ios/skills/ios-uikit-ui/SKILL.md",
       "platforms/ios/skills/ios-review/SKILL.md",
@@ -1291,6 +1294,8 @@
     },
     {
       "name": "android_module_di_build_logic",
+      "required_priority": 50,
+      "subject_exclusion": true,
       "commands": [
         "feature",
         "task",
@@ -1314,6 +1319,7 @@
         "@IntoMap",
         "dependency injection",
         "\\bDI graph\\b",
+        "\\bDI\\s*(?:조립|구성|연결|모듈|경계)",
         "컨벤션 플러그인",
         "의존성 주입"
       ],
@@ -1324,6 +1330,8 @@
     },
     {
       "name": "android_module_boundary_split",
+      "required_priority": 50,
+      "subject_exclusion": true,
       "commands": [
         "feature",
         "task",
@@ -1347,6 +1355,8 @@
         "feature module",
         "extract .* module",
         "모듈 경계",
+        "모듈(?:을|만|의)?\\s*분리",
+        "모듈(?:의)?\\s+(?:DI\\s*조립과\\s+)?서비스\\s*구현\\s*경계",
         "패키지 경계"
       ],
       "doc_sets": [
@@ -1734,27 +1744,36 @@
     },
     {
       "name": "ios_swiftui_paths",
+      "swift_framework": "iOSSwiftUI",
       "patterns": [
-        "**/*View.swift",
-        "**/*Screen.swift"
+        "*View.swift",
+        "*Screen.swift"
       ],
       "doc_sets": [
         "ios_swiftui_touch"
       ],
-      "reason": "Touched SwiftUI view, screen, or view-model paths imply iOS SwiftUI/state/design guidance should be read."
+      "reason": "Verified SwiftUI owners select iOS guidance only with iOS scope or UIKit evidence; a shared macOS/iOS owner additionally needs explicit iOS scope."
     },
     {
       "name": "ios_uikit_paths",
+      "swift_framework": "UIKit",
       "patterns": [
-        "**/*ViewController.swift",
-        "**/*CollectionViewCell.swift",
-        "**/*TableViewCell.swift",
-        "**/*Coordinator.swift"
+        "*ViewController.swift",
+        "*CollectionViewCell.swift",
+        "*TableViewCell.swift",
+        "*Coordinator.swift"
       ],
       "doc_sets": [
         "ios_uikit_touch"
       ],
-      "reason": "Touched UIKit view-controller, cell, or coordinator paths imply UIKit/state/design guidance should be read."
+      "reason": "Verified UIKit imports select UIKit guidance; shared macOS/iOS owners require explicit iOS scope, and filenames alone do not identify the framework."
+    },
+    {
+      "name": "swift_native_paths",
+      "patterns": ["*.swift"],
+      "swift_framework": "native",
+      "doc_sets": ["swift_native_touch"],
+      "reason": "A verified Swift owner selects the shared Swift structure contract without inferring iOS from the language or filename."
     },
     {
       "name": "kmp_compose_paths",

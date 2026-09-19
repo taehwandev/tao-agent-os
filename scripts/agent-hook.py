@@ -359,7 +359,9 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "Reading boundary: reference docs are on demand, not a recursive reading "
             "queue. Reuse a complete reading only while unchanged and available in "
             "current context; otherwise read it. Expand only for an unresolved "
-            "in-scope question. Discover uncertain paths with rg --files or quoted "
+            "in-scope question. Keep read results within both per-call and batch "
+            "output limits; recover only missing ranges after truncation, never "
+            "repeat a whole truncated batch. Discover uncertain paths with rg --files or quoted "
             "rg -g filters, not speculative shell globs; no-match is not a retry cue."
         )
         lines.append(f"Checkpoint input: objective is limited to {MAX_TEXT} Unicode characters; "
@@ -409,6 +411,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     gates = [gate for gate in (route.get("gates") or []) if isinstance(gate, str)]
     if any(hook.get("hook") == "review" for hook in hooks):
         flags = required_review_evidence_flags(gates)
+        lines.extend(_review_prerequisite_lines(gates))
         lines.append("Review hook requires --review-outcome pass or findings, matching the actual review result.")
         lines.append(
             "Review hook requires the evidence itself, not a file path holding it: "
@@ -423,6 +426,17 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     lines.extend(_gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
     return lines
+
+
+def _review_prerequisite_lines(gates: list[str]) -> list[str]:
+    if "review hook" not in gates:
+        return []
+    prerequisites = gates[:gates.index("review hook")]
+    return [
+        f"Before review, record successful evidence for: {prerequisites}. "
+        "Passing a test command alone does not record its gate. Use the "
+        "gate-batch remaining list; do not call review to discover missing records."
+    ]
 
 
 def _closeout_reuse_lines() -> list[str]:
