@@ -397,9 +397,54 @@ GH_WRITE_OPTIONS = frozenset(
 )
 
 
+def _gh_api_read_only(arguments: list[str]) -> bool:
+    """Recognize REST GET/HEAD reports, consuming option values explicitly.
+
+    Fields/input can change the default method, cache writes locally, headers
+    can override server behavior, and GraphQL carries executable operations.
+    Those and unknown flags keep the existing conservative classification.
+    """
+    valued = {"--method", "-X", "--jq", "-q", "--template", "-t",
+              "--hostname", "--preview", "-p"}
+    switches = {"--include", "-i", "--paginate", "--slurp", "--silent", "--verbose"}
+    endpoint = None
+    method = None
+    index = 0
+    while index < len(arguments):
+        word = arguments[index]
+        flag, equal, value = word.partition("=")
+        if flag in valued:
+            if not equal:
+                index += 1
+                if index >= len(arguments):
+                    return False
+                value = arguments[index]
+            if not value:
+                return False
+            if flag in {"--method", "-X"}:
+                if method is not None or value not in {"GET", "HEAD"}:
+                    return False
+                method = value
+        elif word in switches:
+            pass
+        elif word.startswith("-") or endpoint is not None:
+            return False
+        else:
+            endpoint = word
+        index += 1
+    if not endpoint:
+        return False
+    path = endpoint.split("?", 1)[0].strip("/")
+    return bool(re.fullmatch(r"[A-Za-z0-9_{}./-]+", path)) and (
+        path != "graphql" and not any(part in {".", ".."} for part in path.split("/"))
+    )
+
+
 def gh_command_kind(arguments: list[str]) -> str:
     """Read-only when the subcommand only reports and nothing writes a file."""
 
+    if arguments[:1] == ["api"]:
+        return "read_only" if _gh_api_read_only(arguments[1:]) else "mutating"
     words = [argument for argument in arguments if not argument.startswith("-")]
     names = {argument.split("=", 1)[0] for argument in arguments}
     if names & GH_WRITE_OPTIONS:

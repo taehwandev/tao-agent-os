@@ -151,11 +151,46 @@ def bash_command(payload: dict) -> str:
     return command if isinstance(command, str) else ""
 
 
+def _shell_lines(command: str) -> str | None:
+    """Preserve quoted newlines; model unquoted ones as command separators.
+
+    This is lexical normalization, not script interpretation. Comments and
+    heredocs on multiline input remain unsupported; substitutions are rejected
+    by the caller. Escaped newlines join shell words, except in single quotes.
+    """
+    if "\r" in command or ("\n" in command and "<<" in command):
+        return None
+    quote = ""
+    output: list[str] = []
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if char == "\\" and quote != "'" and index + 1 < len(command):
+            following = command[index + 1]
+            if following != "\n":
+                output.extend((char, following))
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            if not quote:
+                quote = char
+            elif quote == char:
+                quote = ""
+        if not quote and char == "#" and "\n" in command:
+            return None
+        if char == "\n" and not quote:
+            output.append(" ; ")
+        else:
+            output.append(char)
+        index += 1
+    return "".join(output)
+
+
 def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
     """Return effective cwd, simple-command tokens, and syntax confidence."""
 
     command = bash_command(payload).strip()
-    if not command or "\n" in command or "\r" in command:
+    if not command:
         return cwd, [], False
     if "$(" in command or "`" in command:
         return cwd, [], False
@@ -163,6 +198,11 @@ def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
     # build)` into a redirection plus the words inside it, so by token time the
     # command that runs there is indistinguishable from an operand.
     if any(marker in command for marker in SUBSTITUTION_MARKERS):
+        return cwd, [], False
+    command = _shell_lines(command)
+    if command is None or "$(" in command or "`" in command or any(
+        marker in command for marker in SUBSTITUTION_MARKERS
+    ):
         return cwd, [], False
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
