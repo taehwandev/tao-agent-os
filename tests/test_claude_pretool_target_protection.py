@@ -61,7 +61,10 @@ class TargetProtectionTests(unittest.TestCase):
             _require_linked_worktree(project, linked=True)
             command = f"{ROOT}/scripts/agent-hook.py start --project {project} --rules {ROOT}"
             original = gate.worktree_denial
-            with patch.object(gate, "worktree_denial", side_effect=lambda root:
+            # The stub accepts whatever cause and remedy the caller supplies: a
+            # start now names both, and the question here is only which root
+            # the gate is asked about.
+            with patch.object(gate, "worktree_denial", side_effect=lambda root, *cause, **remedy:
                               "shared root is protected" if root == ROOT else original(root)):
                 code, out = _decide({
                     "tool_name": "Bash", "cwd": str(project), "session_id": "direct-start",

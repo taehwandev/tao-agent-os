@@ -68,6 +68,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         bash_command_kind,
         RUNTIME_CONTROL_KIND,
         bash_invocation,
+        contains_workflow_start,
         git_common_dir,
         has_unresolvable_expansion,
         path_arguments,
@@ -77,10 +78,13 @@ try:  # The gate must never fail to load; the import is only used for a message.
         ticketed_product_branch_denial,
         worktree_denial,
         worktree_policy,
+        CHAINED_START_REMEDY,
         COMPUTED_TEXT,
         NAMED_TARGET,
         AUTHORING_GIT,
         UNREADABLE_SYNTAX,
+        WORKFLOW_START_REMEDY,
+        WORKFLOW_START_TARGET,
     )
 except ImportError:  # pragma: no cover - exercised only on a broken install
     def stable_launcher_path() -> Path:
@@ -131,6 +135,11 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     def has_unresolvable_expansion(command: str) -> bool:
         return False
 
+    def contains_workflow_start(tokens: list[str]) -> bool:
+        # A broken install recognises no hook, so no refusal claims one was
+        # chained and the generic remedy stands.
+        return False
+
     def git_common_dir(root: Path) -> "Path | None":
         return None
 
@@ -156,13 +165,18 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     def ticketed_product_branch_denial(root: Path, target: Path) -> str | None:
         return None
 
-    def worktree_denial(root: Path, cause: str = "") -> str | None:
+    def worktree_denial(
+        root: Path, cause: str = "", named: str = "", *, remedy: str = ""
+    ) -> str | None:
         return None
 
     COMPUTED_TEXT = "computed_text"
     NAMED_TARGET = "named_target"
     AUTHORING_GIT = "authoring_git"
     UNREADABLE_SYNTAX = "unreadable_syntax"
+    WORKFLOW_START_TARGET = "workflow_start_target"
+    WORKFLOW_START_REMEDY = ""
+    CHAINED_START_REMEDY = ""
 
     def git_subcommand(tokens: list[str]) -> tuple[str | None, list[str]]:
         # A broken install is not a policy violation, and the stubs around this
@@ -1661,6 +1675,16 @@ def _worktree_reason_naming_its_cause(
         # An Edit or a Write, or a Bash command reaching in from outside: in
         # every one of them the target path is what put this here.
         cause = NAMED_TARGET
+    # A line that chained a workflow start with something else is refused for
+    # the chaining, and the remedy for that is to unchain it. Sending the
+    # reader to a worktree instead was advice about a different problem, and
+    # the one session that followed it spent three more calls before it found
+    # the semicolon.
+    remedy = (
+        CHAINED_START_REMEDY
+        if cause == UNREADABLE_SYNTAX and contains_workflow_start(tokens)
+        else ""
+    )
     reason = next(
         (
             refusal
@@ -1671,6 +1695,7 @@ def _worktree_reason_naming_its_cause(
                     _protected_path_named(payload, tokens, command_cwd, root)
                     if cause == NAMED_TARGET
                     else "",
+                    remedy=remedy,
                 )
                 for root in roots
             )
@@ -2401,6 +2426,42 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     )
 
 
+def _workflow_start_verdict(
+    tokens: list[str],
+    effective_cwd: Path,
+    worktree_reason: str | None,
+) -> int:
+    """Answer a workflow start by the policy of the project it would claim.
+
+    The start hook claims only the project it names, and the denial that sends
+    a session here instructs it to run start in the linked worktree. Judging
+    that start by every governed root kept the protected launch checkout in the
+    verdict, so the gate denied its own remedy. The named target's policy is
+    the whole question.
+
+    Its refusal carries a start-shaped remedy rather than the location advice
+    the other verdicts use: what binds a run is `--project`, and no amount of
+    moving the shell changes that.
+    """
+
+    target_root = workflow_start_target_root(tokens, effective_cwd)
+    if target_root is None:
+        return deny(worktree_reason) if worktree_reason else allow()
+    reason = worktree_denial(
+        target_root,
+        WORKFLOW_START_TARGET,
+        remedy=WORKFLOW_START_REMEDY,
+    )
+    if reason and _requests_main_checkout_override(tokens):
+        return ask(
+            "The workflow start explicitly requests the documented "
+            "main-checkout exception. Defer it to the runtime's native "
+            "permission review.",
+            tokens=tokens,
+        )
+    return deny(reason) if reason else allow()
+
+
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
@@ -2455,23 +2516,7 @@ def decide(payload: dict) -> int:
         (reason for reason in map(worktree_denial, roots) if reason), None
     )
     if tool in BASH_TOOLS and bash_kind == "workflow_start":
-        # The start hook claims only the project it names, and the denial that
-        # sends a session here instructs it to run start in the linked
-        # worktree. Judging that start by every governed root kept the
-        # protected launch checkout in the verdict, so the gate denied its own
-        # remedy. The named target's policy is the whole question.
-        target_root = workflow_start_target_root(tokens, effective_cwd)
-        if target_root is not None:
-            reason = worktree_denial(target_root)
-            if reason and _requests_main_checkout_override(tokens):
-                return ask(
-                    "The workflow start explicitly requests the documented "
-                    "main-checkout exception. Defer it to the runtime's native "
-                    "permission review.",
-                    tokens=tokens,
-                )
-            return deny(reason) if reason else allow()
-        return deny(worktree_reason) if worktree_reason else allow()
+        return _workflow_start_verdict(tokens, effective_cwd, worktree_reason)
     if worktree_reason:
         if scope.unknown_reason:
             worktree_reason = f"{unknown_recovery(scope.unknown_reason)} {worktree_reason}"
