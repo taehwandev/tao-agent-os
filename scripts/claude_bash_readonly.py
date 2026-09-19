@@ -14,16 +14,19 @@ from pathlib import Path
 from claude_bash_git import git_command_kind
 from claude_bash_syntax import (
     ENV_ASSIGNMENT_RE,
+    ENV_IDENTITY_ONLY_FLAGS,
     bash_command,
     bash_invocation as _tokenise,
     command_segments,
     has_unresolvable_expansion,
     mask_substitutions,
+    past_env_options,
     shell_keyword_command,
     substitution_bodies,
     unmodelled_operator,
 )
 from claude_bash_paths import (  # noqa: F401
+    COPY_SEGMENT_SEPARATORS,
     copy_source_token_indices,
     path_arguments,
     raw_path_arguments,
@@ -702,8 +705,158 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
     return "read_only"
 
 
+# A `gh pr create` body is read from the file, never written to it, and the
+# body an agent writes for a PR naturally lives in the worktree it is
+# publishing. `-F` is `--body-file` for this subcommand only; for `gh api` the
+# same letter is `--field`, which is why the command and its two subcommand
+# words are part of the key rather than the option alone.
+PULL_REQUEST_BODY_OPTIONS = frozenset({"--body-file", "-F"})
+# The installer's `--target` names the project it would install into, and a
+# run that declares itself a dry run or a check writes nothing anywhere -- it
+# prints what would change. Without this, checking another project's hooks was
+# read as writing into that project.
+INSTALLER_NO_WRITE_FLAGS = frozenset({"--dry-run", "--check"})
+INSTALLER_READ_ONLY_VALUE_OPTIONS = frozenset({"--target"})
+
+
+def read_only_path_token_indices(tokens: list[str]) -> frozenset[int]:
+    """Token positions this command's own text proves it only reads from.
+
+    Not a rule that paths are reads until proven otherwise: the default here
+    stays that every path a command names is a place it may write, because
+    that default is what makes the gate safe to be wrong in. Each exemption
+    names one command, one declaration inside that command, and the single
+    operand that declaration makes read-only, and a command that does not
+    match exactly keeps every one of its paths.
+
+    Positions rather than values, for the reason the copy sources already
+    are: a later segment may spell a write target exactly like an earlier
+    command's read operand.
+    """
+
+    indices = set(copy_source_token_indices(tokens))
+    start = 0
+    for index, token in enumerate([*tokens, ";"]):
+        if token not in COPY_SEGMENT_SEPARATORS:
+            continue
+        if start < index:
+            indices.update(_declared_read_indices(tokens[start:index], start))
+        start = index + 1
+    return frozenset(indices)
+
+
+def _declared_read_indices(tokens: list[str], offset: int) -> list[int]:
+    """The read-only operands of one simple command, or nothing at all."""
+
+    if not tokens:
+        return []
+    if _creates_a_pull_request(tokens):
+        return _option_value_indices(tokens, offset, PULL_REQUEST_BODY_OPTIONS)
+    if _is_installer_without_writes(tokens):
+        return _option_value_indices(tokens, offset, INSTALLER_READ_ONLY_VALUE_OPTIONS)
+    return []
+
+
+def _option_value_indices(
+    tokens: list[str], offset: int, options: frozenset[str]
+) -> list[int]:
+    """Where each of these options carries its value, `--opt=x` or `--opt x`.
+
+    A following token that looks like an option is not claimed: `--body-file
+    --draft` names no file, and reading the next word regardless would exempt
+    a flag and then leave the real operand unexamined.
+    """
+
+    found: list[int] = []
+    for index, token in enumerate(tokens):
+        name, separator, _value = token.partition("=")
+        if name not in options:
+            continue
+        if separator:
+            found.append(offset + index)
+        elif index + 1 < len(tokens) and not tokens[index + 1].startswith("-"):
+            found.append(offset + index + 1)
+    return found
+
+
+def _creates_a_pull_request(tokens: list[str]) -> bool:
+    if Path(tokens[0]).name != "gh":
+        return False
+    words = [token for token in tokens[1:] if not token.startswith("-")]
+    return words[:2] == ["pr", "create"]
+
+
+def _is_installer_without_writes(tokens: list[str]) -> bool:
+    """Whether this is the Tao installer, declaring that it will not write.
+
+    Matched the way the installer is matched everywhere else in this module:
+    the stable launcher's own subcommand, or a Python running the installer
+    script from inside a checkout, proved by its siblings. Matching the script
+    by name alone would hand the exemption to anything an agent drops in /tmp
+    and calls `setup-agent-hooks.py`.
+    """
+
+    if not INSTALLER_NO_WRITE_FLAGS & set(tokens) or len(tokens) < 2:
+        return False
+    try:
+        executable = Path(tokens[0]).expanduser().resolve()
+    except (OSError, ValueError):
+        return False
+    if executable == stable_launcher_path().expanduser().resolve():
+        return tokens[1] == "setup-agent-hooks"
+    if not _python_interpreter(tokens[0]):
+        return False
+    try:
+        script = Path(tokens[1]).expanduser().resolve()
+    except (OSError, ValueError):
+        return False
+    return script.name == "setup-agent-hooks.py" and all(
+        (script.parent / sibling).is_file()
+        for sibling in ("agent-hook.py", "claude_pretool_gate.py")
+    )
+
+
+def strip_env_wrapper(tokens: list[str]) -> list[str] | None:
+    """Drop an `env` prefix, or refuse the command when it hides its program.
+
+    `strip_env_assignments` reads `VAR=value cmd` and stops at anything else,
+    so `env VAR=value cmd` left `env` itself as the program and every such
+    command was judged a mutation -- a workflow `start` among them, which the
+    gate then denied by telling the agent to run the workflow start hook it
+    was running.
+
+    Only the options that cannot change what the program does are stepped
+    over. `-i`, `-u`, `-C` and `-P` each decide the environment or the search
+    path the command runs with, which is the same thing the inertness rule
+    above refuses to guess at, and `-S` hides the program inside its own value.
+    Each assignment behind `env` is put back through that inertness rule, so
+    `env LD_PRELOAD=... cat f` is refused exactly as its bare spelling is --
+    and so is `env TAO_HOME=<root> <launcher> start`, because that name
+    selects which checkout's scripts the launcher will run.
+    """
+
+    command = tokens
+    for _ in range(len(tokens) + 1):
+        if not command or Path(command[0]).name != "env":
+            return command
+        stepped = past_env_options(
+            command,
+            1,
+            value_options=frozenset(),
+            flags=ENV_IDENTITY_ONLY_FLAGS,
+        )
+        if stepped is None:
+            return None
+        command = strip_env_assignments(command[stepped:])
+        if command is None:
+            return None
+    return None
+
+
 def simple_command_kind(tokens: list[str]) -> str:
     command = strip_env_assignments(tokens)
+    if command:
+        command = strip_env_wrapper(command)
     if not command:
         return "mutating"
     runtime_kind = runtime_control_kind(command)

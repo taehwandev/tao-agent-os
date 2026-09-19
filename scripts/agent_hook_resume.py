@@ -21,7 +21,10 @@ from typing import Any
 
 from agent_continuation_resume import resume_last, resume_list
 from agent_hook_runtime import finish_with_result
-from agent_runtime_session import bind_resumed_runtime_session
+from agent_runtime_session import (
+    bind_resumed_runtime_session,
+    rebind_recorded_runtime_session,
+)
 
 
 LISTED_ENTRY_LIMIT = 12
@@ -176,6 +179,29 @@ def _resume_last(args: argparse.Namespace) -> int:
                     "reuse": None,
                 }
                 ready = False
+    elif ready:
+        # Naming no session does not mean the claim has none. The run keeps the
+        # session its evidence already records, and that stamp has to move to
+        # the generation this claim just advanced to -- otherwise the claim
+        # leaves the run unresolvable to every later hook, and `finish` settles
+        # it before anything can bind it again.
+        try:
+            rebind_recorded_runtime_session(
+                project=args.project,
+                evidence_path=Path(result["evidence_path"]),
+                run_id=result["run_id"],
+                resume_generation=int(result["resume_generation"]),
+            )
+        except (OSError, RuntimeError, ValueError):
+            result = {
+                **result,
+                "result": "runtime_binding_refused",
+                "reason": "recorded_runtime_binding_refused",
+                "work": None,
+                "checkpoint": None,
+                "reuse": None,
+            }
+            ready = False
     details = [f"resume result: {result['result']}"]
     details.extend(_ready_lines(result) if ready else _refusal_lines(result))
     return finish_with_result(

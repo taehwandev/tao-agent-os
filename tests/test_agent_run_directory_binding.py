@@ -24,6 +24,7 @@ if str(ROOT / "tests") not in sys.path:
     sys.path.insert(0, str(ROOT / "tests"))
 
 import agent_hook_continuation as wiring
+from agent_run_registry import claim_run
 
 RUN_ID = "0123456789abcdef0123456789abcdef"
 
@@ -135,6 +136,125 @@ class UnbindableRunDirectoryTests(unittest.TestCase):
 
     def test_the_skip_says_what_was_lost(self) -> None:
         self.assertIn("resume this run", wiring.SKIPPED_DETAIL)
+
+
+class StartNamesItsOwnRunTests(unittest.TestCase):
+    """Start printed neither the run id nor the path later hooks would want.
+
+    Both had to be guessed, and a run directory is named by an opaque id, so
+    the guessing was expensive: one session spent eight of thirteen hook calls
+    on it. It also never said that naming the path is usually unnecessary --
+    a hook with no `--evidence` already resolves the run bound to the session.
+    """
+
+    def test_registration_states_the_run_id_the_evidence_and_the_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            route = {"command": "bugfix"}
+            intake = {"request": "fix the lifecycle overhead", "request_classified": False}
+            evidence.write_text(
+                json.dumps({"route": route, "request_intake": intake}), encoding="utf-8"
+            )
+            claim = claim_run(project, evidence, route, intake)
+            details: list[str] = []
+
+            registered = agent_hook._register_started_run(
+                Namespace(project=project, evidence=evidence, hook="start"),
+                details,
+                claim["run"],
+            )
+
+            self.assertTrue(registered, msg=str(details))
+            self.assertIn(f"run id: {RUN_ID}", details)
+            self.assertIn(f"evidence: {evidence}", details)
+            self.assertTrue(
+                any("omit --evidence" not in line and "on their own" in line for line in details),
+                msg=str(details),
+            )
+
+
+class SideFileNamedAsEvidenceTests(unittest.TestCase):
+    """A run directory holds three JSON files and only one of them is evidence.
+
+    Naming the gate ledger as `--evidence` was accepted: `gate-batch` reported
+    SUCCESS and wrote a second ledger beside the first, so the gates landed
+    where no finish would read them, and `review` objected several calls later
+    about an unbound run id rather than about the file.
+    """
+
+    def _args(self, project: Path, evidence: Path) -> Namespace:
+        return Namespace(project=project, evidence=evidence, hook="gate-batch")
+
+    def test_the_gate_ledger_is_refused_and_the_preflight_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            run = project / ".tao" / "runs" / RUN_ID
+            run.mkdir(parents=True)
+            preflight = run / "preflight.json"
+            preflight.write_text(json.dumps({"route": {"command": "bugfix"}}), encoding="utf-8")
+            ledger = run / "gate-evidence.json"
+            ledger.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "preflight_evidence": str(preflight),
+                        "entries": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            refusal = agent_hook._lifecycle_evidence_error(self._args(project, ledger))
+
+            self.assertIn("gate ledger", refusal)
+            self.assertIn(str(preflight), refusal)
+            self.assertIn("omit --evidence", refusal)
+            self.assertEqual(
+                "", agent_hook._lifecycle_evidence_error(self._args(project, preflight))
+            )
+
+    def test_the_continuation_packet_is_refused_too(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            run = project / ".tao" / "runs" / RUN_ID
+            run.mkdir(parents=True)
+            packet = run / "continuation.json"
+            packet.write_text(
+                json.dumps(
+                    {
+                        "run_id": RUN_ID,
+                        "binding": {"filename": "preflight.json"},
+                        "work": {"objective": "x"},
+                        "drift": {"project": {}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            refusal = agent_hook._lifecycle_evidence_error(self._args(project, packet))
+
+            self.assertIn("continuation packet", refusal)
+            self.assertIn(str(run / "preflight.json"), refusal)
+
+    def test_evidence_written_before_a_field_existed_is_not_a_side_file(self) -> None:
+        """Absence never identifies a side-file; only its own fields do.
+
+        A run that started under older evidence -- an empty object, at the
+        limit -- must still be able to reach review and finish.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            run = project / ".tao" / "runs" / RUN_ID
+            run.mkdir(parents=True)
+            legacy = run / "preflight.json"
+            legacy.write_text("{}", encoding="utf-8")
+
+            self.assertEqual(
+                "", agent_hook._lifecycle_evidence_error(self._args(project, legacy))
+            )
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from claude_bash_readonly import (  # noqa: F401
     has_unresolvable_expansion,
     path_arguments,
     raw_path_arguments,
+    read_only_path_token_indices,
 )
 from support.stable_launcher import stable_launcher_path  # noqa: F401
 

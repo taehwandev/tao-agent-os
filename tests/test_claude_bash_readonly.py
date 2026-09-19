@@ -212,6 +212,65 @@ class CompoundShellCommandTests(unittest.TestCase):
             self._kind(f"LD_PRELOAD=/tmp/evil.so {launcher} start"), "mutating"
         )
 
+    def test_an_env_wrapper_does_not_hide_the_program_it_runs(self) -> None:
+        """`env` in front of an assignment left the launcher unseen.
+
+        `strip_env_assignments` reads `VAR=value cmd`; it stops at anything
+        else, so `env VAR=value <launcher> start` kept `env` as the program and
+        was judged a mutation. The gate then denied a workflow `start` with a
+        message telling the caller to run the workflow start hook.
+
+        Only options that cannot change what the program does are stepped over
+        here, which is a narrower reading than the publication hold's. `-i`,
+        `-u`, `-C` and `-P` each decide the environment or search path the
+        command gets, and `-S` carries the program inside its own value.
+        """
+
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(
+            self._kind(f"env CLAUDE_CODE_SESSION_ID=abc123 {launcher} start --project /tmp/x"),
+            "workflow_start",
+        )
+        self.assertEqual(
+            self._kind(f"env TAO_HOOK_SOFT_FAIL=1 {launcher} finish"),
+            bash_readonly.RUNTIME_CONTROL_KIND,
+        )
+        self.assertEqual(self._kind("env -- git status"), "read_only")
+        self.assertEqual(self._kind("env LC_ALL=C grep needle notes.txt"), "read_only")
+        self.assertEqual(self._kind("env rm -rf build"), "mutating")
+        self.assertEqual(
+            self._kind(f"env LD_PRELOAD=/tmp/evil.so {launcher} start"), "mutating"
+        )
+        for hidden in (
+            f"env -S '{launcher} start' --project /tmp/x",
+            f"env -i {launcher} start --project /tmp/x",
+            f"env -u TAO_HOOK_SOFT_FAIL {launcher} start --project /tmp/x",
+            f"env -C /tmp/x {launcher} start",
+            f"env -P /usr/bin {launcher} start",
+            f"env --split-string='{launcher} start'",
+        ):
+            with self.subTest(command=hidden):
+                self.assertEqual(self._kind(hidden), "mutating")
+
+    def test_an_env_wrapper_cannot_launder_a_root_pointer(self) -> None:
+        """`TAO_HOME` selects which checkout's scripts the launcher runs.
+
+        It is an executor variable in the same sense `LD_PRELOAD` is, so it is
+        outside the inert and runtime-hook allowlists and stays outside them.
+        Reading past `env` must not change that: the wrapper decides which
+        program is seen, never whether the assignment in front of it is safe.
+        """
+
+        launcher = str(worktree_gate.stable_launcher_path())
+        self.assertEqual(
+            self._kind(f"env TAO_HOME=/tmp/other {launcher} start --project /tmp/x"),
+            "mutating",
+        )
+        self.assertEqual(
+            self._kind(f"TAO_HOME=/tmp/other {launcher} start --project /tmp/x"),
+            "mutating",
+        )
+
     def test_fingerprint_hook_is_runtime_control(self) -> None:
         """The envelope bootstrap helper must be callable before any start.
 

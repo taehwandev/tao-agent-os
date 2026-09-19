@@ -29,7 +29,9 @@ class WorkSurfaceResolutionRoutingTests(unittest.TestCase):
         for command in sorted(SCOPE_CHANGE_LIFECYCLE_COMMANDS - {"test"}):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
-                self.assertEqual(["tests", "review hook"], route["gates"])
+                self.assertEqual(
+                    ["tests", "review hook", "retrospective check"], route["gates"]
+                )
                 self.assertNotIn("work surface resolution", route["gates"])
                 self.assertNotIn("source docs", route["gates"])
                 self.assertIn(

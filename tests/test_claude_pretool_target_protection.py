@@ -23,6 +23,7 @@ if str(ROOT / "tests") not in sys.path:
     sys.path.insert(0, str(ROOT / "tests"))
 
 from test_claude_pretool_gate import (
+    gate,
     _decide,
     _opt_in_project,
     _reason,
@@ -170,6 +171,39 @@ class TargetProtectionTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertIn("worktree gate", _reason(out))
+    def test_a_declared_dry_run_of_the_installer_only_reads_its_target(self) -> None:
+        """`--target` names the project; `--dry-run` says nothing is written.
+
+        Every path argument counted as somewhere the command might write, so
+        checking another project's hooks was refused as a write into it -- by
+        the run that had declared, in the same command, that it would write
+        nothing. The declaration has to be in the command's own text, and it
+        has to be the Tao installer: a script named the same thing elsewhere
+        proves nothing and keeps every path it names.
+        """
+
+        launcher = str(gate.stable_launcher_path())
+        with tempfile.TemporaryDirectory() as tmp:
+            target = _opt_in_project(Path(tmp) / "protected")
+            _require_linked_worktree(target)
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+
+            owned = [target.resolve()]
+            planted = Path(tmp) / "setup-agent-hooks.py"
+            planted.write_text("print('hi')\n", encoding="utf-8")
+            for command, expected in (
+                (f"{launcher} setup-agent-hooks --dry-run --skip-graphify --target {target}", []),
+                (f"{launcher} setup-agent-hooks --check --target={target}", []),
+                (f"{launcher} setup-agent-hooks --target {target}", owned),
+                (f"/usr/bin/python3 {planted} --dry-run --target {target}", owned),
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        expected,
+                        gate.bash_target_project_roots(command.split(), outside),
+                    )
+
     def test_a_target_the_filesystem_refuses_does_not_become_an_allow(self) -> None:
         """A crash in this gate is an allow, so it must not be reachable.
 

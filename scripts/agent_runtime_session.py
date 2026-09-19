@@ -355,6 +355,51 @@ def bind_resumed_runtime_session(
         raise
 
 
+def rebind_recorded_runtime_session(
+    *,
+    project: Path,
+    evidence_path: Path,
+    run_id: str,
+    resume_generation: int,
+) -> bool:
+    """Carry the evidence's own session binding across a resume claim.
+
+    A claim advances the registry's ``resume_generation``, while the binding
+    written in the evidence still names the generation it was stamped at, and
+    ``_session_binding_matches`` compares the two. ``resume --last`` without
+    ``--runtime`` and ``--runtime-session-id`` advanced the first and rebound
+    neither, so the run stopped resolving for every later hook and for the
+    pre-tool gate -- including the post-finish publication the finished-work
+    allowance exists to let through. ``finish`` then settled the run, and no
+    call was left that could repair the binding.
+
+    Leaving the generation where it was is the other way to close that gap and
+    is the worse one: it is the compare-and-swap token ``claim_resume`` uses so
+    two claimants cannot take one run, and freezing it lets the second claim
+    succeed. Re-stamping the session already recorded keeps the token and
+    hands ownership to nobody -- binding the run to a *different* session still
+    requires the caller to name both flags. Returns False when the evidence
+    records no session to carry, which is a binding this call never had.
+    """
+
+    session = _read_object(evidence_path).get("runtime_session")
+    if not isinstance(session, dict):
+        return False
+    runtime = str(session.get("runtime") or "")
+    session_id = str(session.get("session_id") or "")
+    if not runtime or not session_id:
+        return False
+    bind_resumed_runtime_session(
+        project=project,
+        evidence_path=evidence_path,
+        run_id=run_id,
+        resume_generation=resume_generation,
+        runtime=runtime,
+        session_id=session_id,
+    )
+    return True
+
+
 def _run_evidence_candidate(project: Path, run: dict[str, Any]) -> Path | None:
     run_id = str(run.get("run_id") or "")
     name = str(run.get("evidence_name") or "")

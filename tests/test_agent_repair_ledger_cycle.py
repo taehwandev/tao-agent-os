@@ -1172,7 +1172,9 @@ class RepairLedgerCycleTests(unittest.TestCase):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
-                self.assertEqual(["tests", "review hook"], route["gates"])
+                self.assertEqual(
+                    ["tests", "review hook", "retrospective check"], route["gates"]
+                )
                 self.assertNotIn(SOURCE_DOCS_GATE, route["gates"])
                 self.assertNotIn(DOCUMENTATION_IMPACT_GATE, route["gates"])
                 self.assertNotIn(CYCLE_CONTRACT_GATE, route["gates"])

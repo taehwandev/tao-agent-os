@@ -859,6 +859,19 @@ def _register_started_run(
         if run.get("run_id") != claimed_run_id or run.get("state") != "running":
             raise ValueError("start claim was not promoted atomically")
         details.append("agent run registry: running")
+        # Neither of these was printed anywhere, and a run now lives in a
+        # directory named by an opaque id, so the only way to reach it was to
+        # guess: one session spent eight of its thirteen hook calls on that,
+        # recorded gates against a stray ledger it had named as `--evidence`,
+        # and was told at `review` that the run id was not bound. The path is
+        # stated once, and so is the fact that naming it is usually needless.
+        details.append(f"run id: {claimed_run_id}")
+        details.append(f"evidence: {evidence_path}")
+        details.append(
+            "later hooks in this runtime session find this run on their own; "
+            "pass --evidence only for a worker's issued evidence path or from "
+            "another session, and only ever this exact preflight.json"
+        )
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         details.append("agent run registry: unavailable; start refused")
         return False
@@ -1464,7 +1477,43 @@ def _lifecycle_evidence_error(args: argparse.Namespace) -> str:
             "--evidence must name the preflight evidence written by start --evidence, "
             "not the start hook result written by --output"
         )
-    return ""
+    return _not_preflight_evidence_error(args.evidence, payload)
+
+
+def _not_preflight_evidence_error(evidence: Path, payload: object) -> str:
+    """Refuse a run side-file that was named where the preflight belongs.
+
+    A run directory holds the gate ledger and the continuation packet beside
+    the preflight, and the ledger is the one that looks usable. Named as
+    `--evidence` it made `gate-batch` report SUCCESS while writing a *second*
+    ledger beside the first (`gate-evidence-gate-evidence.json`), so those
+    gates went where no finish would read them. `review` was the first call to
+    object, several hooks later, and its message named an unbound run id
+    rather than the file that caused it.
+
+    Each side-file is identified by fields only it carries, never by the
+    absence of the preflight's own: evidence written before a field existed,
+    including an empty object, is a run that started and must still be able to
+    review and finish. The ledger records which preflight it belongs to, so
+    the refusal names the exact file to pass rather than describing one.
+    """
+
+    if not isinstance(payload, dict):
+        return ""
+    recorded = payload.get("preflight_evidence")
+    is_ledger = isinstance(recorded, str) and isinstance(payload.get("entries"), list)
+    is_packet = all(
+        isinstance(payload.get(field), dict) for field in ("binding", "work", "drift")
+    )
+    if not is_ledger and not is_packet:
+        return ""
+    named = recorded if is_ledger and recorded else str(evidence.parent / "preflight.json")
+    return (
+        f"--evidence must name this run's preflight evidence; {evidence.name} is the "
+        f"{'gate ledger' if is_ledger else 'continuation packet'} beside it. Pass "
+        f"{named}, or omit --evidence and let the hook resolve the run bound to this "
+        "runtime session"
+    )
 
 
 def _lifecycle_output_error(args: argparse.Namespace) -> str:

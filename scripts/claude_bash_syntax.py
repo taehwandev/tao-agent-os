@@ -38,6 +38,61 @@ FD_OPERAND_RE = re.compile(r"\d+|-")
 INPUT_REDIRECTIONS = frozenset({"<", "<<"})
 DISCARD_TARGETS = frozenset({"/dev/null"})
 ENV_ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=.*$")
+# `env` options that consume the next word, so the word after them names a
+# value and not the program. `-P` is macOS's search path and was the one whose
+# absence let `env -P /usr/bin git push` read `/usr/bin` as the program.
+ENV_VALUE_OPTIONS = frozenset(
+    {"-u", "--unset", "-C", "--chdir", "-P", "--path", "-S", "--split-string"}
+)
+# Options that change the environment a program receives, never its identity.
+ENV_FLAGS = frozenset({"-", "-i", "-0", "-v", "--ignore-environment", "--null", "--debug"})
+# What a reader may step over when it must also say what the command does, not
+# only which program it is. Nothing here changes the environment the program
+# runs in, which is the same thing the assignment-inertness rule refuses to
+# guess at: `env -i` and `env -u` decide what the program will see, so a reader
+# answering "does this write" stops at them instead of reading past them.
+ENV_IDENTITY_ONLY_FLAGS = frozenset({"-v", "--debug"})
+
+
+def past_env_options(
+    tokens: list[str],
+    index: int,
+    *,
+    value_options: "frozenset[str]" = ENV_VALUE_OPTIONS,
+    flags: "frozenset[str]" = ENV_FLAGS,
+) -> "int | None":
+    """Step over `env` options, or None for a form that hides the program.
+
+    `-S` and `--split-string` hold the command inside their own value, and an
+    option this does not know may do the same, so neither is guessed at.
+
+    Two callers ask two different questions of this one grammar, and they are
+    not equally permissive. "Which program runs" is answered for every option
+    above. "What does this command do" is not, so that caller narrows `flags`
+    and `value_options` and lets everything else leave the command unread. The
+    sets are parameters rather than a second copy of the loop: an option
+    spelling learned here is learned by both readings at once.
+    """
+
+    while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index] == "--":
+            # The standard end-of-options marker. Reading it as an option this
+            # does not know refused `env -- git status`, which names its
+            # program as plainly as any command here.
+            return index + 1
+        option = tokens[index].split("=", 1)[0]
+        if option in {"-S", "--split-string"}:
+            return None
+        if option in value_options:
+            index += 1 if "=" in tokens[index] else 2
+            continue
+        if option in flags:
+            index += 1
+            continue
+        return None
+    return index
+
+
 # The shell's own words, which name no program. These all stand in front of a
 # command that still follows, so each is stripped and what remains is what runs.
 # Putting a word that opens a block into the terminator set below instead would

@@ -32,8 +32,10 @@ def _load_script(name: str, filename: str):
 agent_hook = _load_script("agent_hook_resume_test", "agent-hook.py")
 
 from agent_continuation_store import continuation_path
-from agent_run_registry import registry_path
+from agent_run_registry import evidence_binding_key, registry_path
+from agent_runtime_session import resolve_runtime_evidence
 from test_agent_continuation_checkpoint import Fixture
+from test_agent_continuation_claim import dead_pid
 from test_agent_continuation_resume import age, free_fixture
 
 
@@ -206,6 +208,104 @@ class LastTests(unittest.TestCase):
             self.assertEqual(1, code)
             self.assertIn("resume result: not_found", output)
             self.assertIn("start a fresh run", output)
+
+
+class RecordedSessionSurvivesTheClaimTests(unittest.TestCase):
+    """A claim that renames nobody must not un-name the session it had."""
+
+    def _stamped_fixture(self, directory: str, objective: str, session: dict) -> Fixture:
+        """A free run whose evidence carries a session, as `start` writes it.
+
+        The stamp goes in before the first checkpoint: the packet binds to the
+        evidence bytes, so editing them afterwards is a moved binding and the
+        claim refuses the packet instead of reaching the question under test.
+
+        The registry key is moved onto the run directory too. `start` registers
+        the run against the evidence file it actually writes, and session
+        resolution is keyed on that; the shared fixture registers the default
+        path instead, which resolves to no run at all.
+        """
+
+        fixture = Fixture(directory)
+        payload = json.loads(fixture.binding_path.read_text(encoding="utf-8"))
+        payload["runtime_session"] = dict(session)
+        fixture.preflight = payload
+        fixture.binding_path.write_text(json.dumps(payload), encoding="utf-8")
+        registry = registry_path(fixture.project)
+        recorded = json.loads(registry.read_text(encoding="utf-8"))
+        for run in recorded["runs"]:
+            if run["run_id"] == fixture.run_id:
+                run["evidence_key"] = evidence_binding_key(
+                    fixture.project, fixture.binding_path
+                )
+        registry.write_text(json.dumps(recorded), encoding="utf-8")
+        fixture.checkpoint("initial", work={"objective": objective})
+        age(fixture, minutes=0, owner_pid=dead_pid(), run_id=fixture.run_id)
+        return fixture
+
+    def test_resume_without_runtime_flags_keeps_the_run_resolvable(self) -> None:
+        """`resume --last` alone used to make the run unfindable for good.
+
+        The claim advances the registry's `resume_generation`; the binding in
+        the evidence still named the generation it was stamped at, and the
+        matcher compares the two. Nothing rebound it, so every later hook and
+        the pre-tool gate stopped resolving the run -- and `finish` then
+        settled it, which left no call able to repair the binding. The
+        post-finish `git add` the finished-work allowance exists to permit was
+        the first thing to notice.
+        """
+
+        session = {"runtime": "claude", "session_id": "9035e9f5-resume"}
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self._stamped_fixture(
+                directory, "the run that must stay findable", session
+            )
+
+            code, output = run_resume(fixture.project, fixture.rules, "--last")
+
+            self.assertEqual(0, code)
+            self.assertIn("resume result: ready", output)
+            self.assertIn("resume generation: 1", output)
+            bound = json.loads(fixture.binding_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                {**session, "resume_generation": 1}, bound["runtime_session"]
+            )
+            self.assertEqual(
+                fixture.binding_path.resolve(),
+                resolve_runtime_evidence(fixture.project, session),
+            )
+
+    def test_a_claim_with_no_recorded_session_is_still_ready(self) -> None:
+        """Evidence written before session binding existed has none to carry."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "evidence with no session stamp")
+
+            code, output = run_resume(fixture.project, fixture.rules, "--last")
+
+            self.assertEqual(0, code)
+            self.assertIn("resume result: ready", output)
+            self.assertNotIn(
+                "runtime_session",
+                json.loads(fixture.binding_path.read_text(encoding="utf-8")),
+            )
+
+    def test_naming_one_flag_still_refuses_instead_of_reusing_the_record(self) -> None:
+        """Half a new binding is a caller error, not a request to keep the old one."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self._stamped_fixture(
+                directory,
+                "a half-named rebinding",
+                {"runtime": "claude", "session_id": "the-recorded-session"},
+            )
+
+            code, output = run_resume(
+                fixture.project, fixture.rules, "--last", "--runtime", "claude"
+            )
+
+            self.assertEqual(1, code)
+            self.assertIn("resume result: runtime_binding_refused", output)
 
 
 class NamedRunTests(unittest.TestCase):
