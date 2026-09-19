@@ -82,10 +82,15 @@ For tracked work:
 1. Receive the runtime mailbox brief once. It is context, never authority.
 2. Run `start` once with the exact current request, selected project/rules
    roots, a valid workflow command, safe intent slug, and bounded target summary.
-   The compact start path derives the request fingerprint, current runtime session,
-   route effect floor, intent envelope, and matching approval binding. Pass
-   `--approved-effect` only when the current request authorizes `git_write` or
-   higher. Do not run `fingerprint` first or hand-build JSON for normal starts.
+   `--intent` is a short reusable category name matching
+   `^[a-z][a-z0-9_-]{1,40}$`, never the request text; hyphens are folded to
+   underscores. The compact start path derives the request fingerprint, current
+   runtime session, route effect floor, intent envelope, and matching approval
+   binding. Pass `--approved-effect` only when the current request authorizes
+   `git_write` or higher; when `--requested-effect` is omitted it also declares
+   that effect. An explicit requested effect is never widened by approval.
+   Do not run `fingerprint` first or hand-build JSON for normal
+   starts.
    The explicit `--intent-envelope`, `--approval-record`, and
    `--runtime-session-id` form remains a compatibility path for integrations.
    Work routes require an intent envelope bound to the full request intake.

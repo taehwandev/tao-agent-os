@@ -115,7 +115,14 @@ def effect_decision(
     failures.extend(_binding_failures(envelope, request_fingerprint, runtime_session_id))
     effect = effective_effect(command, envelope, tool_effect=tool_effect)
     if command == "small-change" and EFFECT_RANK[effect] > EFFECT_RANK["local_write"]:
-        failures.append("small-change permits only local writes; start a matching full route for Git or external effects")
+        # Naming the replacement matters more here than anywhere else: the
+        # refusal arrives at the moment the caller believed the route was
+        # chosen, and "start a matching full route" left it guessing which.
+        failures.append(
+            f"small-change permits only local writes, not `{effect}`; make the "
+            "change on `bugfix`, `refactor`, `feature` or `task`, and run the "
+            "Git write on `commit`"
+        )
     if route_minimum_effect(command) == "read" and effect != "read":
         failures.append(
             f"read-only route `{command}` cannot execute `{effect}`; "

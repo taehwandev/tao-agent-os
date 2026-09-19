@@ -106,7 +106,11 @@ from workflow_effect_policy import APPROVAL_REQUIRED_FROM, route_minimum_effect
 from workflow_intent_envelope import (
     EFFECT_RANK,
     EFFECTS,
+    SAFE_SLUG_EXAMPLE,
+    SAFE_SLUG_PATTERN,
     SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION,
+    intent_slug_failure,
+    normalize_intent_slug,
 )
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
@@ -1183,8 +1187,11 @@ def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
         "--intent",
         default="",
         help=(
-            "safe intent slug for compact authority input; start binds it to the "
-            "current request and runtime session without a separate fingerprint call"
+            "safe intent slug for compact authority input, matching "
+            f"{SAFE_SLUG_PATTERN} (for example {SAFE_SLUG_EXAMPLE}; hyphens are "
+            "folded to underscores): a short reusable category name, never the "
+            "request text. start binds it to the current request and runtime "
+            "session without a separate fingerprint call"
         ),
     )
     start.add_argument(
@@ -1762,9 +1769,14 @@ def _materialize_compact_start_authority(
     already owns: the request fingerprint, current session id, route effect
     floor, envelope shape, and approval binding. Natural-language text never
     selects a route or grants an effect here.
+
+    Every input problem is reported at once. Each of these refusals ends a
+    `start` call, and answering them one at a time is how a single task spent
+    four calls in forty-five seconds: a missing effect flag, then a malformed
+    slug, then the next thing.
     """
 
-    intent = str(getattr(args, "intent", "") or "").strip()
+    intent = normalize_intent_slug(getattr(args, "intent", ""))
     target = str(getattr(args, "target_summary", "") or "").strip()
     requested = str(getattr(args, "requested_effect", "") or "").strip()
     approved = str(getattr(args, "approved_effect", "") or "").strip()
@@ -1777,39 +1789,61 @@ def _materialize_compact_start_authority(
             "compact start authority cannot be combined with --intent-envelope or "
             "--approval-record"
         )
+    problems: list[str] = []
     if not intent or not target:
-        parser.error("compact start authority requires --intent and --target-summary")
+        problems.append("compact start authority requires --intent and --target-summary")
+    elif intent_slug_failure(intent):
+        problems.append(f"--intent `{intent}` {intent_slug_failure(intent)}")
+    args.intent = intent
 
     active_session_id = str(runtime_session().get("session_id") or "")
     supplied_session_id = str(getattr(args, "runtime_session_id", "") or "")
     if active_session_id and supplied_session_id and active_session_id != supplied_session_id:
-        parser.error("--runtime-session-id does not match the current runtime session")
+        problems.append("--runtime-session-id does not match the current runtime session")
     session_id = active_session_id or supplied_session_id
     if not session_id:
-        parser.error(
+        problems.append(
             "compact start authority requires a runtime session binding; the active "
             "runtime did not expose one"
         )
 
     route_effect = route_minimum_effect(args.command)
     requested_effect = requested or route_effect
+    # Approving an effect for this request is also asking for it. Read any
+    # other way, `--approved-effect git_write` on a `local_write` route was a
+    # contradiction the caller had to resolve by repeating itself in
+    # `--requested-effect`, and the refusal it got said the approval was
+    # unnecessary -- the opposite of what was missing. Nothing widens here that
+    # the caller did not already declare: the approval is the ceiling the
+    # runtime states the current request authorizes, and the envelope still
+    # records requested and approved as the same effect.
+    if not requested and approved and EFFECT_RANK[approved] > EFFECT_RANK[requested_effect]:
+        requested_effect = approved
     effective_effect = max(
         (requested_effect, route_effect),
         key=EFFECT_RANK.__getitem__,
     )
     if EFFECT_RANK[effective_effect] >= EFFECT_RANK[APPROVAL_REQUIRED_FROM]:
         if not approved:
-            parser.error(
+            problems.append(
                 f"compact `{args.command}` start reaches `{effective_effect}`; pass "
                 "--approved-effect only when the current request authorizes that ceiling"
             )
-        if EFFECT_RANK[approved] < EFFECT_RANK[effective_effect]:
-            parser.error(
+        elif EFFECT_RANK[approved] < EFFECT_RANK[effective_effect]:
+            problems.append(
                 f"--approved-effect {approved} is below the effective "
                 f"{effective_effect} ceiling"
             )
     elif approved:
-        parser.error("--approved-effect is unnecessary below git_write")
+        # Only reachable below the approval threshold now, which is what the
+        # sentence has always claimed: an approval record is what `git_write`
+        # and above require, and nothing below it consults one.
+        problems.append(
+            f"--approved-effect {approved} is unnecessary: an approval record is "
+            f"required only from `{APPROVAL_REQUIRED_FROM}` up"
+        )
+    if problems:
+        parser.error("; ".join(problems))
 
     fingerprint = request_fingerprint(request_intake_from_args(args))
     envelope: dict[str, Any] = {

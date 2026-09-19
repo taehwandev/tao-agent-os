@@ -39,7 +39,46 @@ OPTIONAL_FIELDS = ("prohibited_effects", "approval_ref")
 _ALLOWED_FIELDS = frozenset(REQUIRED_FIELDS + OPTIONAL_FIELDS)
 
 _SAFE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
+# What a caller may write, which is wider than what is stored. Every other slug
+# in Tao -- route names, concerns -- is spelled with hyphens, so a runtime that
+# had never been told otherwise wrote `fix-start-failures` and was refused by a
+# message that named no pattern at all. A hyphen and an underscore name the
+# same category here, so one is folded into the other rather than refused.
+SAFE_SLUG_PATTERN = "^[a-z][a-z0-9_-]{1,40}$"
+SAFE_SLUG_EXAMPLE = "fix_start_failures"
 _OPAQUE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{8,128}$")
+
+
+def normalize_intent_slug(value: Any) -> str:
+    """Return the one stored spelling of an intent slug.
+
+    Folding happens before the envelope is built, so exactly one spelling is
+    ever bound, recorded and compared. Everything that reads the slug reads the
+    normalized form. Hand-built compatibility envelopes retain their existing
+    canonical underscore-only contract; validation does not mutate signed or
+    previously bound input.
+    """
+
+    return str(value or "").strip().replace("-", "_")
+
+
+def intent_slug_failure(value: Any) -> str:
+    """The reason this is not a usable intent slug, or an empty string.
+
+    The refusal names the pattern and an example. Without them the message
+    described the value it wanted as "a safe lowercase slug" and left the
+    caller to guess which characters that admitted -- and the guesses cost a
+    whole `start` call each, because the slug is checked after routing.
+    """
+
+    slug = normalize_intent_slug(value)
+    if _SAFE_SLUG_RE.fullmatch(slug):
+        return ""
+    return (
+        f"must be a safe lowercase slug matching {SAFE_SLUG_PATTERN} "
+        f"(for example `{SAFE_SLUG_EXAMPLE}`; hyphens are folded to "
+        "underscores): a short reusable category name, never the request text"
+    )
 
 
 def read_intent_envelope(value: str) -> dict[str, Any] | None:
