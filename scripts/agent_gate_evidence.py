@@ -28,7 +28,7 @@ from agent_repair_ledger import (
     register_repair_attempt,
 )
 from agent_run_registry import (
-    latest_run_id,
+    evidence_claim_snapshot,
     ledger_writable_run_claim_transaction,
     registry_path,
 )
@@ -410,7 +410,7 @@ def _claim_project(evidence_path: Path) -> Path | None:
                 continue
         except OSError:
             continue
-        if latest_run_id(parent, resolved):
+        if evidence_claim_snapshot(parent, resolved):
             matches.append(parent)
     if len(matches) > 1:
         raise GateEvidenceAccessError(
