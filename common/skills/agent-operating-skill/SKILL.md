@@ -24,12 +24,24 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
    required isolation location and branch naming rules. Do not postpone that
    check until commit/PR preparation or assume a temporary directory is valid.
    Reuse a correctly bound existing worktree; this adds no setup to read-only work.
+   For a new isolated task, when the installed setup contract permits worktree
+   creation before start, prepare the worktree and start the implementation there.
+   Do not open a source-checkout implementation run merely to repeat it in the
+   worktree. If setup requires a source run, follow its supported transfer or
+   settlement procedure; do not bypass that requirement or leave duplicate active
+   runs. Local integration remains a separate scope with its own authority.
 3. Before an additional read or investigation, identify the unresolved decision
    in the current task and why that source can resolve it. Start with the owning
    definition and nearest relevant test. Expand samples, callers or modules only
    when missing evidence, a contradiction, an applicable requirement or a failed
    check makes that expansion necessary. An empty search is not a reason to
    repeat equivalent searches or broaden the task without a new concrete lead.
+   For adapter work, establish whether the existing contract is a one-way
+   projection or a reversible conversion. Characterize preserved and omitted
+   fields and identity mapping before changing consumers. A round-trip criterion
+   is not permission to invent a reverse conversion or change persistence.
+   Consult history only to resolve an identified contract ambiguity; once current
+   contracts, consumers and tests resolve it, stop expanding that investigation.
 4. Load optional procedures when the action needs them, not for every later
    workflow stage. PR metadata work does not itself require module-design rules;
    module creation needs the applicable platform's module rules. Read selected
