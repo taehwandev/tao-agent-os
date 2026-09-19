@@ -17,18 +17,22 @@ from workflow_route import resolve_docs
 
 
 class ScopeChangeLifecycleTests(unittest.TestCase):
-    def test_normal_code_routes_have_only_final_tests_and_review(self) -> None:
+    def test_normal_code_routes_keep_final_checks_and_short_retrospective(self) -> None:
         for command in sorted(SCOPE_CHANGE_LIFECYCLE_COMMANDS):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
 
-                expected = ["tests"] if command == "test" else ["tests", "review hook"]
+                expected = (["tests"] if command == "test" else ["tests", "review hook"])
+                expected.append("retrospective check")
                 self.assertEqual(expected, route["gates"])
                 self.assertEqual(
                     ["start", "review", "finish"],
-                    [hook["hook"] for hook in route["hooks"]],
+                    [hook["hook"] for hook in route["hooks"]
+                     if hook["hook"] in {"start", "review", "finish"}],
                 )
-                self.assertFalse(route["skill_feedback"]["enabled"])
+                self.assertTrue(route["skill_feedback"]["enabled"])
+                self.assertFalse(next(h for h in route["hooks"]
+                                      if h["hook"] == "skill-feedback")["required"])
 
     def test_scope_change_policy_records_only_material_expansion(self) -> None:
         route = resolve_docs("task", None, [], request_classified=True)

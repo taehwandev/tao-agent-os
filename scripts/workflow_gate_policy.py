@@ -118,17 +118,17 @@ SOURCE_DOCS_COMMANDS = WORK_PRODUCING_COMMANDS | {
 # validates staged scope and drift. Re-recording source-doc and retrospective
 # evidence here only repeats the completed work route before commit readiness.
 
-# Every user-visible workflow performs one lightweight retrospective check.
-# The check itself is required; observation storage and later skill maintenance
-# remain a non-blocking side channel.
+# Tracked work retains one short closeout check. Only a reusable gap invokes
+# skill maintenance; stateless lookup and commit reuse add no new ceremony.
 RETROSPECTIVE_CHECK_COMMANDS = (
     SOURCE_DOCS_COMMANDS | LIGHTWEIGHT_ANALYSIS_COMMANDS
-) - SCOPE_CHANGE_LIFECYCLE_COMMANDS
+    | SCOPE_CHANGE_LIFECYCLE_COMMANDS | {"small-change"}
+)
 
 
 def automatic_gates(command: str) -> list[str]:
     if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
-        return [TEST_GATE]
+        return [TEST_GATE, RETROSPECTIVE_CHECK_GATE]
     gates: list[str] = []
     if command in CODE_WORK_COMMANDS:
         gates.append(WORK_SURFACE_RESOLUTION_GATE)

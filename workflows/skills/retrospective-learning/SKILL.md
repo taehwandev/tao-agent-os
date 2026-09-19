@@ -6,7 +6,7 @@ type: ai-generated
 
 # Retrospective Learning Workflow
 
-Use at the closeout of every workflow, when a required hook or gate failed,
+Use when the active workflow requires a closeout check, when a required hook or gate failed,
 when the user explicitly reports that a previously completed result was wrong
 and asks to correct that same result, or when completed work exposed a reusable
 gap in a skill the agent actually used. This bundle is the single owner of the
@@ -14,9 +14,10 @@ failure-repair and skill-learning automation boundary.
 
 ## Read
 
-- `references/current-guidance.md` for the two-flow decision boundary.
+- For an ordinary successful no-gap check, this entrypoint is sufficient.
+- `references/current-guidance.md` when the two-flow decision boundary is unclear.
 - `references/failure-repair.md` only after a required hook or gate fails.
-- `references/skill-feedback.md` for the required closeout check, after
+- `references/skill-feedback.md` after
   successful work reveals a reusable skill gap, when authoring the
   observation-time draft, or during a bounded skill-maintenance task.
 - Related `SKILL.md` entrypoints named by the reference before loading their detailed references.
@@ -34,9 +35,11 @@ failure-repair and skill-learning automation boundary.
    the user explicitly starts a runtime migration task.
 4. After task verification and review, but before finish, inspect the skills
    actually loaded and applied and complete the required `retrospective check`.
-   Include the bounded efficiency assessment in `references/skill-feedback.md`:
-   identify needless reads, repeated analysis or calls from existing evidence,
-   then correct their cause through the same maintenance flow, not a new loop.
+   Use existing evidence to identify needless reads, repeated calls, or missing
+   guidance. Keep this short; no new investigation is needed to find a lesson.
+   Load the detailed maintenance flow only for an evidenced reusable gap that
+   remains after the authorized fix. Do not reopen an already corrected issue
+   or force a skill edit merely because code changed.
 5. Record the exact fields `skills_checked`, `outcome`, and `observation`.
    Every named skill must resolve to a canonical Tao Agent OS bundle or an
    allowlisted project-local bundle; normalize hyphens to underscores when
@@ -48,8 +51,8 @@ failure-repair and skill-learning automation boundary.
    cannot start from a deferred observation. A reusable gap may produce at most
    one content-free observation tied to an actually used skill.
    At least one named skill must be one this run actually loaded: a bundle in
-   the route's `required_docs`, or `retrospective_learning`, which every route
-   uses because every route requires this gate. Name as many further skills as
+   the route's `required_docs`, or `retrospective_learning`, which the closeout
+   check uses. Name as many further skills as
    the retrospective genuinely covered; only a list with no loaded skill in it
    at all is refused, and the refusal names what the run did load.
 6. For a reusable gap, also write the proposal through the `skill-draft` hook
@@ -99,7 +102,7 @@ failure-repair and skill-learning automation boundary.
 - If detailed guidance changes, validate links and frontmatter for all three references.
 - If failure-repair ownership or output changes, prove the executable recovery
   policy names Tao Agent OS and not a reference Tao Agent OS checkout.
-- If routing changes, prove every route requires `retrospective check`, its
+- If routing changes, prove tracked work retains `retrospective check`, its
   structured evidence is validated, and every skill-learning hook remains
   optional.
 - Prove a reusable-gap observation queues same-closeout follow-up and blocks

@@ -85,6 +85,8 @@ memory.
    checkpoint that updates the accepted scope and verification. Start a new
    route only when the project, authority, effect ceiling, or external target
    changes. At closeout, record the route's final tests and run review once.
+   Record one short retrospective before finish; do not restore intermediate
+   ceremony or manufacture a skill change when no reusable gap remains.
    Specialized routes such as product, publication, release, cleanup, and
    multi-agent work retain the gates they explicitly list.
 8. Agentic run state: use a semantic checkpoint when work is interrupted,
@@ -158,9 +160,12 @@ ledger entries. For listed gates:
     scope. The restarted attempt must cite or apply the plan.
 20. Review: after meaningful edits, run the route's review hook and inspect the
     final diff, output, or artifact against the request and risks.
-21. Retrospective check: before finish on every route, inspect the skills
-    actually used and record the structured result. If a reusable gap exists,
-    record or defer one optional content-free skill observation.
+21. Retrospective check: when the active route requires it, inspect the skills
+    actually used and record the structured result. Ordinary code and bounded
+    local changes retain this short check. Stateless lookup and unchanged commit
+    follow-ups do not create a new learning cycle. If a reusable gap remains,
+    follow the retrospective-learning skill's conditional maintenance flow;
+    otherwise record `no_reusable_gap` with `not_needed` and leave skills alone.
 22. Finish: run `<TAO_LAUNCHER> finish` before final report, handoff,
     commit, or release. Use `agent-finish-check.py` directly only as a
     lower-level diagnostic or compatibility fallback when the finish hook is

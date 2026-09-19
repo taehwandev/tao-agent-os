@@ -14,13 +14,13 @@ from workflow_route import ROOT, resolve_docs
 
 
 class SmallChangeTests(unittest.TestCase):
-    def test_compact_manifest_keeps_only_tests_and_review_after_start(self):
+    def test_compact_manifest_keeps_short_retrospective_after_review(self):
         route = resolve_docs('small-change', None, [])
-        self.assertEqual(['tests', 'review hook'], route['gates'])
+        self.assertEqual(['tests', 'review hook', 'retrospective check'], route['gates'])
         self.assertFalse(route['missing'])
         self.assertFalse(route['blocking'])
-        self.assertFalse(route['skill_feedback']['enabled'])
-        self.assertNotIn('retrospective', str(route['hooks']))
+        self.assertTrue(route['skill_feedback']['enabled'])
+        self.assertIn('retrospective', str(route['hooks']))
         self.assertEqual(2, len(route['required_docs']))
         self.assertNotIn(
             'workflows/skills/review-and-commit/SKILL.md', route['required_docs']
@@ -28,7 +28,7 @@ class SmallChangeTests(unittest.TestCase):
         self.assertEqual(['start', 'review', 'finish'],
                          [h['hook'] for h in route['hooks'] if h['required']])
         full = resolve_docs('bugfix', None, [])
-        self.assertEqual(['tests', 'review hook'], full['gates'])
+        self.assertEqual(['tests', 'review hook', 'retrospective check'], full['gates'])
         self.assertIn('scope_change_policy', full)
 
     def test_compact_start_does_not_require_an_extra_checkpoint(self):

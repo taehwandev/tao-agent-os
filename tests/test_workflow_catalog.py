@@ -670,7 +670,7 @@ class WorkflowCatalogTests(unittest.TestCase):
     def test_code_route_uses_scope_change_lifecycle_and_final_checks(self) -> None:
         route = resolve_docs("feature", None, ["testing"], request_classified=True)
 
-        self.assertEqual([TEST_GATE, "review hook"], route["gates"])
+        self.assertEqual([TEST_GATE, "review hook", RETROSPECTIVE_CHECK_GATE], route["gates"])
         self.assertEqual("on_material_change", route["scope_change_policy"]["mode"])
         for gate in (
             SOURCE_DOCS_GATE,
@@ -682,7 +682,6 @@ class WorkflowCatalogTests(unittest.TestCase):
             MULTI_AGENT_GATE,
             AGENTIC_RUN_STATE_GATE,
             SIDE_EFFECT_AUDIT_GATE,
-            RETROSPECTIVE_CHECK_GATE,
         ):
             self.assertNotIn(gate, route["gates"])
 
@@ -701,16 +700,14 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertIn(required_doc("common/skills/testing/SKILL.md"), route["required_docs"])
         self.assertIn(route_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["reference_docs"])
         self.assertNotIn(required_doc("workflows/skills/product-architecture-delivery/SKILL.md"), route["required_docs"])
-        self.assertFalse(route["skill_feedback"]["enabled"])
-        self.assertFalse(route["skill_feedback"]["evaluation_required"])
-        self.assertFalse(route["skill_feedback"]["threshold_followup_required"])
-        self.assertEqual(
-            [],
-            [hook for hook in route["hooks"] if hook["hook"] == SKILL_FEEDBACK_HOOK],
-        )
+        self.assertTrue(route["skill_feedback"]["enabled"])
+        self.assertTrue(route["skill_feedback"]["evaluation_required"])
+        self.assertTrue(route["skill_feedback"]["threshold_followup_required"])
+        self.assertFalse(next(hook for hook in route["hooks"]
+                              if hook["hook"] == SKILL_FEEDBACK_HOOK)["required"])
         self.assertEqual(
             ["start", "review", "finish"],
-            [hook["hook"] for hook in route["hooks"]],
+            [hook["hook"] for hook in route["hooks"] if hook["required"]],
         )
 
     def _contradictions(

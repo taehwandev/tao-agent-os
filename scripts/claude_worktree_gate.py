@@ -87,7 +87,9 @@ def local_worktree_policy_applies(root: Path) -> bool:
         return False
     declared_root = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
     if not declared_root:
-        return True
+        # An inherited flag without an owning repository is not a global policy.
+        # Tracked target policy remains authoritative even without this bridge.
+        return False
     try:
         origin = Path(declared_root).expanduser().resolve()
     except OSError:
@@ -113,9 +115,9 @@ def worktree_policy(root: Path) -> dict | None:
     branches = parsed.get("protected_branches")
     valid = (
         parsed.get("schema_version") == WORKTREE_POLICY_SCHEMA_VERSION
-        and parsed.get("require_linked_worktree") is True
+        and isinstance(parsed.get("require_linked_worktree"), bool)
         and isinstance(branches, list)
-        and bool(branches)
+        and (bool(branches) or parsed["require_linked_worktree"] is False)
         and all(isinstance(branch, str) and branch.strip() for branch in branches)
         and all(
             isinstance(parsed[name], bool)
@@ -263,20 +265,26 @@ def named_target_cause(named: str = "") -> str:
 
 
 def worktree_deny_reason(
-    root: Path, branch: str, cause: str = "", named: str = ""
+    root: Path, branch: str, cause: str = "", named: str = "", *,
+    require_linked_worktree: bool = True,
 ) -> str:
-    location = "main checkout" if (root / ".git").is_dir() else f"protected branch `{branch}`"
+    location = (
+        "main checkout"
+        if require_linked_worktree and (root / ".git").is_dir()
+        else f"protected branch `{branch}`"
+    )
     explanation = (
         named_target_cause(named)
         if cause == NAMED_TARGET
         else DENIAL_CAUSES.get(cause, "")
     )
-    return (
-        f"Tao worktree gate: write blocked in {location}: {root}. "
-        f"{explanation}"
+    remedy = (
         "Next: use the task worktree and restart the workflow. If needed, run "
         "alone: `git worktree add <path> -b <branch> <base>`."
+        if require_linked_worktree
+        else "Next: use a task branch outside this project's protected branches."
     )
+    return f"Tao worktree gate: write blocked in {location}: {root}. {explanation}{remedy}"
 
 
 def worktree_denial(root: Path, cause: str = "", named: str = "") -> str | None:
@@ -284,6 +292,9 @@ def worktree_denial(root: Path, cause: str = "", named: str = "") -> str | None:
     if policy is None or os.environ.get(MAIN_CHECKOUT_OVERRIDE_ENV, "").strip() == "1":
         return None
     branch = current_branch(root)
-    if (root / ".git").is_dir() or branch in set(policy["protected_branches"]):
-        return worktree_deny_reason(root, branch, cause, named)
+    requires_linked = policy["require_linked_worktree"]
+    if (requires_linked and (root / ".git").is_dir()) or branch in set(policy["protected_branches"]):
+        return worktree_deny_reason(
+            root, branch, cause, named, require_linked_worktree=requires_linked
+        )
     return None

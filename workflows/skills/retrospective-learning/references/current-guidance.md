@@ -16,7 +16,7 @@ not share a trigger, completion effect, or automation budget.
 | --- | --- | --- | --- |
 | A required hook, gate, or finish check fails | Failure repair | Blocking | `failure-repair.md` |
 | The user explicitly reports that a previously completed result was wrong and asks to correct that same result | Failure repair | Blocking | `failure-repair.md` |
-| Any workflow reaches successful closeout | Retrospective check | Required before finish | `skill-feedback.md` |
+| A tracked work route requires a closeout check | Short retrospective check | Required before finish | Entry point; `skill-feedback.md` only for a reusable gap |
 | The check reveals a reusable gap in a skill actually used | Skill-document maintenance | Same-closeout follow-up blocks finish until terminal | `skill-feedback.md` |
 
 Failure repair protects the current task. It diagnoses the failed checkpoint,
@@ -89,7 +89,10 @@ not require pretending the correction is already understood.
 ## Automation Boundary
 
 - Required gates and failure repair remain fail-closed.
-- The `retrospective check` is required finish evidence on every route.
+- Ordinary code and small-change routes retain one `retrospective check` at
+  closeout. Stateless lookup and unchanged commit follow-ups add no learning
+  cycle. Do not expand a no-gap check into a search for new work or a mandatory
+  skill edit; use evidence already gathered during the task.
 - Skill observation is a required same-closeout step when the retrospective
   outcome is `reusable_gap`; no gap remains a no-op for canonical documents.
 - Observation hooks only append allowlisted content-free facts; they never
