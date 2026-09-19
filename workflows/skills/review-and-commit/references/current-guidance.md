@@ -12,6 +12,16 @@ Use after implementation, before handing off or committing.
 
 ### Exact reviewed commit preparation
 
+First apply the same-run local commit continuation contract in
+`common/skills/commit-workflow/references/current-guidance.md`. When the
+implementation run already covers commit authority, final staged review and
+readiness, commit after its successful finish without another start or review.
+Do not use `--commit-ready` for that case: it still executes another lifecycle.
+
+When a separate commit entry is needed (for example, the user first authorizes
+the commit after implementation has finished), the compact helper below can
+reuse eligible evidence without replacing the new authority check.
+
 For an exact fully staged unit whose whole working tree was reviewed and
 finished in this runtime session, use:
 
@@ -239,7 +249,9 @@ context; do not rediscover development guidance just because a diff exists.
 6. Run or record the nearest useful verification.
 7. Remove only unused code created by the change.
 8. Split unrelated work before committing.
-9. Confirm Commit Readiness Gate evidence from `common/skills/commit-workflow/SKILL.md`.
+9. Confirm the readiness checks from `common/skills/commit-workflow/SKILL.md`.
+   Record a separate gate only when the active route lists it; an eligible
+   implementation continuation includes readiness in its existing review evidence.
 10. Discover repo-local policy before any branch creation, push, PR, tag, or
    release publication.
 11. Write a commit message that states intent, context, and verification.

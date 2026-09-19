@@ -46,9 +46,12 @@ safety gate, and authority for the exact action. Reuse an open PR with the same
 head/base, give it a substantive body, and merge only after mergeability and
 required checks are known. Fast-forward a clean local `main` afterward.
 
-When an implementation request also authorizes commits, transition to the
-lightweight `commit` route for each ready unit; a goal continuing does not keep
-a finished implementation run open. A rejected command is not proof that
+When an implementation request also authorizes commits, prepare the exact
+staged unit before final review and finish. An eligible local commit then
+continues directly without a second lifecycle, under the same-run continuation
+contract in `common/skills/commit-workflow/references/current-guidance.md`.
+New commit authority, changed scope, or stale evidence uses the lightweight
+`commit` route. A rejected command is not proof that
 unrelated staging must be changed. Check the declared action, completed-run
 binding and supported command form first; preserve unrelated staging and
 request new authority only for a genuinely necessary change to it.

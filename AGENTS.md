@@ -430,9 +430,13 @@ This repository uses monthly CalVer `vYY.MM.N`. `N` counts tags in the month
 and resets to 1 in a new month. A tag is a deployment even without GitHub
 release notes; release ranges start at the previous tag.
 
-Local commit creation uses the lightweight `commit`/`git_commit` route after
-review readiness. Push, PR creation, tags, releases, deployment, migration, and
-publishing require their own matching user authority and checks.
+An already authorized local commit of the exact staged unit reviewed and
+finished in the same session continues directly after finish; do not open a
+second lifecycle solely to commit it. Apply the eligibility and fallback rules
+in `common/skills/commit-workflow/references/current-guidance.md`. New commit
+requests or changed scope use the lightweight `commit`/`git_commit` route.
+Push, PR creation, tags, releases, deployment, migration, and publishing require
+their own matching user authority and checks.
 
 ## Runtime And Ownership Rules
 

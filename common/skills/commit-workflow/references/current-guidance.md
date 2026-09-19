@@ -8,7 +8,8 @@ type: ai-generated
 
 Use before creating commits, regardless of git client, IDE, CLI, or AI tool.
 
-For work routed through Tao Agent OS, clear local commit requests and combined
+For work routed through Tao Agent OS, first check same-run continuation below.
+Otherwise, clear local commit requests and combined
 commit/push/pull-request follow-ups must use the lightweight `commit` route, or
 `git_commit` when the runtime uses that label. Do not route them through the
 general `task`, `review`, `triage`, or `release` routes. Push and PR publication
@@ -16,6 +17,36 @@ do not make a source-control follow-up a release; use `release` only when the
 request actually packages, deploys, tags, migrates, or publishes a release
 artifact. The commit route exists to avoid running implementation gates after
 the code work is already done.
+
+## Same-Run Local Commit Continuation
+
+When implementation already includes an authorized local commit, prepare it
+inside that work run rather than requiring a second `commit` lifecycle:
+
+1. Confirm the conversation authorizes this exact local commit and the active
+   run binds matching `git_write` authority. A local-write-only route or a
+   successful finish alone is not commit authorization.
+2. Stage the intended unit before final review. Complete the readiness checks
+   below, including applicable repository, remote, visibility and safety checks,
+   and include that evidence in the existing review. Do not invent a readiness
+   gate when the route does not list one.
+3. Complete all gates of the work route and finish successfully. Immediately
+   before committing, confirm the same session, repository, branch, HEAD,
+   staged set and bytes still match that review, with fresh evidence and no
+   unresolved findings. Then execute the authorized local commit directly.
+
+This continuation leaves the finished run closed. It adds no start, review,
+finish, permission exemption or automatic commit. Runtime admission is not
+proof of user authority or of an unchanged reviewed diff.
+
+Use the lightweight commit route if authority is newly granted after finish,
+the run cannot bind the required effect, review/readiness is incomplete, or
+the session, target, HEAD, staged set, bytes or freshness differs. Reuse valid
+evidence there, including `--commit-ready` when eligible. A follow-up repeating
+the same already authorized action does not by itself require new approval.
+After one of several split commits, HEAD and the remaining staged scope have
+changed; do not reuse the first unit's finish blindly for the rest. This local
+continuation does not authorize push, PR, tag, merge, release or deployment.
 
 ## Lightweight Execution Contract
 
