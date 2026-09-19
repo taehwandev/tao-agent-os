@@ -218,6 +218,13 @@ Call `<TAO_LAUNCHER> agent-finish-check` directly only as a lower-level diagnost
 compatibility fallback when the finish hook is unavailable.
 
 The wrappers write local JSON evidence under `<TARGET_REPO>/.tao/`.
+Evidence-owner discovery reads existing ancestor registry snapshots without
+creating lock files there. Unrelated ancestors need no write permission merely
+to discover the owner. Registry JSON is atomically replaced; a matching snapshot
+is only a candidate, and ledger mutation still locks the selected project and
+revalidates its current claim. Ambiguous, unreadable or malformed registry state
+must not silently bypass ownership. This does not remove permission requirements
+for actual target writes or user-global state.
 The gate ledger is `<TARGET_REPO>/.tao/gate-evidence.json` for the
 default `preflight.json`; custom preflight evidence files use
 `<preflight-stem>-gate-evidence.json` so concurrent or delegated runs do not

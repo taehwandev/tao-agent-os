@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import uuid
 from contextlib import contextmanager
@@ -654,6 +655,27 @@ def _claim_recency_expired(
     return updated < datetime.now(timezone.utc) - timedelta(
         seconds=stale_after_seconds
     )
+
+
+def evidence_claim_snapshot(project: Path, evidence_path: Path) -> bool:
+    """Discover a candidate owner without writing outside the target project.
+
+    Registry writers replace JSON atomically, so one read sees a whole snapshot.
+    This is discovery only: ledger mutation must revalidate the selected claim
+    under ledger_writable_run_claim_transaction. Unreadable or malformed state
+    must not silently turn claimed evidence into a registry-free write.
+    """
+    payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != SCHEMA_VERSION
+        or not isinstance(payload.get("runs"), list)
+        or any(not isinstance(run, dict) for run in payload["runs"])
+    ):
+        raise ValueError("invalid registry snapshot during evidence discovery")
+    matches = [run for run in payload["runs"]
+               if _matches_evidence(run, project, evidence_path)]
+    return bool(matches and matches[-1].get("run_id"))
 
 
 def latest_run_id(project: Path, evidence_path: Path) -> str | None:
