@@ -1363,29 +1363,28 @@ class SetupAgentHooksTests(unittest.TestCase):
             self.assertNotIn(str(stable_launcher_path()), first_text)
 
     def test_codex_merge_preserves_unmanaged_rules_added_after_managed_block(self) -> None:
-        # The merge canonicalizes the file as unmanaged rules followed by one
-        # managed block: a user rule appended after the block is preserved by
-        # relocating it ahead of the rebuilt block, then the file is stable.
+        # Codex appends user approvals after the managed block. Both checking
+        # and reinstalling must leave this already-valid file untouched.
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "default.rules"
             user_rule = 'prefix_rule(pattern=["user-approved-tool"], decision="allow")'
             entries = codex_prefix_rule_entries(ROOT / "scripts")
             merge_codex_prefix_rules(target, entries, dry_run=False)
             target.write_text(target.read_text() + user_rule + "\n")
+            original = target.read_text()
 
             dry_run_status = merge_codex_prefix_rules(target, entries, dry_run=True)
             install_status = merge_codex_prefix_rules(target, entries, dry_run=False)
             settled = target.read_text()
             settled_status = merge_codex_prefix_rules(target, entries, dry_run=True)
 
-            self.assertEqual("missing", dry_run_status)
-            self.assertEqual("installed", install_status)
+            self.assertEqual("ok", dry_run_status)
+            self.assertEqual("ok", install_status)
             self.assertEqual("ok", settled_status)
             self.assertEqual(settled, target.read_text())
             self.assertEqual(1, settled.count(user_rule))
             self.assertEqual(1, settled.count("# tao-hooks:begin"))
-            self.assertTrue(settled.startswith(user_rule))
-            self.assertTrue(settled.rstrip("\n").endswith("# tao-hooks:end"))
+            self.assertEqual(original, settled)
 
     def test_runtime_setup_removes_superseded_brand_content_and_permissions(self) -> None:
         # Setup rebuilds the managed block from current entries only, so
