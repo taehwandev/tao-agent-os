@@ -1035,13 +1035,13 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn(guidance_area("platforms/android/skills/android-viewmodel-state/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("platforms/android/skills/android-state-data/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("common/skills/ui-visual-verification/SKILL.md"), routed_areas(route))
-        self.assertIn(
+        self.assertNotIn(
             guidance_area("platforms/android/skills/source-coverage/references/compose-performance-source-map.md"),
             routed_areas(route),
         )
         self.assertTrue(any(match["name"] == "android_compose_ui_feature" for match in route["doc_surface_matches"]))
 
-    def test_android_compose_self_selection_promotes_performance_source_docs(self) -> None:
+    def test_android_compose_self_selection_keeps_source_maps_on_demand(self) -> None:
         route = resolve_docs(
             "feature",
             "android",
@@ -1053,11 +1053,11 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn(required_doc("platforms/android/skills/android-compose-ui/SKILL.md"), route["required_docs"])
         self.assertIn(guidance_area("platforms/android/skills/android-external-skill-source-coverage/SKILL.md"), routed_areas(route))
         self.assertIn(guidance_area("platforms/android/skills/source-coverage/SKILL.md"), routed_areas(route))
-        self.assertIn(
+        self.assertNotIn(
             guidance_area("platforms/android/skills/source-coverage/references/compose-performance-source-map.md"),
             routed_areas(route),
         )
-        self.assertIn(
+        self.assertNotIn(
             guidance_area("platforms/android/skills/source-coverage/references/chrisbanes-source-map.md"),
             routed_areas(route),
         )
@@ -1340,7 +1340,6 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             "android": [
                 "platforms/android/skills/android-compose-ui/SKILL.md",
                 "platforms/android/skills/android-viewmodel-state/SKILL.md",
-                "platforms/android/skills/source-coverage/references/compose-performance-source-map.md",
             ],
             "application": [
                 "platforms/application/skills/application-command-ui/SKILL.md",

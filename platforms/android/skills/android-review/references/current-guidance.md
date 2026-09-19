@@ -148,12 +148,16 @@ ViewModel bypasses in changed production Kotlin composables. A textual review
 attestation cannot override these failures. Send product actions to the ViewModel;
 do not silence a finding by renaming a callback or moving it to a UI helper.
 
-The lexical check catches route/notice request constructors, conventional data
-service calls, direct navigation/notice/platform dispatch, and known effect
+The lexical check catches route/notice request constructors and singleton
+references, conventional data service calls, direct navigation/notice/platform
+dispatch, and known effect
 callback forwarding. Direct dispatch is allowed in a `viewModel.effects`
-collector (also `*ViewModel`, `uiEffects`, and `sideEffects`), except inside a
-nested UI callback. The host must still collect lifecycle-aware and execute only
+collector (also explicitly ViewModel-typed parameters, `*ViewModel`, `uiEffects`,
+and `sideEffects`), except inside a nested UI callback. The host must still
+collect lifecycle-aware and execute only
 the ViewModel's decision. Local scroll, focus and backdrop rendering are allowed.
+Declared zero-argument leaf callbacks may be invoked or forwarded; their names
+alone do not establish an effect decision. Review their holder mapping to actions.
 
 This is a bounded guard, not Kotlin type or data-flow analysis: aliases of
 receivers, arbitrary helper names, string interpolation, and indirect calls may

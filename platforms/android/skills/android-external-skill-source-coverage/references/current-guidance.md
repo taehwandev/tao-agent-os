@@ -50,6 +50,12 @@ These local snapshots were reviewed for this manifest:
 
 ## No-Omission Gate
 
+Routine device verification using established repo commands follows the bounded
+operation rule in `../../source-coverage/SKILL.md`; executing an existing install
+or inspection command alone does not require reopening this manifest or its
+upstream references. Changed tool setup, test strategy, SDK behavior and
+security decisions still require their matching sources.
+
 For Android documentation, architecture, module, Compose, performance, testing,
 or platform-SDK work:
 

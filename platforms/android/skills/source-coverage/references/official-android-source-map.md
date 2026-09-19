@@ -38,9 +38,12 @@ unless the source explicitly supports it.
 
 ### `devtools/android-cli/SKILL.md`
 
-Read when using the official Android CLI, SDK manager, emulator/device control,
-APK install/run, screenshots, UI hierarchy inspection, journey tests, doc
-search, or skill management.
+Read when configuring or diagnosing the Android CLI, SDK manager or emulator,
+or choosing a new device interaction or journey-test strategy. Routine APK
+install/run, screenshots and UI hierarchy inspection using established repo
+commands reuse the known guidance; check the target device and artifact without
+reopening source maps. An unresolved command failure or version-specific
+behavior requires the relevant CLI source before changing the procedure.
 
 Reference groups:
 

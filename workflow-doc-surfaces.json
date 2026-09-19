@@ -16,10 +16,6 @@
       "platforms/android/skills/android-memory-lifecycle/SKILL.md",
       "platforms/android/skills/android-external-skill-source-coverage/SKILL.md",
       "platforms/android/skills/source-coverage/SKILL.md",
-      "platforms/android/skills/source-coverage/references/external-source-distillation.md",
-      "platforms/android/skills/source-coverage/references/official-android-source-map.md",
-      "platforms/android/skills/source-coverage/references/compose-performance-source-map.md",
-      "platforms/android/skills/source-coverage/references/chrisbanes-source-map.md",
       "common/skills/ui-visual-verification/SKILL.md",
       "common/skills/performance-verification/SKILL.md"
     ],

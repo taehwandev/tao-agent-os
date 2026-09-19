@@ -11,6 +11,15 @@ external Android and Compose skill repositories.
 
 ## Read
 
+Select one matching source family below; this list is not a required reading
+sequence. Reuse unchanged source guidance already read for the current surface.
+Running an established APK install, launch, screenshot or UI inspection command
+does not itself change the toolchain or verification strategy. Use the repo's
+known command and explicit device/artifact state for that operation. Open the
+CLI source only for an unresolved tool behavior, setup change, failure, or a new
+interaction/test strategy. Security, SDK and version changes retain their
+matching source requirements.
+
 - `../android-external-skill-source-coverage/SKILL.md` for the current source
   snapshot entrypoint.
 - `../android-external-skill-source-coverage/references/current-guidance.md`
@@ -19,9 +28,9 @@ external Android and Compose skill repositories.
 - `references/official-android-source-map.md` for official Android skill and
   reference coverage by build, SDK, security, Play, profiling, testing, Wear,
   and XR surface.
-- `references/compose-performance-source-map.md` for Compose performance source
+- `references/compose-performance-source-map.md` only for Compose performance source
   skills, measurement rules, and specialized reference files.
-- `references/chrisbanes-source-map.md` for Chris Banes Compose/Kotlin source
+- `references/chrisbanes-source-map.md` only for Chris Banes Compose/Kotlin source
   skills and their routing rules.
 - The matching upstream `SKILL.md` and listed `references/` files before making
   code, dependency, security, performance, or verification changes for that

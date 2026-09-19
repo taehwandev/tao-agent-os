@@ -109,6 +109,37 @@ class AndroidActionBoundaryTests(unittest.TestCase):
         self.assertTrue(AndroidActionBoundary.failures(Path("FeedScreen.kt"), source))
         self.assertTrue(self.check('router\n .navigate(\nroute\n)'))
 
+    def test_leaf_callback_is_not_an_effect_decision(self):
+        source = "@Composable fun Content(onNavigate: () -> Unit) { Button(onClick = { onNavigate() }) }"
+        self.assertEqual([], AndroidActionBoundary.failures(Path("Content.kt"), source))
+
+    def test_typed_viewmodel_receiver_can_have_a_short_name(self):
+        source = """@Composable fun Screen(vm: FeedViewModel) {
+            LaunchedEffect(vm) { vm.effects.collect { effect -> router.navigate(effect.route) } }
+        }"""
+        self.assertEqual([], AndroidActionBoundary.failures(Path("Screen.kt"), source))
+
+    def test_route_singleton_is_an_effect_decision(self):
+        self.assertTrue(self.check("Button(onClick = { sink.tryEmit(FeedRouteEvent.Back) })"))
+
+    def test_leaf_parameter_does_not_allow_constructing_requests(self):
+        source = """@Composable fun Content(onNavigate: () -> Unit) {
+            Button(onClick = { sink.tryEmit(FeedRouteEvent.Back); onNavigate() })
+        }"""
+        self.assertTrue(AndroidActionBoundary.failures(Path("Content.kt"), source))
+
+    def test_typed_vm_does_not_allow_nested_user_effect_decisions(self):
+        source = """@Composable fun Screen(vm: FeedViewModel) {
+            vm.effects.collect { Button(onClick = { router.navigate(route) }) }
+        }"""
+        self.assertTrue(AndroidActionBoundary.failures(Path("Screen.kt"), source))
+
+    def test_leaf_forwarding_and_vm_method_reference_are_allowed(self):
+        source = """@Composable fun Screen(vm: FeedViewModel, onNavigate: () -> Unit) {
+            Content(onClick = vm::navigate, onNavigate = onNavigate)
+        }"""
+        self.assertEqual([], AndroidActionBoundary.failures(Path("Screen.kt"), source))
+
     def test_function_parameter_defaults_do_not_hide_the_body(self):
         source = '''
             @Composable fun FeedScreen(onAction: () -> Unit = {}) {

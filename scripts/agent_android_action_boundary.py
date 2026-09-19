@@ -16,7 +16,7 @@ from pathlib import Path
 class AndroidActionBoundary:
     """Reject recognizable effect decisions in changed composable bodies."""
 
-    _event = re.compile(r"\b\w*(?:RouteEvent|NavigationEvent|NoticeEffect)\s*\.\s*\w+\s*\(")
+    _event = re.compile(r"\b\w*(?:RouteEvent|NavigationEvent|NoticeEffect)\s*\.\s*[A-Z]\w*\b")
     _data = re.compile(
         r"\b(?:\w*(?:Repository|UseCase|DataSource|ApiClient)|repository|useCase|api|dao)"
         r"\s*(?:\?\.)?\s*\.?(?:\s*\w+\s*)?\("
@@ -39,17 +39,25 @@ class AndroidActionBoundary:
             elif re.search(r"(?:RouteEvent|NavigationEvent|NoticeEffect)(?:\.|$)", original):
                 code = re.sub(r"\b" + re.escape(alias) + r"\b", original, code)
         findings = []
-        for start, end in cls._bodies(code):
+        for signature, start, end in cls._bodies(code):
             body = code[start:end]
+            parameters = code[signature:start]
+            # Resolve explicit parameter types locally, never from another function.
+            vm_names = re.findall(r"\b(\w+)\s*:\s*(?:\w+\.)*\w*ViewModel\b", parameters)
+            receivers = r"(?:viewModel|\w+ViewModel" + "".join("|" + re.escape(name) for name in vm_names) + ")"
+            leaf_callbacks = set(re.findall(r"\b(on\w+)\s*:\s*\(\s*\)\s*->\s*Unit\b", parameters))
             callbacks = cls._regions(body, cls._callback)
             collectors = cls._regions(body, re.compile(
-                r"\b(?:viewModel|\w+ViewModel)\s*\.\s*(?:effects|uiEffects|sideEffects)\s*"
+                r"\b" + receivers + r"\s*\.\s*(?:effects|uiEffects|sideEffects)\s*"
                 r"\.\s*(?:collect|collectLatest)\s*\{"
             ))
             matches = [(m, "effect construction") for m in cls._event.finditer(body)]
             matches += [(m, "data request") for m in cls._data.finditer(body)]
             for match in cls._effect.finditer(body):
-                if cls._viewmodel_call(body, match.start()):
+                if any(re.fullmatch(re.escape(name) + r"\s*\(", match[0])
+                       for name in leaf_callbacks):
+                    continue
+                if re.match(receivers + r"\s*\.", body[match.start():]):
                     continue
                 in_callback = any(a <= match.start() < b for a, b in callbacks)
                 in_collector = any(a <= match.start() < b for a, b in collectors)
@@ -59,13 +67,13 @@ class AndroidActionBoundary:
             matches += [(m, "effect callback forwarding") for m in re.finditer(
                 r"\bon\w+\s*=\s*(?:onStartThread|onRouteEvent|onNavigate\w*|onShowNotice|onShowToast|onShowAlert)\b(?!\s*\()",
                 body,
-            )]
+            ) if m[0].split("=", 1)[1].strip() not in leaf_callbacks]
             for match in re.finditer(
                 r"\b\w+\s*::\s*(?:navigate|popBackStack|navigateUp|showSnackbar|"
                 r"showToast|showNotice|showAlert|startActivity)\b", body,
             ):
                 receiver = match.group().split("::", 1)[0].strip()
-                if receiver != "viewModel" and not receiver.endswith("ViewModel"):
+                if receiver not in vm_names and receiver != "viewModel" and not receiver.endswith("ViewModel"):
                     matches.append((match, "effect callback forwarding"))
             for match, reason in matches:
                 line = code.count("\n", 0, start + match.start()) + 1
@@ -75,12 +83,6 @@ class AndroidActionBoundary:
                     "Only consume ViewModel effects in the lifecycle UI host."
                 )
         return sorted(set(findings))
-
-    @staticmethod
-    def _viewmodel_call(body: str, offset: int) -> bool:
-        # Match the whole receiver, not a suffix hidden in some other identifier.
-        tail = body[offset:]
-        return bool(re.match(r"(?:viewModel|\w+ViewModel)\s*\.", tail))
 
     @classmethod
     def _regions(cls, code: str, pattern: re.Pattern) -> list[tuple[int, int]]:
@@ -116,10 +118,10 @@ class AndroidActionBoundary:
                 continue
             start = end + body.end() - 1
             if body[1] == "{":
-                yield start, cls._close(code, start, "{", "}")
+                yield signature, start, cls._close(code, start, "{", "}")
             else:
                 following = re.search(r"\n(?:@|(?:private |internal )?fun\b)", code[start:])
-                yield start, start + following.start() if following else len(code)
+                yield signature, start, start + following.start() if following else len(code)
 
 
 def _mask_kotlin_literals(source: str) -> str:
