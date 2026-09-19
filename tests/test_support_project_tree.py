@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -322,8 +323,16 @@ class CallerResultsAreUnchangedTests(unittest.TestCase):
         }
         expected = walked - git_ignored(ROOT, walked)
 
-        self.assertLess(len(expected), len(walked), "expected generated output to exist")
         self.assertEqual(expected, _markdown_docs(ROOT))
+
+        # A fresh linked worktree has no ignored build output. Exercise that
+        # boundary in an owned fixture instead of depending on developer state.
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            subprocess.run(["git", "init", str(base)], check=True, capture_output=True)
+            (base / ".gitignore").write_text("generated/\n", encoding="utf-8")
+            build(base, "guide.md", "nested/guide.md", "generated/copy.md", ".tao/run.md")
+            self.assertEqual({"guide.md", "nested/guide.md"}, _markdown_docs(base))
 
     def test_the_validator_keeps_exactly_the_files_it_kept(self) -> None:
         expected = sorted(

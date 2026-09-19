@@ -32,6 +32,46 @@ class ProjectWorktreePolicyTests(unittest.TestCase):
         (root / "AGENTS.md").write_text("Uses tao-hook.\n")
         return root
 
+    def test_codex_refusal_explains_lost_workdir_without_restarting_a_bound_task(self):
+        os.environ["TAO_PRETOOL_RUNTIME"] = "codex"
+        reason = gate.worktree_deny_reason(self.base, "main")
+        self.assertIn("workdir", reason)
+        self.assertIn('git -C "<worktree>"', reason)
+        self.assertIn('cd "<worktree>" && <command>', reason)
+        self.assertNotIn("restart the workflow", reason)
+        self.assertIn("sandbox", reason)
+
+    def test_explicit_codex_worktree_command_targets_preserve_main_protection(self):
+        os.environ["TAO_PRETOOL_RUNTIME"] = "codex"
+        main = self.project("main")
+        worktree = self.project("task with spaces")
+        (worktree / ".git").rmdir()
+        (worktree / ".git").write_text("gitdir: /unused/test-metadata\n")
+        self.policy(main)
+        self.policy(worktree)
+        for command, allowed in (
+            ("git add code.py", False),
+            (f'git -C "{worktree}" add code.py', True),
+            (f'cd "{worktree}" && python3 build.py', True),
+            (f'git -C "{main}" add code.py', False),
+            (f'cd "{worktree}" && python3 "{main}/mutate.py"', False),
+        ):
+            with self.subTest(command=command):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    pretool.decide({
+                        "tool_name": "Bash", "cwd": str(main),
+                        "session_id": "codex-worktree",
+                        # Codex 0.155.1 sends command only; exec workdir is lost.
+                        "tool_input": {"command": command},
+                    })
+                if allowed:
+                    self.assertEqual("", output.getvalue())
+                else:
+                    decision = json.loads(output.getvalue())["hookSpecificOutput"]
+                    self.assertEqual("deny", decision["permissionDecision"])
+                    self.assertIn("worktree gate", decision["permissionDecisionReason"])
+
     def policy(self, root: Path, *, linked=True, branches=None) -> dict:
         policy = {
             "schema_version": 1,

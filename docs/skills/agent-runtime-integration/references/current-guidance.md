@@ -241,6 +241,19 @@ Codex:
 - Prefer repo-local `AGENTS.md` plus the routing block.
 - Start Codex with the selected target repo as the primary workspace:
   `codex -C <TARGET_REPO>`.
+- When continuing a session started outside its task worktree, use
+  `git -C "<worktree>" <args>` for Git or
+  `cd "<worktree>" && <command>` for other shell commands. Use an absolute,
+  shell-quoted path, keep any supplied `workdir` consistent, and use absolute
+  worktree paths for file-edit tools. Codex 0.155.1's
+  [exec handler](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs)
+  sends only `tool_input.command` to `PreToolUse`, omitting `workdir`; the hook
+  receives the session cwd. Tao cannot safely infer the missing execution
+  directory from a bound run. Explicit command targeting preserves the real
+  destination for both execution and inspection. Reuse the bound task after a
+  location denial; do not restart its workflow or create another worktree.
+  This compatibility path does not grant sandbox access, suppress native
+  approval, or permit commands that explicitly target a protected checkout.
 - Add `--add-dir <TAO_ROOT>` only when the task must include the
   shared Tao Agent OS root in the session workspace, such as maintaining
   Tao Agent OS itself or editing shared runtime bridge files.

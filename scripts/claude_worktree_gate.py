@@ -285,6 +285,14 @@ def worktree_deny_reason(
         if require_linked_worktree
         else "Next: use a task branch outside this project's protected branches."
     )
+    if require_linked_worktree and os.environ.get("TAO_PRETOOL_RUNTIME") == "codex":
+        remedy = (
+            "Next: target the existing task worktree explicitly with "
+            '`git -C "<worktree>" <args>` or `cd "<worktree>" && <command>`. '
+            "Codex may omit exec workdir from the hook payload, leaving the session cwd. "
+            "Reuse the bound task; create/start one only if none exists. "
+            "Explicit targeting does not grant sandbox permission or allow writes to main."
+        )
     return f"Tao worktree gate: write blocked in {location}: {root}. {explanation}{remedy}"
 
 
