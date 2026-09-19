@@ -40,6 +40,15 @@ class CompoundShellCommandTests(unittest.TestCase):
         self.assertEqual(self._kind("ls -la | wc -l"), "read_only")
         self.assertEqual(self._kind("cat notes.txt | grep todo | tail -3"), "read_only")
 
+    def test_local_evidence_query_is_not_confused_with_evidence_writers(self) -> None:
+        for command in ("vibeguard evidence", "vibeguard evidence .",
+                        "vibeguard evidence --json", "vibeguard evidence . --json"):
+            self.assertEqual(self._kind(command), "read_only")
+        for command in ("vibeguard evidence install-claude-hook .",
+                        "vibeguard evidence claude-hook .", "vibeguard evidence . --fix",
+                        "vibeguard evidence . > report.json"):
+            self.assertEqual(self._kind(command), "mutating")
+
     def test_canonical_structure_preview_is_read_only_not_a_basename_allowance(self) -> None:
         script = ROOT / "scripts/agent-structure-check.py"
         self.assertEqual(self._kind(f"python3 {script} --project /tmp/project"), "read_only")

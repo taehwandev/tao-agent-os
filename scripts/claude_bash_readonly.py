@@ -902,6 +902,9 @@ def simple_command_kind(tokens: list[str]) -> str:
         return gh_command_kind(command[1:])
     if executable == "vibeguard":
         args = command[1:]
+        if args in (["evidence"], ["evidence", "."], ["evidence", "--json"],
+                    ["evidence", ".", "--json"]):
+            return "read_only"
         writes = any(arg == "--fix" or arg.startswith("--fix=") for arg in args)
         return "read_only" if args and args[0] == "audit" and not writes else "mutating"
     if executable == "npx":
