@@ -135,6 +135,12 @@ its current behaviour. Every other key is required, and the contract stays
 closed in both directions: an unrecognised key is a malformed declaration that
 falls back to the default policy rather than an extra that is ignored.
 
+`require_linked_worktree` accepts either boolean. `false` permits work in the
+main checkout but still enforces any `protected_branches`; an empty branch list
+is valid with `false`. `require_workflow_entry` remains independent. Apply the
+target repository's declaration to each write, never another project's stricter
+policy. Tao's own isolation requirement does not opt other repositories in.
+
 This file is also an opt-in signal by itself, and it is the only one a linked
 worktree carries. The state directory is written by a run, so a freshly created
 worktree of a governed repository has none until it has already complied, and
@@ -146,7 +152,7 @@ its worktrees checks out.
 Runtime adapters must treat this declaration as an executable boundary, not as
 advisory prose. Discrete file edits and Bash commands that are not provably
 read-only or limited to worktree bootstrap must fail closed in the main checkout
-and on a listed protected branch. A read-only status check, `git fetch`, and
+when linked isolation is required, and on any listed protected branch. A read-only status check, `git fetch`, and
 `git worktree add` remain available so the agent can reach the compliant
 checkout, but workflow `start` is denied there: opening a run before relocation
 leaves a second unfinished lifecycle behind. Do not auto-create a worktree from
@@ -189,8 +195,10 @@ Two environment variables bridge and override this declaration, and both must
 stay rare and explicit. During a transition window where the tracked
 `worktree-policy.json` has not yet reached the current checkout,
 `TAO_REQUIRE_LINKED_WORKTREE=1` in project-local runtime configuration applies
-the same boundary to that one Git repository; its meaning must stay identical
-to the tracked declaration once the shared file merges.
+the same boundary to that one Git repository, identified by `CLAUDE_PROJECT_DIR`.
+An inherited flag without that origin does not impose isolation on an unrelated
+target. The target's tracked declaration remains authoritative, including an
+explicit `false`; an environment fallback cannot override it.
 `TAO_ALLOW_MAIN_CHECKOUT_EDIT=1` disables the main-checkout denial for a
 user-approved exception only; it is never a default and never set by tooling.
 

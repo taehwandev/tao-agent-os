@@ -1434,7 +1434,7 @@ def _select_within_budget(
 
 def route_gates(command: str, *, graphify_required: bool = False) -> list[str]:
     gates = (
-        [TEST_GATE]
+        [TEST_GATE, RETROSPECTIVE_CHECK_GATE]
         if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS
         else add_automatic_gates(command, list(COMMANDS[command].gates))
     )
@@ -1488,9 +1488,9 @@ def route_hooks(command: str) -> list[dict[str, object]]:
             "hook": "finish",
             "required": True,
             "when": (
-                "after verification and review, before final report"
-                if command == "small-change" or command in SCOPE_CHANGE_LIFECYCLE_COMMANDS
-                else "after retrospective check and before final report, commit, release, or handoff"
+                "after the short retrospective check, before final report"
+                if command in RETROSPECTIVE_CHECK_COMMANDS
+                else "after verification and review, before final report, commit, release, or handoff"
             ),
             "command": (
                 f"{launcher} finish "

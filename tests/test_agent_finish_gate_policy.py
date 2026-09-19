@@ -634,7 +634,7 @@ class FinishGatePolicyTests(unittest.TestCase):
     def test_feature_uses_start_scope_instead_of_alignment_gate(self) -> None:
         route = resolve_docs("feature", None, [], request_classified=True)
 
-        self.assertEqual(["tests", "review hook"], route["gates"])
+        self.assertEqual(["tests", "review hook", "retrospective check"], route["gates"])
         self.assertEqual("start_intake", route["scope_change_policy"]["baseline"])
         self.assertEqual(
             "no_intermediate_gate_or_checkpoint",
@@ -678,7 +678,7 @@ class FinishGatePolicyTests(unittest.TestCase):
         route = resolve_docs("workflow-setup", None, ["structure"], request_classified=True)
 
         self.assertTrue(route["required_docs"])
-        self.assertEqual(["tests", "review hook"], route["gates"])
+        self.assertEqual(["tests", "review hook", "retrospective check"], route["gates"])
         self.assertNotIn(SOURCE_DOCS_GATE, route["gates"])
 
     def test_docs_route_selects_required_docs_without_confirmation_gate(self) -> None:
