@@ -236,6 +236,32 @@ overwrite those parent evidence files.
 
 ## Runtime Notes
 
+### Review reuse across shared-library updates
+
+Keep the final integrated review. Project changes, altered route/run bindings,
+changed acceptance code, configuration or guidance still invalidate its receipt.
+For a separate Git-backed shared library, new review receipts also bind a
+conservative content fingerprint: every tracked/nonignored input is included
+except library tests and the explicitly enumerated shell-admission modules in
+`agent_review_rules_inputs.py`. Those modules do not execute review or finish
+acceptance; if that ownership changes they must leave the exclusion set.
+Unknown files remain included. This is not a filename heuristic that declares
+all scripts or documentation irrelevant, nor a permission to ignore warnings.
+
+An unrelated shared commit can preserve the receipt only when that fingerprint
+matches. Same-repository reviews, old receipts without this binding, non-Git
+roots and failed/unstable captures retain exact-state validation. Project
+fingerprints and final validation are not weakened. Unchanged shared Git state
+uses the existing fast path; the content fallback runs only after shared drift.
+Validation caches may still rerun their own affected checks conservatively;
+that alone does not require repeating the human/agent review or restarting work.
+
+Before integration, workers run focused checks of their owned changes. After
+their writes settle, review and verify the integrated result. Reuse passing
+checks only for unchanged covered inputs; rerun affected checks after a repair,
+and broaden when dependencies or impact cannot be established. Do not substitute
+test counts, file length or mock-only coverage for the requested observable result.
+
 ### Command effects and user authority
 
 The shared shell classifier used by Codex and Claude separates a verified read

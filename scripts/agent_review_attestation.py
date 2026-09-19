@@ -17,6 +17,7 @@ from agent_execution_capsule_state import (
 )
 from agent_worktree_fingerprint import git_output
 from agent_route_state import route_fingerprint
+from agent_review_rules_inputs import review_rules_inputs
 
 
 SCHEMA_VERSION = 3
@@ -83,6 +84,7 @@ class ReviewAttestation:
                 "review attestation evidence path must be inside the review project .tao root"
             ) from error
         project_git, rules_git = git_states_for_paths(project, rules)
+        rules_inputs = review_rules_inputs(project, rules)
         payload: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "status": "SUCCESS",
@@ -94,6 +96,7 @@ class ReviewAttestation:
             "route_fingerprint": route_fingerprint(preflight.get("route") or {}),
             "project_git": project_git,
             "rules_git": rules_git,
+            **({"rules_inputs": rules_inputs} if rules_inputs else {}),
             "review_scope": scope,
             "review_paths": paths,
             "review_paths_fingerprint": _paths_fingerprint(paths),
@@ -263,7 +266,11 @@ def _attestation_failures(
     failures.extend(_current_subject_failures(project, record))
     if project_git != record["project_git"]:
         failures.append("review hook attestation project worktree binding is stale")
-    if rules_git != record["rules_git"]:
+    same_rules_inputs = (
+        rules_git != record["rules_git"] and bool(record.get("rules_inputs"))
+        and review_rules_inputs(project, rules) == record["rules_inputs"]
+    )
+    if rules_git != record["rules_git"] and not same_rules_inputs:
         failures.append("review hook attestation rules worktree binding is stale")
     return list(dict.fromkeys(failures))
 
@@ -440,6 +447,10 @@ def _record_shape_failures(record: dict[str, Any]) -> list[str]:
         "review_subject_fingerprint",
     }
     schema_version = record.get("schema_version")
+    if "rules_inputs" in record and schema_version == SCHEMA_VERSION:
+        if not is_sha256(record["rules_inputs"]):
+            return ["review hook rules inputs are invalid"]
+        expected_keys.add("rules_inputs")
     if schema_version == 1:
         if set(record) != legacy_keys:
             return ["review hook attestation schema fields are invalid"]

@@ -572,6 +572,35 @@ class ReviewAttestationTests(unittest.TestCase):
                 failures,
             )
 
+    def test_unrelated_shared_commit_reuses_review_but_real_inputs_still_invalidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory)
+            initialize_repository(rules)
+            preflight = json.loads(self.evidence_path.read_text())
+            record = ReviewAttestation.record(
+                project=self.project, rules=rules, evidence_path=self.evidence_path,
+                preflight=preflight, review_scope="pathspec: tracked.txt",
+                review_paths=["tracked.txt"], changed_path_count=0,
+                checks={"review_outcome": "pass", "workflow_validate": {"returncode": 0},
+                        "diff_check": {"returncode": 0},
+                        "vibeguard": {"returncode": 0, "overall": "Ready"}},
+            )
+            def failures():
+                return ReviewAttestation.failures(
+                    project=self.project, rules=rules, evidence_path=self.evidence_path,
+                    route=self.route, ledger_fields=ReviewAttestation.ledger_fields(record),
+                    ledger_source="review")
+            self.assertIn("rules_inputs", record)
+            (rules / "scripts").mkdir()
+            (rules / "scripts/claude_bash_readonly.py").write_text("# unrelated admission fix\n")
+            subprocess.run(["git", "add", "."], cwd=rules, check=True)
+            subprocess.run(["git", "commit", "-qm", "admission fix"], cwd=rules, check=True)
+            self.assertEqual([], failures())
+            (rules / "scripts/new_validator.py").write_text("# new acceptance rule\n")
+            self.assertIn("review hook attestation rules worktree binding is stale", failures())
+            (self.project / "tracked.txt").write_text("project changed\n")
+            self.assertIn("review hook attestation project worktree binding is stale", failures())
+
     def test_attestation_copied_to_another_run_is_rejected(self) -> None:
         attestation = self._record_real_review()
         other_evidence = self._write_preflight("b" * 32)
