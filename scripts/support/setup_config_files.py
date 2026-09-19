@@ -26,16 +26,20 @@ def merge_codex_prefix_rules(
         r"# tao-hooks:begin[\s\S]*?# tao-hooks:end\n?",
         re.MULTILINE,
     )
-    unmanaged = pattern.sub("", original)
     generated_entries = set(entries) | set(cleanup_entries or [])
-    unmanaged = "".join(
-        line
-        for line in unmanaged.splitlines(keepends=True)
-        if line.strip() not in generated_entries
-    )
-    if unmanaged and not unmanaged.endswith("\n"):
-        unmanaged += "\n"
-    updated = unmanaged + block
+    # Codex appends approvals after this block. Keep the first block in place
+    # so a valid file stays ready without moving unrelated user rules.
+    unmanaged_parts = [
+        "".join(
+            line for line in part.splitlines(keepends=True)
+            if line.strip() not in generated_entries
+        )
+        for part in pattern.split(original)
+    ]
+    before = unmanaged_parts[0]
+    if before and not before.endswith("\n"):
+        before += "\n"
+    updated = before + block + "".join(unmanaged_parts[1:])
     if updated == original:
         return "ok"
     if dry_run:
