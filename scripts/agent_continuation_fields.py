@@ -138,12 +138,12 @@ def sha256_value(value: Any, pointer: str, failures: list, *, optional: bool = F
 
 
 def state_head(value: Any, pointer: str, failures: list) -> None:
-    """Accept a strong Git object id or the exact non-Git directory sentinel."""
+    """Accept Git object ids and exact non-Git or pre-first-commit sentinels."""
 
     if (
         not isinstance(value, str)
         or not _valid_unicode(value)
-        or (value != DIRECTORY_STATE_HEAD and not GIT_HEAD_RE.fullmatch(value))
+        or (value not in (DIRECTORY_STATE_HEAD, "unborn") and not GIT_HEAD_RE.fullmatch(value))
     ):
         failures.append(failure("invalid_state_head", pointer))
 

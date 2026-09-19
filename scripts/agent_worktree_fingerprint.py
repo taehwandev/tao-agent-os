@@ -47,10 +47,30 @@ def git_output(path: Path, *args: str) -> str:
         stderr=subprocess.PIPE,
     )
     if completed.returncode != 0:
+        if args == ("rev-parse", "--verify", "HEAD") and _unborn_head(path):
+            return "unborn\n"
         raise RuntimeError(
             f"cannot capture git state for execution capsule: git {args[0]} failed"
         )
     return completed.stdout.decode("utf-8")
+
+
+def _unborn_head(path: Path) -> bool:
+    """Accept only a symbolic HEAD whose branch ref does not exist yet."""
+    symbolic = run_git(
+        ["git", "symbolic-ref", "-q", "HEAD"], cwd=path, check=False,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if symbolic.returncode != 0:
+        return False
+    reference = symbolic.stdout.decode("utf-8").strip()
+    if not reference.startswith("refs/heads/"):
+        return False
+    exists = run_git(
+        ["git", "show-ref", "--verify", "--quiet", reference], cwd=path,
+        check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    return exists.returncode == 1
 
 
 def capture_worktree_state(path: Path) -> WorktreeSnapshot:
@@ -70,12 +90,15 @@ def _capture_worktree_state_once(path: Path) -> WorktreeSnapshot:
     signature = hashlib.sha256()
     budget = _new_budget()
     _capture_status(path, fingerprint, signature, budget)
+    # Initial additions are content-hashed above. With no commit, diff against
+    # the index for partial staging instead of asking Git for nonexistent HEAD.
+    base = () if git_output(path, "rev-parse", "--verify", "HEAD").strip() == "unborn" else ("HEAD",)
     hash_git_component(
         fingerprint,
         b"working-tree",
         path,
         "diff",
-        "HEAD",
+        *base,
         "--binary",
         "--no-renames",
         "--diff-filter=a",
