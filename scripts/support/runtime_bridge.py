@@ -31,6 +31,17 @@ CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE = (
     "does not prove that an approval dialog is visible or awaiting a user click. State the observed "
     "error and what remains unverified; never instruct the user to approve an unconfirmed dialog."
 )
+CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE = (
+    "When a Codex session starts outside its task worktree, make every shell command's "
+    "execution directory explicit: use `git -C \"<worktree>\" <args>` for Git and "
+    "`cd \"<worktree>\" && <command>` for other commands, with an absolute, shell-quoted "
+    "worktree path. Do not rely on exec_command.workdir alone: Codex versions that send "
+    "only tool_input.command to PreToolUse leave the hook with the session cwd. Keep "
+    "workdir consistent when supplied, and use absolute worktree paths for file-edit tools. "
+    "Reuse the current bound task instead of creating another worktree or restarting its "
+    "workflow after a location denial. Explicit targeting does not grant sandbox permission; "
+    "preserve checks on actual write targets and request escalation only for a real permission boundary."
+)
 CODEX_APPROVAL_WAIT_BRIDGE_PHRASE = (
     "A Codex exec result that only reports `Script running with cell ID ...` or a session id is "
     "transport state, not proof that the command started or that approval was rejected. Keep only "
@@ -229,6 +240,7 @@ def runtime_bridge_required_phrases(runtime_name: str, instruction_file: str) ->
         phrases.append(CODEX_DISPATCH_BRIDGE_PHRASE)
         phrases.append(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
         phrases.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
+        phrases.append(CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE)
     return phrases
 
 
@@ -238,7 +250,8 @@ def runtime_bridge_block(root: Path, runtime_name: str, instruction_file: str) -
     dispatch_phrase = [f"- {CODEX_DISPATCH_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
     approval_wait_phrase = (
         [f"- {CODEX_APPROVAL_WAIT_BRIDGE_PHRASE}",
-         f"- {CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
+         f"- {CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE}",
+         f"- {CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE}"] if runtime_name == "Codex" else []
     )
     return "\n".join([
         RUNTIME_BRIDGE_BEGIN,

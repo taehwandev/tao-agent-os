@@ -51,6 +51,25 @@ def _surface_text(path: Path) -> str:
     )
 
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
+    def test_codex_bridge_refresh_teaches_explicit_worktree_target_without_permission_bypass(self):
+        current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        lines = [line for line in current.splitlines() if "exec_command.workdir" in line]
+        self.assertEqual(1, len(lines))
+        guidance = lines[0]
+        self.assertIn('git -C "<worktree>"', guidance)
+        self.assertIn('cd "<worktree>" && <command>', guidance)
+        self.assertIn("does not grant sandbox permission", guidance)
+        self.assertNotIn(guidance, runtime_bridge_block(ROOT, "Claude", "CLAUDE.md"))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "AGENTS.md"
+            prefix, suffix = "Personal rules\n", "Other integration\n"
+            target.write_text(prefix + current.replace(guidance + "\n", "") + suffix)
+            kwargs = dict(block=current, required_phrases=runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+            self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+            self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+            self.assertEqual(prefix + current + suffix, target.read_text())
+            self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
+
     def test_installed_bridges_exempt_stateless_lookup_before_tracked_lifecycle(self) -> None:
         for runtime, filename in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md")):
             with self.subTest(runtime=runtime):
