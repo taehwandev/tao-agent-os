@@ -150,6 +150,12 @@ RUNTIME_CONTROL_HOOKS = frozenset(
 )
 RUNTIME_WRITE_HOOKS = frozenset({"skill-curate", "skill-draft", "skill-feedback", "skill-maintenance", "skill-review"})
 WORKFLOW_START_HOOK = "start"
+# Every hook that takes `--rules`, which is the shared guidance root it reads
+# and never the project it writes. Listed rather than open-ended so a later
+# subcommand has to be added here deliberately.
+HOOKS_READING_RULES = frozenset(
+    {WORKFLOW_START_HOOK, *RUNTIME_CONTROL_HOOKS, *RUNTIME_WRITE_HOOKS}
+)
 # The lifecycle hooks are their own kind rather than ordinary bootstrap. They
 # write run evidence, never the project, and they are how a run records what it
 # found, closes, or escalates. Classified as bootstrap they were caught by the
@@ -762,6 +768,26 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
     return "read_only"
 
 
+def contains_workflow_start(tokens: list[str]) -> bool:
+    """Whether one of the commands on this line is a workflow start hook.
+
+    Asked only to choose what a refusal should say, never to decide one: the
+    line's verdict is already `mutating` because of whatever the start was
+    chained with, and that verdict does not move. A line carrying a redirection
+    cannot be split into segments, so the whole token list gets the one look --
+    a start behind a redirection is exactly the case worth naming.
+    """
+
+    if not tokens:
+        return False
+    segments = command_segments(tokens) or [tokens]
+    return any(
+        simple_command_kind(command) == "workflow_start"
+        for command in (shell_keyword_command(segment) for segment in segments)
+        if command
+    )
+
+
 # A `gh pr create` body is read from the file, never written to it, and the
 # body an agent writes for a PR naturally lives in the worktree it is
 # publishing. `-F` is `--body-file` for this subcommand only; for `gh api` the
@@ -774,6 +800,14 @@ PULL_REQUEST_BODY_OPTIONS = frozenset({"--body-file", "-F"})
 # read as writing into that project.
 INSTALLER_NO_WRITE_FLAGS = frozenset({"--dry-run", "--check"})
 INSTALLER_READ_ONLY_VALUE_OPTIONS = frozenset({"--target"})
+# A lifecycle hook's `--rules` names the shared guidance root it reads its
+# route and required documents out of. `--project` is the one it writes, and
+# stays a write target here. Reading both as writes is why `tao-hook start
+# --project <other repo> --rules <tao checkout>` was refused as a write into
+# the Tao checkout -- a denial naming a repository the run never touches, and
+# one whose stated remedy could not be followed, because every spelling of the
+# command has to say where the rules live.
+RULES_READ_ONLY_VALUE_OPTIONS = frozenset({"--rules"})
 
 
 def read_only_path_token_indices(tokens: list[str]) -> frozenset[int]:
@@ -811,6 +845,8 @@ def _declared_read_indices(tokens: list[str], offset: int) -> list[int]:
         return _option_value_indices(tokens, offset, PULL_REQUEST_BODY_OPTIONS)
     if _is_installer_without_writes(tokens):
         return _option_value_indices(tokens, offset, INSTALLER_READ_ONLY_VALUE_OPTIONS)
+    if _is_lifecycle_hook_invocation(tokens):
+        return _option_value_indices(tokens, offset, RULES_READ_ONLY_VALUE_OPTIONS)
     return []
 
 
@@ -841,6 +877,50 @@ def _creates_a_pull_request(tokens: list[str]) -> bool:
         return False
     words = [token for token in tokens[1:] if not token.startswith("-")]
     return words[:2] == ["pr", "create"]
+
+
+def _is_lifecycle_hook_invocation(tokens: list[str]) -> bool:
+    """Whether this is a Tao lifecycle hook, named together with a subcommand.
+
+    Both halves of the key are required. The program has to be the stable
+    launcher or `agent-hook.py` proved by its siblings -- the same proof the
+    installer exemption above uses, and for the same reason: matching a script
+    by name would hand the allowance to anything an agent drops in /tmp. The
+    word after it has to be a hook this launcher actually runs, so a future
+    subcommand that treats `--rules` as somewhere to write does not inherit
+    the exemption by default.
+    """
+
+    command = _launcher_hook_tokens(tokens)
+    return bool(command) and command[1] in HOOKS_READING_RULES
+
+
+def _launcher_hook_tokens(tokens: list[str]) -> list[str]:
+    """The `<launcher> <hook> ...` form of this command, or nothing."""
+
+    if len(tokens) < 2:
+        return []
+    try:
+        executable = Path(tokens[0]).expanduser().resolve()
+    except (OSError, ValueError):
+        return []
+    if executable == stable_launcher_path().expanduser().resolve():
+        # The launcher also accepts `agent-hook <subcommand>`; normalize that
+        # one alias exactly as runtime_control_kind does.
+        if tokens[1] == "agent-hook" and len(tokens) > 2:
+            return [tokens[0], *tokens[2:]]
+        return list(tokens)
+    if executable == Path(__file__).resolve().with_name("agent-hook.py"):
+        return [sys.executable, *tokens]
+    if not _python_interpreter(tokens[0]) or len(tokens) < 3:
+        return []
+    try:
+        script = Path(tokens[1]).expanduser().resolve()
+    except (OSError, ValueError):
+        return []
+    if script != Path(__file__).resolve().with_name("agent-hook.py"):
+        return []
+    return [tokens[0], *tokens[2:]]
 
 
 def _is_installer_without_writes(tokens: list[str]) -> bool:

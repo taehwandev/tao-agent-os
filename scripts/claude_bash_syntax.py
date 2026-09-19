@@ -127,14 +127,78 @@ SUBSTITUTION_RE = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 SUBSTITUTION_PLACEHOLDER = "__tao_substitution__"
 
 
-def substitution_bodies(command: str) -> list[str]:
-    """The commands a substitution will run, in order."""
+def single_quote_masked(command: str) -> str:
+    """Blank what single quotes enclose, preserving every character position.
 
-    return [
-        (parenthesised or backticked).strip()
-        for parenthesised, backticked in SUBSTITUTION_RE.findall(command)
-        if (parenthesised or backticked).strip()
-    ]
+    Inside single quotes the shell substitutes nothing: `$(`, a backquote and
+    `<(` are ordinary characters there. Reading them off the raw text is what
+    made a `start` unreadable because its `--request` quoted a command, and an
+    unreadable command is the strictest verdict this gate has -- so the gate
+    denied the very `start` its own refusals ask for.
+
+    Double quotes are tracked but not masked, because they substitute: `"$(x)"`
+    runs `x`. They are tracked so that a literal apostrophe inside them --
+    "it's" -- cannot be read as opening a single-quoted region and mask the
+    substitution that follows it.
+
+    Positions are preserved, so a caller may match on the masked text and slice
+    the original at the same offsets.
+    """
+
+    masked = list(command)
+    quote = ""
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote != "'" and char == "\\" and index + 1 < len(command):
+            # The escaped character is literal, so it can neither open nor
+            # close a quoted region. Both characters are left as they are.
+            index += 2
+            continue
+        if quote == "'":
+            if char == "'":
+                quote = ""
+            else:
+                masked[index] = "x"
+        elif quote == '"':
+            if char == '"':
+                quote = ""
+        elif char in {"'", '"'}:
+            quote = char
+        index += 1
+    return "".join(masked)
+
+
+def computes_text(command: str) -> bool:
+    """Whether the shell will run a command or open a process substitution here.
+
+    One question asked of the masked text, so the tokeniser's two checks -- on
+    the raw line and again on the newline-normalised one -- cannot drift apart.
+    """
+
+    masked = single_quote_masked(command)
+    return (
+        "$(" in masked
+        or "`" in masked
+        or any(marker in masked for marker in SUBSTITUTION_MARKERS)
+    )
+
+
+def substitution_bodies(command: str) -> list[str]:
+    """The commands a substitution will run, in order.
+
+    Matched against the single-quote-masked text and sliced out of the
+    original, so a backquote inside `'...'` contributes no body -- the shell
+    runs nothing there -- while `"$(x)"` still yields `x`.
+    """
+
+    bodies: list[str] = []
+    for match in SUBSTITUTION_RE.finditer(single_quote_masked(command)):
+        group = 1 if match.group(1) is not None else 2
+        body = command[match.start(group):match.end(group)].strip()
+        if body:
+            bodies.append(body)
+    return bodies
 
 
 def mask_substitutions(command: str) -> str:
@@ -192,17 +256,15 @@ def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
     command = bash_command(payload).strip()
     if not command:
         return cwd, [], False
-    if "$(" in command or "`" in command:
-        return cwd, [], False
-    # Substitution has to be caught on the raw text: the lexer splits `<(rm -rf
-    # build)` into a redirection plus the words inside it, so by token time the
-    # command that runs there is indistinguishable from an operand.
-    if any(marker in command for marker in SUBSTITUTION_MARKERS):
+    # Substitution has to be caught before tokenising: the lexer splits `<(rm
+    # -rf build)` into a redirection plus the words inside it, so by token time
+    # the command that runs there is indistinguishable from an operand. It is
+    # read off the single-quote-masked text rather than the raw text, because
+    # what `'...'` encloses is data the shell hands on unchanged.
+    if computes_text(command):
         return cwd, [], False
     command = _shell_lines(command)
-    if command is None or "$(" in command or "`" in command or any(
-        marker in command for marker in SUBSTITUTION_MARKERS
-    ):
+    if command is None or computes_text(command):
         return cwd, [], False
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
@@ -335,11 +397,17 @@ def has_unresolvable_expansion(command: str) -> bool:
     Plain `$VAR` is excluded: expand_path_text resolves it exactly, so it is
     not unresolvable. What remains is substitution and the parameter operators,
     where the value is computed rather than substituted.
+
+    Read off the single-quote-masked text for the same reason the tokeniser is:
+    `'${VAR%/}'` quoted inside a `--request` is eleven literal characters, and
+    calling that unresolvable put the session's own checkout into the verdict
+    for a command that names no path at all.
     """
 
-    if "$(" in command or "`" in command:
+    masked = single_quote_masked(command)
+    if "$(" in masked or "`" in masked:
         return True
     return any(
         not PLAIN_PARAMETER_RE.fullmatch(brace)
-        for brace in PARAMETER_BRACE_RE.findall(command)
+        for brace in PARAMETER_BRACE_RE.findall(masked)
     )

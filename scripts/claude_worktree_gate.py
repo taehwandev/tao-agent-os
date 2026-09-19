@@ -15,6 +15,7 @@ from claude_bash_readonly import (  # noqa: F401
     bash_command,
     bash_command_kind,
     bash_invocation,
+    contains_workflow_start,
     copy_source_token_indices,
     has_unresolvable_expansion,
     path_arguments,
@@ -232,6 +233,7 @@ UNREADABLE_SYNTAX = "unreadable_syntax"
 COMPUTED_TEXT = "computed_text"
 NAMED_TARGET = "named_target"
 AUTHORING_GIT = "authoring_git"
+WORKFLOW_START_TARGET = "workflow_start_target"
 
 DENIAL_CAUSES = {
     UNREADABLE_SYNTAX: (
@@ -244,7 +246,28 @@ DENIAL_CAUSES = {
     ),
     NAMED_TARGET: "Cause: the command names a protected-checkout path. ",
     AUTHORING_GIT: "Cause: this Git command writes to the protected checkout. ",
+    WORKFLOW_START_TARGET: (
+        "Cause: this start would bind its run to the protected checkout, which "
+        "is what `--project` names. "
+    ),
 }
+
+# A `start` is refused by where its run would be bound, not by where the shell
+# happens to stand, so the worktree remedies below do not fit it: no amount of
+# `git -C` or `cd` changes what `--project` says, and a reader who followed
+# that advice moved the shell and was refused again in the same words. What a
+# start needs is a different `--project`, and -- when it is not alone on the
+# line -- to be the only command on it.
+WORKFLOW_START_REMEDY = (
+    "Next: bind the run to a linked worktree by passing `--project <worktree>`; "
+    "moving the shell does not change where the run is bound. If no worktree "
+    "exists yet, run alone: `git worktree add <path> -b <branch> <base>`, then "
+    "start again against it."
+)
+CHAINED_START_REMEDY = (
+    "Next: run the workflow start hook alone, as the only command on the line, "
+    "and run whatever it was chained with separately."
+)
 
 # A path is read wherever it is written, including inside a larger token, because
 # `sh -c 'touch <protected>/x'` names its target as a substring and would
@@ -268,6 +291,7 @@ def named_target_cause(named: str = "") -> str:
 def worktree_deny_reason(
     root: Path, branch: str, cause: str = "", named: str = "", *,
     require_linked_worktree: bool = True,
+    remedy: str = "",
 ) -> str:
     location = (
         "main checkout"
@@ -279,6 +303,11 @@ def worktree_deny_reason(
         if cause == NAMED_TARGET
         else DENIAL_CAUSES.get(cause, "")
     )
+    if remedy:
+        # A caller that knows what the command was asking for says so itself.
+        # Everything below is advice about where the shell stands, which is the
+        # right answer for an edit and the wrong one for a workflow start.
+        return f"Tao worktree gate: write blocked in {location}: {root}. {explanation}{remedy}"
     remedy = (
         "Next: use the task worktree and restart the workflow. If needed, run "
         "alone: `git worktree add <path> -b <branch> <base>`."
@@ -296,7 +325,9 @@ def worktree_deny_reason(
     return f"Tao worktree gate: write blocked in {location}: {root}. {explanation}{remedy}"
 
 
-def worktree_denial(root: Path, cause: str = "", named: str = "") -> str | None:
+def worktree_denial(
+    root: Path, cause: str = "", named: str = "", *, remedy: str = ""
+) -> str | None:
     policy = worktree_policy(root)
     if policy is None or os.environ.get(MAIN_CHECKOUT_OVERRIDE_ENV, "").strip() == "1":
         return None
@@ -304,6 +335,11 @@ def worktree_denial(root: Path, cause: str = "", named: str = "") -> str | None:
     requires_linked = policy["require_linked_worktree"]
     if (requires_linked and (root / ".git").is_dir()) or branch in set(policy["protected_branches"]):
         return worktree_deny_reason(
-            root, branch, cause, named, require_linked_worktree=requires_linked
+            root,
+            branch,
+            cause,
+            named,
+            require_linked_worktree=requires_linked,
+            remedy=remedy,
         )
     return None
