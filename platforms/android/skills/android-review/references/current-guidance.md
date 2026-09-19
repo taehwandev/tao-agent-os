@@ -141,12 +141,37 @@ Use for Android app, Compose/ViewModel, permission, and UI flow review.
 - Perfetto: schema-backed SQL, metrics-first trace review, `utid`/`upid`, and
   chain-of-evidence notes for root-cause claims.
 
+## Executable Action Boundary
+
+The shared `scripts/agent-structure-check.py` and review hook reject recognizable
+ViewModel bypasses in changed production Kotlin composables. A textual review
+attestation cannot override these failures. Send product actions to the ViewModel;
+do not silence a finding by renaming a callback or moving it to a UI helper.
+
+The lexical check catches route/notice request constructors, conventional data
+service calls, direct navigation/notice/platform dispatch, and known effect
+callback forwarding. Direct dispatch is allowed in a `viewModel.effects`
+collector (also `*ViewModel`, `uiEffects`, and `sideEffects`), except inside a
+nested UI callback. The host must still collect lifecycle-aware and execute only
+the ViewModel's decision. Local scroll, focus and backdrop rendering are allowed.
+
+This is a bounded guard, not Kotlin type or data-flow analysis: aliases of
+receivers, arbitrary helper names, string interpolation, and indirect calls may
+escape detection. Collection naming alone does not prove ownership or lifecycle
+correctness. Review the UI callback → action → ViewModel → effect/data-port path
+and retain tests for both the action and its effect. Existing untouched files
+are outside the changed-file check. Do not claim an architecture migration is
+complete solely because this check or a build passes.
+
 ## UI Test Focus
 
 - Screen renders expected state from fake ViewModel/state.
 - Stateless UI preview coverage follows the canonical Compose preview rule in
   `../../android-compose-ui/references/current-guidance.md`.
-- User actions emit correct events or trigger expected navigation.
+- UI tests verify product interactions dispatch typed actions to the ViewModel.
+  ViewModel tests verify the resulting network calls and route/toast/alert port
+  requests, including alert confirmation/cancellation. A successful navigation
+  smoke test alone does not prove this ownership boundary.
 - Lists use stable keys/content types when items reorder, update independently,
   animate, or hold local state.
 - High-frequency state reads are deferred to the smallest composable or

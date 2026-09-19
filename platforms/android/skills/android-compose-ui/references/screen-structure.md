@@ -98,12 +98,18 @@ Rules for applying this template:
 
 - The `Screen` holder may know ViewModel, lifecycle collection, navigation
   outputs, permission launchers, activity results, and snackbar/focus effects.
+  This is execution of an already decided ViewModel effect, not permission to
+  construct route/notice requests or call data services in UI callbacks.
 - `Content` must be previewable without DI, ViewModel, navigation, database,
   network, or platform services.
 - Leaf components should receive the smallest model or values they need, not the
   whole screen `UiState`.
-- If a callback count becomes noisy, introduce a typed `UiAction`; do not pass a
-  ViewModel into the screen to reduce parameters.
+- Product interactions must reach the ViewModel as typed actions. Small leaf
+  callbacks are allowed when the holder maps them to those actions. Do not pass
+  a ViewModel into stateless content to reduce parameters.
+- The ViewModel owns network calls and route, toast, and alert decisions through
+  injected ports. Alert confirmation/cancellation returns to that same owner.
+  Local scroll, focus, animation and backdrop state may stay in Compose.
 - Keep `modifier` on the public composable and apply it to the root layout once.
 
 ## Architecture Tracks

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_review_boundary import boundary_note_requirements
+from agent_android_action_boundary import AndroidActionBoundary
 from agent_review_purpose import purpose_failures
 from agent_structure_rules import structure_rule_review
 from agent_workspace_policy import is_non_git_workspace, is_writing_workspace
@@ -204,6 +205,7 @@ def structure_review(
             result,
             max_added_lines=max_added_lines,
         )
+        result["failures"].extend(AndroidActionBoundary.failures(relative, "\n".join(lines)))
         block_failures, block_warnings = large_block_findings(
             source_root,
             relative,
