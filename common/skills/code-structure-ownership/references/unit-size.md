@@ -16,6 +16,13 @@ acceptable when it has one owner, one reason to change, and a clear verification
 path. Short code still needs extraction when it mixes owners, side effects, or
 contracts.
 
+The brace-based review heuristic excludes single/double-quoted text and C-style
+line/block comments when measuring spans, while preserving original line numbers
+and labels. A literal delimiter must neither absorb following declarations nor
+hide an oversized function. It remains a heuristic, not a language parser;
+template interpolation is not discarded as plain text. Reproduce uncertain
+findings with the source owner before deciding on an extraction or exception.
+
 Apply the same ownership criteria to web, mobile, desktop, server, scripts, CSS,
 styles, tests, and generated-adjacent glue. Apply strict size gates only to
 changed files whose extension is in the development-file extension allowlist;

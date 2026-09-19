@@ -1118,15 +1118,31 @@ def count_line_indent(line: str) -> int:
 
 def brace_blocks(path: Path, lines: list[str], max_block_lines: int) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
-    for index, line in enumerate(lines):
+    structural_lines = mask_brace_literals(lines)
+    for index, line in enumerate(structural_lines):
         stripped = line.strip()
         if "{" not in stripped or not starts_review_block(path, stripped):
             continue
-        span = brace_block_span(lines, index)
+        span = brace_block_span(structural_lines, index)
         if span > max_block_lines:
-            label = stripped[:80].replace("`", "'")
+            label = lines[index].strip()[:80].replace("`", "'")
             blocks.append(block_record(path, index, label, span))
     return blocks
+
+
+def mask_brace_literals(lines: list[str]) -> list[str]:
+    """Ignore C-style comments and quoted text without moving source lines.
+
+    Keep the existing structural heuristic for other syntax (including template
+    interpolation); this is not a language parser. Ordinary quotes cannot span
+    an unescaped newline, preventing a prose apostrophe from masking the file.
+    """
+    pattern = (
+        r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\\n])*"'
+        r"|'(?:\\[\s\S]|[^'\\\n])*'"
+    )
+    return re.sub(pattern, lambda match: re.sub(r"[^\n]", " ", match.group()),
+                  "\n".join(lines)).split("\n")
 
 
 def starts_review_block(path: Path, stripped_line: str) -> bool:
