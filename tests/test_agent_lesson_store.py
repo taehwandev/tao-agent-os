@@ -292,25 +292,21 @@ class LessonStoreTests(unittest.TestCase):
         self.assertFalse(hasattr(agent_finish_check, "process_finish_learning"))
         self.assertTrue(hasattr(agent_finish_check, "process_skill_followup"))
 
-    # The one route outside the reflection set, and the reason it is outside.
+    # The routes outside the reflection set, and the reason they are outside.
     #
-    # `small-change` is the bounded fast path: one owner, at most four files,
-    # local writes only, blocked outright on auth, api, security, architecture
-    # and deployment concerns, and it still keeps `tests` and `review hook`.
-    # Reflection is not separable from its cost here -- adding the gate also
-    # turns on `skill_feedback` and the five skill hooks, which is the
-    # same-closeout maintenance chain the route exists to avoid. Carrying that
-    # chain would make the fast path as expensive as the route it replaces, and
-    # the work would go back to `task` and its nineteen gates.
+    # Only the commit routes are exempt. They publish a worktree an earlier
+    # route already reviewed and reflected on, so a second closeout check would
+    # reflect on work this run did not do.
     #
-    # This is a real trade: bounded work and ordinary code work are no longer
-    # visible to the same-closeout skill-maintenance loop. They retain final
-    # tests and review, while specialized routes keep retrospective learning.
+    # `small-change` and ordinary code work were exempt for one release, on the
+    # argument that the gate drags the five skill hooks behind it. That trade
+    # removed bounded and ordinary code work -- most of what runs -- from the
+    # same-closeout maintenance loop entirely, which is the loop's whole input.
+    # They are back inside it: one closing check, recorded beside the `tests`
+    # and `review hook` they already had, and the skill hooks stay conditional.
     REFLECTION_EXEMPT_COMMANDS = {
-        "small-change",
         "commit",
         "git_commit",
-        *SCOPE_CHANGE_LIFECYCLE_COMMANDS,
     }
 
     def test_every_route_requires_reflection_but_skill_feedback_hook_stays_optional(self) -> None:
@@ -335,18 +331,17 @@ class LessonStoreTests(unittest.TestCase):
                 self.assertEqual(1, len(hooks))
                 self.assertFalse(hooks[0]["required"])
 
-    def test_small_change_reflection_exemption_keeps_its_strict_bounds(self) -> None:
+    def test_small_change_keeps_its_strict_bounds_around_one_closing_check(self) -> None:
         route = resolve_docs("small-change", None, [], request_classified=True)
-        self.assertNotIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
-        self.assertEqual(["tests", "review hook"], route["gates"])
+        self.assertEqual(["tests", "review hook", RETROSPECTIVE_CHECK_GATE], route["gates"])
         for concern in ("auth", "api", "security", "architecture", "deployment"):
             self.assertTrue(resolve_docs("small-change", None, [concern])["blocking"])
 
-    def test_scope_change_routes_replace_reflection_with_final_validation(self) -> None:
+    def test_scope_change_routes_end_with_final_validation_and_one_check(self) -> None:
         for command in sorted(SCOPE_CHANGE_LIFECYCLE_COMMANDS):
             with self.subTest(command=command):
                 route = resolve_docs(command, None, [], request_classified=True)
-                self.assertNotIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
+                self.assertIn(RETROSPECTIVE_CHECK_GATE, route["gates"])
                 self.assertIn("tests", route["gates"])
                 self.assertEqual(
                     command != "test",

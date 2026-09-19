@@ -31,6 +31,7 @@ from support.claude_setup import (
     _PRETOOL_GATE_MATCHER,
     _merge_claude_pre_tool_gate,
 )
+from support.global_state import STATE_HOME_ENV
 from support.setup_config_files import read_json
 from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
@@ -38,6 +39,50 @@ from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import register_run, transition_run
 from agent_runtime_session import resolve_runtime_evidence
 import claude_worktree_gate as worktree_gate
+
+
+# `record_session_project` writes under the global state home, and these cases
+# run it for real against temporary projects. With no override it wrote into
+# the developer's own `~/.tao/claude-session-projects/`, where nothing removes
+# it: one session id there had reached 465 KB of paths that stopped existing
+# months ago, and the Stop gate walks every one of them. The cases that assert
+# the override itself patch the same variable inside their own `with`, so they
+# are unaffected.
+_STATE_HOME: "tempfile.TemporaryDirectory | None" = None
+_OUTER_STATE_HOME: "str | None" = None
+
+
+def setUpModule() -> None:
+    global _STATE_HOME, _OUTER_STATE_HOME
+    _OUTER_STATE_HOME = os.environ.get(STATE_HOME_ENV)
+    _STATE_HOME = tempfile.TemporaryDirectory()
+    os.environ[STATE_HOME_ENV] = _STATE_HOME.name
+
+
+def tearDownModule() -> None:
+    if _OUTER_STATE_HOME is None:
+        os.environ.pop(STATE_HOME_ENV, None)
+    else:
+        os.environ[STATE_HOME_ENV] = _OUTER_STATE_HOME
+    if _STATE_HOME is not None:
+        _STATE_HOME.cleanup()
+
+
+def _isolated_env(**overrides: str) -> dict:
+    """An environment cleared of every signal except where state is kept.
+
+    Clearing `os.environ` is how a case proves the gate read one exact hint
+    and nothing else. The state home is not one of those hints -- it only says
+    which directory the session-project index lives in -- and clearing it sent
+    that index straight back to the developer's own `~/.tao`.
+    """
+
+    kept = (
+        {STATE_HOME_ENV: os.environ[STATE_HOME_ENV]}
+        if STATE_HOME_ENV in os.environ
+        else {}
+    )
+    return {**kept, **overrides}
 
 
 def _decide(payload: dict) -> tuple[int, str]:
@@ -2116,7 +2161,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "tool_input": {"file_path": str(project / "note.md")},
             }
 
-            with patch.dict(os.environ, {}, clear=True):
+            with patch.dict(os.environ, _isolated_env(), clear=True):
                 self.assertEqual(
                     parent.resolve(),
                     gate.session_evidence(project, session_id),
@@ -2125,7 +2170,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 self.assertEqual((0, ""), (code, out))
             with patch.dict(
                 os.environ,
-                {"TAO_WORKER_EVIDENCE": str(worker)},
+                _isolated_env(TAO_WORKER_EVIDENCE=str(worker)),
                 clear=True,
             ):
                 self.assertEqual(
@@ -2146,7 +2191,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
 
             with patch.dict(
                 os.environ,
-                {"TAO_WORKER_EVIDENCE": str(invalid)},
+                _isolated_env(TAO_WORKER_EVIDENCE=str(invalid)),
                 clear=True,
             ):
                 code, out = _decide(
@@ -2732,9 +2777,6 @@ def _load_stop_gate():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-from support.global_state import STATE_HOME_ENV
 
 
 class IsolatedGlobalStateTestCase(unittest.TestCase):
@@ -3780,6 +3822,71 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertEqual("", out)
+
+    def test_finish_opens_the_pull_request_for_the_branch_it_attested(self) -> None:
+        """Only `git` counted, so the PR needed a whole second `start`.
+
+        The push and the pull request publish one attested branch; refusing the
+        second half sent a session back through start, route, gates, review and
+        finish for work the first run had already attested -- the detour this
+        allowance exists to remove.
+
+        Reading the result needs nothing from the allowance: `gh pr view` is
+        already classified read-only and takes the fast path, which is why it
+        is not in the publication set.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            code, out = self._decide(project, "gh pr create --fill --base main")
+            read_code, read_out = self._decide(project, "gh pr view 166")
+
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
+        self.assertEqual(0, read_code)
+        self.assertEqual("", read_out)
+
+    def test_finish_does_not_authorize_merging_shipping_or_the_api(self) -> None:
+        """Publishing a branch is not integrating, releasing, or writing.
+
+        Each of these is a separate authority the lifecycle names separately,
+        and none of them is the publication of the diff a finish attested.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            for command in (
+                "gh pr merge 166 --squash",
+                "gh release create v26.09.1",
+                "gh api -X POST repos/x/y/issues",
+                "gh repo delete x/y",
+            ):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertNotEqual("", out, "the call must not pass unremarked")
+                    self.assertNotIn("a successful finish", _reason(out))
+
+    def test_a_pull_request_body_file_is_read_not_written(self) -> None:
+        """`--body-file` names the file the body is read *from*.
+
+        Every path argument counted as a place the command might write, so
+        writing the PR body inside the worktree being published -- the obvious
+        place to put it -- made the publication look like a write into that
+        project and it was refused.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            code, out = self._decide(
+                project, f"gh pr create --base main --body-file {project}/.tao/policy-pr.md"
+            )
+
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
 
     def test_a_stale_finish_does_not_publish(self) -> None:
         """An abandoned session cannot come back days later on its old finish."""

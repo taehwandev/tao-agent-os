@@ -57,6 +57,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         prefer_git_root,
     )
     from claude_bash_git import git_subcommand, names_unsafe_git_option
+    from claude_bash_syntax import past_env_options
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -66,11 +67,11 @@ try:  # The gate must never fail to load; the import is only used for a message.
         bash_command_kind,
         RUNTIME_CONTROL_KIND,
         bash_invocation,
-        copy_source_token_indices,
         git_common_dir,
         has_unresolvable_expansion,
         path_arguments,
         raw_path_arguments,
+        read_only_path_token_indices,
         policy_requires_workflow_entry,
         ticketed_product_branch_denial,
         worktree_denial,
@@ -116,10 +117,15 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     def raw_path_arguments(command: str) -> "list[Path]":
         return []
 
-    def copy_source_token_indices(tokens: list[str]) -> "frozenset[int]":
+    def read_only_path_token_indices(tokens: list[str]) -> "frozenset[int]":
         # A broken install claims no operand is read-only, so every path stays
         # a target and the gate keeps its strictest reading.
         return frozenset()
+
+    def past_env_options(tokens: list[str], index: int, **_kwargs: object) -> "int | None":
+        # Without the reader, no `env` form is readable, which keeps the
+        # publication hold on and leaves the wrapper judged as it always was.
+        return None
 
     def has_unresolvable_expansion(command: str) -> bool:
         return False
@@ -272,6 +278,12 @@ ORDINARY_GIT_SUBCOMMANDS = frozenset(
 # `clean`, `reset`, `rm` and `rebase` -- a settled run may publish the diff it
 # attested, never rewrite or destroy the tree it attested.
 PUBLICATION_GIT_SUBCOMMANDS = frozenset({"add", "commit", "push", "tag"})
+# The same step, done through GitHub rather than Git. Opening the pull request
+# for the branch a finish just attested is publication; merging it, cutting a
+# release, or calling the API are not, and no finish authorizes them. Reading
+# the result is not here either: `gh pr view` is already classified read-only
+# and never reaches this question, and listing it would suggest otherwise.
+PUBLICATION_GH_SUBCOMMANDS = frozenset({("pr", "create")})
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cjs", ".dart", ".go", ".h", ".hpp",
     ".java", ".js", ".jsx", ".kt", ".kts", ".m", ".mjs", ".mm", ".php", ".py",
@@ -662,14 +674,6 @@ def publishes_before_finish(tokens: list[str]) -> str:
 
 
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
-# `env` options that consume the next word, so the word after them names a
-# value and not the program. `-P` is macOS's search path and was the one whose
-# absence let `env -P /usr/bin git push` read `/usr/bin` as the program.
-ENV_VALUE_OPTIONS = frozenset(
-    {"-u", "--unset", "-C", "--chdir", "-P", "--path", "-S", "--split-string"}
-)
-# Options that change the environment a program receives, never its identity.
-ENV_FLAGS = frozenset({"-", "-i", "-0", "-v", "--ignore-environment", "--null", "--debug"})
 # Wrappers that run the command that follows them. `command -v git` is a
 # lookup, not a run, and resolves harmlessly: `git` alone has no subcommand.
 # A shell given `-c` carries the command inside a string. That string is read
@@ -682,32 +686,6 @@ SHELL_PROGRAMS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
 def _past_assignments(tokens: list[str], index: int) -> int:
     while index < len(tokens) and ENV_ASSIGNMENT.match(tokens[index]):
         index += 1
-    return index
-
-
-def _past_env_options(tokens: list[str], index: int) -> "int | None":
-    """Step over `env` options, or None for a form that hides the program.
-
-    `-S` and `--split-string` hold the command inside their own value, and an
-    option this does not know may do the same, so neither is guessed at.
-    """
-
-    while index < len(tokens) and tokens[index].startswith("-"):
-        if tokens[index] == "--":
-            # The standard end-of-options marker. Reading it as an option this
-            # does not know refused `env -- git status`, which names its
-            # program as plainly as any command here.
-            return index + 1
-        option = tokens[index].split("=", 1)[0]
-        if option in {"-S", "--split-string"}:
-            return None
-        if option in ENV_VALUE_OPTIONS:
-            index += 1 if "=" in tokens[index] else 2
-            continue
-        if option in ENV_FLAGS:
-            index += 1
-            continue
-        return None
     return index
 
 
@@ -764,7 +742,7 @@ def _command_behind_environment(
         head = tokens[index]
         name = head if head == "!" else Path(head).name
         if name == "env":
-            stepped = _past_env_options(tokens, index + 1)
+            stepped = past_env_options(tokens, index + 1)
             if stepped is None:
                 return None
             index = stepped
@@ -979,12 +957,28 @@ def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> b
     diff, and letting the worktree move afterwards would leave that attestation
     describing something that no longer exists. Freshness still applies, so an
     abandoned session cannot come back days later to push on a stale finish.
+
+    Opening the pull request for the branch just pushed is the same step by a
+    different program, and leaving it out sent a session back through a whole
+    second `start` for work the first had already attested -- the exact detour
+    this exists to remove. Only `gh pr create` is covered: `gh pr merge`
+    integrates, `gh release` ships and `gh api` writes anything at all, and
+    none of those is the publication of an attested branch, so a finish is not
+    authority for them.
     """
 
-    if not tokens or Path(tokens[0]).name != "git":
+    if not tokens:
         return False
-    subcommand, _arguments = git_subcommand(tokens)
-    if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
+    program = Path(tokens[0]).name
+    if program == "gh":
+        words = [token for token in tokens[1:] if not token.startswith("-")]
+        if tuple(words[:2]) not in PUBLICATION_GH_SUBCOMMANDS:
+            return False
+    elif program == "git":
+        subcommand, _arguments = git_subcommand(tokens)
+        if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
+            return False
+    else:
         return False
     return evidence_is_fresh(finished_session_evidence(root, session_id))
 
@@ -1586,7 +1580,7 @@ def _protected_path_named(
     target = write_target_path(payload, cwd)
     if target is not None:
         return str(target)
-    source_indices = copy_source_token_indices(tokens)
+    source_indices = read_only_path_token_indices(tokens)
     # The command word is dropped. `path_arguments` reads a bare word as a
     # possible relative target, which is right for finding roots -- `sed x note`
     # may create `note` -- but the word in slot zero is the program being run.
@@ -2049,9 +2043,16 @@ def bash_target_project_roots(tokens: list[str], cwd: Path) -> list[Path]:
     holds -- the move this gate's own denial message asks for, and one no other
     source can supply, since an ignored file is not in the object store. The
     destination and any identical spelling in a later segment are still judged.
+
+    The same reader now answers for the other operands a command's own text
+    proves it only reads: `gh pr create --body-file <path>` and the Tao
+    installer's `--target` under `--dry-run` or `--check`. Both were read as
+    writing into the project they named, so writing a PR body inside the
+    worktree being published, and checking another project's hooks without
+    touching them, were each refused as a write.
     """
 
-    source_indices = copy_source_token_indices(tokens)
+    source_indices = read_only_path_token_indices(tokens)
     targets = [
         token for index, token in enumerate(tokens) if index not in source_indices
     ]
@@ -2088,11 +2089,34 @@ def _owning_project(path: Path) -> Path | None:
 
     try:
         candidate = path.resolve()
-        while not candidate.exists() and candidate != candidate.parent:
+        while not _target_is_present(candidate) and candidate != candidate.parent:
             candidate = candidate.parent
     except (OSError, ValueError) as error:
         raise UnresolvableTarget(str(path)[:64]) from error
     return find_project_root(candidate)
+
+
+def _target_is_present(candidate: Path) -> bool:
+    """Whether this path is there, refusing to guess when asking is an error.
+
+    `Path.exists` answers False both for "not there" and for "the filesystem
+    would not say", and the two mean opposite things here. A component longer
+    than the filesystem accepts therefore read as an ordinary absent file, the
+    walk above stepped up to its parent, and the refusal this reader exists to
+    surface became a confident claim about where the command writes. Which of
+    the two it is depended on the interpreter as well: `exists` used to let the
+    null-byte and over-long spellings through, and each release that catches
+    one more of them silently removes a check here. `os.lstat` reports absence
+    and refusal apart, so neither reading is left to the caller's version.
+    """
+
+    try:
+        os.lstat(candidate)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except (OSError, ValueError) as error:
+        raise UnresolvableTarget(str(candidate)[:64]) from error
+    return True
 
 
 

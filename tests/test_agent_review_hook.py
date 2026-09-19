@@ -1010,13 +1010,25 @@ class ReviewHookTests(unittest.TestCase):
         route = resolve_docs("feature", None, ["testing"], request_classified=True)
         review_hook = next(hook for hook in route["hooks"] if hook["hook"] == "review")
 
+        # The skill hooks ride along with the closing `retrospective check`, and
+        # every one of them is conditional: the route advertises them so a
+        # reusable gap has somewhere to go, and a run without one calls none.
         self.assertEqual(
             [
                 "start",
                 "review",
+                "skill-feedback",
+                "skill-draft",
+                "skill-curate",
+                "skill-review",
+                "skill-maintenance",
                 "finish",
             ],
             [hook["hook"] for hook in route["hooks"]],
+        )
+        self.assertEqual(
+            ["start", "review", "finish"],
+            [hook["hook"] for hook in route["hooks"] if hook["required"]],
         )
         self.assertIn("--review-scope working-tree", review_hook["command"])
         self.assertIn("--review-scope repo-hygiene", review_hook["command"])

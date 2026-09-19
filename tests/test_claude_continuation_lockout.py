@@ -33,8 +33,32 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import claude_pretool_gate as gate
 from agent_route_state import request_fingerprint
 from agent_runtime_session import SESSION_ENV_VARS
+from support.global_state import STATE_HOME_ENV
 
 SESSION_ID = "lockout-session"
+
+# The gate records every project it clears in the session-project index under
+# the global state home. Without an override these cases appended temporary
+# project paths to the developer's own index on every run -- this session id's
+# file there had grown past 280 KB of directories that no longer exist.
+_STATE_HOME: "tempfile.TemporaryDirectory | None" = None
+_OUTER_STATE_HOME: "str | None" = None
+
+
+def setUpModule() -> None:
+    global _STATE_HOME, _OUTER_STATE_HOME
+    _OUTER_STATE_HOME = os.environ.get(STATE_HOME_ENV)
+    _STATE_HOME = tempfile.TemporaryDirectory()
+    os.environ[STATE_HOME_ENV] = _STATE_HOME.name
+
+
+def tearDownModule() -> None:
+    if _OUTER_STATE_HOME is None:
+        os.environ.pop(STATE_HOME_ENV, None)
+    else:
+        os.environ[STATE_HOME_ENV] = _OUTER_STATE_HOME
+    if _STATE_HOME is not None:
+        _STATE_HOME.cleanup()
 
 
 def _decide(payload: dict) -> tuple[bool, str]:
