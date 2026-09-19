@@ -97,25 +97,34 @@ For tracked work:
    Read every `required_docs` entry directly and load `reference_docs` only
    when the touched concern requires them. Do not repeat route or preflight
    after a successful start. Record the `source docs` gate with
-   `required_docs`, `source`, and the applied `takeaway`.
+   `required_docs`, `source`, and the applied `takeaway` only when the active
+   route lists that gate; ordinary code routes bind their required docs at
+   start and carry no separate source record.
 4. Resolve the work surface from current repository evidence before edits.
    Request paths and dirty paths are candidates, not ownership proof. Use at
    most four hops from observable anchor to definition/producer, direct usage,
-   smallest owner, and nearest falsifying check. Only `resolved` permits work.
+   smallest owner, and nearest falsifying check. Only a resolved owner permits
+   work. Record the `work surface resolution` gate when the active route lists
+   it; elsewhere the resolution is direct agent work without a ledger entry.
 5. For a writing task, run VibeGuard before edits and again before finish.
-6. Record one bounded semantic continuation checkpoint after source reading and
-   scoping, then refresh it at material decisions and lifecycle transitions.
+6. Write one bounded semantic continuation checkpoint only when an interruption,
+   a material scope or decision change, or a worker handoff makes resume state
+   useful. Routine phase transitions need none, and an unchanged follow-up
+   reuses the existing start and gate records.
 7. Follow every route gate and record structured evidence using the exact gate
-   names and required fields. Batch only gates that are simultaneously ready.
-   Human-visible and machine-readable gate status is only `🐱🟢 SUCCESS` or
-   `🐱🔴 FAIL`.
-8. Run the review hook only when the active route requires it, with the active
-   evidence path and all requested review, docs, boundary, structure, and
-   side-effect evidence. A verification-only route does not gain a review gate
+   names and required fields. Record only the gates the active route lists;
+   never manufacture a generic gate or submit a hook-owned review through
+   `gate-batch`. Batch only gates that are simultaneously ready. Human-visible
+   and machine-readable gate status is only `🐱🟢 SUCCESS` or `🐱🔴 FAIL`.
+8. Run the review hook once, and only when the active route requires it, with
+   the active evidence path and all requested review, docs, boundary, structure,
+   and side-effect evidence. Do not rerun a passed hook while the route and
+   worktree are unchanged. A verification-only route does not gain a review gate
    from this generic lifecycle list.
 9. Immediately before finish, compare the route gate list with the ledger and
-   record all missing gates. Run `finish` once before the final report,
-   commit, release, or handoff.
+   record only the gates actually missing; never call `finish` to discover
+   them. Run `finish` once before the final report, commit, release, or
+   handoff.
    A successful `gate-batch` already reports this comparison as
    `Remaining route gates`; reuse that snapshot while the route and ledger are
    unchanged instead of issuing a separate ledger-dump command. An empty list
