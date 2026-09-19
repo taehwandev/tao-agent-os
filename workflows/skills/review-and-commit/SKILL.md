@@ -6,7 +6,7 @@ type: ai-generated
 
 # Review And Commit Workflow
 
-Use when routed to `workflows/skills/review-and-commit/SKILL.md` or when work needs this Tao Agent OS guidance area.
+Use for final review and commit preparation.
 
 ## Read
 
@@ -14,8 +14,8 @@ For a `commit` or `git_commit` follow-up, including push and PR, use this
 entrypoint's publication minimum. Detailed cards are on demand; reuse complete,
 unchanged readings.
 
-- `references/current-guidance.md` for an unresolved review procedure or when
-  explicitly required by the route.
+- `references/current-guidance.md` for `--commit-ready` preparation, unresolved
+  review procedure, or an explicit route requirement.
 - A related skill only for a concrete finding, an unresolved in-scope question,
   or an explicit applicable project requirement. Follow its detailed reference
   only if the entrypoint does not answer that question.
@@ -59,8 +59,7 @@ security/migration/release risk, or publication exception.
 
 ## Do Not
 
-- Do not look for legacy flat compatibility paths; load this skill bundle as the canonical context-loading target.
-- Do not load broad references for unrelated work just because this skill was nearby in the route.
+- Use this canonical bundle, not legacy flat paths or unrelated references.
 - Do not select `release` or `ship` for an ordinary branch push or pull request.
   Those publication follow-ups stay on the lightweight `commit` route unless
   the request also names a release artifact, deployment, tag, or rollout.

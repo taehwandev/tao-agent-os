@@ -83,6 +83,38 @@ class ProjectWorktreePolicyTests(unittest.TestCase):
         destination.write_text(json.dumps(policy))
         return policy
 
+    def test_launcher_alias_start_reads_shared_rules_without_allowing_main_writes(self):
+        main = self.project("main")
+        worktree = self.project("feature")
+        (worktree / ".git").rmdir()
+        (worktree / ".git").write_text("gitdir: /unused/test-metadata\n")
+        self.policy(main)
+        self.policy(worktree)
+        launcher = gate.stable_launcher_path()
+        for spelling in ("start", "agent-hook start"):
+            base = f"{launcher} {spelling} --rules {main} --project"
+            for command, allowed in (
+                (f"{base} {worktree}", True),
+                (f"cd {worktree} && {base} {worktree}", True),
+                (f"{base} {main}", False),
+                (f"{base} {worktree} --output {main}/evidence.json", False),
+                (f"{base} {worktree} && touch {main}/code.py", False),
+                (f"{base} {worktree} > {main}/output", False),
+            ):
+                with self.subTest(command=command):
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        pretool.decide({
+                            "tool_name": "Bash", "cwd": str(main),
+                            "session_id": "alias-start",
+                            "tool_input": {"command": command},
+                        })
+                    if allowed:
+                        self.assertEqual("", output.getvalue())
+                    else:
+                        decision = json.loads(output.getvalue())["hookSpecificOutput"]
+                        self.assertEqual("deny", decision["permissionDecision"])
+
     def edit(self, source: Path, target: Path) -> str:
         output = io.StringIO()
         with redirect_stdout(output):

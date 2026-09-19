@@ -327,8 +327,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
                               "tool_input": {"command": "curl https://example.test/"}})
             reason = _reason(out)
             self.assertIn("not proof it changes data", reason)
-            self.assertIn("curl -q", reason)
-            self.assertIn("rather than asking for the same approval again", reason)
+            self.assertIn("put -q first", reason)
+            self.assertIn("effect: unknown", reason)
+            self.assertIn("no duplicate user approval", reason)
+            self.assertIn("do not request write authority just to run a lookup", reason)
 
     def test_bash_outside_tao_project_is_allowed(self) -> None:
         code, out = _decide({"tool_name": "Bash", "cwd": "/tmp", "session_id": "s"})

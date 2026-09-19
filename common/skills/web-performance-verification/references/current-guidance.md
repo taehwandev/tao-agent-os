@@ -34,7 +34,8 @@ For non-web UI verification, use the matching platform visual verification card.
   test setup.
 - The affected route, viewport, device class, network profile, and user flow.
 - Bundle, asset, cache, API, and render boundaries touched by the diff.
-- Existing web platform and UI visual verification guidance.
+- Applicable web platform contracts; detailed UI or visual procedures only when
+  the changed behavior or an unresolved verification question requires them.
 
 ## Decision Rule
 
@@ -52,6 +53,26 @@ match the user-visible claim.
 5. Compare before/after or report partial evidence.
 6. Record environment details: browser, viewport, device/emulation, network,
    build mode, and data state.
+
+## Loading Investigations
+
+- Separate deployed first visits, client-side navigation, local production
+  builds, and development startup. Label auth/data and cold/warm cache state;
+  a fresh browser context does not reset server caches. If the reported scenario
+  is unresolved, bounded common-path diagnosis may continue, but do not present
+  its result as proof of the user's deployment latency.
+- HTTP first-byte time, complete response time, and response bytes locate part
+  of the cost; they do not measure when the useful page appears. Choose a stable
+  selector for the intended content, not an arbitrary first article unless it
+  actually represents that outcome. Report LCP's observation window; a fixed
+  sleep supplies a bounded sample, not necessarily the page's final LCP.
+- Prefer the network waterfall, request initiator, build manifest, or source
+  import chain to explain a costly chunk. Search a minified bundle when those
+  sources cannot resolve the dependency; do not treat a library string match as
+  proof that its code executes on initial navigation.
+- Keep source/query findings distinct from measured improvements. Redundant
+  reads are a candidate fix, while cache invalidation, visibility and auth checks
+  remain necessary when that fix changes which data is fetched or reused.
 
 ## Common Rationalizations
 

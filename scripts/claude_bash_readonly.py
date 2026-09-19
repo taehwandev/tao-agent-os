@@ -214,6 +214,10 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     if executable_path == stable_launcher_path().expanduser().resolve() and len(tokens) > 1:
         if writes_output:
             return "mutating"
+        # The installed launcher also accepts `agent-hook <subcommand>`.
+        # Normalize only this exact launcher alias, before classifying effects.
+        if tokens[1] == "agent-hook" and len(tokens) > 2:
+            tokens = [tokens[0], *tokens[2:]]
         if tokens[1] == WORKFLOW_START_HOOK:
             return "workflow_start"
         if tokens[1] in RUNTIME_WRITE_HOOKS:

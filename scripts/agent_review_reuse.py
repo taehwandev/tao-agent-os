@@ -58,8 +58,8 @@ class ReviewReuse:
     def capture(self) -> dict[str, Any] | None:
         return _capture(self)
 
-    def load(self, *, require_fully_staged: bool = True) -> dict[str, Any] | None:
-        return _load(self, require_fully_staged=require_fully_staged)
+    def load(self, *, require_fully_staged: bool = True, require_commit_route: bool = True) -> dict[str, Any] | None:
+        return _load(self, require_fully_staged=require_fully_staged, require_commit_route=require_commit_route)
 
     @classmethod
     def publication_candidate(cls, evidence: Path) -> dict[str, Any] | None:
@@ -86,7 +86,7 @@ class ReviewReuse:
             return
         if failures:
             return
-        results = {name: checks[name] for name in ('structure_review', 'workflow_validate')}
+        results = _reusable_checks(checks)
         checks['review_checks'] = {
             'snapshot_sha256': self.digest(self.before), 'results_sha256': self.digest(results),
             'source_attestation': self.reused['attestation_id'] if self.reused else '',
@@ -102,8 +102,8 @@ class ReviewReuse:
             if attestation.get('review_checks') != checks['review_checks']:
                 return
             atomic_write_json(self.path, {
-                'schema_version': 1, 'snapshot': self.before,
-                'checks': {name: checks[name] for name in ('structure_review', 'workflow_validate')},
+                'schema_version': 2, 'snapshot': self.before,
+                'checks': _reusable_checks(checks),
                 'evidence': self.evidence.resolve().relative_to(self.project / '.tao').as_posix(),
                 'attestation_id': attestation['attestation_id'],
             })
@@ -266,12 +266,13 @@ def _load(
     reuse: ReviewReuse,
     *,
     require_fully_staged: bool = True,
+    require_commit_route: bool = True,
 ) -> dict[str, Any] | None:
     if reuse.before is None:
         return None
     try:
         command = (reuse.read(reuse.evidence).get('route') or {}).get('command')
-        if command not in {'commit', 'git_commit'}:
+        if require_commit_route and command not in {'commit', 'git_commit'}:
             return None
         if require_fully_staged and (
             reuse.git(reuse.project, 'diff', '--name-only', '-z')
@@ -281,7 +282,7 @@ def _load(
         cached = reuse.read(reuse.path)
         if set(cached) != {'schema_version', 'snapshot', 'checks', 'evidence', 'attestation_id'}:
             return None
-        if cached['schema_version'] != 1 or cached['snapshot'] != reuse.before:
+        if cached['schema_version'] not in {1, 2} or cached['snapshot'] != reuse.before:
             return None
         source = (reuse.project / '.tao' / cached['evidence']).resolve()
         source.relative_to(reuse.project / '.tao')
@@ -311,9 +312,24 @@ def _load(
         if any((entry.get('fields') or {}).get(k) != v for k, v in ReviewAttestation.ledger_fields(attestation).items()):
             return None
         checks = cached['checks']
-        if set(checks) != {'structure_review', 'workflow_validate'} or checks['structure_review'].get('failures') != [] or checks['workflow_validate'].get('returncode') != 0:
+        expected = {'structure_review', 'workflow_validate'}
+        if cached['schema_version'] == 2:
+            expected.add('review_input')
+        if set(checks) != expected or checks['structure_review'].get('failures') != [] or checks['workflow_validate'].get('returncode') != 0:
             return None
         reuse.reused = cached
         return checks
     except (OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError):
         return None
+
+
+def _reusable_checks(checks: dict[str, Any]) -> dict[str, Any]:
+    """Bind review narratives to the same attested digest as machine results."""
+    return {
+        **{name: checks[name] for name in ('structure_review', 'workflow_validate')},
+        'review_input': {name: str(checks.get(name) or '') for name in (
+            'code_review_evidence', 'docs_freshness_evidence',
+            'structure_review_evidence', 'boundary_plan_evidence',
+            'side_effect_audit_evidence',
+        )},
+    }

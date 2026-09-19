@@ -530,6 +530,34 @@ class RuntimeEvidenceTests(unittest.TestCase):
             self.assertEqual(project / ".tao" / "runs", first.parent.parent)
             self.assertEqual(32, len(first.parent.name))
 
+    def test_start_reuses_same_intake_but_isolates_route_or_authority_transition(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            active = project / "active.json"
+            intake = {"request": "Inspect fixture", "continuation_scope": "",
+                      "request_classified": False, "classification_evidence": ""}
+            active.write_text(json.dumps({"request_intake": intake,
+                "route": {"command": "bugfix"}, "execution_mode": {"read_only": True}}))
+            before = active.read_bytes()
+            def args(**changes):
+                values = dict(project=project, evidence=None, hook="start",
+                              command="bugfix", read_only=True, **intake)
+                values.update(changes)
+                return Namespace(**values)
+            with patch("agent_hook_gate_records.runtime_session", return_value={"session_id": "one"}), \
+                 patch("agent_hook_gate_records.resolve_runtime_evidence", return_value=active):
+                self.assertEqual(active, preflight_evidence_path(args()))
+                for changes in ({"request": "Apply correction"}, {"read_only": False},
+                                {"command": "task"}):
+                    with self.subTest(changes=changes):
+                        selected = args(**changes)
+                        self.assertNotEqual(active, preflight_evidence_path(selected))
+                        self.assertEqual(selected.evidence, preflight_evidence_path(selected))
+                self.assertEqual(active, preflight_evidence_path(args(
+                    evidence=active, request="Apply correction", read_only=False)))
+                self.assertEqual(active, preflight_evidence_path(args(hook="review")))
+            self.assertEqual(before, active.read_bytes(), "Selection must not mutate the old run")
+
 
 class SupersededSessionRunTests(unittest.TestCase):
     """A session that leaks runs must not deny its own next edit."""

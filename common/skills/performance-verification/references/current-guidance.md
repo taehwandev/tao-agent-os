@@ -57,6 +57,32 @@ or structural risk reduction, not as a proven performance fix.
    OS/runtime version, viewport/window size, data state, network/storage profile,
    and tool used.
 
+## Bounded Measurement Work
+
+- Reuse a compatible repo measurement runner before creating another harness.
+  Add only the missing metric or scenario; a runner failure is not a reason to
+  duplicate the experiment while its earlier invocation remains pending.
+- Keep one in-flight invocation for an equivalent measurement. A pending tool
+  or approval result is not failure or proof of non-execution. Before switching
+  runners, confirm the earlier invocation finished or its cancellation completed,
+  and reconcile any output. Follow runtime recovery and permission rules; this
+  does not authorize killing unrelated processes or bypassing approval.
+- Preserve an accepted baseline. Give retries and before/after runs distinct
+  output paths so a delayed invocation cannot overwrite the comparison input.
+  Accept a sample only after successful completion and matching environment and
+  scenario checks; do not combine partial outputs from competing runs.
+- Investigate one evidence-backed hypothesis per measurement. Independent work
+  may run in parallel when it cannot perturb the sample. Expand to another
+  boundary when the current measurement contradicts it or cannot explain the
+  observed delay, not merely because more performance guidance is available.
+- After a correction, repeat its affected measurement and correctness checks.
+  Retain the final integrated diff review and required regression coverage;
+  passing evidence may be reused while its covered inputs and conditions remain
+  valid; failed or unresolved checks remain open. Separating a measurement from
+  a failed behavior check does not remove that check from acceptance: retain it
+  separately or report the unverified behavior. No extra
+  gate, receipt, or measurement framework is required by these rules.
+
 ## Evidence Levels
 
 | Evidence | Use |

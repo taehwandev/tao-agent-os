@@ -239,8 +239,8 @@ overwrite those parent evidence files.
 ### Review reuse across shared-library updates
 
 Keep the final integrated review. Project changes, altered route/run bindings,
-changed acceptance code, configuration or guidance still invalidate its receipt.
-For a separate Git-backed shared library, new review receipts also bind a
+changed acceptance code, configuration or guidance still invalidate its attestation.
+For a separate Git-backed shared library, new review attestations also bind a
 conservative content fingerprint: every tracked/nonignored input is included
 except library tests and the explicitly enumerated shell-admission modules in
 `agent_review_rules_inputs.py`. Those modules do not execute review or finish
@@ -248,8 +248,8 @@ acceptance; if that ownership changes they must leave the exclusion set.
 Unknown files remain included. This is not a filename heuristic that declares
 all scripts or documentation irrelevant, nor a permission to ignore warnings.
 
-An unrelated shared commit can preserve the receipt only when that fingerprint
-matches. Same-repository reviews, old receipts without this binding, non-Git
+An unrelated shared commit can preserve the attestation only when that fingerprint
+matches. Same-repository reviews, old attestations without this binding, non-Git
 roots and failed/unstable captures retain exact-state validation. Project
 fingerprints and final validation are not weakened. Unchanged shared Git state
 uses the existing fast path; the content fallback runs only after shared drift.
@@ -272,6 +272,14 @@ a read pass. When the user has already authorized a write, carry that exact
 target and effect into writable workflow entry without asking the same question
 again. A previous read-only run does not revoke the user's later authorization.
 Native filesystem/network permissions remain independent of workflow evidence.
+
+The pretool boundary refines the legacy fallback into `unknown` separately
+from recognized writes. Its diagnostic names the unsupported boundary without
+echoing arguments or credentials; it never grants execution permission. A
+changed start intake or read-to-write transition gets a fresh run path, while
+an unchanged intake reuses its run. Explicit evidence remains explicit. Only
+successful registration settles superseded runs in the same runtime session;
+failed entry must leave the earlier run intact.
 
 HTTP inspection is provider-independent. Use `curl -q` (or `--disable` as the
 first argument) with GET/HEAD and stdout; this disables implicit curlrc actions

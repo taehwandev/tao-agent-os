@@ -10,6 +10,27 @@ Use after implementation, before handing off or committing.
 
 ## Read
 
+### Exact reviewed commit preparation
+
+For an exact fully staged unit whose whole working tree was reviewed and
+finished in this runtime session, use:
+
+```text
+<TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command commit --request "<CURRENT_REQUEST>" --intent prepare_commit --target-summary "<AUTHORIZED_UNIT>" --approved-effect git_write --commit-ready
+```
+
+This reuses attested review narratives and machine checks, then executes
+ordinary start, fresh review checks, commit-readiness recording and finish.
+It never stages, commits, pushes, or grants filesystem permission. Current
+commit authority is required. Changed staged bytes, unrelated changes,
+incomplete prior work or another session refuse before starting. Old
+attestations without reusable narratives and scoped reviews use ordinary
+preparation. If entry finds unread required docs or additional gates, satisfy
+them in that run instead of starting another. A failed step stops the sequence.
+After success, perform the authorized commit without repeating unchanged checks.
+
+### Conditional references
+
 These are conditional references, not a mandatory reading queue. Keep the
 route's required manifest and applicable project requirements. For commit/push/PR
 follow-ups, the routed commit card already owns ordinary staged-diff, branch,

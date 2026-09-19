@@ -58,6 +58,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
     )
     from claude_bash_git import git_subcommand, names_unsafe_git_option
     from claude_bash_syntax import past_env_options
+    from claude_command_effect import command_effect, unknown_recovery
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -135,6 +136,12 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
         return "mutating"
+
+    def command_effect(tokens, simple, kind):
+        return kind, ""
+
+    def unknown_recovery(reason):
+        return "Command effect could not be verified."
 
     RUNTIME_CONTROL_KIND = "runtime_control"
 
@@ -1285,6 +1292,7 @@ def _isolated_checkout_verdict(
     syntax_is_simple: bool = False,
     governed_roots: "list[Path] | None" = None,
     cwd_roots: "list[Path] | None" = None,
+    unknown_reason: str = "",
 ) -> int:
     """Answer a call the worktree policy has already cleared.
 
@@ -1332,7 +1340,8 @@ def _isolated_checkout_verdict(
         ):
             finish_authorized = True
             continue
-        return deny(deny_reason(governed, session_id, tool, cwd_roots))
+        return deny(unknown_recovery(unknown_reason) + governed_because(governed, cwd_roots) if unknown_reason else
+                    deny_reason(governed, session_id, tool, cwd_roots))
     if finish_authorized:
         return _approve(
             "This is the ordinary Git command that a successful finish "
@@ -2356,6 +2365,7 @@ class _CallScope(NamedTuple):
     effective_cwd: Path
     roots: "list[Path]"
     cwd_roots: "list[Path]"
+    unknown_reason: str = ""
 
     @property
     def root(self) -> "Path | None":
@@ -2374,8 +2384,9 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
         return _CallScope("", [], True, cwd, cwd, found, list(found))
     effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
     command_cwd = _git_effective_cwd(tokens, effective_cwd)
+    kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple))
     return _CallScope(
-        bash_command_kind(tokens, syntax_is_simple),
+        kind,
         tokens,
         syntax_is_simple,
         command_cwd,
@@ -2386,6 +2397,7 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
             for found in (find_project_root(command_cwd), find_project_root(cwd))
             if found is not None
         ],
+        detail if kind == "unknown" else "",
     )
 
 
@@ -2417,7 +2429,7 @@ def decide(payload: dict) -> int:
         roots, str(payload.get("session_id") or ""), bash_kind
     )
     if read_denial:
-        return deny(read_denial)
+        return deny(unknown_recovery(scope.unknown_reason) if scope.unknown_reason else read_denial)
     if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:
         # The hazard list is consulted here too. Nothing Git classifies as
         # bootstrap is destructive today -- `fetch` and `worktree add` are the
@@ -2461,6 +2473,8 @@ def decide(payload: dict) -> int:
             return deny(reason) if reason else allow()
         return deny(worktree_reason) if worktree_reason else allow()
     if worktree_reason:
+        if scope.unknown_reason:
+            worktree_reason = f"{unknown_recovery(scope.unknown_reason)} {worktree_reason}"
         return _worktree_policy_verdict(
             payload,
             tool,
@@ -2501,7 +2515,7 @@ def decide(payload: dict) -> int:
                 f"{hazard}. Allow it only if that is what you meant."
             )
     return _isolated_checkout_verdict(
-        payload, tool, root, cwd, tokens, syntax_is_simple, roots, cwd_roots
+        payload, tool, root, cwd, tokens, syntax_is_simple, roots, cwd_roots, scope.unknown_reason
     )
 
 

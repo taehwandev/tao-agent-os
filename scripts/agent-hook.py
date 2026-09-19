@@ -1157,6 +1157,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
     start = parser.add_argument_group("start hook")
+    start.add_argument("--commit-ready", action="store_true", help="prepare exact staged, completed same-session review for commit; never commits")
     start.add_argument("--command", default="task", help="workflow route command for start")
     start.add_argument("--request", help="current user request")
     start.add_argument(
@@ -1848,6 +1849,8 @@ def _validate_hook_arguments_before_repair(
 ) -> None:
     """Reject hook-specific CLI errors before a repair attempt is claimed."""
 
+    if getattr(args, "commit_ready", False) and args.hook != "start":
+        parser.error("--commit-ready is supported only by start --command commit")
     if args.hook == "start":
         if args.request_classified and not args.classification_evidence:
             parser.error("start --request-classified requires --classification-evidence")
@@ -1983,6 +1986,9 @@ def _dispatch_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
     if args.repair_cycle:
         _apply_repair_cycle_context(parser, args)
     if args.hook == "start":
+        if getattr(args, "commit_ready", False):
+            from agent_commit_ready import prepare_commit
+            return prepare_commit(args, start_hook, lambda step: _dispatch_hook(parser, step))
         return start_hook(args)
     checkpointed = _checkpointed_hook(args)
     if checkpointed is not None:
