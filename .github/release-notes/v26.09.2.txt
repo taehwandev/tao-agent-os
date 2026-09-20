@@ -1,0 +1,34 @@
+# Tao Agent OS v26.09.2 — draft
+
+_2026-09-05 → 2026-09-20 · 153 commits after v26.09.1 · candidate `7858018`_
+
+This update changes what agents do at task start and review. It also narrows some document routes. The concrete behavior changes below are verified; an overall reduction in task time or token use is not established.
+
+## Changes you can observe
+
+- **Starting a tracked task takes one declared command.** The `start` hook now derives the request fingerprint, runtime-session binding, and effect authorization from its compact inputs. Agents no longer need a separate fingerprint call and hand-built authority JSON for this path. An approval broader than the explicit requested effect still does not widen the task. (`651ec16`, `f4b2b55`)
+- **Review catches broken documentation references.** If a document is moved, review checks surviving Markdown files for links and repository-rooted paths to its former location, including files untouched by the change. It also validates links and frontmatter in changed documents. This replaces a gate that only recorded an agent's claim that paths were checked. (`46ea161`, `0892fb4`)
+- **An unchanged change can reuse part of its review.** When the commit candidate still has the same content, base, rules, and checker state, the review path reuses structural and workflow results from the matching attestation. It still checks the current staged diff, base drift, VibeGuard result, and worktree stability. This removes repeated checks from that path; no wall-clock saving was measured. (`1c163be`, `f238346`, `2b3565d`)
+- **Android review checks action ownership in Compose code.** A changed composable that constructs a route or notice request, calls a data service, or directly dispatches navigation or notice now fails structural review with a location and reason. ViewModel-typed effect collectors and declared leaf callbacks remain valid. This is a source-level guard, not whole-program Kotlin analysis, and it does not change an Android app at runtime. (`dfaad28`, `e31ece3`)
+- **A valid start in a linked worktree can pass the worktree gate.** The gate now treats the shared `--rules` directory as an input and the bound `--project` as the write target. It also leaves literal shell text inside single quotes alone, while continuing to reject executable substitutions. This fixes starts that previously received a denial pointing to the wrong checkout. (`93d1f5a`)
+- **Code-structure questions use the code-oriented path.** Guidance routes ordinary code dependency questions to CodeGraph when a current index exists. Graphify remains for mixed code/document corpora or an explicit request, and graph rebuild hooks are opt-in. An absent or stale index falls back to direct source inspection. (`1b8b192`, `90c2ebb`)
+
+## Measured reading footprint
+
+The table runs the same three `resolve_docs` inputs against the `v26.09.1` tag and candidate `7858018`. Numbers are exact UTF-8 file bytes selected as required guidance. The second comparison adds the repository's root `AGENTS.md`, which is read before routing. These are selection sizes, not observed model tokens, files actually opened, or elapsed task time.
+
+| Request | Required route documents | Route documents plus `AGENTS.md` |
+| --- | ---: | ---: |
+| Android Compose screen | 54,422 → 41,570 bytes (−23.6%) | 68,236 → 73,809 bytes (+8.2%) |
+| Commit and PR | 14,270 → 10,431 bytes (−26.9%) | 28,084 → 42,670 bytes (+51.9%) |
+| Merged worktree cleanup | 6,854 → 12,203 bytes (+78.0%) | 20,668 → 44,442 bytes (+115.0%) |
+
+The root instruction file grew from 13,814 to 32,239 bytes. Therefore narrower route selection does **not** demonstrate an overall context, token, cost, or time saving in these cases. The proven efficiency changes are fewer preparatory steps for compact start and less duplicate checking for a matching review; their end-to-end time and token impact remains unmeasured.
+
+## Compatibility and verification
+
+This release note describes Tao Agent OS workflow and review behavior, not a shipped change to an Android application. A newly detected direct Compose effect or broken document reference can now stop review. Legitimate ViewModel effect collection and leaf callback forwarding have focused regression coverage.
+
+The candidate's Android action, documentation-reference, and review-reuse suites passed 57 tests; compact-start authority passed 12 tests; linked-worktree start behavior passed 10 tests. Document-routing checks and final document validation were also run while drafting. These targeted checks do not constitute a full release test suite. No release tag, GitHub release, or deployment is created by this draft.
+
+**Full changelog:** https://github.com/taehwandev/tao-agent-os/compare/v26.09.1...7858018
