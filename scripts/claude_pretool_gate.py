@@ -344,8 +344,8 @@ def _approve(reason: str) -> int:
     Codex 0.154 rejects Claude's ``permissionDecision: allow`` value. A clean
     exit with no output is Codex's successful deferral path, so emitting the
     Claude value there turns an approved command into a hook error and may make
-    the agent retry or rediscover the workflow. Denials and review requests
-    keep their explicit decisions in both runtimes.
+    the agent retry or rediscover the workflow. Denials remain explicit; native
+    review requests also defer without Claude-only output in Codex.
     """
 
     if runtime_name() == "codex":
@@ -398,7 +398,9 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
     refusals are evaluated separately and remain in force.
     """
 
-    if tokens and _is_git_deletion(tokens):
+    # Codex rejects Claude's `ask` value as well as `allow`. A silent success
+    # leaves sandbox/approval decisions with the runtime; it grants no permission.
+    if runtime_name() == "codex" or (tokens and _is_git_deletion(tokens)):
         return allow()
 
     print(
@@ -2426,6 +2428,21 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     )
 
 
+def _administrative_workflow_start(tokens: list[str]) -> bool:
+    """Admit lifecycle metadata for Git administration, never a source edit.
+
+    The caller already classified the complete command as a workflow start.
+    Ambiguous/duplicate route options do not receive this narrow exception.
+    """
+    routes = []
+    for index, token in enumerate(tokens):
+        if token == "--command":
+            routes.append(tokens[index + 1] if index + 1 < len(tokens) else "")
+        elif token.startswith("--command="):
+            routes.append(token.partition("=")[2])
+    return len(routes) == 1 and routes[0] in {"cleanup", "commit", "git_commit"}
+
+
 def _workflow_start_verdict(
     tokens: list[str],
     effective_cwd: Path,
@@ -2447,6 +2464,11 @@ def _workflow_start_verdict(
     target_root = workflow_start_target_root(tokens, effective_cwd)
     if target_root is None:
         return deny(worktree_reason) if worktree_reason else allow()
+    if _administrative_workflow_start(tokens):
+        # Cleanup/publication needs a run in the checkout it administers. The
+        # route still validates user authority, and later commands still pass
+        # ordinary isolation, effect, and publication-before-finish checks.
+        return allow()
     reason = worktree_denial(
         target_root,
         WORKFLOW_START_TARGET,

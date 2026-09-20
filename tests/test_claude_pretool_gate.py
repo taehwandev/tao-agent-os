@@ -3164,6 +3164,72 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
 
 
 class CodexRuntimePreToolGateTests(unittest.TestCase):
+    def test_codex_review_request_defers_to_native_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}
+        ):
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            code, out = _decide({
+                "tool_name": "Bash", "cwd": str(project), "session_id": "s",
+                "tool_input": {"command": (
+                    "TAO_ALLOW_MAIN_CHECKOUT_EDIT=1 "
+                    f"{gate.stable_launcher_path()} start --project {project} --command task"
+                )},
+            })
+        self.assertEqual(0, code)
+        self.assertEqual("", out, "Codex must receive neither ask nor allow JSON")
+
+    def test_administrative_start_does_not_require_main_edit_override(self) -> None:
+        for runtime in ("claude", "codex"):
+            for route in ("cleanup", "commit", "git_commit"):
+                with self.subTest(runtime=runtime, route=route), tempfile.TemporaryDirectory() as tmp, patch.dict(
+                    os.environ, {"TAO_PRETOOL_RUNTIME": runtime}
+                ):
+                    project = _opt_in_project(Path(tmp))
+                    _require_linked_worktree(project)
+                    code, out = _decide({
+                        "tool_name": "Bash", "cwd": str(project), "session_id": "s",
+                        "tool_input": {"command": (
+                            f"{gate.stable_launcher_path()} start --project {project} "
+                            f"--command {route} --request 'clean merged work and push main'"
+                        )},
+                    })
+                    self.assertEqual((0, ""), (code, out))
+
+    def test_administrative_name_does_not_allow_edit_routes_or_compound_writes(self) -> None:
+        for suffix in (
+            "--command task --request cleanup",
+            "--command cleanup --command task",
+            "--command=task --command cleanup",
+            "--command cleanup && printf bad > source.ts",
+        ):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as tmp:
+                project = _opt_in_project(Path(tmp))
+                _require_linked_worktree(project)
+                _, out = _decide({
+                    "tool_name": "Bash", "cwd": str(project), "session_id": "s",
+                    "tool_input": {"command": f"{gate.stable_launcher_path()} start --project {project} {suffix}"},
+                })
+                self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+
+    def test_active_administrative_run_does_not_allow_main_source_edits(self) -> None:
+        for runtime in ("claude", "codex"):
+            for route in ("cleanup", "commit"):
+                with self.subTest(runtime=runtime, route=route), tempfile.TemporaryDirectory() as tmp, patch.dict(
+                    os.environ, {"TAO_PRETOOL_RUNTIME": runtime}
+                ):
+                    project = _opt_in_project(Path(tmp))
+                    _require_linked_worktree(project)
+                    subprocess.run(["git", "init", "-q"], cwd=project, check=True, capture_output=True)
+                    (project / ".gitignore").write_text(".tao/\n", encoding="utf-8")
+                    _write_preflight(project, "s", command=route, runtime=runtime)
+                    _, out = _decide({
+                        "tool_name": "Write", "cwd": str(project), "session_id": "s",
+                        "tool_input": {"file_path": str(project / "source.ts"), "content": "bad"},
+                    })
+                    self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+
     def test_codex_approval_defers_without_claude_allow_output(self) -> None:
         """Codex rejects Claude's explicit ``allow`` decision value.
 

@@ -127,6 +127,20 @@ to rollback or forward-fix.
 
 ## Before Commit
 
+### Push Safety Audit Reuse
+
+When the installed, enabled Git pre-push hook runs the required strict audit
+and propagates its failure before any remote update, that hook satisfies the
+pre-push audit. Inspect the effective hook (including `core.hooksPath`) before
+relying on it; do not also run an identical standalone audit for the same push.
+Record readiness as an enforced pending hook, then collect its actual verdict
+from the push. Do not claim it already ran. If the hook is missing, bypassed,
+does not run strict mode, or can hide a failed exit status, run the required
+standalone audit immediately before push. Never disable the hook to deduplicate
+checks. Other code-review, authority, and repository checks still apply.
+
+### Commit Checks
+
 - Check repo-local commit rules first.
 - Inspect the working-tree diff for obvious scope, secret, generated-file, and
   ownership blockers before staging. Then stage only the intended commit unit

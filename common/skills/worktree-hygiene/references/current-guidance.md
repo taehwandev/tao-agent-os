@@ -162,8 +162,14 @@ advisory prose. Discrete file edits and Bash commands that are not provably
 read-only or limited to worktree bootstrap must fail closed in the main checkout
 when linked isolation is required, and on any listed protected branch. A read-only status check, `git fetch`, and
 `git worktree add` remain available so the agent can reach the compliant
-checkout, but workflow `start` is denied there: opening a run before relocation
-leaves a second unfinished lifecycle behind. Do not auto-create a worktree from
+checkout. Source-development workflow `start` is denied there: opening a run
+before relocation leaves a second unfinished lifecycle behind. Administrative
+`cleanup`, `commit`, and `git_commit` starts may bind to the checkout they
+administer without `TAO_ALLOW_MAIN_CHECKOUT_EDIT`. This admits lifecycle metadata
+only; it does not grant source-edit permission, deletion authority, or publication
+before required gates finish. Every subsequent action retains its own isolation,
+effect, authorization, and native permission checks. A compound command that
+starts a run and edits source is not an administrative start. Do not auto-create a worktree from
 the pretool hook: branch, base, ticket, path, and ignored local-file copy
 decisions belong to the repository workflow. After selecting the linked
 worktree, run `start` with that path as the project root before any mutating tool.
@@ -209,6 +215,11 @@ target. The target's tracked declaration remains authoritative, including an
 explicit `false`; an environment fallback cannot override it.
 `TAO_ALLOW_MAIN_CHECKOUT_EDIT=1` disables the main-checkout denial for a
 user-approved exception only; it is never a default and never set by tooling.
+
+Claude can express a native permission request as `permissionDecision: ask`.
+Codex rejects that value (and explicit `allow`), so its adapter defers with a
+successful empty response instead. Deferral never grants sandbox permission or
+represents user approval; deterministic policy violations still emit `deny`.
 
 If an older session already opened a clean main-checkout run before relocating,
 settle it with `tao-hook cancel --evidence <SOURCE> --replacement-evidence
