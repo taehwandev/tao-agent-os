@@ -297,20 +297,27 @@ def coalesce_typescript_support_types(
     """Keep a single runtime owner and the type shapes it uses together.
 
     This is a syntactic family, not proof of semantic cohesion. Unreferenced
-    types, type-only files, and files with multiple runtime owners retain the
+    types and files with multiple runtime owners retain the
     ordinary budgets; classes and enums are never erased as support types.
     """
     if path.suffix.lower() not in {".ts", ".tsx"}:
         return declarations
     runtime = [item for item in declarations if item["kind"] not in {"type", "interface"} and not item["private"]]
+    types = {item["name"]: item for item in declarations if item["kind"] in {"type", "interface"}}
+    if not runtime and len(types) == len(declarations):
+        # A type-only aggregate may own its transitively referenced shapes.
+        # Require a unique root; shared leaves and cycles alone prove no owner.
+        referenced = {name for item in declarations for name in item.get("references", ()) if name != item["name"]}
+        roots = [item for item in declarations if item["name"] not in referenced]
+        if len(roots) == 1:
+            runtime = roots
     if len(runtime) != 1:
         return declarations
-    types = {item["name"]: item for item in declarations if item["kind"] in {"type", "interface"}}
     pending = set(runtime[0].get("references", ()))
     support: set[str] = set()
     while pending:
         name = pending.pop()
-        if name in types and name not in support:
+        if name in types and name != runtime[0]["name"] and name not in support:
             support.add(name)
             pending.update(set(types[name].get("references", ())) - support)
     return [item for item in declarations if item["name"] not in support]

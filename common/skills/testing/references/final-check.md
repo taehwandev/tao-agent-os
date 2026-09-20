@@ -12,6 +12,11 @@ Use this compact contract for the final `tests` gate on ordinary code work.
    behavior. Run that focused check after the change.
 2. Broaden verification only when the changed boundary or a failure gives a
    concrete reason.
+   Choose one execution owner for each check: a project orchestrator or a
+   manual command. Inspect the orchestrator plan before running either; do not
+   run its complete plan after manually running the same checks on unchanged
+   bytes. If the project requires its runner, use that runner first and run
+   only missing checks separately. Preserve every required gate.
 3. Record the exact check, its exit status or pass/fail result, and a count or
    selector that makes the result reproducible.
 4. A failed required check blocks completion. Unrelated passing checks do not

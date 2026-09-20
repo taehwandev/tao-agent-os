@@ -841,6 +841,12 @@ def _declared_read_indices(tokens: list[str], offset: int) -> list[int]:
 
     if not tokens:
         return []
+    # A proven read segment can precede a write in another repository. Its
+    # operands are not write targets of that later command. Redirections keep
+    # the conservative path because they may write independently of the reader.
+    if not any(token in {">", ">>", "<", "<<", ">&", "<&"} for token in tokens) and not unmodelled_operator(tokens):
+        if simple_command_kind(tokens) == "read_only":
+            return list(range(offset, offset + len(tokens)))
     if _creates_a_pull_request(tokens):
         return _option_value_indices(tokens, offset, PULL_REQUEST_BODY_OPTIONS)
     if _is_installer_without_writes(tokens):

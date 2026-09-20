@@ -21,6 +21,19 @@ def declarations(source: str, path: Path = Path("src/model/contracts.ts")):
 
 
 class AgentReviewPurposeTests(unittest.TestCase):
+    def test_type_only_aggregate_owns_referenced_shapes(self) -> None:
+        source = """
+export interface TextSearchHighlight { frameId: string; startOffset: number; endOffset: number }
+export interface SelectionState { highlight: TextSearchHighlight | null }
+"""
+        self.assertEqual([], top_level_declaration_failures(Path("src/selectionState.ts"), declarations(source)))
+        for extra in ("export interface Other { id: string }", "export interface Other { highlight: TextSearchHighlight }"):
+            self.assertTrue(top_level_declaration_failures(Path("src/selectionState.ts"), declarations(source + extra)))
+
+    def test_type_only_cycles_do_not_create_an_owner(self) -> None:
+        source = "export interface A { b: B }\nexport interface B { a: A }"
+        self.assertTrue(top_level_declaration_failures(Path("src/contracts.ts"), declarations(source)))
+
     def test_typescript_slice_and_its_transitive_types_form_one_owner(self) -> None:
         source = """
 export interface PanPoint { x: number; y: number }

@@ -68,6 +68,11 @@ permission to hide first-party code under `third_party`.
 
 ### All-Platform File And Type Baseline
 
+For TypeScript type-only files, one aggregate contract and the type shapes it
+transitively references may stay together. A unique root contract must own the
+family; unrelated roots, shared leaves alone, or cycles do not establish one
+owner. Do not split a small supporting shape merely because it is exported.
+
 Across web, mobile, desktop, server, scripts, styles, tests, docs-like source,
 and generated-adjacent glue, every human-authored file must default to one clear
 owner or role. Runtime files should have one independently importable owner.

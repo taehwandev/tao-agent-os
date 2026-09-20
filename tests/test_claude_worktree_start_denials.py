@@ -166,6 +166,22 @@ class WorkflowStartDenialTests(unittest.TestCase):
         self.assertIn(self.other, roots)
         self.assertNotIn(self.main, roots)
 
+    def test_read_segment_does_not_make_shared_guidance_a_write_target(self) -> None:
+        command = f"cat {self.main}/AGENTS.md ; touch {self.other}/note"
+        _, tokens, _ = bash_invocation({"tool_input": {"command": command}}, self.other)
+        roots = pretool.bash_target_project_roots(tokens, self.other)
+        self.assertNotIn(self.main, roots)
+        self.assertIn(self.other, roots)
+
+    def test_read_operand_exemption_does_not_hide_later_write_or_redirection(self) -> None:
+        for command in (
+            f"cat {self.main}/AGENTS.md ; touch {self.main}/note",
+            f"cat {self.other}/AGENTS.md > {self.main}/note",
+        ):
+            with self.subTest(command=command):
+                _, tokens, _ = bash_invocation({"tool_input": {"command": command}}, self.other)
+                self.assertIn(self.main, pretool.bash_target_project_roots(tokens, self.other))
+
     def test_the_project_root_remains_a_place_a_hook_writes(self) -> None:
         _, tokens, _ = bash_invocation(
             {"tool_input": {"command": self._start(self.main)}}, self.base

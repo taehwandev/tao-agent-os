@@ -27,6 +27,10 @@ unchanged readings.
 2. Reuse reads and tests when `HEAD`, bytes, target, and external state are
    unchanged. Review the final diff once. The Review Hook's VibeGuard audit
    replaces an adjacent identical audit; reuse the gate-batch remaining list.
+   For a fast-forward integration of that exact reviewed commit, verify clean
+   target state and commit identity, then cite the existing review and tests.
+   A required integration review records those checks; it does not require a
+   second source review or test run without drift or new findings.
 3. Repair a final-review finding only with a reproducer, impact, evidence this
    diff caused it, owner, and nearest falsifying check. Give a proven blocker
    one bounded repair and affected recheck; otherwise keep it as follow-up or
