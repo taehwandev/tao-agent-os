@@ -39,13 +39,35 @@ class ReadOnlyDiscoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError, "multiple ancestor"):
                 _claim_project(evidence)
 
-    def test_malformed_ancestor_is_not_silently_unclaimed(self):
+    def test_damaged_current_schema_runs_are_not_silently_unclaimed(self):
         with tempfile.TemporaryDirectory() as folder:
             project = Path(folder).resolve()
             path = registry_path(project)
             path.parent.mkdir()
-            for value in ("{", json.dumps({"schema_version": 1, "runs": [None]})):
-                with self.subTest(value=value):
-                    path.write_text(value)
-                    with self.assertRaises((ValueError, PermissionError)):
-                        _claim_project(project / ".tao" / "preflight.json")
+            path.write_text(json.dumps({"schema_version": 1, "runs": [None]}))
+            with self.assertRaises((ValueError, PermissionError)):
+                _claim_project(project / ".tao" / "preflight.json")
+
+    def test_legacy_shaped_ancestor_registry_claims_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ancestor = Path(folder).resolve()
+            project = ancestor / "project"
+            evidence = project / ".tao" / "runs" / ("c" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            registry_path(ancestor).parent.mkdir(parents=True, exist_ok=True)
+            registry_path(ancestor).write_text(
+                json.dumps({"runs": [{"run_id": "c" * 32, "state": "completed"}]})
+            )
+            register_run(project, evidence, {"command": "bugfix", "gates": []}, {})
+            self.assertEqual(project, _claim_project(evidence))
+
+    def test_unreadable_ancestor_registry_claims_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ancestor = Path(folder).resolve()
+            project = ancestor / "project"
+            evidence = project / ".tao" / "runs" / ("d" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            registry_path(ancestor).parent.mkdir(parents=True, exist_ok=True)
+            registry_path(ancestor).write_text("{")
+            register_run(project, evidence, {"command": "bugfix", "gates": []}, {})
+            self.assertEqual(project, _claim_project(evidence))

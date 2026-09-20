@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import uuid
 from contextlib import contextmanager
@@ -662,16 +661,21 @@ def evidence_claim_snapshot(project: Path, evidence_path: Path) -> bool:
 
     Registry writers replace JSON atomically, so one read sees a whole snapshot.
     This is discovery only: ledger mutation must revalidate the selected claim
-    under ledger_writable_run_claim_transaction. Unreadable or malformed state
-    must not silently turn claimed evidence into a registry-free write.
+    under ledger_writable_run_claim_transaction. The read applies the same
+    normalisation ``_read_registry`` applies, without taking a lock or writing:
+    a file that cannot be read as a current-schema registry at all -- absent,
+    unreadable bytes, invalid JSON, or an older/unknown document shape -- holds
+    no claim on this evidence, which is the answer the locking probe gave before
+    discovery became a snapshot. An ancestor checkout carrying a legacy registry
+    must not abort a legitimate project's ledger write.
+
+    A current-schema registry whose own run records are damaged still refuses,
+    because there the state that would carry the claim is the broken part, and
+    treating it as unclaimed would turn claimed evidence into a registry-free
+    write.
     """
-    payload = json.loads(registry_path(project).read_text(encoding="utf-8"))
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != SCHEMA_VERSION
-        or not isinstance(payload.get("runs"), list)
-        or any(not isinstance(run, dict) for run in payload["runs"])
-    ):
+    payload = _normalized_registry(read_json_object(registry_path(project)))
+    if any(not isinstance(run, dict) for run in payload["runs"]):
         raise ValueError("invalid registry snapshot during evidence discovery")
     matches = [run for run in payload["runs"]
                if _matches_evidence(run, project, evidence_path)]
@@ -1204,10 +1208,16 @@ def _sweep_stale_runs(
     return recovered, held
 
 
-def _read_registry(path: Path) -> dict[str, Any]:
-    payload = read_json_object(path)
+def _normalized_registry(payload: dict[str, Any]) -> dict[str, Any]:
+    """Read-side normalisation shared by the locking read and the snapshot read."""
+
     if payload.get("schema_version") != SCHEMA_VERSION or not isinstance(payload.get("runs"), list):
         return {"schema_version": SCHEMA_VERSION, "runs": []}
+    return payload
+
+
+def _read_registry(path: Path) -> dict[str, Any]:
+    payload = _normalized_registry(read_json_object(path))
     for run in payload["runs"]:
         if isinstance(run, dict):
             run.setdefault("resume_generation", 0)
