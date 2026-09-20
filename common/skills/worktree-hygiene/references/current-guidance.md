@@ -54,12 +54,20 @@ the file and can identify the lines you changed.
 - Treat generated files and lockfiles as user-visible diff noise unless the task
   or toolchain requires them.
 
-## Rollback Missed Gate Scope
+## Recover A Missed Gate
 
 Use when a workflow gate was missed and the agent must retry that gate.
 
-- Roll back only changes made by the agent that depend on the missed gate or
-  must be undone before retrying that gate.
+- First determine whether the missed check can still verify the current result.
+  If so, run it now, record its actual timing, and repair only what it finds.
+  A late test or discovered defect does not by itself require rollback or a
+  restart of earlier passed gates.
+- If the gate required a pre-action condition, such as user authorization,
+  later evidence cannot retroactively satisfy it. Stop dependent actions and
+  establish a safe recovery; do not simply mark the prerequisite passed.
+- Roll back only agent changes that actually must be undone to restore that
+  prerequisite or retry safely. Dependency alone does not require undoing work
+  that the missed check can still validate.
 - Preserve pre-existing user changes, even in files the agent also touched.
 - Prefer a targeted reverse patch or explicit file edit over broad repository
   reset commands.

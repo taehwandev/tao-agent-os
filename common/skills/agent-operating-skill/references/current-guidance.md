@@ -140,6 +140,16 @@ because a command was blocked. Preserve actual approval and isolation limits.
 Successful hooks validate their stated checks, not behavioral equivalence or
 the correctness of an agent's explanation of a failure.
 
+Later discovery is a normal correction point. Complete a missed check or repair
+an in-scope defect when it becomes known; do not restart valid earlier work just
+because it was found during review or verification. Record what was actually
+checked then, without claiming it happened before implementation. Recheck the
+affected result and refresh any evidence invalidated by the change; retain
+unaffected evidence only while its state, authority and freshness still match.
+A prerequisite that truly had to precede an action, such as authorization,
+cannot be supplied retroactively. Use the missed-gate recovery in
+`common/skills/worktree-hygiene/references/current-guidance.md` for that case.
+
 For sustained goals, each new implementation unit retains its required tests,
 review and integration checks. Reuse applies only to evidence whose covered
 state and required freshness still match; it is not a reason to skip the next

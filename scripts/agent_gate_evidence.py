@@ -644,11 +644,15 @@ def _render_boundary_plan(
 ) -> tuple[str, list[str]]:
     """Render recorded evidence for the 'boundary plan' gate."""
 
-    return (
+    rendered = (
         f"boundary/scope: {fields['scope']}; nearest verification/check: "
-        f"{fields['verification']}",
-        [],
+        f"{fields['verification']}"
     )
+    # The runtime structure decision may already be in the submitted prose.
+    # Keep it rather than requiring the agent to repeat it inside scope.
+    if evidence.strip():
+        rendered += f"; original evidence: {evidence}"
+    return rendered, []
 
 
 def _render_work_surface_resolution(
