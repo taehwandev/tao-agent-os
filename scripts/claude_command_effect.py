@@ -45,7 +45,9 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
         return curl_effect(tokens[1:])
     if executable == "git":
         subcommand, _ = git_subcommand(tokens)
-        if subcommand in {"add", "commit", "push", "merge", "rebase", "reset", "restore", "cherry-pick", "revert", "rm", "mv", "clean"}:
+        # Listing forms already returned above. Recognizing a mutation only
+        # selects the existing authority checks; it does not approve execution.
+        if subcommand in {"add", "commit", "push", "merge", "rebase", "reset", "restore", "cherry-pick", "revert", "rm", "mv", "clean", "switch", "checkout", "branch"}:
             return "mutating", "Git state-changing command"
     if executable in {"python", "python3", "python3.14", "node", "bash", "sh", "zsh"}:
         return "unknown", "interpreter or script effects are not declared by a supported command contract"

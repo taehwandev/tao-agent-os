@@ -4008,6 +4008,12 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
             self.assertIn("read-only", _reason(edit_out))
             self.assertFalse((project / "source.py").exists())
 
+            for command in ("git switch -c owner/task", "git checkout -b owner/task",
+                            "git branch owner/task", "git branch -D main"):
+                with self.subTest(command=command):
+                    _, out = self._bash(project, command)
+                    self.assertIn("read-only", _reason(out))
+
 
     def test_lifecycle_hook_cannot_hide_bootstrap_or_source_mutation(self) -> None:
         launcher = gate.stable_launcher_path()
