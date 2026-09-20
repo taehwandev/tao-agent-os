@@ -140,7 +140,7 @@ class ScopeChangeLifecycleTests(unittest.TestCase):
             route["reference_docs"],
         )
 
-    def test_compose_feature_keeps_optional_ecosystem_detail_as_reference(self) -> None:
+    def test_compose_feature_keeps_source_maps_behind_their_entrypoint(self) -> None:
         route = resolve_docs(
             "feature",
             "android",
@@ -153,14 +153,15 @@ class ScopeChangeLifecycleTests(unittest.TestCase):
             "platforms/android/skills/android-compose-ui/references/current-guidance.md",
             route["required_docs"],
         )
-        self.assertNotIn(
-            "platforms/android/skills/source-coverage/references/compose-performance-source-map.md",
-            route["required_docs"],
-        )
         self.assertIn(
-            "platforms/android/skills/source-coverage/references/compose-performance-source-map.md",
+            "platforms/android/skills/source-coverage/SKILL.md",
             route["reference_docs"],
         )
+        for bucket in ("required_docs", "reference_docs"):
+            self.assertNotIn(
+                "platforms/android/skills/source-coverage/references/compose-performance-source-map.md",
+                route[bucket],
+            )
 
     def test_final_check_is_reported_as_a_gate_contract(self) -> None:
         route = resolve_docs("feature", None, [], request_classified=True)
