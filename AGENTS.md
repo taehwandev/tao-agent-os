@@ -111,7 +111,12 @@ For tracked work:
    smallest owner, and nearest falsifying check. Only a resolved owner permits
    work. Record the `work surface resolution` gate when the active route lists
    it; elsewhere the resolution is direct agent work without a ledger entry.
-5. For a writing task, run VibeGuard before edits and again before finish.
+5. The `start` and `review` hooks run VibeGuard themselves and report
+   `VibeGuard overall`; `finish` checks it again. Read those lines instead of
+   repeating the audit, and treat them as the managed block's before-edit and
+   before-finish runs. Run `vibeguard audit .` by hand only when a hook reports
+   `Skipped`, when no tracked lifecycle is in use, or as `--strict` before push
+   or publish.
 6. Write one bounded semantic continuation checkpoint only when an interruption,
    a material scope or decision change, or a worker handoff makes resume state
    useful. Routine phase transitions need none, and an unchanged follow-up

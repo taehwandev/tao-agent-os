@@ -55,9 +55,12 @@ behavior. Keep repo-local skills, workflows, wiki pages, or runbooks only when
 they contain product-specific facts, commands, domain policy, or verification
 that cannot be shared safely.
 VibeGuard is required before documentation, code, config, dependency, data,
-deployment, or credential changes. Apply the current VibeGuard package command
-flow with <TAO_ROOT> as the rule source before editing and again
-before finishing. The VibeGuard site is a human reference and does not need to
+deployment, or credential changes. In a tracked lifecycle the start and review
+hooks run it with <TAO_ROOT> as the rule source and report `VibeGuard overall`;
+read that line instead of repeating the audit, and run the package command
+yourself only when a hook reports `Skipped`, when no tracked lifecycle is in
+use, or as `--strict` before push or publish.
+The VibeGuard site is a human reference and does not need to
 be fetched by the agent. Do not run VibeGuard `setup` or `update` blindly. If
 this repo already has custom agent instructions,
 `.vibeguard.json`, `VIBEGUARD.md`, or a managed VibeGuard block, ask a short

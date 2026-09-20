@@ -134,7 +134,8 @@ For each structural change:
 
 1. Run `python3 scripts/workflow.py validate`.
 2. Run a route that should include the new bundle and confirm the route output.
-3. Run `vibeguard audit . --rules .`.
+3. Read the `VibeGuard overall` line the start and review hooks report, or run
+   `vibeguard audit . --rules .` when no hook ran it.
 4. Check links and paths touched by the slice.
 5. Review the diff for compatibility stubs, stale references, and duplicated
    source-of-truth language.

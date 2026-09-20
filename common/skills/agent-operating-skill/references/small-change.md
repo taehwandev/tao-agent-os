@@ -36,8 +36,9 @@ and invokes conditional skill maintenance. A normal final response still
 explains the result.
 Reuse the start and review records; add a semantic checkpoint only
 when interruption or a changed decision makes it useful. This overrides the
-blanket checkpoint instruction in the project entrypoint for this route. Keep pre/post VibeGuard,
-the review hook and finish. Never invent a passed test to shorten the process.
+blanket checkpoint instruction in the project entrypoint for this route. Keep the
+hooks' VibeGuard results, the review hook and finish. Never invent a passed test
+to shorten the process.
 
 Use the full route before changing multiple owners/repos, architecture, public
 API contracts, authentication/permissions, security, persisted data, migrations,

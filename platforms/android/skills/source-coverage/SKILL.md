@@ -93,7 +93,9 @@ copying vendor-specific prose, sample code, or release-note detail.
   or the specific Android concern and confirm this skill bundle appears when it
   should.
 - Run `python3 scripts/workflow.py validate` after route or index updates.
-- Run `vibeguard audit . --rules .` before finishing.
+- Read the `VibeGuard overall` line the start and review hooks already report;
+  run `vibeguard audit . --rules .` yourself only when they report `Skipped` or
+  no tracked lifecycle is in use.
 
 ## Report
 
