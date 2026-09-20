@@ -8,6 +8,27 @@ from claude_command_effect import command_effect
 
 
 class CommandEffectTests(unittest.TestCase):
+    def test_branch_changes_keep_the_mutation_contract(self):
+        for command in (
+            "git switch -c owner/task", "git switch main",
+            "git checkout -b owner/task", "git checkout -- file",
+            "git branch owner/task", "git branch -d owner/task",
+            "git branch -D main", "git branch -m old new",
+            "git -C /tmp/project switch -c owner/task",
+            "cd /tmp/project && git checkout -b owner/task",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", self.effect(command)[0])
+
+    def test_branch_reads_and_unknown_git_commands_stay_distinct(self):
+        for command in ("git branch", "git branch -vv", "git branch --list owner/task",
+                        "git -C /tmp/project branch --merged main"):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", self.effect(command)[0])
+        for command in ("git custom-alias", "git --unknown-global switch main"):
+            with self.subTest(command=command):
+                self.assertEqual("unknown", self.effect(command)[0])
+
     def effect(self, command):
         _, tokens, simple = bash_invocation({"tool_input": {"command": command}}, Path("/tmp"))
         return command_effect(tokens, simple, bash_command_kind(tokens, simple))
