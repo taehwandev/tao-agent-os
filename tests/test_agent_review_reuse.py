@@ -50,11 +50,12 @@ class ReviewReuseTests(unittest.TestCase):
     def args(self, command, run_id):
         evidence = self.project / '.tao' / 'runs' / run_id / 'preflight.json'
         evidence.parent.mkdir(parents=True, exist_ok=True)
-        preflight = {'agent_run_id': run_id, 'project': str(self.project), 'rules': str(self.project),
+        rules = getattr(self, 'rules', self.project)
+        preflight = {'agent_run_id': run_id, 'project': str(self.project), 'rules': str(rules),
                      'route': {'command': command, 'gates': ['review hook']}}
         evidence.write_text(json.dumps(preflight))
         reset_gate_evidence_ledger(evidence, preflight)
-        return SimpleNamespace(project=self.project, rules=self.project, evidence=evidence,
+        return SimpleNamespace(project=self.project, rules=rules, evidence=evidence,
                                review_scope='working-tree', max_source_file_lines=500,
                                max_function_lines=120, max_added_lines=300, max_changed_paths=25,
                                structure_review_evidence='', side_effect_audit_evidence='')
@@ -75,6 +76,69 @@ class ReviewReuseTests(unittest.TestCase):
     def staged_commit(self):
         self.git('add', '--all')
         return self.args('commit', 'b' * 32)
+
+    def integration(self):
+        self.rules = self.project / '.tao' / 'separate-rules'
+        self.rules.mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', str(self.rules)], check=True)
+        subprocess.run(['git', '-C', str(self.rules), '-c', 'user.name=Test', '-c',
+                        'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'rules'], check=True)
+        self.source = self.args('review', 'a' * 32)
+        source = self.publish()
+        base = self.git('rev-parse', 'HEAD').decode().strip()
+        self.git('add', '--all')
+        self.git('commit', '-qm', 'reviewed unit')
+        head = self.git('rev-parse', 'HEAD').decode().strip()
+        target = self.project / '.tao' / 'integration'
+        self.git('worktree', 'add', '--detach', str(target), head)
+        self.project = target
+        args = self.args('commit', 'b' * 32)
+        args.review_scope = 'commit-range'
+        return source, ReviewReuse(args, ['extra.py', 'source.py'],
+                                   {'kind': 'commit-range', 'base_sha': base, 'head_sha': head})
+
+    def test_exact_committed_integration_reuses_original_attestation(self):
+        source, target = self.integration()
+        self.assertIsNotNone(target.before)
+        self.assertEqual(self.checks['structure_review'], target.load()['structure_review'])
+        self.assertEqual(ReviewReuse.read(source.path)['attestation_id'], target.reused['attestation_id'])
+        checks = dict(self.checks, review_subject=target.subject, review_paths=target.paths,
+                      review_scope=f"commit-range: {target.subject['base_sha']}..{target.subject['head_sha']}")
+        failures = []
+        target.complete(checks, failures)
+        self.assertEqual([], failures)
+        record_review_gate(target.args, checks)
+        receipt = ReviewReuse.read(ReviewAttestation.path(target.args.evidence))
+        self.assertEqual(target.reused['attestation_id'], receipt['review_checks']['source_attestation'])
+
+    def test_integration_rejects_amended_bytes_even_with_same_parent(self):
+        _, target = self.integration()
+        (self.project / 'source.py').write_text('value = 3\n')
+        self.git('add', 'source.py')
+        self.git('commit', '--amend', '--no-edit', '-q')
+        target.subject['head_sha'] = self.git('rev-parse', 'HEAD').decode().strip()
+        self.assertIsNone(ReviewReuse(target.args, target.paths, target.subject).load())
+
+    def test_integration_rejects_dirty_target_changed_limits_and_tampered_receipt(self):
+        source, target = self.integration()
+        target.args.max_function_lines += 1
+        self.assertIsNone(ReviewReuse(target.args, target.paths, target.subject).load())
+        target.args.max_function_lines -= 1
+        (self.project / 'source.py').write_text('value = 99\n')
+        self.assertIsNone(ReviewReuse(target.args, target.paths, target.subject).before)
+        self.git('restore', 'source.py')
+        cached = ReviewReuse.read(source.path)
+        cached['checks']['workflow_validate']['stdout'] = 'forged'
+        source.path.write_text(json.dumps(cached))
+        self.assertIsNone(ReviewReuse(target.args, target.paths, target.subject).load())
+
+    def test_integration_rejects_new_commit_and_changed_rules(self):
+        _, target = self.integration()
+        (self.rules / 'new-rule.md').write_text('new rule')
+        self.assertIsNone(ReviewReuse(target.args, target.paths, target.subject).load())
+        (self.rules / 'new-rule.md').unlink()
+        self.git('commit', '--allow-empty', '-qm', 'another unit')
+        self.assertIsNone(ReviewReuse(target.args, target.paths, target.subject).before)
 
     def test_wholly_unstaged_source_reuses_after_full_staging_and_records_provenance(self):
         source = self.publish()

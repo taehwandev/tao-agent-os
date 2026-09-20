@@ -147,6 +147,13 @@ class WorkflowStartDenialTests(unittest.TestCase):
         self.assertIn("alone, as the only command on the line", reason)
         self.assertNotIn("use the task worktree", reason)
 
+    def test_heredoc_denial_explains_input_recovery_without_new_authority(self) -> None:
+        reason = self._verdict(f"{self.launcher} checkpoint --project {self.worktree} --work-stdin <<'EOF'\n{{}}\nEOF")
+        self.assertIn('heredoc input is unsupported', reason)
+        self.assertIn('< input-file', reason)
+        self.assertIn('Keep the existing run', reason)
+        self.assertNotIn('write blocked in main checkout', reason)
+
     def test_a_chained_command_without_a_start_keeps_the_worktree_remedy(self) -> None:
         reason = self._verdict(f"touch {self.main}/one ; touch {self.main}/two")
 

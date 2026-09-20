@@ -17,6 +17,7 @@ from agent_gate_evidence import gate_evidence_path_for_preflight
 from agent_review_attestation import ReviewAttestation, _attestation_id, _record_shape_failures
 from agent_route_state import route_fingerprint
 from support.bounded_git import run_git
+from agent_review_integration_reuse import reuse_committed_review
 
 
 class ReviewReuse:
@@ -217,11 +218,20 @@ def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -
 
 
 def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
-    if reuse.subject.get('kind') != 'working-tree':
+    kind = reuse.subject.get('kind')
+    if kind not in {'working-tree', 'commit-range'}:
         return None
     try:
         head = reuse.git(reuse.project, 'rev-parse', '--verify', 'HEAD').decode().strip()
-        names = reuse.git(reuse.project, 'diff', '--name-only', '-z', '--no-renames', 'HEAD', '--')
+        if kind == 'commit-range':
+            base = reuse.subject['base_sha']
+            if head != reuse.subject['head_sha'] or reuse.git(reuse.project, 'status', '--porcelain'):
+                return None
+            if reuse.git(reuse.project, 'rev-list', '--parents', '-n', '1', head).decode().split() != [head, base]:
+                return None
+            names = reuse.git(reuse.project, 'diff', '--name-only', '-z', '--no-renames', base, head, '--')
+        else:
+            names = reuse.git(reuse.project, 'diff', '--name-only', '-z', '--no-renames', 'HEAD', '--')
         names += reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z')
         changed = sorted(set(os.fsdecode(p) for p in names.split(b'\0') if p))
         files = _file_records(reuse.project, changed)
@@ -248,6 +258,7 @@ def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
         checker = Path(__file__).resolve().parent
         checker_files = _file_records(checker, [p.relative_to(checker).as_posix() for p in checker.rglob('*.py')])
         return {
+            **({'base': base} if kind == 'commit-range' else {}),
             'project': str(reuse.project), 'head': head, 'files': files,
             'scope': getattr(reuse.args, 'review_scope', 'working-tree'), 'paths': reuse.paths,
             'rules': str(reuse.rules), 'rules_head': reuse.git(reuse.rules, 'rev-parse', '--verify', 'HEAD').decode().strip(),
@@ -258,7 +269,7 @@ def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
                 ('max_added_lines', 300), ('max_changed_paths', 25),
             )},
         }
-    except (OSError, RuntimeError, ValueError, TypeError):
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError):
         return None
 
 
@@ -274,6 +285,8 @@ def _load(
         command = (reuse.read(reuse.evidence).get('route') or {}).get('command')
         if require_commit_route and command not in {'commit', 'git_commit'}:
             return None
+        if reuse.subject.get('kind') == 'commit-range':
+            return reuse_committed_review(reuse, _load)
         if require_fully_staged and (
             reuse.git(reuse.project, 'diff', '--name-only', '-z')
             or reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z')

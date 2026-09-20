@@ -1667,6 +1667,16 @@ def _worktree_reason_naming_its_cause(
     The verdict does not move. Only the sentence that explains it does.
     """
 
+    if is_bash and not syntax_is_simple and "\n" in bash_command(payload) and "<<" in bash_command(payload):
+        return (
+            f"Tao worktree gate: command syntax unresolved for {', '.join(str(root) for root in roots)}. "
+            "Multiline heredoc input is unsupported by the command parser. "
+            "This is not evidence of a write into the named repository. "
+            "Next: save the literal input with the file-edit tool inside the authorized task scope, "
+            "then run the command with `< input-file` from the explicit task directory. "
+            "Keep the existing run and authority; changing worktrees or requesting broader permission "
+            "does not resolve this syntax limitation."
+        )
     if is_bash and not syntax_is_simple:
         cause = UNREADABLE_SYNTAX
     elif is_bash and not readable:

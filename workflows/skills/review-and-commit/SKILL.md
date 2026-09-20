@@ -31,6 +31,11 @@ unchanged readings.
    target state and commit identity, then cite the existing review and tests.
    A required integration review records those checks; it does not require a
    second source review or test run without drift or new findings.
+   Machine-check reuse searches registered worktrees for the original attested
+   review of a single commit. It requires a clean target at that commit, its
+   exact parent and changed bytes, unchanged rules/checker/limits, and valid
+   source evidence. Missing or mismatched evidence falls back to full checks;
+   safety audit, target drift checks, and the new review record remain fresh.
 3. Repair a final-review finding only with a reproducer, impact, evidence this
    diff caused it, owner, and nearest falsifying check. Give a proven blocker
    one bounded repair and affected recheck; otherwise keep it as follow-up or
