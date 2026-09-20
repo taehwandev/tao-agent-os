@@ -44,6 +44,31 @@ the declared action, completed-run binding and supported command form first;
 preserve unrelated staging and request new authority only for a genuinely
 necessary change to it.
 
+### Local Fast-Forward Integration
+
+A local merge changes the destination checkout; it is not the post-finish
+publication exception for committing the exact staged unit. Keep the authorized
+integration run active until the merge and its verification are complete:
+
+1. Reuse the source unit's completed review and verification as evidence. In the
+   destination, resolve immutable base/head SHAs, confirm clean state and the
+   intended branch, and prove the base is an ancestor of the source head.
+2. Execute the authorized `git merge --ff-only <head-sha>` while the destination
+   run is active. Do not call finish as merge preparation. A source review does
+   not grant merge authority, and a non-fast-forward result stops this sequence.
+3. Confirm destination HEAD equals the reviewed head and the checkout is clean.
+   Apply verification-policy evidence reuse to identical inputs; perform any
+   explicitly required destination checks. A conflict resolution or additional
+   edit creates a new subject and requires affected verification.
+4. Attest the exact integrated commit range once through the destination's
+   required review hook, record remaining gates, then finish once. If repository
+   policy requires a separate pre-merge review, retain that requirement rather
+   than treating a post-merge attestation as its substitute.
+
+Do not close a destination preparation run, attempt the merge against its
+closed binding, then start another run to repeat the same preparation. This
+sequence changes no push, remote PR merge, protected-branch, or permission rule.
+
 ### Conditional references
 
 These are conditional references, not a mandatory reading queue. Keep the

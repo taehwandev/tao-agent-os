@@ -21,6 +21,47 @@ def declarations(source: str, path: Path = Path("src/model/contracts.ts")):
 
 
 class AgentReviewPurposeTests(unittest.TestCase):
+    def test_typescript_slice_and_its_transitive_types_form_one_owner(self) -> None:
+        source = """
+export interface PanPoint { x: number; y: number }
+export interface FitRequest { key: number }
+export interface ViewState { pan: PanPoint; fit: FitRequest }
+export interface ViewActions { setPan: (pan: PanPoint) => void }
+type SliceSet = (state: ViewState) => void;
+export const createViewSlice = (
+    set: SliceSet,
+): ViewState & ViewActions => ({ pan: { x: 0, y: 0 }, fit: { key: 0 }, setPan: set });
+"""
+        for extension in ("ts", "tsx"):
+            with self.subTest(extension=extension):
+                path = Path(f"src/state/viewSlice.{extension}")
+                self.assertEqual([], top_level_declaration_failures(path, declarations(source, path)))
+
+    def test_support_types_do_not_hide_unrelated_exports_or_runtime_owners(self) -> None:
+        base = """
+export interface Options { enabled: boolean }
+export function build(options: Options) { return options.enabled; }
+"""
+        for extra in (
+            "export interface Unrelated { id: string }",
+            "export function other(options: Options) { return options; }",
+            "export class Other { options?: Options }",
+            "export enum Mode { First, Second }",
+            "export const unrelated = 42;",
+        ):
+            with self.subTest(extra=extra):
+                self.assertTrue(top_level_declaration_failures(Path("src/model/contracts.ts"), declarations(base + extra)))
+
+    def test_type_names_in_comments_and_strings_do_not_establish_support(self) -> None:
+        source = """
+export interface Unrelated { id: string }
+export function build() {
+    // Unrelated is not part of this function.
+    return 'Unrelated';
+}
+"""
+        self.assertTrue(top_level_declaration_failures(Path("src/model/contracts.ts"), declarations(source)))
+
     def test_private_compose_helpers_and_preview_do_not_force_file_splitting(self) -> None:
         current = declarations(
             """

@@ -25,6 +25,9 @@ BRACE_TOP_LEVEL_TYPE_RE = re.compile(
 )
 GO_TOP_LEVEL_TYPE_RE = re.compile(r"^\s*type\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s+(?P<kind>struct|interface)\b")
 TS_TYPE_ALIAS_RE = re.compile(r"^\s*(?:export\s+)?type\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=")
+TS_EXPORTED_VALUE_RE = re.compile(
+    r"^\s*export\s+(?P<kind>const|let|var)\s+(?P<name>[A-Za-z_]\w*)\b"
+)
 BRACE_TOP_LEVEL_FUNCTION_RE = re.compile(
     r"^\s*(?:(?:export\s+default\s+|export\s+|public\s+|private\s+|protected\s+|"
     r"internal\s+|open\s+|final\s+|static\s+|pub\s+|pub\(crate\)\s+)*)"
@@ -114,6 +117,15 @@ def previous_top_level_type_declarations(
 
 def top_level_type_declarations(path: Path, lines: list[str]) -> list[dict[str, Any]]:
     declarations: list[dict[str, Any]] = []
+    is_typescript = path.suffix.lower() in {".ts", ".tsx"}
+    if is_typescript:
+        # Ignore prose/literals while preserving line numbers for diagnostics.
+        source = re.sub(
+            r"//[^\n]*|/\*[\s\S]*?\*/|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`",
+            lambda match: "\n" * match.group().count("\n"),
+            "\n".join(lines),
+        )
+        lines = source.splitlines()
     brace_depth = 0
     for index, line in enumerate(lines):
         stripped = line.strip()
@@ -127,6 +139,7 @@ def top_level_type_declarations(path: Path, lines: list[str]) -> list[dict[str, 
                 BRACE_TOP_LEVEL_TYPE_RE.match(line)
                 or GO_TOP_LEVEL_TYPE_RE.match(line)
                 or TS_TYPE_ALIAS_RE.match(line)
+                or (TS_EXPORTED_VALUE_RE.match(line) if is_typescript else None)
                 or (
                     KOTLIN_TOP_LEVEL_FUNCTION_RE.match(line)
                     if path.suffix.lower() in {".kt", ".kts"}
@@ -149,6 +162,12 @@ def top_level_type_declarations(path: Path, lines: list[str]) -> list[dict[str, 
             if declaration["owner"]:
                 declarations.append(declaration)
         brace_depth = max(0, brace_depth + line.count("{") - line.count("}"))
+    if is_typescript:
+        for index, declaration in enumerate(declarations):
+            end = declarations[index + 1]["line"] - 1 if index + 1 < len(declarations) else len(lines)
+            declaration["references"] = set(re.findall(
+                r"\b[A-Za-z_]\w*\b", "\n".join(lines[declaration["line"] - 1:end]),
+            )) - {declaration["name"]}
     return declarations
 
 
@@ -228,7 +247,8 @@ def top_level_declaration_failures(
     previous_declarations: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     failures: list[str] = []
-    previous_declarations = previous_declarations or []
+    declarations = coalesce_typescript_support_types(path, declarations)
+    previous_declarations = coalesce_typescript_support_types(path, previous_declarations or [])
     visible = [declaration for declaration in declarations if not declaration["private"]]
     public = [
         declaration
@@ -268,6 +288,32 @@ def top_level_declaration_failures(
             "split by purpose before approval"
         )
     return failures
+
+
+def coalesce_typescript_support_types(
+    path: Path,
+    declarations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep a single runtime owner and the type shapes it uses together.
+
+    This is a syntactic family, not proof of semantic cohesion. Unreferenced
+    types, type-only files, and files with multiple runtime owners retain the
+    ordinary budgets; classes and enums are never erased as support types.
+    """
+    if path.suffix.lower() not in {".ts", ".tsx"}:
+        return declarations
+    runtime = [item for item in declarations if item["kind"] not in {"type", "interface"} and not item["private"]]
+    if len(runtime) != 1:
+        return declarations
+    types = {item["name"]: item for item in declarations if item["kind"] in {"type", "interface"}}
+    pending = set(runtime[0].get("references", ()))
+    support: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in types and name not in support:
+            support.add(name)
+            pending.update(set(types[name].get("references", ())) - support)
+    return [item for item in declarations if item["name"] not in support]
 
 
 def coalesce_kotlin_extension_families(

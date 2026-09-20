@@ -108,11 +108,35 @@ a redirection there can break the permission prefix the gate matches on, which
 reads as the gate refusing its own remedy. See
 `common/skills/tool-failure-recovery/SKILL.md`.
 
-The same rule scales down: prefer the nearest checks while iterating and run
-the full suite once before finish. That is a wall-clock saving rather than a
-token one — the log was never the expensive part once it stays in a file — but
-a check that finishes in seconds gets run, and one that takes minutes gets
-skipped.
+Prefer the nearest checks while iterating. When a full suite is required by the
+changed boundary or repository policy, run it on the final candidate and reuse
+that result while its inputs remain valid.
+
+### Reuse Coverage, Not Command Names
+
+Before scheduling overlapping commands, inspect their definitions. A merge
+command may already include the unit suite, VRT, scenarios, and build. Record
+which required checks it actually completed; after a failure, preserve earlier
+successful components and run the missing or invalidated ones. A wrapper that
+stopped at its first failure did not execute its later components.
+
+Reuse requires the same covered source and test bytes, dependency/configuration
+inputs, runner settings, and relevant environment. A commit or clean local
+fast-forward alone does not invalidate test evidence for identical inputs.
+Verify the resulting SHA/tree and clean destination; run destination-specific
+checks only for changed environment assumptions or an explicit repository gate.
+Do not present reused source-checkout evidence as a new destination test run.
+
+Late fixes are normal. Rerun the checks affected by the fix; broaden again when
+shared contracts or uncertain impact require it. A docs-only correction does
+not by itself invalidate runtime tests. Preserve applicable mandatory gates.
+
+When parallel load causes a timeout, retain the failure and compare a focused
+run with the complete suite under a documented lower-concurrency configuration.
+A passing retry alone does not prove the failure unrelated. Once an acceptable
+configuration is established for the task, reuse it across subsequent units
+instead of deliberately reintroducing the same timeout and retry cycle. Do not
+change a required concurrency contract or conceal an unresolved concurrency bug.
 
 ## Evidence To Preserve
 

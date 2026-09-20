@@ -50,6 +50,21 @@ class StructurePreviewTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(any("public/exported" in failure for failure in report["failures"]))
 
+    def test_cohesive_types_pass_preview_but_second_runtime_owner_fails(self):
+        path = self.project / "src" / "slice.ts"
+        source = (
+            "export interface State { zoom: number }\n"
+            "export type SetState = (value: State) => void;\n"
+            "export const createSlice = (set: SetState): State => ({ zoom: 100 });\n"
+        )
+        path.write_text(source)
+        code, report = self.preview()
+        self.assertEqual(code, 0, report)
+        path.write_text(source + "export function other() { return 1; }\n")
+        code, report = self.preview()
+        self.assertEqual(code, 1)
+        self.assertTrue(any("public/exported" in failure for failure in report["failures"]))
+
     def test_scope_is_explicit_and_success_is_not_review_approval(self):
         (self.project / "src" / "save.ts").write_text("export function save() { return 1; }\n")
         (self.project / "src" / "unrelated.ts").write_text(

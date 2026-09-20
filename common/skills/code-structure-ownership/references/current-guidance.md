@@ -62,30 +62,22 @@ public class as a file's owner, budget the whole class body; extract
 purpose-named protocol, persistence, parsing, or transport collaborators before
 implementation when the planned owner would cross 120 lines.
 
-Before coding, enumerate every planned top-level export per runtime file exactly
-as the review hook will count it. Exported type aliases, interfaces, option or
-handle contracts, constants, classes, components, and functions are all public
-owners; a type-only export is not invisible to the ownership budget. When the
-list has more than one owner, keep a support type file-private when it has one
-caller, or move an independently importable contract or behavior into its own
-purpose-named file before implementation.
+Count independent contracts and runtime responsibilities, not declarations
+alone. In TypeScript, a file with one runtime owner may keep the interfaces and
+type aliases it references, including transitive state, option, and result
+shapes. These form one owner family even when callers import its types directly.
+The executable check groups only referenced types around a single runtime
+owner; unrelated types, type-only files, and multiple runtime owners retain the
+ordinary budgets. Classes, enums, and separate exported values remain runtime
+owners. Size, dependency, and repository-specific limits still apply.
 
-An exported object model plus exported parameter or result aliases is still
-multiple public owners. When those aliases exist only to annotate the model's
-single caller, keep them file-private and let the caller derive them with
-`Parameters` or `ReturnType`; when callers need to import the aliases directly,
-move that contract family to its own purpose-named owner file.
-
-Make file-private intent visible to the executable review before coding. In
-TypeScript and JavaScript, a non-exported top-level support type, interface,
-option shape, or tiny helper still looks like a separate named owner unless its
-identifier starts with `_`; use that prefix only for cohesive support owned by
-the file's one public component, hook, or function family. Do not use `_` to
-hide an independently testable, importable, stateful, or side-effecting owner;
-move that owner to a purpose-named file instead. Other languages should use
-their native private declaration syntax or the repository's explicit private
-naming convention. Count the resulting non-private owners against the hook's
-limit in the structure packet.
+This reference grouping is a syntactic aid, not proof of semantic cohesion.
+Review whether the types actually describe that owner's contract. A referenced
+contract with independent consumers, lifecycle, or dependency requirements may
+still need its own file. Do not add artificial references, rename symbols with
+`_`, or create two-line forwarding/type files merely to satisfy owner counts.
+Use normal language visibility and repository naming rules; keep cohesive
+support local unless a real caller or dependency boundary benefits from a split.
 
 For non-trivial code work, the structure packet should include:
 
