@@ -79,6 +79,11 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
         self.assertIn("checkpoint --work-shape", joined)
         self.assertNotIn("non_goals[", joined)
         self.assertLess(len(advice), 5)
+        self.assertIn("only when interruption", joined)
+        self.assertIn("material scope or decision change", joined)
+        self.assertIn("worker handoff", joined)
+        self.assertIn("Routine phase transitions need none", joined)
+        self.assertNotIn("Fill it with:", joined)
 
     def test_a_run_with_a_packet_is_told_how_to_fill_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

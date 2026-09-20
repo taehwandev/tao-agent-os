@@ -46,10 +46,10 @@ UNBINDABLE_RUN_DIRECTORY = (
 
 
 WORK_CHECKPOINT_LEAD = (
-    "continuation work state: the initial packet holds only the route name, so "
-    "a resume recovers the route and the drift state but nothing about the "
-    "work, and the reuse summary reports no accepted decision and no "
-    "successful verification to skip. Fill it with:"
+    "continuation work state: record a bounded checkpoint only when interruption, "
+    "a material scope or decision change, or worker handoff makes resume useful. "
+    "Routine phase transitions need none; reuse unchanged work state. "
+    "When needed, preserve accepted decisions, successful verification and remaining work:"
 )
 WORK_CHECKPOINT_COMMAND_LEAD = "copyable checkpoint command:"
 WORK_CHECKPOINT_CLOSING = (

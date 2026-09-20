@@ -169,6 +169,7 @@ TEST_PASSED_PHRASES = (
 # can rerun.
 _TEST_RESULT_RE = re.compile(
     r"(?:exit|return|returncode|status|rc)\s*(?:code|status)?\s*[:=]?\s*\d+"
+    r"|\b(?:tests?|cases?|specs?|scenarios?|assertions?)\s*[:=]?\s*\d+\s*/\s*\d+\b"
     r"|\d+\s*(?:tests?|cases?|specs?|scenarios?|assertions?|failures?|errors?|"
     r"issues?|findings?|violations?|warnings?|개|건)"
     r"|(?:tests?|cases?|specs?|failures?|errors?|issues?|findings?)\s*[:=]\s*\d+"

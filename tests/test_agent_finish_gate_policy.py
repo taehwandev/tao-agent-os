@@ -1741,7 +1741,10 @@ class RefusalNamesAcceptedWordingTests(unittest.TestCase):
 
         from agent_finish_gate_doc_test_validators import validate_tests
 
-        for unfalsifiable in ("tests passed", "unit tests green", "unit test result: pass"):
+        for unfalsifiable in (
+            "tests passed", "unit tests green", "unit test result: pass",
+            "tests passed on release 26/09",
+        ):
             with self.subTest(unfalsifiable):
                 failures = validate_tests(unfalsifiable)
                 self.assertTrue(failures, unfalsifiable)
@@ -1750,6 +1753,8 @@ class RefusalNamesAcceptedWordingTests(unittest.TestCase):
         # Either half of the requirement clears it on its own: a produced result,
         # or the command a reader can rerun.
         for falsifiable in (
+            "regression tests 1560/1560 passed",
+            "regression scenarios 18 / 18 passed",
             "tests: 0 failures",
             "1163 tests ok",
             "unittest discover -s tests passed",
