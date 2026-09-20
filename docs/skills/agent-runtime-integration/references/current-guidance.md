@@ -348,7 +348,9 @@ Codex:
   per-tool path.
 - Tao Agent OS command permissions belong in user-level
   `~/.codex/rules/default.rules` as narrow `prefix_rule` entries for the
-  current `<TAO_ROOT>/scripts/*.py` files.
+  current `<TAO_ROOT>/scripts/*.py` files. The managed `cd` rule covers the
+  directory-change command for newly generated worktree paths; it does not
+  approve the following command, file edits, Git writes, or sandbox access.
 - Generate direct `python3 <script>` argv prefixes for those same scripts using
   resolved absolute paths only. Agents should invoke these wrappers as direct
   argv commands, not through `$HOME`, `${HOME}`, `~`, relative paths, or shell

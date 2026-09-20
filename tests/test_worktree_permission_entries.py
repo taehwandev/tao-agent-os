@@ -12,7 +12,11 @@ hand fixes one machine and leaves every other project prompting.
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path, PurePosixPath
 
@@ -24,6 +28,7 @@ if str(SCRIPTS) not in sys.path:
 from agent_worktree_identity import WORKTREE_DIRNAME  # noqa: E402
 from support.permission_entries import (  # noqa: E402
     claude_project_permission_entries,
+    codex_prefix_rule_entries,
 )
 
 
@@ -50,6 +55,35 @@ def _resolves_to(rule: str, *, project: Path, cwd: Path) -> PurePosixPath:
 
 
 class WorktreePermissionEntryTests(unittest.TestCase):
+    def test_codex_directory_change_rule_covers_fresh_worktree_paths(self) -> None:
+        entries = codex_prefix_rule_entries(SCRIPTS)
+
+        self.assertIn('prefix_rule(pattern=["cd"], decision="allow")', entries)
+        self.assertFalse(
+            any('pattern=["rm"]' in entry or 'pattern=["git"]' in entry for entry in entries)
+        )
+
+    def test_codex_policy_allows_fresh_directory_change_only(self) -> None:
+        if not shutil.which("codex"):
+            self.skipTest("Codex execpolicy checker is unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory) / "tao.rules"
+            rules.write_text("\n".join(codex_prefix_rule_entries(SCRIPTS)) + "\n")
+            fresh = Path(directory) / ".tao" / WORKTREE_DIRNAME / "0123456789abcdef"
+
+            def check(*tokens: str) -> dict:
+                result = subprocess.run(
+                    ["codex", "execpolicy", "check", "--rules", str(rules), "--", *tokens],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return json.loads(result.stdout)
+
+            self.assertEqual("allow", check("cd", str(fresh)).get("decision"))
+            self.assertEqual([], check("touch", str(fresh / "file")).get("matchedRules"))
+
     def test_the_worktree_root_is_covered_for_reading_and_writing(self) -> None:
         """Writing is covered by the Edit rule, not by a Write rule.
 

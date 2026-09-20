@@ -220,7 +220,13 @@ def agy_legacy_permission_entries(scripts_dir: Path) -> list[str]:
 
 
 def codex_prefix_rule_entries(scripts_dir: Path) -> list[str]:
-    entries = [_codex_prefix_rule([str(stable_launcher_path())])]
+    # Generated worktree paths change on every task. Approve only the harmless
+    # directory-change command; the command run after it and all file writes
+    # still pass their own runtime and Tao checks.
+    entries = [
+        _codex_prefix_rule(["cd"]),
+        _codex_prefix_rule([str(stable_launcher_path())]),
+    ]
     for script in _tao_python_scripts(scripts_dir):
         path = str(script.resolve())
         entries.append(_codex_prefix_rule(["python3", path]))
