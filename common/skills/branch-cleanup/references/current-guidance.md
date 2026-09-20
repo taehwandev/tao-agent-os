@@ -74,6 +74,22 @@ user the dirty status output that justified preserving them.
 
 ## Process
 
+Keep one bounded before/after snapshot. Batch independent identity, branch,
+worktree and status reads; keep removal and branch deletion sequential. Reuse
+fresh evidence from the preceding lookup when targets and state are unchanged;
+after an interruption, refresh deletion preconditions once, not the whole intake.
+Required deletion gates still apply to every target.
+
+Retain the exact run evidence path returned by start. If its output was lost,
+recover that path from the current session binding or retained context; do not
+dump all historical runs or the entire route. From the selected preflight read
+only `agent_run_id`, `route.command`, `route.required_docs`, `route.gates`, and
+`route.blocking`. Read individual additional fields only for an unresolved
+decision. A recovered path never proves session binding or gate success by itself.
+For no-diff cleanup, record the ready deletion gates together, then the cleanup
+report and retrospective together after verification. Do not add code tests,
+review, commits or publication checks when no code or remote ref changed.
+
 1. `git fetch --prune`; classify each worktree as clean, dirty, or
    gone-directory.
 2. `git worktree prune -v` to drop registrations whose directory is gone.

@@ -413,7 +413,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     if conditional:
         lines.append(f"Conditional hooks: {conditional}")
     gates = [gate for gate in (route.get("gates") or []) if isinstance(gate, str)]
-    if any(hook.get("hook") == "review" for hook in hooks):
+    if "review" in required or "review hook" in gates:
         flags = required_review_evidence_flags(gates)
         lines.extend(_review_prerequisite_lines(gates))
         lines.append("Review hook requires --review-outcome pass or findings, matching the actual review result.")
@@ -426,6 +426,11 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "development files exceed review-pressure or source-size limits."
         )
         lines.extend(_closeout_reuse_lines())
+    elif "review" in conditional:
+        lines.append(
+            "Conditional review: review only if a diff is created or a commit is requested; "
+            "then use review --help for evidence fields. No review for no-diff cleanup."
+        )
     lines.extend(_closeout_gate_lines(gates))
     lines.extend(_gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))

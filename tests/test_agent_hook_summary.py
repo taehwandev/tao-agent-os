@@ -36,6 +36,22 @@ agent_hook = _load_agent_hook()
 
 class AgentHookSummaryTests(unittest.TestCase):
 
+    def test_cleanup_omits_inapplicable_review_procedure_but_preserves_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "preflight.json"
+            evidence.write_text(json.dumps({"route": {
+                "command": "cleanup",
+                "required_docs": ["cleanup-contract.md"],
+                "hooks": [{"hook": "review", "required": False}],
+                "gates": ["ownership", "merge judgment", "worktree state", "cleanup report"],
+            }}), encoding="utf-8")
+            summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+        self.assertIn("cleanup-contract.md", summary)
+        self.assertIn("Conditional hooks: ['review']", summary)
+        self.assertNotIn("Review hook requires", summary)
+        self.assertNotIn("Closeout reuse:", summary)
+        self.assertIn("review only if a diff is created or a commit is requested", summary)
+
     def test_review_prerequisites_follow_manifest_order_not_a_generic_checklist(self):
         cases = [
             (["tests", "review hook", "retrospective check"], ["tests"]),
