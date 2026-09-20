@@ -19,37 +19,21 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
 2. Read applicable instructions and the route's `required_docs`; preserve explicit
    safety and verification dependencies. Other documents are candidates, not a
    reading queue. A platform name, graph neighbor or spare budget is insufficient.
-   Do not repeat successful routing with `index.md` or another broad catalog.
    Before the first branch/worktree setup or edit, resolve the target repo's
    required isolation location and branch naming rules. Do not postpone that
    check until commit/PR preparation or assume a temporary directory is valid.
    Reuse a correctly bound existing worktree; this adds no setup to read-only work.
-   For a new isolated task, when the installed setup contract permits worktree
-   creation before start, prepare the worktree and start the implementation there.
-   Do not open a source-checkout implementation run merely to repeat it in the
-   worktree. If setup requires a source run, follow its supported transfer or
-   settlement procedure; do not bypass that requirement or leave duplicate active
-   runs. Local integration remains a separate scope with its own authority.
 3. Before an additional read or investigation, identify the unresolved decision
    in the current task and why that source can resolve it. Start with the owning
    definition and nearest relevant test. Expand samples, callers or modules only
    when missing evidence, a contradiction, an applicable requirement or a failed
    check makes that expansion necessary. An empty search is not a reason to
    repeat equivalent searches or broaden the task without a new concrete lead.
-   For adapter work, establish whether the existing contract is a one-way
-   projection or a reversible conversion. Characterize preserved and omitted
-   fields and identity mapping before changing consumers. A round-trip criterion
-   is not permission to invent a reverse conversion or change persistence.
-   Consult history only to resolve an identified contract ambiguity; once current
-   contracts, consumers and tests resolve it, stop expanding that investigation.
 4. Load optional procedures when the action needs them, not for every later
    workflow stage. PR metadata work does not itself require module-design rules;
    module creation needs the applicable platform's module rules. Read selected
    instruction files completely; reuse unchanged readings still in context.
-   Size a read to the tool's output limit, including the outer result limit
-   when batching calls. Keep large documents in separate results or consecutive
-   bounded ranges through EOF. A truncated result is incomplete: recover only
-   its missing ranges, not the same whole batch. Deduplicate paths selected by
+   Deduplicate paths selected by
    multiple skills; an entrypoint's topic links are not all mandatory reads.
 5. Make only changes needed for the authorized outcome. An incidental finding
    is not permission for cleanup, redesign or environment changes. If required
@@ -69,40 +53,14 @@ hook checks as a manual checklist or read validator implementations preemptively
 Read required instructions before the governed action; open an additional
 reference only when the supplied guidance leaves a concrete decision unresolved.
 
-Treat a rejection according to its reported boundary. An invalid argument or
-missing evidence field calls for correcting that input, not restarting the
-task or repairing product code. A real failed check needs diagnosis at its
-owner. A session/evidence mismatch needs reconciliation with the intended run;
-do not infer that finish revoked permission or create a replacement run merely
-because a command was blocked. Preserve actual approval and isolation limits.
-Successful hooks validate their stated checks, not behavioral equivalence or
-the correctness of an agent's explanation of a failure.
-
-For sustained goals, each new implementation unit retains its required tests,
-review and integration checks. Reuse applies only to evidence whose covered
-state and required freshness still match; it is not a reason to skip the next
-unit's verification. Judge process quality by whether each decision had the
-needed guidance and evidence, not by minimizing reads, tests or lifecycle calls.
-This contract adds no gate, receipt, approval round or mandatory preview.
-
 ## Read
 
 - `references/current-guidance.md` when the active lifecycle has an unresolved
   procedure or evidence requirement not answered by this entrypoint or route.
-
-## Process
-
-1. Read this entrypoint first to confirm this guidance area applies.
-2. Apply the Need-Driven Reading Contract to additional context selection.
-3. Follow the reference's decision rules, stop conditions, and verification requirements before editing, reviewing, or reporting completion.
-
-## Do Not
-
-- Do not look for legacy flat compatibility paths; load this skill bundle as the canonical context-loading target.
-- Do not load broad references for unrelated work just because this skill was nearby in the route.
+  It owns how to read a hook rejection, what reuse covers across a sustained
+  goal, the isolated-task worktree setup order, adapter contract
+  characterization, and read sizing under tool output limits.
 
 ## Verification
 
-- If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
-- If detailed guidance changes, validate links and frontmatter for `references/current-guidance.md`.
 - If a route requires the `handoff` gate, verify the worker handoff hook states that the route gate must be recorded separately.

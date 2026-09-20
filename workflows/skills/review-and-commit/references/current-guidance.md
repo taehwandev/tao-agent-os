@@ -39,6 +39,11 @@ preparation. If entry finds unread required docs or additional gates, satisfy
 them in that run instead of starting another. A failed step stops the sequence.
 After success, perform the authorized commit without repeating unchanged checks.
 
+A rejected command is not proof that unrelated staging must be changed. Check
+the declared action, completed-run binding and supported command form first;
+preserve unrelated staging and request new authority only for a genuinely
+necessary change to it.
+
 ### Conditional references
 
 These are conditional references, not a mandatory reading queue. Keep the
@@ -253,7 +258,9 @@ context; do not rediscover development guidance just because a diff exists.
    Record a separate gate only when the active route lists it; an eligible
    implementation continuation includes readiness in its existing review evidence.
 10. Discover repo-local policy before any branch creation, push, PR, tag, or
-   release publication.
+   release publication. Reuse an open PR with the same head/base, give it a
+   substantive body, and merge only after mergeability and required checks are
+   known. Fast-forward a clean local `main` afterward.
 11. Write a commit message that states intent, context, and verification.
 
 Run a targeted manual review only when the Review Hook is unavailable, fails,

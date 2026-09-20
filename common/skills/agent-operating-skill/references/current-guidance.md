@@ -103,6 +103,50 @@ Use this before implementation, review, refactoring, debugging, documentation, o
 23. Confirm the route gate ledger before reporting completion.
 24. Report what changed, what was verified, and what risk remains.
 
+## Reading And Investigation Mechanics
+
+These expand the Need-Driven Reading Contract in `../SKILL.md`; they are the
+detail behind its steps, not a second contract.
+
+- For a new isolated task, when the installed setup contract permits worktree
+  creation before start, prepare the worktree and start the implementation there.
+  Do not open a source-checkout implementation run merely to repeat it in the
+  worktree. If setup requires a source run, follow its supported transfer or
+  settlement procedure; do not bypass that requirement or leave duplicate active
+  runs. Local integration remains a separate scope with its own authority.
+- For adapter work, establish whether the existing contract is a one-way
+  projection or a reversible conversion. Characterize preserved and omitted
+  fields and identity mapping before changing consumers. A round-trip criterion
+  is not permission to invent a reverse conversion or change persistence.
+  Consult history only to resolve an identified contract ambiguity; once current
+  contracts, consumers and tests resolve it, stop expanding that investigation.
+- Size a read to the tool's output limit, including the outer result limit
+  when batching calls. Keep large documents in separate results or consecutive
+  bounded ranges through EOF. A truncated result is incomplete: recover only
+  its missing ranges, not the same whole batch.
+
+## Applying Hook Guidance At The Decision Point
+
+The contract is in `../SKILL.md`: hooks own mechanical admission and
+validation, the agent owns scope, evidence truth and the next authorized
+action. This is how that applies to a rejection and to reuse.
+
+Treat a rejection according to its reported boundary. An invalid argument or
+missing evidence field calls for correcting that input, not restarting the
+task or repairing product code. A real failed check needs diagnosis at its
+owner. A session/evidence mismatch needs reconciliation with the intended run;
+do not infer that finish revoked permission or create a replacement run merely
+because a command was blocked. Preserve actual approval and isolation limits.
+Successful hooks validate their stated checks, not behavioral equivalence or
+the correctness of an agent's explanation of a failure.
+
+For sustained goals, each new implementation unit retains its required tests,
+review and integration checks. Reuse applies only to evidence whose covered
+state and required freshness still match; it is not a reason to skip the next
+unit's verification. Judge process quality by whether each decision had the
+needed guidance and evidence, not by minimizing reads, tests or lifecycle calls.
+This contract adds no gate, receipt, approval round or mandatory preview.
+
 ## Mistake Prevention Checklist
 
 Before editing:

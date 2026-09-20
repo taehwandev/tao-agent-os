@@ -42,35 +42,24 @@ unchanged readings.
 Stage only the exact unit; review its staged diff and reuse evidence only while
 the covered bytes and target are unchanged. Stop on findings or drift; no hidden
 implementation under `commit`. Before push, check remote, visibility, strict
-safety gate, and authority for the exact action. Reuse an open PR with the same
-head/base, give it a substantive body, and merge only after mergeability and
-required checks are known. Fast-forward a clean local `main` afterward.
+safety gate, and authority for the exact action.
 
 When an implementation request also authorizes commits, prepare the exact
 staged unit before final review and finish. An eligible local commit then
-continues directly without a second lifecycle, under the same-run continuation
-contract in `common/skills/commit-workflow/references/current-guidance.md`.
-New commit authority, changed scope, or stale evidence uses the lightweight
-`commit` route. A rejected command is not proof that
-unrelated staging must be changed. Check the declared action, completed-run
-binding and supported command form first; preserve unrelated staging and
-request new authority only for a genuinely necessary change to it.
+continues directly without a second lifecycle. New commit authority, changed
+scope, or stale evidence uses the lightweight `commit` route.
 
 Load `common/skills/commit-workflow/references/current-guidance.md` only for an
 unresolved branch, tracker/signing, mixed/generated commit,
-security/migration/release risk, or publication exception.
+security/migration/release risk, or publication exception. `references/current-guidance.md`
+owns the same-run continuation contract, PR reuse and merge order, and how to
+read a rejected command.
 
 ## Do Not
 
-- Use this canonical bundle, not legacy flat paths or unrelated references.
 - Do not select `release` or `ship` for an ordinary branch push or pull request.
   Those publication follow-ups stay on the lightweight `commit` route unless
   the request also names a release artifact, deployment, tag, or rollout.
 - Do not rediscover an advertised command with `--help`, reopen unchanged source
   after reviewing its final diff, or turn a non-blocking review observation
   into implementation work.
-
-## Verification
-
-- If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
-- If detailed guidance changes, validate links and frontmatter for `references/current-guidance.md`.
