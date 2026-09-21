@@ -264,6 +264,9 @@ context; do not rediscover development guidance just because a diff exists.
 3. Confirm boundary-plan evidence exists for code work, or record why the
    change had no code boundary.
 4. Confirm affected docs are updated, or record why no docs changed.
+   Resolve every repository-looking path in changed docs from the target
+   repository before review. Name external guidance by title or link to its
+   actual source instead of presenting its path as a local repository file.
 5. Confirm side-effect audit evidence names the final diff and unexpected
    generated, lockfile, public-contract, external-state, formatting, or
    unrelated behavior.
