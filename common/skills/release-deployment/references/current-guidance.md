@@ -93,32 +93,36 @@ When a release uses source-control tags:
 - Do not overwrite, force-push, or republish an existing public release without
   explicit approval and a clear correction note.
 - For annotated tags, verify the peeled commit target, not only the tag object.
+- For an explicitly authorized failed-tag replacement, inspect the failed run,
+  existing Release/assets and remote tag object SHA. Absence of assets alone
+  grants no overwrite authority. Push with an explicit expected old tag SHA
+  (`--force-with-lease=refs/tags/<tag>:<old-tag-object-sha>`), never bare force.
+  A changed remote tip requires reconciliation, not an automatic retry.
 
 ## Direct Push And Tags
 
 Repo-local release policy decides whether a release uses PR merge, direct push,
 release branch, or tag. Shared guidance must not choose that model.
 
-When a web repo documents direct push to the default branch as the production
-release path, treat that push as release publication. Create or require a tag
-for the exact source revision only when repo-local policy requires tags or tags
-are the only durable release record.
+When default-branch push deploys production, apply the production approval
+boundary. Tag only when repo policy or durable release provenance requires it,
+with a known version scheme and passed readiness; preview/staging push alone
+does not require a tag.
 
-Do not tag when the push is only preview or staging, the version/tag scheme is
-unknown, release provenance is missing, or release readiness evidence has not
-passed.
+If branch and tag updates share authorization and no CI dependency requires
+separate pushes, prefer one `git push --atomic` with explicit refspecs and any
+required tag lease. Atomic refs do not make deployment jobs atomic. If the
+server rejects atomic updates, stop and assess partial-publication risk before
+choosing a supported sequence. Reuse the enabled strict pre-push audit under
+the commit workflow; never disable it or repeat an identical standalone audit.
 
 ## Release Gate
 
-Before release, confirm:
-
-- source revision and artifact version are known
-- release tag, package version, and artifact provenance point to the same source
-  revision when tags are used
-- required tests, builds, or smoke checks passed or have accepted risk
-- config and secret injection happened in the intended environment
-- monitoring, logs, crash reports, or health checks can show failure
-- rollback or forward-fix path is realistic for the changed surface
+Use `workflows/skills/release-readiness/references/current-guidance.md` for
+preparation, evidence reuse and completion criteria. Keep applicable checks on
+source/version/provenance, target configuration and secret injection,
+tests/builds/smoke, monitoring and rollback; reference valid existing results
+instead of recording this checklist again.
 
 ## Post-Release Check
 

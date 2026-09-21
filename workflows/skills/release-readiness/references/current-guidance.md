@@ -34,7 +34,8 @@ signing, or handing off release-sensitive work.
    release owner, and rollback or forward-fix path.
 2. Inspect final diff for secrets, local config, generated files, migrations,
    dependency churn, and contract changes.
-3. Run required build, package, migration, signing, or smoke checks.
+3. Reuse valid verification as below; run missing or invalidated build, package,
+   migration, signing, or smoke checks.
 4. Verify tag, version, source revision, and artifact provenance match when tags
    are part of the release process.
 5. Verify environment config, secret injection, callback URLs, app ids, domains,
@@ -48,28 +49,32 @@ signing, or handing off release-sensitive work.
 
 ## Release Orchestration Context
 
-Treat a scoped release request as one release sequence, not as unrelated
-requests for commit, review, packaging, tagging, and publishing. Once the
-artifact, source revision policy, version/tag candidate, verification boundary,
-publication action, and rollback or forward-fix path are known, carry that
-release context through the substeps. Do not reclassify a commit-first,
-review-first, package-first, or tag-push substep as broad product work solely
-because the release sequence is mentioned.
+Carry one release context through commit, review, packaging, tagging and
+publication: revision, version, artifact, target, verification and recovery path.
+Reuse unchanged required-document readings and existing evidence; do not
+reconstruct them or manually repeat hashes already checked by the hooks.
 
-Commit and code review still belong before releasing pending source changes,
-but they must stay scoped to the intended commit unit. A review hook may flag a
-pre-existing oversized function, file, or owner as structure evidence and
-residual risk; it should force an immediate refactor only when the current diff
-grows that unit, adds responsibility, changes public owner surface, or the
-release cannot be verified without the split.
+On retry, apply `common/skills/testing/references/final-check.md`: reuse observed
+passes only for matching covered inputs and relevant environment. Review the
+correction and its affected boundary; unchanged covered code retains its prior
+review. A new revision invalidates checks that depend on revision metadata,
+packaging, signing or provenance even when source bytes match. Conflicts,
+changed dependencies/configuration, new findings or uncertain evidence require
+affected checks again. Failed or pending checks never count as passing.
 
-Evidence should be durable release evidence, not repeated prose reconstruction.
-Prefer one release ledger that names the source revision, version/tag,
-artifact, verification, publish boundary, and rollback/forward-fix path. Use
-substep evidence for the commit, package, tag, and push only where it proves a
-real release condition; do not create extra retrospective files for a receipt
-path or wording correction unless the same gate fails again or the failure
-reveals a reusable process bug.
+Keep pending source review scoped to its commit unit. Pre-existing structural
+debt requires a split only when this diff grows responsibility or public owners,
+or the release cannot be verified without it. Follow the commit workflow for
+same-run commits and exact fast-forward review reuse; do not start another
+implementation cycle solely for a publication substep.
+
+Keep one ledger linking original and reused results. Refresh mutable remote
+refs, release/assets, target permissions and applicable production approval
+before publication. Preparation gates establish readiness only: planned smoke,
+handoff text or a successful tag push cannot establish deployment success.
+After execution, collect this attempt's CI/deployment result, artifact provenance
+and required live smoke before claiming release completion. Report pending or
+failed publication explicitly; never copy a prior attempt's success forward.
 
 ## Verification
 
