@@ -65,6 +65,26 @@ When handoffs accumulate in one persistent note, keep the most recent N entries
 only, newest first, each entry carrying its branch, changes, and verification
 status — including checks that are explicitly unverified.
 
+## Completed Cycle Boundary
+
+After a verified unit closes, use the existing handoff summary to carry the
+remaining objective, authority and prohibitions, target/worktree and commit,
+uncommitted or unrelated changes, verification result and evidence reference,
+unresolved decisions, and next action. Retain a rejected approach only when it
+would affect that action. Replace obsolete recap text rather than append the
+whole session; do not copy transcripts, tool output, source or diffs into it.
+Keep underlying evidence intact and use the session continuation protocol for
+persistence, without adding another tracker, packet format or routine gate.
+
+A completed cycle is a candidate for a fresh thread when older context is no
+longer needed and the handoff can preserve correctness. Use a supported runtime
+transition only within user authority; do not abandon unfinished work, pending
+commands or required checks to reset context. If that transition is unavailable,
+continue the authorized work in the current thread without claiming a reset or
+making a new thread a prerequisite. The receiving session verifies current
+state and evidence before reuse. Do not claim token savings from thread age or
+summary length alone.
+
 ## Stop If
 
 - The newest user request changes the objective.

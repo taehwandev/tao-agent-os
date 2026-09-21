@@ -30,7 +30,10 @@ ownership, deletion, or maintainability.
 2. Identify the contracts, state owners, side effects, generated files, and tests
    near the change.
 3. Choose one ownership boundary: UI, state, domain, data, platform, contract, or test.
-4. Make the smallest move, rename, extraction, deletion, or adapter cleanup that improves that boundary.
+4. Choose a cohesive unit using
+   `common/skills/change-size-policy/references/current-guidance.md`; function
+   count alone does not determine the commit boundary. Make the moves needed
+   to improve that boundary while preserving its behavior.
    After an extraction unit, check its structural boundaries before broad builds
    or browser suites: `python3 <TAO_ROOT>/scripts/agent-structure-check.py
    --project <TARGET_REPO> --review-path <OWNED_PATH>` (repeat the path option

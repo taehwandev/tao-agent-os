@@ -25,6 +25,16 @@ A good change usually has:
 - focused tests or a clear smoke check
 - no unrelated formatting, generated churn, dependency update, or cleanup
 
+For behavior-preserving extraction, choose the unit by its contract rather
+than by function count. Related moves may share one unit when they serve the
+same owner and acceptance criterion, remain reviewable within project limits,
+and can be reverted together. Do not create a separate full closeout merely
+for every helper moved, or enlarge the scope merely to amortize overhead.
+Run focused checks as that unit develops and the required broader verification
+on its final state before commit. Explicit per-step project gates still apply.
+Unrelated owners, different risks or separate rollback needs remain split
+signals; lifecycle savings never justify skipping their checks.
+
 ## Split Signals
 
 Consider splitting when:
