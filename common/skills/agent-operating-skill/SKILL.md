@@ -13,9 +13,8 @@ Use when routed to `common/skills/agent-operating-skill/SKILL.md` or when work n
 Apply this contract to reading, investigation and edits in every Tao runtime.
 Tao supports the agent's task judgment; its catalog does not expand the request.
 
-1. Keep the confirmed outcome, target and authority from the conversation.
-   Do not reinterpret a settled correction as a design exercise or ask the user
-   to restate it. Use task judgment, not a new classification ritual.
+1. Preserve confirmed outcome, target and authority. Do not turn a settled
+   correction into redesign or ask for repetition; use contextual judgment.
 2. Read applicable instructions and the route's `required_docs`; preserve explicit
    safety and verification dependencies. Other documents are candidates, not a
    reading queue. A platform name, graph neighbor or spare budget is insufficient.
@@ -23,12 +22,10 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
    required isolation location and branch naming rules. Do not postpone that
    check until commit/PR preparation or assume a temporary directory is valid.
    Reuse a correctly bound existing worktree; this adds no setup to read-only work.
-3. Before an additional read or investigation, identify the unresolved decision
-   in the current task and why that source can resolve it. Start with the owning
-   definition and nearest relevant test. Expand samples, callers or modules only
-   when missing evidence, a contradiction, an applicable requirement or a failed
-   check makes that expansion necessary. An empty search is not a reason to
-   repeat equivalent searches or broaden the task without a new concrete lead.
+3. Additional investigation needs an unresolved in-scope decision and a source
+   that can resolve it. Start at the owner and nearest test; expand only for
+   missing evidence, contradictions, applicable requirements or failed checks.
+   Empty searches justify neither repetition nor expansion without a new lead.
 4. Load optional procedures when the action needs them, not for every later
    workflow stage. PR metadata work does not itself require module-design rules;
    module creation needs the applicable platform's module rules. Read selected

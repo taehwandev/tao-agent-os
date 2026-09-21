@@ -19,7 +19,9 @@ from workflow_common import (
     REPAIR_STOP_CONDITION,
     RESUME_SCOPE,
     ROOT,
+    SCOPE_CHANGE_LIFECYCLE_COMMANDS,
 )
+from workflow_doc_resolution import doc_size
 from workflow_doc_surfaces import load_doc_surface_rules, surface_rule_doc_refs
 from workflow_gate_policy import (
     SKILL_DRAFT_HOOK,
@@ -93,10 +95,14 @@ def removed_cli_option_failures(relative: Path, text: str) -> list[str]:
 
 def validate_route_contracts() -> list[str]:
     failures: list[str] = []
+    reading_bytes: dict[str, int] = {}
     failures.extend(validate_spill_label_contracts(set(COMMANDS)))
 
     for command in COMMANDS:
         route = resolve_docs(command, None, [], request_classified=True)
+        if command in SCOPE_CHANGE_LIFECYCLE_COMMANDS:
+            for doc in route["required_docs"]:
+                reading_bytes[doc] = reading_bytes.get(doc, 0) + doc_size(ROOT, doc)
         if route.get("missing"):
             failures.append(f"{command}: route has missing docs: {', '.join(route['missing'])}")
 
@@ -186,7 +192,23 @@ def validate_route_contracts() -> list[str]:
             if item["evidence"] != "":
                 failures.append(f"{command}: initial ledger evidence for `{gate}` must be empty")
 
-    return failures
+    return failures + reading_budget_failures(reading_bytes)
+
+
+def reading_budget_failures(reading_bytes: dict[str, int]) -> list[str]:
+    """Enforce the existing aggregate baseline; count shared cards per route."""
+    total = sum(reading_bytes.values())
+    if total < 100_000:
+        return []
+    contributors = "; ".join(
+        f"{doc}: {size} bytes"
+        for doc, size in sorted(reading_bytes.items(), key=lambda item: -item[1])
+    )
+    return [
+        f"Normal code routes required reading budget: {total} bytes must be "
+        f"< 100000; compact duplicate guidance without removing required contracts. "
+        f"Contributors (summed across routes): {contributors}"
+    ]
 
 
 def _retrospective_policy_failures(

@@ -294,7 +294,19 @@ class RuntimeSetupTests(unittest.TestCase):
             f'prefix_rule(pattern=["{stable_launcher_path()}"], decision="allow")',
             entries,
         )
-        self.assertEqual(61, len(entry_list))
+        expected = {
+            'prefix_rule(pattern=["cd"], decision="allow")',
+            f'prefix_rule(pattern=["{stable_launcher_path()}"], decision="allow")',
+        }
+        for name in EXECUTABLE_ENTRYPOINTS:
+            path = (ROOT / "scripts" / name).resolve()
+            expected.add(f'prefix_rule(pattern=["{path}"], decision="allow")')
+            for interpreter in ("python", "python3"):
+                expected.add(
+                    f'prefix_rule(pattern=["{interpreter}", "{path}"], decision="allow")'
+                )
+        self.assertEqual(expected, set(entry_list))
+        self.assertEqual(len(expected), len(entry_list), "duplicate permission rule")
         self.assertNotIn("$HOME", entries)
         self.assertNotIn("${HOME}", entries)
         self.assertNotIn("$TAO_HOME", entries)
