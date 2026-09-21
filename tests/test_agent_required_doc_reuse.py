@@ -121,6 +121,17 @@ class RequiredDocReuseTests(unittest.TestCase):
             current = self._fixture(Path(directory), prior_hash="d" * 64)
             self.assertEqual([], required_doc_reuse(current)["reused"])
 
+    def test_release_followups_reuse_readings_but_not_unrelated_routes(self) -> None:
+        for command in ("release", "ship", "bugfix"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                current = self._fixture(Path(directory))
+                payload = json.loads(current.read_text())
+                payload["route"]["command"] = command
+                payload["request_intake"] = {"request": "같은 번호로 다시 배포해"}
+                current.write_text(json.dumps(payload))
+                self.assertEqual(command != "bugfix", bool(required_doc_reuse(current)["reused"]))
+
+
 
 if __name__ == "__main__":
     unittest.main()

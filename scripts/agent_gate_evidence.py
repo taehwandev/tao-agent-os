@@ -286,6 +286,9 @@ def record_many_gate_evidence(
                 "evidence": str(record.get("evidence") or ""),
                 "fields": dict(sorted(fields.items())),
             }
+            for key in ("reuse_snapshot", "reuse_provenance"):
+                if isinstance(record.get(key), dict):
+                    entry[key] = record[key]
             entries.append(entry)
             recorded.append(entry)
         _refresh_ledger_binding(ledger, evidence_path, preflight)
@@ -748,7 +751,8 @@ def _render_documentation_impact(
     return (
         "pre-code/pre-edit documentation artifact selection: "
         f"{fields['artifact']}; impact decision: {fields['decision']}; "
-        f"reason: {fields['reason']}; original evidence: {evidence}",
+        f"reason: {fields['reason']}; original evidence: {evidence}"
+        + _documentation_grounding(fields),
         [],
     )
 
@@ -760,9 +764,19 @@ def _render_documentation(
 
     return (
         f"documentation decision: {fields['decision']}; source-of-truth target: "
-        f"{fields['target']}; reason: {fields['reason']}; original evidence: {evidence}",
+        f"{fields['target']}; reason: {fields['reason']}; original evidence: {evidence}"
+        + _documentation_grounding(fields),
         [],
     )
+
+
+def _documentation_grounding(fields: dict[str, str]) -> str:
+    """Preserve explicit inspection/coverage fields through prose validation."""
+    inspected = fields.get("inspected", "").strip()
+    coverage = fields.get("coverage", "").strip()
+    if inspected and coverage:
+        return f"; inspected: {inspected}; coverage: {coverage}"
+    return ""
 
 
 def _render_source_docs(

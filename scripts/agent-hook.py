@@ -322,6 +322,20 @@ def _release_reuse_lines(command: str) -> list[str]:
         return []
     lines: list[str] = []
     lines.append(
+        "Release authority: continue explicitly approved same-target/version repairs and retries. "
+        "A new SHA requires affected verification, not automatically another user confirmation. "
+        "Stop for changed scope/risk, revoked or limited authority, or unapproved tag overwrite."
+    )
+    lines.append(
+        'Gate evidence reuse: submit {"gate":"<local gate>","reuse_from":"<source run id>",'
+        '"reuse_reason":"<matching scope, artifacts, toolchain and external inputs>"} '
+        'through gate-batch instead of rewriting accepted fields. Supported: source docs, '
+        'documentation impact, documentation, tests, package, smoke. The hook requires '
+        'same-session successful evidence and unchanged recorded project/rules snapshots; '
+        'old records without snapshots need normal evidence. Authority, remote state and review '
+        'are never inherited. Keep an unchanged active run instead of starting another.'
+    )
+    lines.append(
         "Release reuse: a follow-up request is not verification invalidation. "
         "Reuse observed passing tests, reviews and retained artifacts for matching "
         "covered inputs; compare source, build flags, version, toolchain and relevant "
@@ -539,6 +553,8 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
     ]
     for gate, fields in required:
         lines.append(f"  {gate}: {_rendered_fields(gate, fields)}")
+        if gate in {"documentation", "documentation impact"}:
+            lines.append("    unchanged: use inspected=<exact source read> and coverage=<why it still applies>; retained valid readings need no reread.")
         # Several of these gates then decide by substring match, so a truthful
         # sentence the matcher does not recognise is refused after the work is
         # done -- the largest recurring failure class in the lesson store. The

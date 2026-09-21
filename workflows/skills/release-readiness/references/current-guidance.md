@@ -72,15 +72,43 @@ or the release cannot be verified without it. Follow the commit workflow for
 same-run commits and exact fast-forward review reuse; do not start another
 implementation cycle solely for a publication substep.
 
-Keep one ledger linking original and reused results. Refresh mutable remote
-refs, release/assets, target permissions and applicable production approval
-before publication. Preparation gates establish readiness only: planned smoke,
-handoff text or a successful tag push cannot establish deployment success.
+Keep one ledger linking original and reused results. Use validated references
+to prior successful document and local verification records where supported,
+instead of rewriting their evidence. Reuse requires matching covered inputs;
+failed, pending, changed or unverifiable records remain unsatisfied. A new run
+does not inherit all gates: current authorization, mutable remote checks and
+the required review still apply. If documentation is unchanged, retain the
+checked source and reason, not a bare unchanged assertion or a new wording
+crafted only to pass validation.
+
+For a new ledger, `gate-batch --gate-record` accepts a compact reference:
+`{"gate":"tests","reuse_from":"<source run id>","reuse_reason":"<why scope, artifacts, toolchain and external inputs still match>"}`.
+Supported gates are `source docs`, `documentation impact`, `documentation`,
+`tests`, `package` and `smoke`; only local verification is eligible, never a
+previous deployment's live result. The hook copies the latest successful
+record verbatim and records its provenance after checking the registered
+same-project/session source and its captured project/rules state. The agent
+still verifies ignored artifacts, toolchain and external inputs; the source
+snapshot does not measure them. Changed HEAD/worktree/rules or a legacy record
+without a snapshot needs normal evidence, not an invented reuse claim. Reuse
+unaffected observed results in that evidence where their own contracts allow
+it; rejection is not an instruction to rerun every check. For an unchanged
+document decision, `inspected` and `coverage` fields preserve the exact source
+read and why it still applies without requiring particular narrative wording.
+
+Refresh mutable remote refs, release/assets and target permissions before
+publication. Check existing production authority against the next action using
+the release deployment approval and recovery rules; a changed SHA alone does
+not require renewed confirmation. Preparation gates establish readiness only:
+planned smoke, handoff text or a successful tag push cannot establish deployment
+success.
 After execution, collect this attempt's CI/deployment result, artifact provenance
 and required live smoke before claiming release completion. Report pending or
 failed publication explicitly; never copy a prior attempt's success forward.
 Local passes do not replace signing, notarization or publication checks for the
-artifact newly produced by CI. Once the exact deployment is identified, monitor
+artifact newly produced by CI. A pass on a different local toolchain does not
+verify a CI compiler workaround; describe it as a candidate until the affected
+CI build passes. Once the exact deployment is identified, monitor
 one authoritative status source at bounded intervals. Pending is not failure;
 do not restart source review while waiting. Inspect bounded relevant logs on
 failure, stalled progress or explicit request, rather than dumping full build logs.

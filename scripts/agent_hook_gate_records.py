@@ -32,6 +32,7 @@ from agent_hook_runtime import finish_with_result
 from agent_skill_catalog import canonical_skill_ids
 from agent_runtime_session import resolve_runtime_evidence, runtime_session
 from agent_route_state import request_fingerprint
+from agent_gate_reuse import GateEvidenceReuse
 from workflow_effect_policy import route_minimum_effect
 
 
@@ -216,8 +217,6 @@ def record_hook_gate(
     source: str,
     status: str = "SUCCESS",
 ) -> dict[str, Any]:
-    evidence_path = preflight_evidence_path(args)
-    preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
     record = {
         "gate": gate,
         "evidence": evidence,
@@ -225,16 +224,7 @@ def record_hook_gate(
         "status": status,
         "source": source,
     }
-    _validate_records_before_write(args, preflight, [record])
-    return record_gate_evidence(
-        evidence_path=evidence_path,
-        preflight=preflight,
-        gate=gate,
-        evidence=evidence,
-        fields=fields,
-        status=status,
-        source=source,
-    )
+    return record_hook_gate_batch(args, [record])[0]
 
 
 def record_hook_gate_batch(
@@ -243,6 +233,7 @@ def record_hook_gate_batch(
 ) -> list[dict[str, Any]]:
     evidence_path = preflight_evidence_path(args)
     preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
+    records = GateEvidenceReuse(preflight).prepare(records)
     _validate_records_before_write(args, preflight, records)
     return record_many_gate_evidence(
         evidence_path=evidence_path,
@@ -308,6 +299,10 @@ def _normalize_gate_record(payload: Any) -> dict[str, Any]:
     gate = str(payload.get("gate") or payload.get("gate_name") or "").strip()
     if not gate:
         raise ValueError("gate record JSON requires gate")
+    if "reuse_from" in payload:
+        if set(payload) - {"gate", "reuse_from", "reuse_reason"}:
+            raise ValueError("gate reuse accepts only gate, reuse_from and reuse_reason")
+        return dict(payload)
     status = str(payload.get("status") or "SUCCESS").strip()
     if status not in {"SUCCESS", "FAIL"}:
         raise ValueError(f"gate record JSON has invalid status: {status}")

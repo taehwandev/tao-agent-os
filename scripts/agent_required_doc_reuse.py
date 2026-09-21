@@ -1,4 +1,4 @@
-"""Prove which commit-route documents are already loaded in this session."""
+"""Prove which publication-route documents are already loaded in this session."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def required_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
         route = current.get("route") or {}
         docs = _required_paths(route)
         unread = list(docs)
-        if route.get("command") not in {"commit", "git_commit"} or not docs:
+        if route.get("command") not in {"commit", "git_commit", "release", "ship"} or not docs:
             return {"reused": [], "unread": unread}
 
         project = Path(current["project"]).resolve()

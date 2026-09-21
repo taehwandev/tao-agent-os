@@ -55,6 +55,22 @@ environment, verification gate, and rollback or forward-fix path.
 - Version schemes should follow `common/skills/release-versioning/SKILL.md` and the
   repo-local release contract.
 
+## Approval And Recovery
+
+Carry explicit deployment approval through scoped repairs and retries for the
+same target and version. State the next concrete action and continue when it is
+covered; do not ask again solely because a repair produces a new source SHA.
+Changed source invalidates affected verification, not automatically authority.
+Reconcile current remote state before retrying an external write; an uncertain
+outcome is not permission to repeat it.
+
+Ask for a decision when the destination, version or action exceeds granted scope,
+material risk changes, or authority is paused, limited or revoked. Existing
+deployment approval does not grant data deletion, credential changes, increased
+cost, or tag overwrite unless explicitly included. Apply the failed-tag rules
+below even when a retry uses the same version. Preserve user restrictions and
+required sandbox approval; never infer authorization from silence.
+
 ## Versioning
 
 Before choosing or changing a release version, read
