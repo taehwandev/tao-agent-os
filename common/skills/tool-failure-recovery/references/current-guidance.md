@@ -71,13 +71,17 @@ files alone do not establish that execution is impossible.
   Prefer the supported executable and explicit arguments over compound shell
   commands when the approval matcher requires that shape. Keep the same scope,
   target, and required approval; never disguise a denied action with a wrapper.
-- For an idempotent local command that normally completes immediately, use one
-  bounded wait and then a confirmed interrupt once it reports no progress and
-  read-only target-state evidence still shows no side effect. Outside that
-  recovery, cancel only for a user stop, an explicit failure/timeout, or
-  evidence that the request cannot progress. Before retrying, confirm it is no
-  longer pending and reconcile side effects. Never automatically retry a
-  non-idempotent external write; inspect its target state first.
+- For a normally immediate local command, wait once, then request interruption
+  if progress stops and target evidence shows no side effect. An interruption
+  error such as Operation not permitted is not confirmed cancellation.
+  For a verified read-only lookup with no pending approval or execution denial,
+  one fresh bounded lookup may recover the answer; keep the old handle marked
+  unresolved. Success proves that read works, not that the old session closed
+  or writes work. Never kill another session or its parent runtime to clear a
+  terminal count. Local writes require confirmed termination and reconciled
+  effects before retry; never automatically retry a non-idempotent external
+  write. Outside this recovery, cancel only for a user stop, explicit failure
+  or timeout, or evidence that execution cannot progress.
 - An unavailable process listing proves only that the diagnostic was unavailable.
   Scope process checks to the known invocation and return only needed status;
   do not dump unrelated command lines or environment values.
