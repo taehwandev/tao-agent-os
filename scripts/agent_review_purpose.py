@@ -249,8 +249,19 @@ def top_level_declaration_failures(
     previous_declarations: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     failures: list[str] = []
-    declarations = coalesce_typescript_support_types(path, declarations)
-    previous_declarations = coalesce_typescript_support_types(path, previous_declarations or [])
+    raw_declarations = declarations
+    raw_previous_declarations = previous_declarations or []
+    declarations = coalesce_typescript_support_types(path, raw_declarations)
+    previous_declarations = coalesce_typescript_support_types(
+        path,
+        raw_previous_declarations,
+    )
+    declarations = retain_legacy_typescript_support_types(
+        path,
+        declarations,
+        raw_previous_declarations,
+        previous_declarations,
+    )
     visible = [declaration for declaration in declarations if not declaration["private"]]
     public = [
         declaration
@@ -290,6 +301,50 @@ def top_level_declaration_failures(
             "split by purpose before approval"
         )
     return failures
+
+
+def retain_legacy_typescript_support_types(
+    path: Path,
+    declarations: list[dict[str, Any]],
+    raw_previous_declarations: list[dict[str, Any]],
+    previous_declarations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep unchanged legacy support declarations inside their prior owner family.
+
+    Extracting runtime behavior can move the reference to a private controller
+    without adding any top-level declaration. Reclassifying the retained helper
+    or type as a new owner would make a responsibility-reducing extraction look
+    like owner growth. Visibility or declaration-kind changes still produce a
+    different identity and remain subject to the ordinary owner limit.
+    """
+
+    if path.suffix.lower() not in {".ts", ".tsx"} or not raw_previous_declarations:
+        return declarations
+
+    previous_owner_identities = {
+        declaration_identity(declaration)
+        for declaration in previous_declarations
+    }
+    previous_support_identities = {
+        declaration_identity(declaration)
+        for declaration in raw_previous_declarations
+        if declaration_identity(declaration) not in previous_owner_identities
+    }
+    return [
+        declaration
+        for declaration in declarations
+        if declaration_identity(declaration) not in previous_support_identities
+    ]
+
+
+def declaration_identity(declaration: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        declaration["kind"],
+        declaration["name"],
+        declaration["private"],
+        declaration["internal"],
+        declaration["exported"],
+    )
 
 
 def coalesce_typescript_support_types(

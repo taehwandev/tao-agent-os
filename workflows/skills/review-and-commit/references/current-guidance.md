@@ -110,7 +110,12 @@ context; do not rediscover development guidance just because a diff exists.
    and inspect every new package path for broad segments such as `utils`,
    `helpers`, `common`, or `misc`. Move the implementation to a purpose-named
    package and collapse private support behind one public owner before review;
-   existing legacy placement does not exempt a newly added runtime file.
+   existing legacy placement does not exempt a newly added runtime file. For a
+   modified legacy TypeScript file, an unchanged helper or type that belonged to
+   the prior runtime owner's support family remains in that baseline when an
+   extraction only moves its reference behind a private controller. New
+   declarations and visibility-expanded declarations still count as owner
+   growth.
    Use those exact literal labels followed by a colon (for example,
    `owner: domain; allowed imports: contracts`); grammatical variants such as
    `allowed imports remain ...` are still prose and will be rejected.

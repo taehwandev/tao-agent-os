@@ -190,6 +190,34 @@ export interface Tail { id: string }
 
         self.assertEqual([], top_level_declaration_failures(Path("src/model/contracts.ts"), current, previous))
 
+    def test_extraction_keeps_retained_typescript_support_inside_legacy_owner_family(self) -> None:
+        path = Path("src/documentStore.ts")
+        shared = """
+            interface LegacyOne { one: number }
+            interface LegacyTwo { two: number }
+            interface LegacyThree { three: number }
+            const pruneAssets = () => undefined;
+        """
+        previous = declarations(
+            shared + """
+            export const useStore = () => {
+                pruneAssets();
+                return {};
+            };
+            """,
+            path,
+        )
+        current = declarations(
+            shared + """
+            const controller = createController({ pruneAssets });
+            export const useStore = () => controller.read();
+            """,
+            path,
+        )
+
+        self.assertTrue(top_level_declaration_failures(path, current))
+        self.assertEqual([], top_level_declaration_failures(path, current, previous))
+
     def test_kotlin_internal_type_and_factory_are_not_public_owners(self) -> None:
         current = declarations(
             """
