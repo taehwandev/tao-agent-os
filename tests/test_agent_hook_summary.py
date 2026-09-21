@@ -191,6 +191,35 @@ class AgentHookSummaryTests(unittest.TestCase):
                     self.assertIn("approved identical pending action without reconfirming", summary)
                     self.assertIn("unless scope, target, risk or required approval freshness changed", summary)
 
+    def test_release_followup_summary_reuses_evidence_without_reading_sources(self) -> None:
+        for command in ("release", "ship", "commit", "analysis"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                evidence = Path(directory) / "preflight.json"
+                evidence.write_text(json.dumps({"route": {
+                    "command": command, "required_docs": ["not-read.md"],
+                    "gates": ["tests", "retrospective check"],
+                }}), encoding="utf-8")
+                original = Path.read_text
+
+                def only_manifest(path, *args, **kwargs):
+                    self.assertEqual(evidence, path)
+                    return original(path, *args, **kwargs)
+
+                with patch.object(Path, "read_text", only_manifest):
+                    summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+                is_release = command in {"release", "ship"}
+                self.assertEqual(is_release, "Release reuse:" in summary)
+                self.assertEqual(is_release, "Deployment monitoring:" in summary)
+                if is_release:
+                    for constraint in ("follow-up request is not verification invalidation",
+                                       "embedded revision/signing/provenance metadata",
+                                       "explicit rebuild request", "applicable approval",
+                                       "cannot prove current CI", "Pending is not failure"):
+                        self.assertIn(constraint, summary)
+                self.assertIn('"fields":{"<listed field>":"<observed evidence>"}', summary)
+                self.assertIn("tests: check, result", summary)
+                self.assertIn("include efficiency_evidence", summary)
+
     def test_commit_summary_separates_reused_docs_and_prior_review_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

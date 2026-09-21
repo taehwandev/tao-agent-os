@@ -317,6 +317,29 @@ def _isolated_run_preflight(path: Path, payload: dict[str, Any]) -> bool:
         return False
 
 
+def _release_reuse_lines(command: str) -> list[str]:
+    if command not in {"release", "ship"}:
+        return []
+    lines: list[str] = []
+    lines.append(
+        "Release reuse: a follow-up request is not verification invalidation. "
+        "Reuse observed passing tests, reviews and retained artifacts for matching "
+        "covered inputs; compare source, build flags, version, toolchain and relevant "
+        "environment, including embedded revision/signing/provenance metadata. "
+        "Rebuild only for changed or unverified inputs, missing/changed artifacts, "
+        "or an explicit rebuild request. Refresh mutable remote/target facts and "
+        "applicable approval; verify this deployment's result and required live smoke. "
+        "Prior local success cannot prove current CI signing, notarization or publication."
+    )
+    lines.append(
+        "Deployment monitoring: once the exact deployment is identified, use one "
+        "authoritative status source at bounded intervals. Pending is not failure. "
+        "Read bounded relevant logs on failure, stalled progress or explicit request; "
+        "do not dump complete build logs or re-review unchanged source while waiting."
+    )
+    return lines
+
+
 def _hook_summary_from_preflight(path: Path) -> list[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -408,6 +431,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "unless scope, target, risk or required approval freshness changed. "
             "Do not retry an unchanged known failure."
         )
+    lines.extend(_release_reuse_lines(route.get("command", "")))
     if required:
         lines.append(f"Required hooks: {required}")
     if conditional:
@@ -431,8 +455,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "Conditional review: review only if a diff is created or a commit is requested; "
             "then use review --help for evidence fields. No review for no-diff cleanup."
         )
-    lines.extend(_closeout_gate_lines(gates))
-    lines.extend(_gate_batch_guidance_lines(gates))
+    lines.extend(_closeout_gate_lines(gates) + _gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
     return lines
 
@@ -507,7 +530,13 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
     ]
     if not required:
         return []
-    lines = ["Gates requiring named fields (--field name=value):"]
+    lines = [
+        "Gates requiring named fields (--field name=value). "
+        'gate-batch --gate-record shape: [{"gate":"<active gate>",'
+        '"status":"<SUCCESS or FAIL>","fields":{"<listed field>":"<observed evidence>"}}]. '
+        "Replace placeholders using the fields and enum values below; reuse observed "
+        "results rather than rerunning checks to fill a record.",
+    ]
     for gate, fields in required:
         lines.append(f"  {gate}: {_rendered_fields(gate, fields)}")
         # Several of these gates then decide by substring match, so a truthful

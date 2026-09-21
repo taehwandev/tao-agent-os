@@ -57,8 +57,12 @@ reconstruct them or manually repeat hashes already checked by the hooks.
 On retry, apply `common/skills/testing/references/final-check.md`: reuse observed
 passes only for matching covered inputs and relevant environment. Review the
 correction and its affected boundary; unchanged covered code retains its prior
-review. A new revision invalidates checks that depend on revision metadata,
-packaging, signing or provenance even when source bytes match. Conflicts,
+review. A follow-up request or commit alone does not invalidate verification.
+Reuse an unchanged retained package when its verified source, build flags,
+version, toolchain and relevant environment still match. Revision changes require
+rechecks only where embedded metadata, signing or provenance depend on them;
+source equality alone cannot prove those inputs match. Rebuild for changed or
+unverified inputs, missing/changed artifacts, or an explicit rebuild request. Conflicts,
 changed dependencies/configuration, new findings or uncertain evidence require
 affected checks again. Failed or pending checks never count as passing.
 
@@ -75,6 +79,11 @@ handoff text or a successful tag push cannot establish deployment success.
 After execution, collect this attempt's CI/deployment result, artifact provenance
 and required live smoke before claiming release completion. Report pending or
 failed publication explicitly; never copy a prior attempt's success forward.
+Local passes do not replace signing, notarization or publication checks for the
+artifact newly produced by CI. Once the exact deployment is identified, monitor
+one authoritative status source at bounded intervals. Pending is not failure;
+do not restart source review while waiting. Inspect bounded relevant logs on
+failure, stalled progress or explicit request, rather than dumping full build logs.
 
 ## Verification
 
