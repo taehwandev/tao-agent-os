@@ -291,6 +291,22 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, claude_block)
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, agy_block)
 
+    def test_failed_interrupt_does_not_block_safe_reads_or_claim_cleanup(self) -> None:
+        block = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        for clause in (
+            "If interruption reports Operation not permitted, do not report the request as cancelled",
+            "verified read-only lookup with no pending approval or actual execution denial",
+            "preserve that handle as unresolved",
+            "not that the old session was closed or that writes work",
+            "Never kill another session or its parent runtime",
+            "Local writes still require confirmed termination and effect reconciliation before retry",
+        ):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, block)
+        guidance = (ROOT / "common/skills/tool-failure-recovery/references/current-guidance.md").read_text()
+        self.assertIn("not confirmed cancellation", guidance)
+        self.assertIn("never automatically retry a non-idempotent external", guidance)
+
     def test_generated_bridges_preserve_diagnostic_lookup_boundary(self) -> None:
         for runtime, entry in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
             with self.subTest(runtime=runtime):
