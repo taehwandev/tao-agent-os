@@ -53,10 +53,20 @@ def validate_transfer(
         failures.append("replacement evidence does not use the same rules root")
     if source_evidence.resolve() == replacement_evidence.resolve():
         failures.append("replacement evidence must name a different run")
-    if not (source_project / ".git").is_dir():
-        failures.append("source project must be the repository's main checkout")
-    if not (replacement_project / ".git").is_file():
-        failures.append("replacement project must be a linked Git worktree")
+    # Either direction is the same event. The superseded run is as often the one
+    # in the linked worktree -- a worktree run abandoned when the replacement
+    # landed the work from the main checkout -- and pinning the roles to
+    # "source is main, replacement is linked" left that run with no close path
+    # at all: no-change cancellation refuses its recorded changed scope, and
+    # this one refused its direction. What has to be true is that both are
+    # checkouts of one repository, which the common-directory check below
+    # proves, and that they are two different checkouts.
+    if not is_checkout(source_project):
+        failures.append("source project must be a Git checkout")
+    if not is_checkout(replacement_project):
+        failures.append("replacement project must be a Git checkout")
+    if source_project.resolve() == replacement_project.resolve():
+        failures.append("replacement must run in a different checkout of the same repository")
     source_common_dir = git_common_dir(source_project)
     replacement_common_dir = git_common_dir(replacement_project)
     if (
@@ -153,6 +163,13 @@ def payload_path(
         failures.append(f"{label} evidence has no {field}")
         return None
     return Path(raw).resolve()
+
+
+def is_checkout(project: Path) -> bool:
+    """A main checkout carries a `.git` directory; a linked worktree a `.git` file."""
+
+    marker = project / ".git"
+    return marker.is_dir() or marker.is_file()
 
 
 def git_common_dir(project: Path) -> Path | None:

@@ -163,20 +163,63 @@ class RunInterruptionTests(unittest.TestCase):
             self.assertEqual(['external outcome unresolved'], result['packet']['work']['blockers'])
             self.assertFalse(list((run.project / '.tao').rglob('finish.json')))
 
-    def test_stopped_session_cannot_bypass_foreign_owner_or_drift(self):
-        for foreign in [True, False]:
-            with self.subTest(foreign=foreign), tempfile.TemporaryDirectory() as directory:
-                run = Run(directory, packet=True)
-                run.checkpoint('blocked')
-                before = continuation_path(run.project, run.run['run_id']).read_bytes()
-                run.stop()
-                session = dict(run.session, session_id='foreign') if foreign else run.session
-                if not foreign:
-                    (run.project / 'source.txt').write_text('changed\n')
-                with patch('agent_continuation_claim.runtime_session', return_value=session):
-                    result = claim_resume(run.project, run.run['run_id'], expected_generation=0)
-                self.assertEqual('live_owner_refused' if foreign else 'drift_refused', result['result'])
-                self.assertEqual(before, continuation_path(run.project, run.run['run_id']).read_bytes())
+    def test_stopped_session_cannot_bypass_a_foreign_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint('blocked')
+            before = continuation_path(run.project, run.run['run_id']).read_bytes()
+            run.stop()
+            foreign = dict(run.session, session_id='foreign')
+            (run.project / 'source.txt').write_text('changed\n')
+            with patch('agent_continuation_claim.runtime_session', return_value=foreign):
+                result = claim_resume(run.project, run.run['run_id'], expected_generation=0)
+            self.assertEqual('live_owner_refused', result['result'])
+            self.assertEqual(before, continuation_path(run.project, run.run['run_id']).read_bytes())
+
+    def test_stopped_session_carries_its_own_byte_movement(self):
+        """The turn boundary is not a broken premise for the session that ended it.
+
+        Marking the run `interrupted` is unconditional, so this is every ordinary
+        turn in which the agent edited anything. Refusing it meant the only
+        remaining move was a fresh start for work that had not changed, and the
+        refused claim left the run unresolvable behind it.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint('acting')
+            run.stop()
+            (run.project / 'source.txt').write_text('changed by this session\n')
+
+            with patch('agent_continuation_claim.runtime_session', return_value=run.session):
+                result = claim_resume(run.project, run.run['run_id'], expected_generation=0)
+
+            self.assertEqual('ready', result['result'])
+            # This fixture's rules root is its project, so one edit is reported
+            # under both names; every signal is still handed to the agent.
+            self.assertEqual(['project_worktree', 'rules_worktree'], result['changed_signals'])
+            self.assertEqual('bounded local work', result['packet']['work']['objective'])
+            self.assertEqual('running', run.state())
+
+    def test_unmeasurable_drift_still_refuses_and_returns_the_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint('acting')
+            run.stop()
+
+            with (
+                patch('agent_continuation_claim.runtime_session', return_value=run.session),
+                patch('agent_continuation_claim._current_capture', side_effect=RuntimeError('unreadable')),
+            ):
+                result = claim_resume(run.project, run.run['run_id'], expected_generation=0)
+
+            self.assertEqual('drift_refused', result['result'])
+            self.assertIn('unmeasured', result['changed_signals'])
+            self.assertIsNone(result['packet'])
+            self.assertEqual('reconcile_required', run.state())
+            # The refused claim is handed back, so the run still resolves.
+            record = json.loads(registry_path(run.project).read_text())['runs'][-1]
+            self.assertEqual(0, record['resume_generation'])
 
     def test_unknown_version_resume_refuses_without_registry_mutation(self):
         with tempfile.TemporaryDirectory() as directory:

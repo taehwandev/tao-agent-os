@@ -208,8 +208,47 @@ class TransferredRunCancellationTests(unittest.TestCase):
             source = registered_run(fixture.source, fixture.source_evidence)
 
         self.assertEqual(1, code)
-        self.assertIn("replacement project must be a linked Git worktree", output)
         self.assertIn("source and replacement must share one Git common directory", output)
+        self.assertEqual("running", source["state"])
+
+    def test_a_superseded_worktree_run_is_settled_by_a_main_checkout_replacement(
+        self,
+    ) -> None:
+        """The direction the real failure took, and the one that had no close path.
+
+        A worktree run whose work the replacement committed from the main
+        checkout recorded changed paths, so the no-change close refuses it, and
+        the transfer close used to refuse its direction. It could be neither
+        finished nor cancelled.
+        """
+
+        with TransferFixture(True, "same request", reverse_roles=True) as fixture:
+            code, output = fixture.cancel()
+            source = registered_run(
+                fixture.source, fixture.source_evidence, run_id=fixture.source_run_id
+            )
+            receipt = json.loads(
+                (fixture.source_evidence.parent / CANCEL_RECEIPT_NAME).read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(0, code, output)
+        self.assertEqual("cancelled", source["state"])
+        self.assertEqual(fixture.replacement_run_id, receipt["replacement_run_id"])
+
+    def test_one_checkout_cannot_replace_its_own_run(self) -> None:
+        with self.fixture() as fixture:
+            fixture.replacement_project_in_preflight(fixture.source)
+
+            code, output = fixture.cancel()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertIn(
+            "replacement must run in a different checkout of the same repository",
+            output,
+        )
         self.assertEqual("running", source["state"])
 
     def test_a_refused_transition_writes_no_receipt(self) -> None:
@@ -689,7 +728,12 @@ class SettledRunsDoNotBlockTheStopGateTests(unittest.TestCase):
 
 
 class TransferFixture:
-    def __init__(self, complete_replacement: bool, replacement_request: str):
+    def __init__(
+        self,
+        complete_replacement: bool,
+        replacement_request: str,
+        reverse_roles: bool = False,
+    ):
         self._temporary = tempfile.TemporaryDirectory()
         self.root = Path(self._temporary.name)
         self.source = self.root / "source"
@@ -713,6 +757,10 @@ class TransferFixture:
             "HEAD",
             cwd=self.source,
         )
+        if reverse_roles:
+            # The superseded run is as often the one in the linked worktree, so
+            # the roles swap and everything below follows the new naming.
+            self.source, self.replacement = self.replacement, self.source
 
         session = {"runtime": "codex", "session_id": "runtime-session-01"}
         route = {"command": "bugfix", "gates": []}

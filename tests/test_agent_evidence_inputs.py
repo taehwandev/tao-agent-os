@@ -19,9 +19,20 @@ class EvidenceInputsTests(unittest.TestCase):
             for invalid in (["../escape"], [str(root / "input")], [".git/config"], ["."]):
                 with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                     EvidenceInputs.capture(root, invalid)
+            # A symlink is identified by the target it names, as Git stores it,
+            # and is never followed: refusing it made every repository holding
+            # one unable to capture a scoped snapshot at all.
             (root / "link").symlink_to(root / "input")
+            linked = EvidenceInputs.capture(root, ["link"])
+            self.assertNotEqual(EvidenceInputs.capture(root, ["input"]), linked)
+            (root / "link").unlink()
+            (root / "link").symlink_to(root / "other")
+            self.assertNotEqual(linked, EvidenceInputs.capture(root, ["link"]))
+            (root / "directory").mkdir()
+            (root / "directory" / "input").write_text("reached through a link")
+            (root / "through").symlink_to(root / "directory")
             with self.assertRaises(ValueError):
-                EvidenceInputs.capture(root, ["link"])
+                EvidenceInputs.capture(root, ["through/input"])
 
     def test_delete_commit_does_not_change_final_content_identity(self):
         with tempfile.TemporaryDirectory() as directory:

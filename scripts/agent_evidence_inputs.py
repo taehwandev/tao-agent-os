@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -49,8 +50,16 @@ class EvidenceInputs:
             path = root / relative
             if Path(relative).is_absolute() or ".." in Path(relative).parts or ".git" in Path(relative).parts:
                 raise ValueError("input path must stay inside the project")
+            if path.is_symlink():
+                # A listed symlink is identified by the target it names, exactly
+                # as Git stores it, and is never followed. Refusing it instead
+                # made every repository that holds one -- this one holds five --
+                # fall back to the whole-revision snapshot without saying so, so
+                # a declared dependency set could never actually be reused.
+                digest.update(json.dumps([relative, "symlink", os.readlink(path)]).encode())
+                continue
             if path.resolve() != path or not path.is_relative_to(root):
-                raise ValueError("symlink input cannot be reused")
+                raise ValueError("input path reached through a symlinked parent cannot be reused")
             try:
                 before = path.stat()
             except FileNotFoundError:

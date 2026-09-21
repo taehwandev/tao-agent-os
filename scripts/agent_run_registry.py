@@ -41,8 +41,13 @@ RUN_STATES = frozenset(
         "interrupted",
     }
 )
+# A run may be settled from every state that is unfinished. `blocked` and
+# `interrupted` are the states a turn boundary leaves behind, and they are the
+# ones a stranded run is actually found in: excluding them meant the run whose
+# honest outcome was "nothing needed changing" could be cancelled only while it
+# happened to be active, and the refusal was reported as an unclean checkout.
 TRANSFER_CANCELLABLE_RUN_STATES = frozenset(
-    {*ACTIVE_RUN_STATES, "failed", "reconcile_required"}
+    {*ACTIVE_RUN_STATES, "failed", "reconcile_required", "blocked", "interrupted"}
 )
 # States whose owner may still append gate evidence. Recovery happens after a
 # run stops being active: a failed finish must be answered by recording the

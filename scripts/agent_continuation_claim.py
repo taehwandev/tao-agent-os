@@ -20,6 +20,19 @@ from agent_state_lock import project_state_lock, state_lock
 FREE_HOLDER_STATES = ("dead_proven", "unproven_expired", "same_session_stopped")
 TERMINAL_RUN_STATES = ("completed", "cancelled")
 HOLDER_REFUSALS = {"live": "live_owner_refused", "unproven_wait": "owner_unproven_wait"}
+# Drift that could not be measured at all. It is a signal rather than a bare
+# `project_worktree` so that the reconciliation below can never mistake "the
+# checkout moved" for "nothing could be compared".
+UNMEASURED = "unmeasured"
+# The signals a session resuming its own stopped run can account for from the
+# turn it just ended. It made that byte movement and still holds the
+# conversation that explains it, so refusing them made the ordinary turn
+# boundary -- the moment Tao itself marks the run `interrupted` -- the end of
+# the run: its own edits are `project_worktree`, its own commit is `head`, and
+# a rules checkout advancing under it is `rules_worktree`. Moved guidance, a
+# half-written mutation, and drift nothing could measure are none of those, and
+# still require explicit reconciliation before the packet is handed back.
+RECONCILABLE_SIGNALS = frozenset({"head", "project_worktree", "rules_worktree"})
 
 
 def claim_resume(
@@ -48,7 +61,7 @@ def claim_resume(
         )
     except (OSError, RuntimeError, ValueError):
         capture = None
-        drift = _drift_verdict(["project_worktree"], [], None)
+        drift = _drift_verdict([UNMEASURED, "project_worktree"], [], None)
     return _commit_claim(project, reservation, capture, drift)
 
 def _reserve(
@@ -84,6 +97,8 @@ def _reserve(
             return _refusal(HOLDER_REFUSALS[holder], run_id, holder_state=holder)
         generation = int(run.get("resume_generation") or 0) + 1
         owner = process_owner()
+        previous_state = run.get("state")
+        previous_owner = run.get("owner")
         run.update(
             resume_generation=generation,
             owner=owner,
@@ -96,6 +111,9 @@ def _reserve(
         "run_id": run_id,
         "holder_state": holder,
         "resume_generation": generation,
+        "expected_generation": int(expected_generation),
+        "previous_state": previous_state,
+        "previous_owner": previous_owner,
         "owner": owner,
         "packet": packet,
         "binding": binding,
@@ -161,21 +179,59 @@ def _commit_claim(
                     list(drift.get("affected_paths") or []),
                     "pending_clean",
                 )
-        run["state"] = "running" if clean else "reconcile_required"
+        resumable = clean or _stopped_session_reconciles(reservation, drift)
+        generation = reservation["resume_generation"]
+        if not resumable:
+            # A refused claim is not a taken claim. The reservation advanced the
+            # generation before drift could be judged, and the run's evidence
+            # still records the old one, so leaving it advanced unbinds the run
+            # from its own evidence: `resolve_runtime_evidence` stops matching
+            # it, every later hook falls back to a default path that does not
+            # exist, and the refusal silently ends the run instead of asking for
+            # the reconciliation it names. Handing the reservation back leaves
+            # the run exactly as refusable, and still reachable.
+            generation = reservation["expected_generation"]
+            run["resume_generation"] = generation
+            if reservation["previous_owner"] is None:
+                run.pop("owner", None)
+            else:
+                run["owner"] = reservation["previous_owner"]
+        run["state"] = "running" if resumable else "reconcile_required"
         run["updated_at"] = datetime.now(timezone.utc).isoformat()
         atomic_write_json(path, payload)
     return {
-        "result": "ready" if clean else "drift_refused",
+        "result": "ready" if resumable else "drift_refused",
         "run_id": run_id,
         "holder_state": reservation["holder_state"],
-        "resume_generation": reservation["resume_generation"],
+        "resume_generation": generation,
         "run_state": run["state"],
         "evidence_path": str(reservation["binding_path"]),
         "changed_signals": list(drift.get("changed_signals") or []),
         "affected_paths": list(drift.get("affected_paths") or []),
-        "phase": packet.get("phase") if clean else "reconcile_required",
-        "packet": packet if clean else None,
+        "phase": packet.get("phase") if resumable else "reconcile_required",
+        "packet": packet if resumable else None,
     }
+
+
+def _stopped_session_reconciles(
+    reservation: dict[str, Any], drift: dict[str, Any]
+) -> bool:
+    """Whether the session resuming its own stopped run may carry this drift.
+
+    Work identity and verification validity are separate questions. Bytes that
+    moved during the turn this session just ended do not make the run someone
+    else's work; they make some of its recorded evidence stale, which the gate
+    ledger's own input records already decide. The claim is granted and every
+    changed signal is reported, so the agent re-observes what the movement
+    touched instead of carrying the objective into a fresh start.
+    """
+
+    signals = drift.get("changed_signals") or []
+    return (
+        reservation.get("holder_state") == "same_session_stopped"
+        and bool(signals)
+        and all(signal in RECONCILABLE_SIGNALS for signal in signals)
+    )
 
 
 def _bound_packet(
@@ -287,7 +343,7 @@ def _merge_capture_race(
 ) -> dict[str, Any]:
     signals = list(drift.get("changed_signals") or [])
     if capture is None or current is None:
-        signals.append("project_worktree")
+        signals.extend((UNMEASURED, "project_worktree"))
     else:
         signals.extend(_capture_signals({"drift": capture, "checkpoint": {}}, current))
     return _drift_verdict(

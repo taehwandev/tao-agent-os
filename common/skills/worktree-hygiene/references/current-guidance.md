@@ -223,11 +223,19 @@ represents user approval; deterministic policy violations still emit `deny`.
 
 If an older session already opened a clean main-checkout run before relocating,
 settle it with `tao-hook cancel --evidence <SOURCE> --replacement-evidence
-<COMPLETED_LINKED_WORKTREE_RUN>`. Cancellation is fail-closed: both runs must
+<COMPLETED_REPLACEMENT_RUN>`. Cancellation is fail-closed: both runs must
 share the request, runtime session, route, rules root, and Git common directory;
-the replacement must be a completed linked worktree and the source checkout
-must have no tracked or untracked changes. The command preserves both evidence
-directories and writes a content-free cancellation receipt.
+the replacement must have completed, the two must be different checkouts of that
+one repository, and the source checkout must have no tracked or untracked
+changes. Either direction settles the same way -- the superseded run is as often
+the one in the linked worktree, abandoned when a replacement landed the work
+from the main checkout. The command preserves both evidence directories and
+writes a content-free cancellation receipt.
+
+The source run does not have to be active. A turn boundary leaves it
+`interrupted` and a refused resume leaves it `reconcile_required`, which are
+exactly the states a stranded run is found in; omitting `--evidence` resolves
+this session's single settleable run in the project.
 
 A run whose honest outcome is that nothing needed changing is settled the other
 way, with `tao-hook cancel --evidence <RUN> --no-change-evidence "<why>"`. The

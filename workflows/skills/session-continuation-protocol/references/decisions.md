@@ -17,7 +17,7 @@ verification, `references/current-guidance.md`.
 | Decision | One-line reason | Failure mode avoided |
 | --- | --- | --- |
 | Write initial, pre/post-mutation, and lifecycle checkpoints; Stop is optional | correctness cannot depend on an exit path that may never run | `kill -9` leaves no useful state or a gate-only packet hides hours of edits |
-| Refuse every HEAD/worktree/rules/required-doc drift | decisions are valid only against the bytes that produced them | stale reasoning is silently reused as current |
+| Refuse HEAD/worktree/rules/required-doc drift, except byte movement the stopped session made itself, which is reported and carried | decisions are valid only against the bytes that produced them, and the session that ended the turn is not a stranger to its own edits | stale reasoning is silently reused as current, or the turn boundary ends unchanged work |
 | Surface reusable inspected scope and current-state verification on `ready` | a clean drift check proves the saved premises still match, while post-mutation invalidation prevents an older pass from crossing an edit | a resumed agent rereads the same docs, repeats the same analysis, and reruns the same tests only to rebuild context |
 | Reuse `agent_run_owner` and the registry claim transaction | owner death has one meaning system-wide | two sessions steal one run under divergent timeout rules |
 | Enforce a closed, bounded local-only schema and outbound deny class | prose instructions cannot prevent dumps or exports | `notes` becomes a transcript and a generic exporter uploads it |
@@ -141,11 +141,27 @@ a decision derived from the old HEAD or old required docs. The safe recovery is
 to carry the bounded objective into a fresh `start`, recalculate the route and
 required-doc manifest, and explicitly reconcile any retained changed bytes.
 
-On mismatch the common command returns `drift_refused`, names only the changed
-signal and repo-relative affected paths, and records the registry run state as
-`reconcile_required`. The last valid packet remains byte-for-byte unchanged. It
-does not mark any gate successful, compute a resumable checkpoint, or inject
-packet prose into a runtime conversation.
+One claimant is judged differently, because the question it asks is different.
+When the runtime session resuming the run is the one that stopped it
+(`same_session_stopped`), `head`, `project worktree` and `rules worktree` are
+movement it made or watched during the turn it just ended, and it still holds
+the conversation that explains them. Refusing those made the ordinary turn
+boundary -- which marks every active run `interrupted` -- the end of the run,
+for work whose scope had not changed at all. The claim is granted, every changed
+signal is reported as `reconciled drift`, and the agent re-observes the
+verification those changes touched; which recorded evidence survives is the gate
+ledger's own question, answered by its input records. Required-document drift, a
+pending mutation, and drift that could not be measured (`unmeasured`) are none of
+those, and still refuse for every claimant.
+
+On an unreconcilable mismatch the common command returns `drift_refused`, names
+only the changed signal and repo-relative affected paths, and records the
+registry run state as `reconcile_required`. The last valid packet remains
+byte-for-byte unchanged. It does not mark any gate successful, compute a
+resumable checkpoint, or inject packet prose into a runtime conversation. The
+refused claim is handed back: the reservation's advanced generation is restored,
+because a refusal that left it advanced unbound the run from the evidence still
+recording the old one and ended the run instead of asking for reconciliation.
 
 **Failure mode avoided.** Warning-and-continue silently reuses conclusions whose
 premises moved and makes stale reasoning look current.

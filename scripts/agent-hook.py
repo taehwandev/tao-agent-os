@@ -1434,7 +1434,10 @@ def _add_cancel_arguments(parser: argparse.ArgumentParser) -> None:
     cancel.add_argument(
         "--replacement-evidence",
         type=existing_path,
-        help="completed linked-worktree preflight that replaced this clean source run",
+        help=(
+            "completed preflight from another checkout of this repository that "
+            "replaced this clean source run"
+        ),
     )
     cancel.add_argument(
         "--no-change-evidence",
@@ -1649,12 +1652,56 @@ def _run_cancel_hook(
     if bool(args.replacement_evidence) == bool(args.no_change_evidence):
         parser.error(
             "cancel requires exactly one of --replacement-evidence, when a "
-            "completed linked-worktree run replaced this one, or "
-            "--no-change-evidence, when this run correctly produced no diff"
+            "completed run in another checkout of this repository replaced this "
+            "one, or --no-change-evidence, when this run correctly produced no diff"
+        )
+    unresolved = _bind_cancelled_run_evidence(args)
+    if unresolved:
+        return finish_with_result(
+            "cancel", False, [unresolved], args.output, {}, args.repair_cycle,
+            invocation_error=True,
         )
     if args.replacement_evidence:
         return cancel_transferred_run(args)
     return cancel_no_change_run(args)
+
+
+def _bind_cancelled_run_evidence(args: argparse.Namespace) -> str:
+    """Name the run this cancellation settles, or say why it cannot be found.
+
+    A cancellation is most often needed exactly when the run is no longer
+    active -- parked at `reconcile_required` by a refused resume, or left
+    `interrupted` by a turn boundary -- and those states are outside the active
+    binding every other hook resolves through. `args.evidence` was then `None`
+    all the way into the registry, where the first thing done to it is
+    `.resolve()`: the hook that exists to settle a stranded run crashed with a
+    traceback on the stranded run. Resolving the settleable states here keeps
+    the omission an ordinary message, and keeps the path the registry receives
+    a real one.
+    """
+
+    if args.evidence:
+        return ""
+    session = runtime_session()
+    if not session:
+        return (
+            "cancel needs the run's evidence path: no runtime session is set, so "
+            "the run cannot be resolved. Pass --evidence <run>/preflight.json"
+        )
+    from agent_run_registry import TRANSFER_CANCELLABLE_RUN_STATES
+    from agent_runtime_session import resolve_runtime_evidence
+
+    resolved = resolve_runtime_evidence(
+        args.project, session, TRANSFER_CANCELLABLE_RUN_STATES
+    )
+    if resolved is None:
+        return (
+            "cancel found no single settleable run bound to this runtime session "
+            "in this project. Pass --evidence <run>/preflight.json for the exact "
+            "run to settle"
+        )
+    args.evidence = resolved
+    return ""
 
 
 def _run_checkpoint_hook(

@@ -113,8 +113,15 @@ class AdoptedRunStartTests(unittest.TestCase):
         self.assertEqual("initial", kind)
         self.assertEqual({"objective": "task workflow"}, work)
 
-    def test_a_real_adopted_start_rebinds_the_packet_to_the_new_head(self) -> None:
-        """The end the fix is for: a restart after a commit leaves no drift."""
+    def test_a_continued_start_binds_its_packet_to_the_new_head(self) -> None:
+        """The end this exists for: a restart after a commit leaves no drift.
+
+        Request wording no longer binds a start to an existing run, so the
+        second start is a second action and declares the work it continues.
+        What must still hold is the drift end: its packet describes the HEAD it
+        was written against, and the work identity survives the action
+        boundary.
+        """
 
         import os
         import subprocess
@@ -123,13 +130,14 @@ class AdoptedRunStartTests(unittest.TestCase):
             subprocess.run(["git", *arguments], cwd=project, check=True,
                            capture_output=True)
 
-        def start(project: Path, state: str) -> str:
+        def start(project: Path, state: str, *extra: str) -> str:
             return subprocess.run(
                 [
                     sys.executable, str(SCRIPTS / "agent-hook.py"), "start",
                     "--project", str(project), "--rules", str(ROOT),
                     "--command", "triage", "--request", "one request, twice",
                     "--read-only", "--runtime-session-id", "adopted-run-probe",
+                    *extra,
                 ],
                 cwd=project, capture_output=True, text=True,
                 # Adoption binds a run to the runtime session in the
@@ -157,25 +165,42 @@ class AdoptedRunStartTests(unittest.TestCase):
             git(project, "commit", "-q", "-m", "first", "--no-verify")
 
             first = start(project, state)
+            run_id = next(
+                line.split(": ", 1)[1].strip()
+                for line in first.splitlines()
+                if line.startswith("- run id: ")
+            )
 
             (project / "NEXT.md").write_text("more\n", encoding="utf-8")
             git(project, "add", "NEXT.md")
             git(project, "commit", "-q", "-m", "second", "--no-verify")
 
-            second = start(project, state)
+            second = start(project, state, "--continue-from", run_id)
 
             head = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=project,
                 capture_output=True, text=True, check=True,
             ).stdout.strip()
-            packets = list((project / ".tao" / "runs").glob("*/continuation.json"))
-            packet = json.loads(packets[0].read_text(encoding="utf-8"))
+            packets = sorted(
+                (project / ".tao" / "runs").glob("*/continuation.json"),
+                key=lambda path: path.stat().st_mtime,
+            )
+            packet = json.loads(packets[-1].read_text(encoding="utf-8"))
+            registry = json.loads(
+                (project / ".tao" / "run-registry.json").read_text(encoding="utf-8")
+            )
 
         self.assertIn("continuation checkpoint: initial recorded", first)
-        self.assertIn("continuation checkpoint: lifecycle recorded", second)
+        self.assertIn("continuation checkpoint: initial recorded", second)
         self.assertNotIn("checkpoint_generation_changed", second)
-        self.assertEqual(1, len(packets))
+        self.assertIn(f"work id: {run_id}", second)
+        self.assertIn(f"continued action: {run_id}", second)
         self.assertEqual(head, packet["drift"]["project"]["head"])
+        # The superseded action is settled, so one claim stays resolvable.
+        self.assertEqual(
+            ["cancelled", "running"],
+            sorted(run["state"] for run in registry["runs"]),
+        )
 
 
 if __name__ == "__main__":

@@ -128,8 +128,12 @@ non-negotiable, because they are the reason this feature exists:
   prove the candidate disappears or remains older.
 - **Refusal after worktree drift.** Write a checkpoint, change tracked,
   untracked, staged, deleted, and renamed bytes one case at a time, and attempt
-  resume. Negative control: disable strong drift comparison and prove the test
-  incorrectly becomes `ready`.
+  resume from a claimant that is not the session that stopped the run. Negative
+  control: disable strong drift comparison and prove the test incorrectly
+  becomes `ready`. The same session reclaiming its own stopped run is the
+  reconciled case: it becomes `ready` with every changed signal reported, and
+  its control is that required-document drift, a pending mutation, or
+  unmeasurable drift still refuses it.
 - **Interrupted mutation.** Kill after the pre-mutation checkpoint but before
   bytes change; resume must clear the pending record and restart the same
   checkpoint. Kill after bytes change but before post-mutation; the result must

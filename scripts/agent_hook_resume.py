@@ -225,7 +225,17 @@ def _ready_lines(result: dict[str, Any]) -> list[str]:
         f"{record['id']}({record['kind']})"
         for record in reuse.get("successful_verification") or []
     )
-    return [
+    reconciled = (
+        [
+            f"reconciled drift: {result['changed_signals']}; this session's own "
+            "stopped run continues under its existing work identity. Re-observe "
+            "the verification those changes touched before reusing it; an "
+            "unchanged record stays valid."
+        ]
+        if result["changed_signals"]
+        else []
+    )
+    return reconciled + [
         f"run: {result['run_id']}",
         f"route command: {result['route_command']}",
         f"evidence: {result['evidence_path']}",
