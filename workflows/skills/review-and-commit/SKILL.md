@@ -24,8 +24,19 @@ unchanged readings.
 
 1. Read this entrypoint; open detail only for a concrete unresolved decision.
    Commit/PR work alone does not require development or branch-strategy cards.
-2. Reuse reads and tests when `HEAD`, bytes, target, and external state are
-   unchanged. Review the final diff once. The Review Hook's VibeGuard audit
+2. Collect independent Git facts in one bounded tool batch: branch/status,
+   changed paths and the scoped diff needed for the current decision. Inspect
+   each command result. Use summaries to locate the review scope, then read
+   every in-scope final change; a diff stat or truncated patch is not a review.
+   Reuse those observations while their covered state is unchanged. After an
+   edit, staging or integration, refresh the affected facts and review any new
+   differences; do not repeat the entire collection for each lifecycle phase.
+   Keep mutations and their dependent checks sequential. Runtime permission
+   contracts still govern command forms; batching is not a shell-chain waiver.
+   Reuse test/build results under the covered-input and freshness conditions in
+   `common/skills/testing/references/final-check.md`, including when Git metadata
+   changes without changing tested inputs. Review the final diff once.
+   The Review Hook's VibeGuard audit
    replaces an adjacent identical audit; reuse the gate-batch remaining list.
    For a fast-forward integration of that exact reviewed commit, verify clean
    target state and commit identity, then cite the existing review and tests.
