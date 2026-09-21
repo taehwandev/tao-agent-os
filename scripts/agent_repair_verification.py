@@ -132,13 +132,26 @@ def create_repair_receipt(
         atomic_write_json(destination, payload)
     except (OSError, ValueError):
         return {"created": False, "reason": "receipt_write_failed"}
-    return {
+    response = {
         "created": True,
         "receipt_path": str(destination),
         "receipt_id": receipt_id,
         "status": status,
         "returncode": returncode,
     }
+    if returncode != 0:
+        response["diagnostic"] = f"verification command failed with exit {returncode}"
+        if (
+            verification_kind == "unittest"
+            and f"ModuleNotFoundError: No module named '{test_selector}'"
+            in str(result.get("stderr") or "")
+        ):
+            response["diagnostic"] += (
+                "; unittest could not import the selected module. Use an importable "
+                "dotted selector from the target root (for example tests.test_example); "
+                "no alternate tests were run."
+            )
+    return response
 
 
 def _record_structural_preflight_failure(

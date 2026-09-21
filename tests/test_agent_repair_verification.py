@@ -175,6 +175,42 @@ class VerificationCacheIsolationTests(unittest.TestCase):
 class AgentRepairVerificationTests(unittest.TestCase):
     """Structural repair receipts, not parsed prose, gate a repair-cycle resume."""
 
+    def test_missing_unittest_module_has_hint_without_raw_output_in_receipt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path, preflight = self._prepared_repair(project)
+            (project / "target.py").write_text("x = 1\n", encoding="utf-8")
+            receipt = create_repair_receipt(
+                project=project, rules=ROOT, evidence_path=evidence_path,
+                preflight=preflight, target="target.py", checkpoint="tests",
+                verification_kind="unittest", test_selector="missing_test_module",
+            )
+            self.assertEqual("FAIL", receipt["status"])
+            self.assertIn("dotted", receipt["diagnostic"])
+            payload = json.loads(Path(receipt["receipt_path"]).read_text())
+            self.assertNotIn("diagnostic", payload)
+            self.assertNotIn("stderr", payload)
+
+    def test_assertion_failure_is_not_reported_as_a_selector_problem(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path, preflight = self._prepared_repair(project)
+            (project / "target.py").write_text("x = 1\n", encoding="utf-8")
+            (project / "test_failure.py").write_text(
+                "import unittest\nclass TestFailure(unittest.TestCase):\n"
+                "    def test_failure(self): self.fail('private failure value')\n",
+                encoding="utf-8",
+            )
+            receipt = create_repair_receipt(
+                project=project, rules=ROOT, evidence_path=evidence_path,
+                preflight=preflight, target="target.py", checkpoint="tests",
+                verification_kind="unittest", test_selector="test_failure",
+            )
+            self.assertEqual("FAIL", receipt["status"])
+            self.assertIn("exit 1", receipt["diagnostic"])
+            self.assertNotIn("dotted", receipt["diagnostic"])
+            self.assertNotIn("private failure value", str(receipt))
+
     def _prepared_repair(self, project: Path) -> tuple[Path, dict]:
         _init_repo(project)
         evidence_path = project / ".tao" / "preflight.json"

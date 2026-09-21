@@ -1150,7 +1150,11 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--repair-target", default="")
     parser.add_argument("--repair-evidence", default="")
-    parser.add_argument("--resume-checkpoint", default="")
+    parser.add_argument(
+        "--resume-checkpoint", default="",
+        type=lambda value: "review" if value.strip() == "review hook" else value.strip(),
+        help="failed checkpoint name; 'review hook' is an alias for 'review'",
+    )
     parser.add_argument(
         "--repair-verification-kind",
         choices=("py_compile", "unittest", "vibeguard", "workflow_validate"),
@@ -1629,6 +1633,8 @@ def _run_repair_verify_hook(args: argparse.Namespace) -> int:
         f"repair receipt: {result.get('receipt_path', 'not_created')}",
         f"verification status: {result.get('status', result.get('reason', 'unknown'))}",
     ]
+    if result.get("diagnostic"):
+        details.append(str(result["diagnostic"]))
     if success:
         # A verified repair is the only thing that retires a lesson. Without
         # this the inbox was write-only, so a signature kept counting up
