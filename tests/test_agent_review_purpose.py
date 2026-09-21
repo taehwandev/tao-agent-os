@@ -75,6 +75,32 @@ export function build() {
 """
         self.assertTrue(top_level_declaration_failures(Path("src/model/contracts.ts"), declarations(source)))
 
+    def test_typescript_regex_literal_quotes_do_not_hide_following_owners(self) -> None:
+        source = r"""
+export interface Before { id: string }
+const IMAGE_DATA_PATTERN = /data:image\/[^"')\s<>]+/g;
+export interface After { id: string }
+const LABEL = "value";
+export interface Tail { id: string }
+"""
+        path = Path("src/model/contracts.ts")
+
+        self.assertEqual(
+            ["Before", "After", "Tail"],
+            [declaration["name"] for declaration in declarations(source, path)],
+        )
+        without_pattern = "\n".join(
+            line for line in source.splitlines() if "IMAGE_DATA_PATTERN" not in line
+        )
+        self.assertEqual(
+            [],
+            top_level_declaration_failures(
+                path,
+                declarations(without_pattern, path),
+                declarations(source, path),
+            ),
+        )
+
     def test_private_compose_helpers_and_preview_do_not_force_file_splitting(self) -> None:
         current = declarations(
             """

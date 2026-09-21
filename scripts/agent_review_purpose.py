@@ -119,9 +119,11 @@ def top_level_type_declarations(path: Path, lines: list[str]) -> list[dict[str, 
     declarations: list[dict[str, Any]] = []
     is_typescript = path.suffix.lower() in {".ts", ".tsx"}
     if is_typescript:
-        # Ignore prose/literals while preserving line numbers for diagnostics.
+        # Mask assignment/arrow regex literals before their quotes can be mistaken for strings.
+        # Preserve line numbers for diagnostics while ignoring prose and literals.
         source = re.sub(
-            r"//[^\n]*|/\*[\s\S]*?\*/|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`",
+            r"(?<=[=>])[ \t]*/(?![/*])(?:\\.|[^/\\\n])+/[a-z]*"
+            r"|//[^\n]*|/\*[\s\S]*?\*/|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`",
             lambda match: "\n" * match.group().count("\n"),
             "\n".join(lines),
         )
