@@ -149,6 +149,30 @@ diagnostics, not replacements for the start, review hook, and finish hook.
 
 ## Request And Continuation Safety
 
+Separate work identity, action authority, and verification validity. The runtime
+judges whether a follow-up belongs to the same requested outcome; neither its
+wording nor a route name decides this. Keep an unchanged active action. When a
+new action requires admission, use `start --continue-from <previous run id>`:
+the action retains the original work id and immutable predecessor evidence,
+while its current scope and authority are independently checked. Omit this
+option for unrelated work. Cancelled or foreign-session work is not inherited.
+
+For matching verification scope, toolchain, retained artifacts and external
+inputs, supply one bounded `--reuse-inputs` attestation with that start. Valid
+local gates carry automatically; act on the returned remaining gates rather
+than reconstructing passed records. Unknown or changed inputs omit the
+attestation and retain history without passing gates. This never transfers
+approval, current external results, review, or completion. Do not invent new
+phrase-specific continuation exceptions.
+
+Local gate records may declare `input_paths` only when the check is independent
+of commit metadata and the complete file dependency set is known. An empty
+list covers all non-ignored project files; explicit paths cover exactly those
+files. Rules are always covered. Content changes invalidate the dependent
+record; committing identical contents does not. Omit this optional field for
+revision-sensitive or uncertain checks. Ignored artifacts and environment
+remain part of the runtime's input attestation, never inferred from Git bytes.
+
 Keep the user's requested outcome across follow-ups. Before asking a question,
 reuse confirmed targets, constraints and acceptance criteria from the current
 conversation, then inspect bounded evidence for facts the agent can determine.

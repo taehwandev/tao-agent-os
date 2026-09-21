@@ -530,7 +530,7 @@ class RuntimeEvidenceTests(unittest.TestCase):
             self.assertEqual(project / ".tao" / "runs", first.parent.parent)
             self.assertEqual(32, len(first.parent.name))
 
-    def test_start_reuses_same_intake_but_isolates_route_or_authority_transition(self):
+    def test_start_identity_is_independent_of_request_words_and_route(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             active = project / "active.json"
@@ -546,8 +546,7 @@ class RuntimeEvidenceTests(unittest.TestCase):
                 return Namespace(**values)
             with patch("agent_hook_gate_records.runtime_session", return_value={"session_id": "one"}), \
                  patch("agent_hook_gate_records.resolve_runtime_evidence", return_value=active):
-                self.assertEqual(active, preflight_evidence_path(args()))
-                for changes in ({"request": "Apply correction"}, {"read_only": False},
+                for changes in ({}, {"request": "Apply correction"}, {"read_only": False},
                                 {"command": "task"}):
                     with self.subTest(changes=changes):
                         selected = args(**changes)

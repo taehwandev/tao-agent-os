@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import git_state
+from agent_evidence_inputs import EvidenceInputs
 from agent_gate_evidence import gate_evidence_path_for_preflight, merge_gate_evidence_from_ledger
 
 
@@ -25,7 +26,7 @@ class GateEvidenceReuse:
         self.preflight = preflight
         self.project = Path(preflight.get("project") or ".").resolve()
         self.rules = Path(preflight.get("rules") or ".").resolve()
-        self.snapshot: dict[str, Any] | None = None
+        self.snapshots: dict[str, dict[str, Any]] = {}
 
     def prepare(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result = []
@@ -36,15 +37,16 @@ class GateEvidenceReuse:
             # Callers cannot supply a trusted snapshot through the CLI.
             record.pop("reuse_snapshot", None)
             if record.get("gate") in _LOCAL_GATES and record.get("status", "SUCCESS") == "SUCCESS":
-                snapshot = self._snapshot()
+                snapshot = self._snapshot(record.get("input_paths"))
                 if snapshot is not None:
                     record["reuse_snapshot"] = snapshot
             result.append(record)
         return result
 
-    def _snapshot(self) -> dict[str, Any] | None:
-        if self.snapshot is not None:
-            return self.snapshot
+    def _snapshot(self, paths: list[str] | None = None) -> dict[str, Any] | None:
+        key = json.dumps(paths, sort_keys=True)
+        if key in self.snapshots:
+            return self.snapshots[key]
         session = self.preflight.get("runtime_session") or {}
         if (not self.preflight.get("project") or not self.preflight.get("rules")
                 or not session.get("runtime") or not session.get("session_id")):
@@ -54,11 +56,18 @@ class GateEvidenceReuse:
             for name, root in (("project", self.project), ("rules", self.rules)):
                 state = git_state(root)
                 states[name] = {key: state[key] for key in ("head", "worktree_fingerprint")}
-            self.snapshot = {"schema_version": 1, "project": str(self.project),
-                             "rules": str(self.rules), "session": session, "states": states}
+            snapshot = {"schema_version": 1, "project": str(self.project),
+                        "rules": str(self.rules), "session": session, "states": states}
+            if paths is not None:
+                snapshot.update(schema_version=2, input_paths=paths)
+                snapshot["states"] = {
+                    "project": EvidenceInputs.capture(self.project, paths),
+                    "rules": EvidenceInputs.capture(self.rules, []),
+                }
+            self.snapshots[key] = snapshot
         except (OSError, RuntimeError, ValueError, KeyError):
             return None
-        return self.snapshot
+        return snapshot
 
     def _resolve(self, record: dict[str, Any]) -> dict[str, Any]:
         gate = record.get("gate")
@@ -98,7 +107,11 @@ class GateEvidenceReuse:
                       if isinstance(item, dict) and item.get("gate") == gate), {})
         if entry.get("status") != "SUCCESS":
             raise ValueError(f"gate reuse has no valid latest SUCCESS for {gate}")
-        current = self._snapshot()
+        original = entry.get("reuse_snapshot") or {}
+        if not isinstance(original, dict):
+            raise ValueError("invalid input snapshot")
+        paths = original.get("input_paths") if original.get("schema_version") == 2 else None
+        current = self._snapshot(paths)
         if current is None or entry.get("reuse_snapshot") != current:
             raise ValueError("gate reuse inputs changed or original snapshot is unavailable; revalidate only affected evidence")
         if gate == "source docs" and (prior.get("route") or {}).get("required_docs") != (self.preflight.get("route") or {}).get("required_docs"):
@@ -108,10 +121,13 @@ class GateEvidenceReuse:
         fields = {key: value for key, value in entry.get("fields", {}).items()
                   if key not in {"execution_capsule_binding", "artifact_receipt_version",
                                  "baseline_sha256", "final_sha256", "final_size_bytes"}}
-        return {"gate": gate, "status": "SUCCESS", "source": "reuse",
+        result = {"gate": gate, "status": "SUCCESS", "source": "reuse",
                 "evidence": entry.get("evidence", ""), "fields": fields,
                 "reuse_provenance": {"run_id": run_id, "created_at": entry.get("created_at"),
                                      "reason": reason}}
+        if paths is not None:
+            result["input_paths"] = paths
+        return result
 
 
 def _read(path: Path) -> dict[str, Any]:

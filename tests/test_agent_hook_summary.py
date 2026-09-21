@@ -209,10 +209,10 @@ class AgentHookSummaryTests(unittest.TestCase):
                     summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
                 is_release = command in {"release", "ship"}
                 self.assertEqual(is_release, "Release reuse:" in summary)
-                self.assertEqual(is_release, "Gate evidence reuse:" in summary)
+                self.assertIn("Work continuity:", summary)
+                self.assertIn("--continue-from <previous run id>", summary)
                 self.assertEqual(is_release, "Release authority:" in summary)
                 if is_release:
-                    self.assertIn('"reuse_from":"<source run id>"', summary)
                     self.assertIn("revoked or limited authority", summary)
                     self.assertIn("not automatically another user confirmation", summary)
                 self.assertEqual(is_release, "Deployment monitoring:" in summary)

@@ -81,20 +81,16 @@ the required review still apply. If documentation is unchanged, retain the
 checked source and reason, not a bare unchanged assertion or a new wording
 crafted only to pass validation.
 
-For a new ledger, `gate-batch --gate-record` accepts a compact reference:
-`{"gate":"tests","reuse_from":"<source run id>","reuse_reason":"<why scope, artifacts, toolchain and external inputs still match>"}`.
-Supported gates are `source docs`, `documentation impact`, `documentation`,
-`tests`, `package` and `smoke`; only local verification is eligible, never a
-previous deployment's live result. The hook copies the latest successful
-record verbatim and records its provenance after checking the registered
-same-project/session source and its captured project/rules state. The agent
-still verifies ignored artifacts, toolchain and external inputs; the source
-snapshot does not measure them. Changed HEAD/worktree/rules or a legacy record
-without a snapshot needs normal evidence, not an invented reuse claim. Reuse
-unaffected observed results in that evidence where their own contracts allow
-it; rejection is not an instruction to rerun every check. For an unchanged
-document decision, `inspected` and `coverage` fields preserve the exact source
-read and why it still applies without requiring particular narrative wording.
+Use the shared work-continuity contract in `AGENTS.md` for every authorized
+follow-up action. `start --continue-from <previous run id>` preserves work
+identity; `--reuse-inputs` permits automatic carry of eligible local records
+whose captured dependencies still match. Do not reconstruct a release-only
+reuse checklist. Existing `reuse_from` gate references remain compatible, but
+are not the normal continuation path. Unknown toolchains, changed artifacts,
+revision-sensitive packaging, or unverified external inputs require affected
+checks. A local pass on a different compiler never proves the CI repair.
+For unchanged documentation, retain `inspected` and `coverage` fields rather
+than rewriting a narrative to satisfy a validator.
 
 Refresh mutable remote refs, release/assets and target permissions before
 publication. Check existing production authority against the next action using

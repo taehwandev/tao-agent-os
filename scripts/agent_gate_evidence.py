@@ -542,6 +542,15 @@ def merge_gate_evidence_from_ledger(
         diagnostics["entry_fields"].pop(gate, None)
         diagnostics["missing_fields"].pop(gate, None)
         diagnostics["invalid_statuses"].pop(gate, None)
+        snapshot = entry.get("reuse_snapshot")
+        if snapshot:
+            from agent_evidence_inputs import EvidenceInputs
+            if not EvidenceInputs.valid_record(snapshot, evidence_path):
+                diagnostics["failed_gates"][gate] = {
+                    "evidence": "covered local inputs changed or cannot be verified",
+                    "source": "input-validation",
+                }
+                continue
         evidence, missing = synthesize_gate_evidence(
             gate,
             str(entry.get("evidence") or ""),

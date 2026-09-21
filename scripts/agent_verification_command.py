@@ -37,9 +37,9 @@ def resolve_verification_target(
 ) -> tuple[Path, str, str, Path] | None:
     raw = Path(target.strip()).expanduser()
     candidates = [raw] if raw.is_absolute() else [project / raw, rules / raw]
-    # Prefer rules when both names resolve to one checkout. Skill maintenance
-    # is specifically allowed to change canonical Tao Agent OS files.
-    roots = (("rules", rules.resolve()), ("project", project.resolve()))
+    # The deepest owner wins for nested worktrees. Ties retain rules ownership.
+    roots = sorted((("rules", rules.resolve()), ("project", project.resolve())),
+                   key=lambda item: len(item[1].parts), reverse=True)
     for candidate in candidates:
         try:
             resolved = candidate.resolve()

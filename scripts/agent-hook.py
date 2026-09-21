@@ -162,6 +162,12 @@ def _preflight_arguments(args: argparse.Namespace) -> list[str]:
 
 
 def start_hook(args: argparse.Namespace) -> int:
+    from agent_work_continuity import WorkContinuity
+    try:
+        continuity = WorkContinuity(args)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return finish_with_result("start", False, [str(error)], args.output, {},
+                                  args.repair_cycle, invocation_error=True)
     request_intake = {
         "request": args.request,
         "continuation_scope": getattr(args, "continuation_scope", ""),
@@ -187,6 +193,10 @@ def start_hook(args: argparse.Namespace) -> int:
             args.repair_cycle,
             invocation_error=True,
         )
+    return _start_admitted_action(args, continuity, request_intake)
+
+
+def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_intake: dict[str, Any]) -> int:
     # Establish the local-only state root before anything writes into it. The
     # continuation store proves local-only status by asking Git, so a checkout
     # that has never been ignored refuses every packet write -- and the Claude
@@ -234,6 +244,13 @@ def start_hook(args: argparse.Namespace) -> int:
         success = result["returncode"] == 0
         details.append("preflight completed" if success else "preflight failed")
         details.extend(_summary_lines(result))
+        if success:
+            try:
+                retained = json.loads(refresh_snapshot.get(evidence_path) or b"{}")
+                details.extend(continuity.apply(evidence_path, retained_work=retained.get("work")))
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+                details.append(f"work continuation failed: {error}")
+                success = False
         if success:
             details.extend(_hook_summary_from_preflight(preflight_evidence_path(args)))
             capsule_detail = _start_capsule_detail(args)
@@ -325,15 +342,6 @@ def _release_reuse_lines(command: str) -> list[str]:
         "Release authority: continue explicitly approved same-target/version repairs and retries. "
         "A new SHA requires affected verification, not automatically another user confirmation. "
         "Stop for changed scope/risk, revoked or limited authority, or unapproved tag overwrite."
-    )
-    lines.append(
-        'Gate evidence reuse: submit {"gate":"<local gate>","reuse_from":"<source run id>",'
-        '"reuse_reason":"<matching scope, artifacts, toolchain and external inputs>"} '
-        'through gate-batch instead of rewriting accepted fields. Supported: source docs, '
-        'documentation impact, documentation, tests, package, smoke. The hook requires '
-        'same-session successful evidence and unchanged recorded project/rules snapshots; '
-        'old records without snapshots need normal evidence. Authority, remote state and review '
-        'are never inherited. Keep an unchanged active run instead of starting another.'
     )
     lines.append(
         "Release reuse: a follow-up request is not verification invalidation. "
@@ -445,7 +453,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "unless scope, target, risk or required approval freshness changed. "
             "Do not retry an unchanged known failure."
         )
-    lines.extend(_release_reuse_lines(route.get("command", "")))
+    lines.extend(_continuation_summary_lines(route.get("command", "")))
     if required:
         lines.append(f"Required hooks: {required}")
     if conditional:
@@ -472,6 +480,17 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     lines.extend(_closeout_gate_lines(gates) + _gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
     return lines
+
+
+def _continuation_summary_lines(command: str) -> list[str]:
+    return _release_reuse_lines(command) + [
+        "Work continuity: keep the active action until its scope changes. For a new authorized "
+        "action of the same work, start --continue-from <previous run id>; add --reuse-inputs "
+        "with observed matching scope, toolchain, artifacts and external inputs to carry valid "
+        "local gates automatically. Use the returned remaining gates, not a rewritten checklist. "
+        "Work identity does not grant authority or carry remote results/review. Unrelated work "
+        "omits --continue-from; request wording never establishes this relationship."
+    ]
 
 
 def _review_prerequisite_lines(gates: list[str]) -> list[str]:
@@ -1215,6 +1234,8 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _add_start_arguments(parser: argparse.ArgumentParser) -> None:
     start = parser.add_argument_group("start hook")
+    start.add_argument("--continue-from", default="", help="prior registered action of the same work; never inherits authority")
+    start.add_argument("--reuse-inputs", default="", help="runtime attestation of unchanged verification scope, toolchain, artifacts and external inputs, independent of commit metadata")
     start.add_argument("--commit-ready", action="store_true", help="prepare exact staged, completed same-session review for commit; never commits")
     start.add_argument("--command", default="task", help="workflow route command for start")
     start.add_argument("--request", help="current user request")
@@ -1941,6 +1962,8 @@ def _validate_hook_arguments_before_repair(
 
     if getattr(args, "commit_ready", False) and args.hook != "start":
         parser.error("--commit-ready is supported only by start --command commit")
+    if args.hook != "start" and (getattr(args, "continue_from", "") or getattr(args, "reuse_inputs", "")):
+        parser.error("work continuation arguments are supported only by start")
     if args.hook == "start":
         if args.request_classified and not args.classification_evidence:
             parser.error("start --request-classified requires --classification-evidence")

@@ -31,9 +31,7 @@ from agent_finish_documentation import required_doc_target_failures
 from agent_hook_runtime import finish_with_result
 from agent_skill_catalog import canonical_skill_ids
 from agent_runtime_session import resolve_runtime_evidence, runtime_session
-from agent_route_state import request_fingerprint
 from agent_gate_reuse import GateEvidenceReuse
-from workflow_effect_policy import route_minimum_effect
 
 
 HOOK_OWNED_GATES = frozenset({"review hook"})
@@ -52,9 +50,9 @@ def preflight_evidence_path(args: argparse.Namespace) -> Path:
     if args.evidence:
         return args.evidence
     session = runtime_session()
-    if session:
+    if session and getattr(args, "hook", "") != "start":
         active = resolve_runtime_evidence(args.project, session)
-        if active is not None and not _new_start_intake(args, active):
+        if active is not None:
             args.evidence = active
             return active
     if getattr(args, "hook", "") == "start":
@@ -64,31 +62,6 @@ def preflight_evidence_path(args: argparse.Namespace) -> Path:
         args.evidence = generated
         return generated
     return args.project / ".tao" / "preflight.json"
-
-
-def _new_start_intake(args: argparse.Namespace, active: Path) -> bool:
-    """Keep refreshes on their run; give a newly authorized intake its own run.
-
-    Explicit evidence bypasses this selection. The old run is settled only by
-    the existing successful-start registration, never by path allocation.
-    """
-    if getattr(args, "hook", "") != "start":
-        return False
-    try:
-        previous = json.loads(active.read_text())
-        intake = {name: getattr(args, name, default) for name, default in (
-            ("request", ""), ("continuation_scope", ""),
-            ("request_classified", False), ("classification_evidence", ""),
-        )}
-        return (
-            request_fingerprint(intake) != request_fingerprint(previous.get("request_intake"))
-            or getattr(args, "command", "") != (previous.get("route") or {}).get("command")
-            or (bool(getattr(args, "read_only", False))
-                or route_minimum_effect(getattr(args, "command", "")) == "read")
-            != bool((previous.get("execution_mode") or {}).get("read_only", False))
-        )
-    except (OSError, ValueError, TypeError, AttributeError):
-        return False  # Preserve the existing refusal on unreadable evidence.
 
 
 def gate_hook(args: argparse.Namespace) -> int:
@@ -309,13 +282,19 @@ def _normalize_gate_record(payload: Any) -> dict[str, Any]:
     fields = payload.get("fields") or {}
     if not isinstance(fields, dict):
         raise ValueError(f"gate record for {gate} has non-object fields")
-    return {
+    record = {
         "gate": gate,
         "status": status,
         "source": str(payload.get("source") or "manual"),
         "evidence": str(payload.get("evidence") or payload.get("gate_evidence") or ""),
         "fields": _normalize_gate_record_fields(gate, fields),
     }
+    if "input_paths" in payload:
+        paths = payload["input_paths"]
+        if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+            raise ValueError("input_paths must be a list of relative files")
+        record["input_paths"] = paths
+    return record
 
 
 def _normalize_gate_record_fields(gate: str, fields: dict[Any, Any]) -> dict[str, str]:

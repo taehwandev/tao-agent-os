@@ -21,7 +21,7 @@ from agent_review_integration_reuse import reuse_committed_review
 
 
 class ReviewReuse:
-    """Cache only structure/workflow checks for identical commit review bytes.
+    """Cache structure/workflow checks for identical reviewed bytes.
 
     Owner: derived review acceleration. Imports: filesystem, Git reads and
     attestation/ledger readers. No authority, gate mutation, or test execution.
@@ -118,7 +118,8 @@ def _publication_candidate(
 ) -> dict[str, Any] | None:
     try:
         preflight = reuse_type.read(evidence)
-        if (preflight.get('route') or {}).get('command') not in {'commit', 'git_commit'}:
+        if ((preflight.get('route') or {}).get('command') not in {'commit', 'git_commit'}
+                and not (preflight.get('work') or {}).get('previous_action')):
             return None
         project = Path(preflight['project']).resolve()
         rules = Path(preflight['rules']).resolve()
@@ -282,12 +283,17 @@ def _load(
     if reuse.before is None:
         return None
     try:
-        command = (reuse.read(reuse.evidence).get('route') or {}).get('command')
-        if require_commit_route and command not in {'commit', 'git_commit'}:
+        current = reuse.read(reuse.evidence)
+        command = (current.get('route') or {}).get('command')
+        linked = bool((current.get('work') or {}).get('previous_action'))
+        if require_commit_route and command not in {'commit', 'git_commit'} and not linked:
             return None
         if reuse.subject.get('kind') == 'commit-range':
             return reuse_committed_review(reuse, _load)
-        if require_fully_staged and (
+        needs_staging = require_fully_staged and not (
+            linked and require_commit_route and command not in {'commit', 'git_commit'}
+        )
+        if needs_staging and (
             reuse.git(reuse.project, 'diff', '--name-only', '-z')
             or reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z')
         ):
@@ -305,6 +311,12 @@ def _load(
         if attestation['attestation_id'] != cached['attestation_id']:
             return None
         preflight = reuse.read(source)
+        if linked and (
+            (current.get('work') or {}).get('id') != (preflight.get('work') or {}).get('id', preflight.get('agent_run_id'))
+            or not (current.get('runtime_session') or {}).get('session_id')
+            or current.get('runtime_session') != preflight.get('runtime_session')
+        ):
+            return None
         if Path(preflight['project']).resolve() != reuse.project or Path(preflight['rules']).resolve() != reuse.rules:
             return None
         if attestation['preflight_evidence'] != {'path': cached['evidence'], 'sha256': hashlib.sha256(source.read_bytes()).hexdigest()}:

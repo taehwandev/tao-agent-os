@@ -37,6 +37,8 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
     code = start(current)
     if code:
         return code
+    current.continue_from = ""
+    current.reuse_inputs = ""
     try:
         if required_doc_reuse(current.evidence)["unread"]:
             raise ValueError("new required documents need reading; continue this commit run normally")
