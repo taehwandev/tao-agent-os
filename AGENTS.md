@@ -229,170 +229,69 @@ legacy run.
 
 ## Documents And Search
 
-Normal implementation routes use a deterministic minimal manifest: the command
-workflow, guaranteed gate and risk contracts, and request-specific documents
-selected by a repository-verified owner path or change-action rule. They do not
-run broad natural-language document search or expand general document-graph
-neighbors. From an already selected document, follow only explicit
-`requires_docs` frontmatter; ordinary links never become a reading queue.
-The route's `docs` field records selection provenance and eligibility; it is not
-a third reading list. Read only `required_docs`, plus a `reference_docs` entry
-when a concrete unresolved in-scope decision makes that reference applicable.
-
-Use Wikimap only when an analysis or guidance-discovery request still has an
-unresolved question after bounded direct evidence. Its results are reference
-candidates; only route policy or an explicit required relation promotes a
-required document. For code-only ownership, call flow, dependency, or impact
-questions, use CodeGraph after bounded direct search when the target already
-has a current `.codegraph` index. Ask one precise `codegraph_explore` question,
-cap dense results to the fewest useful files, and treat returned verbatim source
-as already read. Check its staleness notice after edits. Do not initialize an
-index during ordinary feature work; an absent or stale index falls back to
-bounded direct evidence.
-
-Do not invoke Graphify as a fallback, cross-check, or second pass for normal
-repository code work, and never call both tools for the same code-structure
-question. Use Graphify only when the user explicitly requests it or the primary
-corpus includes documents, papers, images, video, saved reasoning, or
-community-level concepts that CodeGraph does not model. Refresh Graphify only
-for that explicit mixed-corpus work, never automatically on checkout or commit.
-A stale or unavailable graph falls back to bounded direct repository evidence,
-not an automatic rebuild. An empty search is a terminal no-match outcome; a
-missing required document is an invalid manifest and stops work.
-
 Apply the Need-Driven Reading Contract in
-`common/skills/agent-operating-skill/SKILL.md` before expanding reading,
-investigation or edits. It binds additional work to an unresolved in-scope
-decision and stops it when the requested outcome is verified; it does not waive
-applicable required instructions or add a new planning or approval procedure.
+`common/skills/agent-operating-skill/SKILL.md`. Read the route's
+`required_docs` and explicit `requires_docs` dependencies; load
+`reference_docs` only for an unresolved in-scope decision. Ordinary links,
+graph neighbors, the route's provenance-only `docs` field, and spare selection
+budget never form another reading queue. Generated pointer entrypoints resolve
+to their reference; retain substantive entrypoint rules alongside it.
 
-A prompt advisory suggests a route; it does not establish a task that requires
-that workflow's detailed instructions. Reuse the reading contract already in
-context, and load task procedures only when the actual request needs them.
-Keep the compact contract for every enforced gate independent of document-count
-budgets. Detailed procedures need a concrete unresolved decision, an explicit
-concern, or a required dependency; spare capacity is not a reason to read them.
-When measuring reading savings, include conditionally required follow-up reads
-(for example scenario guidance when writing tests), and distinguish selected
-bytes from observed reads and end-to-end latency. Moving a document to references
-does not save a read when its applicability condition is still true.
+Normal implementation selection is deterministic: the command workflow,
+guaranteed gate/risk contracts, and verified owner/action guidance. Preserve
+required dependencies regardless of optional budget. `docs`, `prd`, and
+`task` do not fill spare slots with generic intake or discipline references.
+A prompt advisory suggests a route, not an actionable task; its platform cards
+remain references until the request or verified owner requires them. For
+`analysis`, preserve `reading_scope`: read the answering definition and only
+the callers needed to resolve the question, not implementation procedures.
 
-An advisory route also leaves the platform card set in `reference_docs`. That
-set is identical for every route on the platform, and an advisory route has no
-request text to say which of it this request needs, so naming a platform is not
-by itself a reason to read its architecture. Platform guidance becomes required
-as soon as something request-specific asks for it: a concern the caller names,
-or a repository-verified owner path.
+For unresolved guidance discovery, use `workflow query`, or Wikimap after
+bounded direct evidence; its results remain candidates unless route policy or
+an explicit dependency selects them. Do not reread `index.md` after routing.
+It is a fallback catalog, not an additional startup requirement: use it only
+for an explicit catalog task or, with user approval, when routing is unavailable.
 
-A concern inferred from request keywords offers its compact common card as a
-reference, because the same keyword fires on "not a performance change" as
-readily as on a performance change. Once a verified owner or specific action
-rule selects the applicable platform guidance, do not also emit that inferred
-concern's broad platform bundle. Security, auth, billing, credential-broker,
-and migration are the exception and stay required on inference alone: a false
-positive costs one card, while a miss changes a permission, a charge, a secret,
-or a migration without the card that says how not to break it. Record in scope
-which inferred risk concern does not apply rather than skipping it. Release is
-not on that list because `release` and `ship` already require its cards as their
-command documents.
+For code-only ownership, call flow or impact, use bounded direct search first,
+then one precise CodeGraph question only if a current `.codegraph` exists.
+Limit results to useful files, treat returned source as read, and check
+staleness after edits. Do not initialize an index during ordinary work.
+Graphify is only for explicit requests or mixed corpora that CodeGraph does not
+model, never a code-only fallback or cross-check; never use both for the same
+code-structure question. Refresh only for that explicit mixed-corpus work,
+not on checkout or commit. Stale or absent graphs fall back to direct evidence;
+an empty search is terminal without a new lead. A missing required document
+invalidates the manifest and stops work.
 
-Treat `--concern` as a verified assertion, not as a classification hint. Pass it
-only when the user explicitly names that concern or repository evidence proves
-the specific owner/action. Do not translate generic surface wording such as
-"screen", "screen transition", "route", or "UI" into `compose` or `navigation`;
-the request inference and verified surface/action rules own those cases.
+When changing document routing:
+- Select command documents before the budget, and verified owner/action rules
+  before generic tiers. An inference cannot displace certain guidance.
+- Path rules carry surface-wide contracts; action rules carry procedures for
+  the change. Honor `narrows` and `reference_only`; do not retain broader
+  keyword or ecosystem matches after resolution without owner evidence or
+  explicit `required_priority`.
+- Keyword-inferred concerns are references except security, auth, billing,
+  credential-broker and migration, which remain required on inference. Record
+  why an inferred risk does not apply rather than skipping its card. Release
+  guidance is selected by the release/ship command.
+- `--concern` is a verified assertion: use an explicit user concern or
+  repository-proven owner/action, never infer Compose/navigation from generic
+  screen, route or UI wording.
+- Follow graph `requires` edges only from selected sources. Inspect
+  `required_doc_reasons` to diagnose excess selection; split a
+  `platform_default` card that bundles detailed procedures rather than
+  dropping the platform contract.
+- A guidance split may remove routing-system instructions owned by the router
+  and duplicate rules, folding unique clauses into the surviving owner. Move
+  every other rule to its applicable sibling. Account for deleted sections and
+  check that each surviving rule appears once; do not copy the whole library
+  into a target repo.
+- Reading-savings claims include conditionally required follow-up reads and
+  distinguish selected bytes, observed reads and end-to-end latency. Making an
+  applicable document a reference alone does not save its read.
 
-The command's own workflow documents are selected before the selection budget,
-not out of it. Concerns are chosen ahead of the tier walk, so counting them
-against the document cap let one keyword-inferred concern evict the procedure
-the route exists to run. An inference never outranks a certainty.
-
-Selection follows the change, not the platform name. What the change touches,
-proven by a repository-verified owner path, and what it does, matched by a
-change-action rule in `workflow-doc-surfaces.json`, are selected before the
-generic tiers rather than out of the single slot they leave. A rule may name
-broader rules it `narrows`: moving one control matches both "Compose UI work"
-and "layout change", and the narrower rule stands in the broader one's place so
-placing a button does not require the state, module and lifecycle cards. A
-narrowed document is not emitted in the current manifest merely to remain
-reachable; a later unresolved question can discover it through its own rule.
-Where a file sits does not decide what the change is -- a DTO or mapper under a
-`ui/` package is a data change, and the UI path rules exclude those names for
-that reason.
-
-A path rule says which surface was touched, never what the change does, so it
-carries only the contract any change to that surface applies. What the change
-is -- layout, state, performance, a new screen, a wire contract -- comes from a
-change-action rule, and those select what that decision needs. A path rule may
-also mark a wider set `reference_only`: touching a Compose file is a good reason
-to offer the platform's ecosystem while the action is unresolved and a poor
-reason to retain it after a specific owner/action rule has decided the manifest.
-Before this, one touched Compose file made 162 KB across 21 documents required-
-eligible, and the document cap then kept whichever tier came first: a scroll
-performance task required the previews and screen-structure references and never
-the performance one.
-
-A platform card set may carry the contract every change on that platform
-applies; it may not carry that platform's detailed procedures. When a card
-bundles both, split it: the entrypoint reference keeps the contract and each
-bundled decision becomes a sibling a concern or surface can select. Naming
-Android used to require 25 KB of app architecture, which is how Hilt
-composition, WebView and Navigation deep links reached a JSON parsing fix.
-Removing the tier instead was measured and rejected: seven of twelve
-representative Android and web requests then had no platform guidance at all.
-
-A split may delete two kinds of text, and nothing else. The first is routing
-instructions about the document system itself -- which manifest to load, and
-what to do when a route does not load it. The router owns that, and an agent
-deciding how to lay out a control does not arbitrate its own routing. The
-second is a bullet that restates a rule another section states as well or
-better; keep the better statement, and fold in any clause only the duplicate
-carried. Every other rule moves to the sibling that owns its decision. Account
-for the difference: list the sections dropped and the bullets pruned, and check
-that each surviving rule still appears exactly once in the bundle.
-
-Every required document carries a selection reason, reported as
-`required_doc_reasons`: the core reading contract, the command workflow, a named
-or inferred-risk concern, a work surface, a `requires` edge, a gate contract, or
-the platform default. Read it when a route seems to require too much. A document
-whose only reason is `platform_default` is mandatory because a platform was
-named, not because this request touches it; that is a document-boundary problem
--- the card bundles a short contract every change on that platform needs with
-detailed procedures most do not -- and the repair is to split the card, not to
-drop the tier. Dropping it was measured: nine of twelve representative Android
-and web requests then had no platform guidance required at all.
-
-For `analysis`, carry the route's `reading_scope` into any downstream document
-recommendation. A field lookup, configuration check, or function explanation
-needs its answering definition/contract and only the callers needed to resolve
-the question. Module or UI ownership does not turn that lookup into implementation
-or authorize a separate UI investigation. Preserve explicit required instructions
-and dependencies; stop once the answer is supported instead of repeating unchanged
-recommendations. Implementation routes retain their own required guidance.
-
-Document retrieval is not read authorization. Once owner paths or a specific
-change-action rule are verified, broader keyword-only and ecosystem matches are
-removed from that route's manifest unless backed by the owner path or explicit
-`required_priority` rule. Before owner resolution, request-intent routing
-remains available for discovery. Route evidence records eligibility and the
-selection reason. A graph `requires` edge may promote a dependency only from an
-already selected source, never from an incidental search hit. Required
-dependencies are not dropped to satisfy the optional selection budget.
-
-For `docs`, `prd`, and `task`, mandatory selection keeps the command workflow,
-guaranteed gate contracts, explicit concerns, and matched surface/platform
-guidance. It does not fill spare slots with generic intake or discipline
-references after routing. Those references remain available for concrete
-unresolved questions; explicit risk guidance remains required.
-
-Generated pointer `SKILL.md` entrypoints normally resolve to
-`references/current-guidance.md`. An entrypoint with substantive rules stays
-alongside its reference. Read `reference_docs` on demand when the task touches
-them and an unresolved in-scope question requires them, even if the required-doc
-budget did not promote them.
-
-PRDs, specs, and ARDs follow
-`common/skills/doc-conventions/SKILL.md`; report their output path.
+PRDs, specs and ARDs follow `common/skills/doc-conventions/SKILL.md`; report
+their output path.
 
 ## Parallel Work And Handoffs
 
@@ -487,25 +386,3 @@ deployment, or credentials:
 
 Refresh this managed block only during an explicitly requested VibeGuard `setup` or `update` task.
 <!-- vibeguard:end -->
-
-## Supporting Map
-
-Use the workflow router for narrow selection. After successful routing, do not
-read `index.md` to repeat document selection. It is a fallback catalog, not an
-additional startup requirement; use it only when the router is unavailable and
-the user approves that fallback, or when the task is explicitly about the catalog.
-The following pointers are optional candidates, not a reading queue:
-
-- `common/skills/stack-discovery/SKILL.md`
-- `common/skills/llm-coding-discipline/SKILL.md`
-- `common/skills/code-conventions/SKILL.md`
-- `common/skills/tool-failure-recovery/SKILL.md`
-- `common/skills/agent-interaction/SKILL.md`
-- `common/skills/agent-editing-safety/SKILL.md`
-- `workflows/skills/agent-task-lifecycle/SKILL.md`
-- `workflows/skills/agent-handoff-continuation/SKILL.md`
-- `workflows/skills/review-and-commit/SKILL.md`
-- `workflows/skills/retrospective-learning/SKILL.md`
-
-Do not copy the whole Tao library into a target repo. Link only the guidance
-that repo actually needs.

@@ -42,12 +42,9 @@ Use when creating, reviewing, or restructuring docs, guides, specs, READMEs, age
 
 ## Documentation Impact Checkpoint
 
-For every work-producing task, make the documentation impact decision before
-code, implementation, install/repair, or other edit work starts. This is the
-prompt that keeps agents from treating docs as an afterthought.
-
-Start by selecting the artifact class. Do not reduce this step to "PRD or no
-docs"; different work types need different durable documentation.
+Before edits on any work-producing task, select the affected artifact class
+below and an intended Documentation Decision. This includes code, install/repair,
+tests, hooks and generated-output work, not only prose changes.
 
 | Work Type | Artifact Candidates |
 | --- | --- |
@@ -59,50 +56,13 @@ docs"; different work types need different durable documentation.
 | Test strategy, scenario coverage, QA workflow, or verification harness | test plan, QA checklist, verification runbook |
 | Shared agent behavior, workflow rule, review rule, or platform guidance | Tao Agent OS common card, workflow card, skill card, platform card, repo `AGENTS.md` |
 | Local command, repo path, product policy, domain term, or service-specific rule | repo-local `AGENTS.md`, `README.md`, wiki, runbook, or task doc |
+| Generated docs, wiki, search index, graph, or public build artifact | generated-files policy, source-doc update, manifest, or publishing note recording source revision, generator, publish boundary and private-data review |
 
-Common miss cases to check explicitly:
-
-- Planning, requirements, scope, or acceptance criteria changed but only code or
-  tests were updated. Expected artifact: PRD, feature spec, or acceptance
-  criteria note.
-- Architecture, ownership, dependency, API, schema, persistence, release,
-  migration, or operator behavior changed but the update was treated as a local
-  implementation detail. Expected artifact: ARD/ADR/RFC, module README, API
-  contract, migration note, runbook, release note, or rollback note.
-- Test strategy, QA scenario, verification harness, or definition of done
-  changed but only the implementation diff was checked. Expected artifact: test
-  plan, QA checklist, or verification runbook.
-- Agent workflow, routing, hook, review, generated-output, or platform guidance
-  changed but only the script/test was updated. Expected artifact: workflow
-  card, common card, skill card, platform card, or repo `AGENTS.md`.
-- Generated documentation, wiki, search index, graph, or public build artifact
-  changed but the source revision, generator, publish boundary, and private-data
-  review were not recorded. Expected artifact: generated-files policy note,
-  source-doc update, manifest, or release/publishing note.
-
-Record:
-
-- selected artifact class and affected doc path or doc class
-- intended decision: `updated`, `created`, `unchanged`, or `not applicable`
-- why the changed behavior, workflow policy, public contract, operator action,
-  or acceptance criteria do or do not require a documentation update
-
-For new durable behavior, `not applicable` is not the default. It is valid only
-when the evidence states a no-durable-doc reason such as answer-only,
-purely local, mechanical, no runtime behavior, no public contract, no operator
-action, or no acceptance criteria. If no source doc exists and the work changes
-durable behavior, create the smallest useful artifact from the table instead of
-continuing with "no docs."
-
-`Unchanged` is different from `not applicable`. Use `unchanged` only after
-opening the existing doc path or doc class and confirming that it already covers
-the planning, behavior, contract, operator, or acceptance change. Evidence such
-as "docs unchanged" without the inspected source and coverage reason is a missed
-documentation gate.
-
-This checkpoint does not replace the final documentation decision. If the
-implementation changes meaning, revisit the checkpoint and update the final
-documentation evidence.
+Record the class, affected doc path/class, intended decision and reason. A code
+or test-only diff does not excuse a changed contract, acceptance criterion,
+definition of done or workflow policy from this check. If durable meaning has
+no source, create the smallest useful artifact. Revisit the decision when
+implementation changes meaning and finalize its evidence before completion.
 
 ## Documentation Decision
 
@@ -172,35 +132,18 @@ verification.
 
 ### Where the rules live (do not duplicate per repo)
 
-This card is the single source of truth for the gate rules. The enforcement is
-central: the shared finish-check applies it to every project and runtime, so a
-repo does not need its own copy of the rules to be governed by them. Repo-local
-instruction files — a target repo's `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, or
-`.agents/` docs — must carry only a short pointer to this card, never a restated
-or copied rule block. Keep root adapter/instruction files thin. When a rule or
-exception changes, update it here in Tao Agent OS so every repo and runtime
-inherits it in one place; a duplicated enforcement block found in a repo-local
-file is itself a documentation miss and should be replaced with a pointer. This
-mirrors the standing rule to link to shared cards instead of copying full
-guidance (see the commonization test and "Promote Local Lessons" below).
+This card owns the rules; the shared finish-check enforces them for every
+project/runtime. Repo-local `AGENTS.md`, `CLAUDE.md`, `CODEX.md` and `.agents/`
+docs carry a short pointer, never a copied enforcement block. Replace such
+duplicates with a pointer and change rules/exceptions here.
 
 ### Making an exception
 
-Exceptions are added here, not invented mid-task. There are two supported paths,
-and both leave an auditable trail:
-
-1. Per-task exception (skip this doc now): ask the user with the skip question
-   above and record their approval in the gate evidence. This is the only way a
-   single task passes the gate without writing or confirming a doc.
-2. Durable exception (a recurring pattern that should not need a doc): propose it
-   as an edit to this card so the pattern is written down, reviewed, and shared
-   across Codex, Claude, and Antigravity. Until it is documented here, treat it
-   as a per-task exception and ask the user.
-
-Grill-Me and self-review should load this card and check the current work
-against these rules before reporting completion: if a documentation skip has no
-recorded user approval, or an `unchanged` decision has no inspection proof, raise
-it as a blocker instead of passing.
+Per-task skips follow the approval rule above. A recurring exception must be
+proposed, documented and reviewed here before it applies across runtimes;
+until then it remains a per-task skip. Grill-Me and self-review load this card
+and block on a skip without recorded approval or `unchanged` without inspection
+proof.
 
 ## Review Readiness
 
@@ -219,26 +162,12 @@ because agents may treat active guidance as more mature than it is.
 
 ## Minimum Card Maturity
 
-Do not leave an Tao Agent OS card as a rough summary when it is meant to guide
-agent behavior. A useful shared card should answer these questions directly:
-
-- When to load it: the triggering task, file type, platform, workflow, or risk.
-- What to inspect first: repo-local rules, source files, contracts, examples,
-  manifests, commands, or related cards.
-- Decision rule: when to keep work local, when to escalate, and what tradeoff
-  justifies the heavier path.
-- Do not / stop signals: mistakes that should block implementation, review,
-  release, or handoff.
-- Verification: the smallest evidence that proves the changed boundary, plus
-  broader checks for higher-risk surfaces.
-- Report contract: what the final response, PR, commit, or handoff must say
-  when that card governed the work.
-
-Use `common/skills/agent-skill-card-anatomy/SKILL.md` as the stricter contract
-when a card is new, broad-use, recurring-mistake guidance, or expected to be
-loaded before code, review, release, or handoff. The preferred shape includes explicit
-anti-rationalization, red-flag, do-not, stop-if, verification, and report
-sections so the guidance is executable rather than inspirational.
+Every guidance card must answer when to load it, what to inspect first, its
+decision/escalation rule, blocking mistakes, focused and risk-based verification,
+and final report evidence. Use `common/skills/agent-skill-card-anatomy/SKILL.md`
+as the stricter contract for new, broad-use, recurring-mistake or pre-code/review/
+release/handoff cards. Prefer explicit anti-rationalization, red-flag, do-not,
+stop-if, verification and report guidance.
 
 For short review cards, include at least findings priority, review checks,
 verification focus, and output shape. For platform implementation cards, include
@@ -246,35 +175,18 @@ ownership boundaries, forbidden leaks, state/error/data handling, and target
 verification. For workflow cards, include entry criteria, steps, stop signals,
 and completion evidence.
 
-Prefer an explicit `Do Not`, `Stop If`, `Do Not Approve When`, or equivalent
-section when the card guides implementation or review. Do not hide blocking
-mistakes only inside positive "Rules" prose; agents follow negative constraints
-more reliably when the forbidden action is named directly.
+Name blocking mistakes in an explicit `Do Not`, `Stop If`, `Do Not Approve When`
+or equivalent section for implementation/review cards, not only positive prose.
 
 If a card cannot answer these questions yet, mark the gap explicitly instead of
 padding with generic advice.
 
 ## Promote Local Lessons
 
-Move a local lesson into shared docs only when it remains useful after removing project names, service names, vendor names, account or environment names, local paths, command names, product policy, domain vocabulary, and platform-specific API names.
-
-Shared docs should capture:
-
-- the recurring risk
-- when to load the guidance
-- the decision rule
-- the verification question
-
-Keep local docs responsible for:
-
-- product policy
-- repository commands
-- file paths
-- service-specific workflows
-- provider setup and deployment details
-- domain vocabulary
-- platform-specific implementation details
-- examples that only make sense in one codebase
+Apply the commonization test in Steps: a shared lesson captures reusable risk,
+load condition, decision rule and verification question. Product policy, local
+commands/paths, service workflows, provider/deployment details, domain vocabulary,
+platform-specific APIs/implementation and one-codebase examples stay local.
 
 ## Stop If
 

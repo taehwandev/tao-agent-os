@@ -6,16 +6,9 @@ type: ai-generated
 
 # Branch Cleanup
 
-Use when deleting merged local branches, removing their worktrees, or pruning
-remote branches. Deletion is destructive git-state work: a branch is deleted
-only when every gate below passes; everything else is reported, not deleted.
-
-## Use When
-
-- Local branches or worktrees have accumulated and need cleanup.
-- Asked to remove merged branches or stale worktrees.
-- Asked explicitly to clean remote branches. Remote deletion never happens
-  without an explicit user request.
+Use for requested cleanup of merged branches or stale worktrees. Deletion is
+destructive Git work: every target must pass the gates below; otherwise preserve
+and report it. Remote deletion requires an explicit request.
 
 ## Inspect First
 
@@ -29,9 +22,6 @@ only when every gate below passes; everything else is reported, not deleted.
 
 ## Deletion Gates
 
-Every deletion target must pass all gates. A failed gate means report, not
-delete.
-
 ### Ownership
 
 Delete only branches whose owner segment matches the current git identity.
@@ -42,8 +32,7 @@ and are never deleted. Report both kinds when noticed.
 ### Protected Branches
 
 Never delete the integration branch, `main`/`master`/`trunk`, or `release/*`
-branches, even when they appear fully merged. Release branches are history;
-versioning and CI may derive values from their tags.
+branches, even when fully merged.
 
 ### Merge Judgment
 
@@ -107,9 +96,7 @@ review, commits or publication checks when no code or remote ref changed.
    then batch the approved deletes into one push. Bind every deletion to the
    fetched tip with `--force-with-lease=refs/heads/<branch>:<sha>` so a
    concurrently moved branch is refused atomically instead of requiring a
-   second fetch/query/check loop. Many remote work branches are already deleted
-   by the PR host on merge and show locally as `upstream: gone`; the real
-   deletion list is usually short.
+   second fetch/query/check loop.
 
 ## Recovery
 

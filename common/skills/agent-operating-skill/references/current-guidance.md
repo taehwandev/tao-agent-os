@@ -6,102 +6,92 @@ type: human-reviewed-needed
 
 # Agent Operating Skill
 
-Use this before implementation, review, refactoring, debugging, documentation, or verification work. This is the baseline skill for reducing repeated agent mistakes.
+Use this reference for an unresolved operating procedure. The reading contract
+in `../SKILL.md` and lifecycle in `AGENTS.md` remain the entrypoints; this
+reference does not create additional gates or a second startup checklist.
 
-## Core Loop
+## Execution Decisions
 
-1. Identify the target project and task type.
-2. Classify request clarity and effort before loading broad context. If the user asks a direct question, answer it before starting workflow routing, editing, or project-specific commands.
-3. Read repo-local instructions before changing files.
-4. Discover the project stack before choosing commands or libraries.
-5. For multi-step tasks, run `<TAO_LAUNCHER> start ... --request
-   "<USER_REQUEST>"` once before selecting task documents, editing, reviewing,
-   committing, or reporting completion. It performs routing and preflight; do
-   not separately repeat workflow list, classify, route, or preflight after it
-   succeeds. Direct `workflow.py route` and `agent-preflight.py` calls are
-   lower-level diagnostic or compatibility fallbacks only.
-6. After start, read the route's `required_docs` / `Read First` docs before editing,
-   reviewing, coding, or running project-specific work. Treat `reference_docs`
-   as lazy context under the Need-Driven Reading Contract in `../SKILL.md`:
-   open one to answer a concrete unresolved in-scope question, not merely because
-   its topic appears in the task. The router owns required-document
-   selection; agents consume that manifest directly without a second
-   confirmation hook, receipt, or finish gate.
-   A required gate cannot pass by recording a skip, not-applicable,
-   unable-to-run, deferred, or follow-up reason unless that gate explicitly
-   allows that outcome. If the evidence names an unresolved, must-fix,
-   should-fix, blocking, or deferred issue, report `FAIL`, run missed-gate
-   recovery, and use retrospective learning to change the next action path.
-   For local commit creation or commit preparation, route to `commit` or
-   `git_commit` instead of the general `task`, `review`, or `triage` routes
-   when the request is clear. Commit routes are intentionally lightweight:
-   read the commit workflow entrypoints, run the review hook first, stop before
-   committing when review finds issues, and record commit readiness only after
-   the staged diff and verification evidence match the intended commit unit.
-7. For feature, product, build, release, or other behavior-changing work, search
-   for repo-local PRD, spec, ARD, issue, design note, task doc, or documented
-   source of truth before implementation or edits. If one exists, open it and
-   use it as the acceptance source. If none exists, record the search evidence
-   and decide whether a PRD/spec must be created before code or whether the
-   current user request is sufficient for the slice.
-8. For requirements analysis or modification work, give the user a compact
-   alignment brief before drafting requirements or changing files. State shared
-   understanding, possible mismatch, and unsupported assumptions or minimal
-   blocker questions. Do this even when the work is not PRD-sized. If no PRD is
-   created, this PRD-skip checkpoint is still required and must be visible to
-   the user, not only recorded internally.
-9. Check preflight's global lesson summary when available. Accepted or promoted
-   lessons from `~/.tao/` apply across repos unless repo-local
-   instructions conflict.
-10. Keep a gate execution ledger for the route and mark each gate with
-    evidence when it is executed. Prefer structured
-    `.tao/gate-evidence.json` entries for the default
-    `preflight.json`, or `<preflight-stem>-gate-evidence.json` entries for a
-    custom preflight evidence file, written by executable hooks or one
-    `agent-hook.py gate-batch` call over repeated single-gate shell calls or
-    reconstructing validator-ready prose at finish. Show a short gate signal
-    after each completed gate or task step.
-    For a lightweight `analysis` route, do not jump directly from investigation
-    to `finish`: compare the active route's exact gate list with the ledger,
-    then record `investigate`, the structured `retrospective check`, and
-    `report` before calling `finish`. Treat preflight-provided `request intake`
-    as complete only when it is already present in that same ledger. `finish`
-    never infers gate completion from commands, tests, commentary, or the final
-    response draft.
-11. For work-producing or delegated tasks, record the agentic run state:
-    current state, next transition or resume point, gate/command/check
-    evidence, checkpoint or stop condition, and blocker status. Use it as the
-    continuation and recovery anchor after interruption, subagent delegation,
-    failed verification, or missed-gate recovery.
-12. For work-producing routes, record a cycle contract before editing: cycle
-    type, input/source scope, allowed and forbidden changes, acceptance or
-    verification method, stop condition, and checkpoint or next cycle.
-13. Consume the selected route rather than reading `index.md` again. Use that
-    catalog only as the documented fallback when routing is unavailable.
-14. Use the route manifest's `parallel_execution.phases` before treating gates
-    as a serial checklist. Parallelize independent read-only orientation when
-    the runtime supports it: selected document reads, file searches, stack
-    inspection, git status, and preflight evidence may run together after
-    request intake is settled.
-15. Inspect existing code, docs, tests, and local conventions.
-16. For code or architecture work that crosses files, packages, folders, or
-    modules, record a compact structure packet before editing: chosen boundary,
-    package/folder map, file split, allowed imports, forbidden imports,
-    callers/tests, and nearest verification.
-17. When a product alias or investigation crosses repositories, choose the
-    primary repo from the acceptance path and stop for a workspace scope
-    checkpoint before writing to any secondary repo.
-18. Make the smallest change that genuinely addresses the request.
-19. For code work, record the multi-agent split decision before editing and use
-    parallel agents when scopes are disjoint and stable.
-20. Update or create affected docs whenever behavior, workflow policy, public
-    contract, durable acceptance criteria, operator action, or source-of-truth
-    meaning changes. If no doc file changes, record the exact source-of-truth
-    checked and why docs are intentionally unchanged or not applicable.
-21. Add/update/run the nearest useful test when code behavior or workflow policy changes.
-22. Verify with the narrowest reliable command first.
-23. Confirm the route gate ledger before reporting completion.
-24. Report what changed, what was verified, and what risk remains.
+Before implementation:
+- Identify the target and existing user changes; read repo-local instructions
+  and inspect stack manifests, lockfiles and configuration before choosing
+  commands, dependencies or framework APIs.
+- Resolve request clarity and effort using
+  `common/skills/task-intake-effort-routing/SKILL.md`. Answer direct questions
+  before routing; questions about starting product delivery need the PRD →
+  ARD → implementation sequence. Ask only about unresolved choices that affect
+  behavior, scope, risk, acceptance or verification.
+- For behavior-changing work, search for and read the repo's PRD, spec, ARD,
+  issue, design note or other source of truth. If none exists, record the
+  search and decide whether the user request suffices or a spec is needed.
+- Give a compact user-visible alignment brief before requirements or edits:
+  shared understanding, possible differences, unsupported assumptions, and
+  any blocker question or safe default. If skipping a PRD, state why; an
+  internal note written afterward is not alignment. For prose, a tone cue
+  does not establish genre, point of view or structure: clarify genuinely
+  ambiguous writing modes.
+- Use one successful `<TAO_LAUNCHER> start` for tracked work and consume its
+  required_docs manifest. Do not repeat list/classify/route/preflight or add a document
+  receipt. Read-only lookup stays stateless under `AGENTS.md`; legacy runs
+  retain their pinned gates. Commit-only requests use `commit`/`git_commit`;
+  an already authorized, reviewed unit follows the same-session commit
+  continuation contract without another lifecycle.
+- Apply preflight's accepted/promoted global lessons unless repo-local
+  instructions conflict. Preserve the route's required evidence fields:
+  run state names current state, next/resume transition, evidence, stop and
+  blocker; a cycle contract names type, inputs, allowed/forbidden changes,
+  verification and next/stop condition. Keep review separate from
+  implementation unless review-response work is requested.
+- Before a cross-file or package boundary change, name the boundary, folder
+  map, file split, allowed/forbidden imports, callers and nearest test. Do
+  not start by accumulating unrelated roles in a generic shared/utils/manager
+  owner. Resolve the primary acceptance repo and checkpoint the secondary
+  source of truth, mode, scope, session model and cross-repo verification
+  before a secondary-repo write.
+- Use `parallel_execution.phases` for independent reads and orientation;
+  serialize dependencies. Start may overlap independent reads after intake,
+  but edits and other writes wait for its success. For delegation, follow
+  `AGENTS.md` and the selected collaboration procedure: record owned and
+  forbidden files, stable contracts, acceptance and integration owner in
+  `.tao/agent-delegation-plan.json` before workers start. Serialize shared
+  contracts, generated files, migrations, dependencies, release configuration
+  and architecture boundaries.
+
+During implementation:
+- Make the smallest effective change using existing architecture and naming;
+  preserve user changes and keep unrelated refactors out.
+- Identify applicable data, auth, permissions, billing, persistence, filesystem,
+  network, external-state and release risks. Protect secrets, client keys,
+  private prompts, local configuration, logs, analytics and crash reports.
+- Update affected source-of-truth documentation when behavior, workflow,
+  public contracts, durable acceptance or operator actions change. Otherwise
+  identify the checked source and explain unchanged/not-applicable status.
+- Add, update and run the nearest useful test for behavior or workflow changes;
+  start with the narrowest reliable verification. Mocked, placeholder and TODO
+  behavior cannot be reported as complete.
+
+Before completion:
+- Follow only the active route's required gates and evidence schemas.
+  Documentation evidence names the decision, source path/class and reason;
+  required code evidence includes ambiguity, docs freshness, tests and split
+  decision when the route calls for them.
+- A required check cannot pass with skipped, unavailable, deferred or
+  not-applicable evidence unless its contract permits that outcome. Report
+  unresolved blocking/must-fix/should-fix issues as failure. Show concise
+  evidence-based gate results rather than reconstructing pass-through prose.
+- Run a required review hook once, then batch only missing manual gates.
+  Hook-owned gates never belong in manual payloads. Observe batch success
+  before calling finish in a separate invocation; a rejected batch records
+  nothing. Reuse its unchanged Remaining route gates snapshot.
+- Run the finish hook before final report, handoff, commit or release.
+  Direct preflight/finish scripts are lower-level diagnostics or unavailable-hook fallbacks,
+  not additional steps. If a check cannot run, state the reason and remaining
+  risk; report changed behavior, observed verification and useful file links.
+
+Detailed gate schemas and cycle fields are owned by
+`workflows/skills/scripted-agent-workflow/references/current-guidance.md` and
+`workflows/skills/cycle-contract/references/current-guidance.md`. Consult
+them only when the active requirement is unresolved.
 
 ## Reading And Investigation Mechanics
 
@@ -157,247 +147,63 @@ unit's verification. Judge process quality by whether each decision had the
 needed guidance and evidence, not by minimizing reads, tests or lifecycle calls.
 This contract adds no gate, receipt, approval round or mandatory preview.
 
-## Mistake Prevention Checklist
+## Stale Evidence And Recovery
 
-Before editing:
+If tracked read-only finish reports that the project or rules root changed after
+start, treat it as real stale-input evidence, including a clean concurrent HEAD
+advance or non-Git guidance change. Do not revert the concurrent change or
+weaken the fingerprint check. Follow
+`workflows/skills/retrospective-learning/references/failure-repair.md`:
+wait for the writer to settle, read changed required guidance, revalidate the
+original scope, generate a fresh start/preflight snapshot and resume the failed
+checkpoint. Keep the original evidence path for the repair receipt when changed
+guidance is outside the product checkout. An explicitly read-only non-intrinsic
+route may resume without that declaration only under its authorized broader
+scope; intrinsic read routes remain read-only. This recovery does not turn
+stateless lookup into a tracked run.
 
-- Confirm target path and project.
-- Classify the request as clear-exact, clear-scoped, vague-action, broad-product, risky-unclear, or direct-question before choosing effort.
-- If classified as direct-question, answer first and do not start work unless a separate actionable request remains.
-- If the direct question asks how to start app, product, or feature work, answer with the PRD -&gt; ARD -&gt; implementation sequence first. Do not give an implementation-only workflow for product delivery.
-- If a blocker unknown can change behavior, scope, risk, acceptance criteria, or
-  verification and repo context cannot answer it, ask before editing. Do not
-  invent product intent or acceptance criteria silently.
-- For requirements analysis, feature, bugfix, refactor, docs, workflow setup, or
-  other modification routes, give the user an alignment brief before drafting
-  or editing. It must be a concise same/different/assumption check, not a full
-  Grill-Me `/grilling` session unless blockers require one. Do not treat "no
-  PRD" as "no question or checkpoint"; when a PRD is skipped, state the skip
-  reason, shared understanding, possible differences, unsupported assumptions,
-  and the minimal blocker question or safe default before work starts.
-- For writing or documentation changes, do not infer genre, point of view, or
-  structure from a style cue such as plain endings, "not honorific", or "my
-  style". If multiple writing modes fit, ask a concrete choice question before
-  editing the draft.
-- Check repo-local `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `CODEX.md`, `.agents/README.md`, `CONTRIBUTING.md`, or equivalent docs.
-- Check stack manifests, lockfiles, and config before running commands, adding dependencies, or using framework-specific APIs.
-- Read the route's `Read First` / `required_docs` docs before code,
-  implementation, review, or edit work. Do not load `Reference On Demand` docs
-  without a concrete unresolved question under the entrypoint's Need-Driven
-  Reading Contract. Do not add a duplicate document-confirmation command after routing.
-- For feature, product, build, release, or other behavior-changing work, search
-  and open repo-local PRD/spec/ARD/source-of-truth docs before implementation.
-  Finish evidence must say whether those docs were found and read, or whether
-  none were found, and how that source affected the work or documentation
-  decision.
-- For work-producing and multi-agent routes, record `agentic run state`
-  evidence before implementation: current state, next transition or resume
-  point, gate/command/check evidence, checkpoint or stop condition, and blocker
-  status.
-- For work-producing routes, record `cycle contract` evidence before editing:
-  cycle type, input/source scope, allowed and forbidden changes, acceptance or
-  verification method, stop condition, and checkpoint or next cycle. Keep code
-  review as a separate review cycle unless the user explicitly asks for
-  review-response implementation.
-- When implementation can add or move more than one file, package, folder, or
-  module, write the structure packet first. Do not start by dumping all code
-  into one feature, `common`, `shared`, `utils`, `helpers`, `services`, or
-  `manager` folder.
-- Check whether the task touches data, auth, permissions, billing, persistence, filesystem, network, release, or external state.
-- Check whether the task touches secrets, client keys, local config, logs, analytics, crash reporting, or open-source-safe setup.
-- If a product/workspace alias may map to multiple repos, use local workspace
-  group discovery or ask for the primary repo. Do not guess a single repo from
-  the alias alone.
-- Before writing to a secondary repo, record a workspace scope checkpoint:
-  starting primary, secondary/source of truth, selected mode, write scope,
-  session model, and cross-repo verification.
-- Check for existing user changes in files you may touch.
-- After route selection, read `parallel_execution.phases`, then run independent
-  route documents and read-only orientation commands in parallel when possible.
-  Do not serialize document reads unless one document determines whether
-  another is needed.
-- The single `agent-hook.py start` call may run alongside independent read-only
-  orientation after the request is answered or classified, but no edit, setup,
-  update, fix, commit, push, release, migration, or external-state change may
-  start until it succeeds. Use `agent-preflight.py` directly only as the
-  lower-level fallback when start is unavailable; never run both startup paths.
+A genuine missed prerequisite or failed gate requires the retrospective
+correction plan before retry/completion. Apply safe scoped repairs and cite the
+plan on retry; recurring lessons belong in their canonical docs, tests,
+validators or hooks. Malformed evidence submissions instead follow the input
+correction rule above.
 
-While editing:
+## Task-Specific Guidance
 
-- Follow existing architecture and naming before inventing a new pattern.
-- Keep unrelated refactors out of feature or bug-fix work.
-- Preserve user-owned changes.
-- Do not expose secrets, tokens, private prompts, or credential contents.
-- Do not claim mocked, placeholder, or TODO behavior is complete.
-- For larger implementation work, split work across parallel agents only when
-  the owned files, packages, contracts, and forbidden files are explicit and do
-  not overlap, and when acceptance checks plus an integration owner can be
-  named before workers start. Serialize shared contracts, generated files,
-  migrations, dependency changes, release config, and architecture boundaries.
-  When work is actually delegated or parallelized, write
-  `.tao/agent-delegation-plan.json` before workers start and keep the
-  lead agent responsible for integration review and final verification.
+The route selects procedures; this is not an additional reading queue. Use
+`workflow query` for an unresolved topic. If routing is unavailable, report
+the blocker before the approved `index.md` fallback. Product delivery uses
+`workflows/skills/product-architecture-delivery/SKILL.md` before lower-level
+feature work unless the request is already trivial and scoped.
 
-Before finishing:
-
-- Run the route's review hook after meaningful edits, then run
-  `<TAO_LAUNCHER> finish` before final report, handoff, commit, or
-  release. Use `agent-finish-check.py` directly only as a lower-level diagnostic
-  or compatibility fallback when the finish hook is unavailable.
-- If a read-only finish reports that the project or rules root changed after
-  start, treat the mismatch as real stale-input evidence. This includes a clean
-  Git `HEAD` advance by an authorized concurrent writer and a non-Git rules-root
-  content change. Do not revert the concurrent change, weaken the fingerprint
-  check, or reuse the old preflight. Follow
-  `workflows/skills/retrospective-learning/references/failure-repair.md`: wait
-  for the writer to settle, re-read the current required guidance, revalidate
-  the original task, generate a fresh start/preflight snapshot, and resume at
-  the failed checkpoint. When a non-intrinsic route used an explicit
-  `--read-only` declaration, follow the finish recovery and rerun without that
-  declaration if the broader route is still required; intrinsic analysis stays
-  read-only and must use a fresh stable snapshot. Keep the original evidence
-  path for the repair receipt when the changed guidance is outside the product
-  checkout.
-- Confirm every required workflow route gate has structured ledger evidence
-  when a scripted route was used. Treat missing fields as missing work or
-  missing evidence to complete, not as a prompt to write vague pass-through
-  wording at finish. For gates with structured field requirements, ledger
-  evidence must provide those fields. Record one-off manual evidence through
-  `gate` or `gate-batch` before finish; finish is a read-only validator and
-  accepts no inline gate state.
-- Prefer one `gate-batch` submission for the route's remaining gates. If any
-  gate record is rejected, stop before `finish`, correct every reported field
-  or semantic contract, and confirm the complete required-gate set is present
-  in the ledger. A rejected `gate`/`gate-batch` call records no checkpoint and
-  must never be followed by `finish` as though the rejected evidence existed.
-  Exclude hook-owned gates such as `review hook` from every manual `gate` or
-  `gate-batch` payload: run the owning hook once, then batch only the still
-  missing manual gates (for example, record `handoff` by itself after review).
-  Run `gate-batch` and `finish` as separate, observed invocations; never place
-  them in one shell command where `finish` can run after a rejected batch.
-- Confirm alignment evidence names the user-visible checkpoint, not only an
-  internal note reconstructed after the work.
-- Confirm documentation evidence names the decision, affected source-of-truth
-  doc path or doc class, and the reason for update/create/unchanged/not
-  applicable. "Docs checked" or "updated docs" is not enough.
-- Run the most relevant test, build, typecheck, lint, or smoke check.
-- For code work, include evidence for ambiguity handling, docs freshness,
-  tests, and multi-agent split decision when the route requires them.
-- If verification cannot run, state why and what risk remains.
-- Include file references when explaining non-trivial changes.
-- If any required gate is missed or fails, run the retrospective workflow before
-  retrying the same scope or reporting completion. The retrospective must record
-  an immediate correction plan, apply safe scoped fixes, and the retry must cite
-  or apply that plan. Treat the generated global lesson candidate as a prompt to
-  promote a recurring lesson into shared docs, tests, validation, or hooks.
-
-## Task Routing
-
-- Request clarity, Grill-Me, model/effort routing, or token reduction: `common/skills/task-intake-effort-routing/SKILL.md` and `workflows/skills/request-triage/SKILL.md`.
-- Scripted workflow route: `workflows/skills/scripted-agent-workflow/SKILL.md` and `scripts/workflow.py` are mandatory for multi-step tasks when the script is available. Pass `--request "<USER_REQUEST>"` so the script can block direct questions and unclear work before implementation. If the script cannot run, report the blocker before using `index.md` as a fallback.
-- Stack, package manager, framework, runtime, or command discovery: `common/skills/stack-discovery/SKILL.md`.
-- Failed commands, compiler errors, lint errors, or broken verification: `common/skills/tool-failure-recovery/SKILL.md`.
-- User questions, approval requests, and ambiguity communication: `common/skills/agent-interaction/SKILL.md`.
-- Any multi-step agent task: `workflows/skills/agent-task-lifecycle/SKILL.md`.
-- Interrupted or transferred work: `workflows/skills/agent-handoff-continuation/SKILL.md`.
-- Work-producing cycle contract and stop conditions: `workflows/skills/cycle-contract/SKILL.md`.
-- Ambiguous requests or blocker unknowns before PRD, ARD, task breakdown, or implementation: `workflows/skills/ambiguity-gate/SKILL.md`.
-- PRD or product requirements note: `workflows/skills/prd-creation/SKILL.md`.
-- App, product, or feature delivery that may continue into code: `workflows/skills/product-architecture-delivery/SKILL.md`. Use this before the lower-level feature workflow unless the request is already a trivial, scoped change.
-- Multi-step development: `workflows/skills/development-cycle/SKILL.md`.
-- Delegated or parallel agent work: `workflows/skills/multi-agent-collaboration/SKILL.md`.
-- Non-trivial review or release candidate review: `workflows/skills/multi-perspective-review/SKILL.md`.
-- Planning or research: `workflows/skills/planning-research/SKILL.md`.
-- Documentation update: `workflows/skills/documentation-update/SKILL.md`.
-- Feature work: `workflows/skills/feature-implementation/SKILL.md`.
-- Bug or regression: `workflows/skills/bugfix-debugging/SKILL.md`.
-- Refactor or cleanup: `workflows/skills/refactor-cleanup/SKILL.md`.
-- Release-sensitive work: `workflows/skills/release-readiness/SKILL.md`.
-- Final review or commit: `workflows/skills/review-and-commit/SKILL.md`.
-- Architecture: `common/skills/architecture-selection/SKILL.md`, `common/skills/architecture-design/SKILL.md`, or `common/skills/app-architecture/SKILL.md`.
-- LLM-readable wiki, knowledge-base, runbook, or durable documentation: `common/skills/llm-wiki-documentation/SKILL.md`.
-- Code conventions: `common/skills/code-conventions/SKILL.md`.
-- File/module layout, ownership, public contracts, `api`/`impl` splits, or
-  `assertions`/test-support modules: `common/skills/code-structure-ownership/SKILL.md`,
-  `common/skills/solid-design-principles/SKILL.md`, and
-  `common/skills/reusable-code-design/SKILL.md`. These cards are a bundle for boundary
-  work; do not load only one when the task changes dependency direction,
-  caller-facing contracts, reusable fakes, fixtures, recorders, or assertion
-  DSLs.
-- Reusable code extraction or shared module/package contracts:
-  `common/skills/reusable-code-design/SKILL.md`, plus `common/skills/solid-design-principles/SKILL.md`
-  when the shared API exposes callbacks, interfaces, adapters, fakes, or
-  replaceable implementations. When the task creates packages, folders,
-  source sets, modules, or shared/core/common boundaries, include a package
-  boundary note that names owner, allowed imports, forbidden imports, callers,
-  and focused verification before editing. If the task adds several roles, also
-  include the file split and package/folder map before writing code.
-- Reusable component, hook, widget, control, or caller-facing API design: `common/skills/component-api-design/SKILL.md`.
-- UI, async, reducer, store, ViewModel, hook, cache, or state-machine state design: `common/skills/state-modeling/SKILL.md`.
-- Error handling, typed failures, retry classification, or failure UX: `common/skills/error-modeling/SKILL.md`.
-- Project, app, repo, package, module, CLI, or service naming: `common/skills/project-naming/SKILL.md`.
-- Change size or broad diffs: `common/skills/change-size-policy/SKILL.md`.
-- Existing checkout, user-owned changes, or commit preparation: `common/skills/worktree-hygiene/SKILL.md`.
-- Dependencies, SDKs, or build plugins: `common/skills/dependency-policy/SKILL.md`.
-- Generated files, lockfiles, or snapshots: `common/skills/generated-files-policy/SKILL.md`.
-- API, DTO, route, event, webhook, or shared fixture contracts: `common/skills/api-contract-compatibility/SKILL.md`.
-- Upload, download, media, attachment, signed URL, public/private asset movement, cleanup, or embedded asset references: `common/skills/asset-lifecycle/SKILL.md`.
-- External, persisted, generated, cached, platform, or user-provided values: `common/skills/defensive-boundaries/SKILL.md`.
-- Environment-specific runtime URLs, API origins, callback URLs, redirect URIs,
-  webhook endpoints, CORS origins, or asset hosts:
-  `common/skills/runtime-url-configuration/SKILL.md`.
-- Release, deployment, packaging, signing, rollout, rollback, versioning, or tags: `common/skills/release-deployment/SKILL.md` and `common/skills/release-versioning/SKILL.md`.
-- User-facing text, forms, controls, dates, numbers, units, measurements,
-  display values, or localization: `common/skills/accessibility-i18n/SKILL.md`.
-- User-facing prose, documentation tone, release notes, marketing copy, emails, voice fidelity, or AI-writing signal cleanup: `common/skills/human-authored-writing/SKILL.md`.
-- Blog posts, articles, essays, publishable long-form prose, or user-author
-  writing consistency across agents: `common/skills/writing-workspace/SKILL.md` plus
-  `common/skills/human-authored-writing/SKILL.md`.
-- SEO, AI search visibility, AEO/GEO claims, sitemap, robots, metadata, Open Graph, short links, canonical URLs, or public discovery feeds: `common/skills/public-discovery/SKILL.md`.
-- UI layout, interaction, text overflow, responsive behavior, or accessibility-visible state: `common/skills/ui-visual-verification/SKILL.md`.
-- Refactoring: `common/skills/refactoring/SKILL.md`.
-- Tests and evidence: `common/skills/testing/SKILL.md` and `common/skills/verification-policy/SKILL.md`.
-- Code review: `common/skills/code-review/SKILL.md`.
-- Local programs, agent CLIs, or usage telemetry: `common/skills/local-tools/SKILL.md`.
-- Secrets, external state, or user-owned changes: `common/skills/agent-editing-safety/SKILL.md`, `common/skills/secure-development-baseline/SKILL.md`, and `common/skills/security-privacy-review/SKILL.md`.
-- React, iOS, Android, server, desktop, or application work: load the matching platform card from `index.md`.
-- Android Navigation 3, deep links, typed route/back-stack contracts,
-  mixed Compose/Activity routing, or route callbacks/events:
-  `platforms/android/skills/android-architecture/SKILL.md` and
-  `platforms/android/skills/android-module-structure/SKILL.md`, plus the structure/SOLID
-  bundle above when route contracts, `api`/`impl`, `assertions`, fixtures,
-  recording fakes, or assertion DSLs are added or moved. Add
-  `platforms/android/skills/android-security/SKILL.md` when exported components, app links,
-  WebView, permissions, or credentials are touched.
-- Android Compose performance, stability, lazy lists, side effects, custom
-  modifiers, baseline profiles, or measurement claims:
+Preserve these conditional dependencies when the task actually changes them:
+- File/module ownership, public contracts, dependency direction, reusable
+  fixtures, fakes or assertion APIs require the structure/SOLID/reusable-design
+  bundle: `common/skills/code-structure-ownership/SKILL.md`,
+  `common/skills/solid-design-principles/SKILL.md` and
+  `common/skills/reusable-code-design/SKILL.md`. A new shared boundary needs
+  its owner/import/caller/verification note and, for multiple roles, a file
+  split before edits.
+- Publishable long-form prose uses `common/skills/writing-workspace/SKILL.md`
+  with `common/skills/human-authored-writing/SKILL.md`.
+- Android typed navigation, deep links, mixed Activity/Compose routing or
+  route callbacks require `platforms/android/skills/android-architecture/SKILL.md`
+  and `platforms/android/skills/android-module-structure/SKILL.md`, plus the
+  structure bundle for boundary/API/test-support moves. Exported components,
+  app links, WebView, permissions and credentials also require
+  `platforms/android/skills/android-security/SKILL.md`.
+- Android Compose performance work requires
   `platforms/android/skills/android-compose-ui/SKILL.md`,
   `platforms/android/skills/android-review/SKILL.md`,
-  `platforms/android/skills/android-external-skill-source-coverage/SKILL.md`, and the
-  testing/verification cards. Do not claim a performance fix without the
-  repo's relevant measurement evidence or a clear statement that only a
-  structural risk was reduced.
-- Android platform-surface or SDK work such as AGP upgrades, Android CLI/device
-  inspection, R8/keep rules, Perfetto traces, XML-to-Compose migration,
-  adaptive layouts, edge-to-edge, Compose Styles, CameraX, Credential Manager,
-  Play Billing, Play Engage, Wear Compose, XR/Glimmer, or AppFunctions:
-  load the Android architecture/module/Compose/security card that matches the
-  surface, then apply the no-omission source manifest in
-  `platforms/android/skills/android-external-skill-source-coverage/SKILL.md` before editing.
+  `platforms/android/skills/android-external-skill-source-coverage/SKILL.md`,
+  and testing/verification cards. A performance claim needs relevant
+  measurement or an explicit statement that only structural risk was reduced.
+- Android SDK/platform-surface changes require the matching architecture,
+  module, Compose or security card and the no-omission source manifest in
+  `platforms/android/skills/android-external-skill-source-coverage/SKILL.md`
+  before edits.
 
 ## Output Contract
 
-Use short evidence-based reporting:
-
-```text
-Changed:
-- ...
-
-Verified:
-- ...
-
-Remaining risk:
-- ...
-```
-
-For small tasks, a concise paragraph is enough, but verification status still matters.
+Report what changed, what was actually verified and remaining risk. A short
+paragraph is enough for small tasks; unavailable verification is explicit.

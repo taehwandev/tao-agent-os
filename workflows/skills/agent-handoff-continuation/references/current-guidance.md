@@ -21,39 +21,30 @@ This card selects what state is worth carrying. Persisting that state so a later
 session can rediscover it after a closed terminal or a killed process is a
 separate contract, owned by the session continuation protocol card above.
 
-## Continuation State
-
-Maintain enough state for another agent or future turn to continue:
-
-- current objective and non-goals
-- target repo, branch, and relevant local instructions
-- files changed, files inspected, and files intentionally left alone
-- commands run and their pass/fail/skip result
-- active blockers, assumptions, and unresolved decisions
-- next smallest useful step
-
 ## Steps
 
 1. On resume, verify the newest user request still matches the active objective.
 2. Re-check working tree state before assuming previous context is current.
 3. Re-read only the minimum files needed to rebuild confidence.
 4. Continue from the next smallest useful step, not from the beginning.
-5. If handing off, write a concise state summary with verification and residual risk.
+5. If handing off, carry the evidence below with verification and residual risk.
 6. If blocked, state the blocker, what was tried, and exactly what input or external change is needed.
 
 ## Handoff Evidence
 
 A useful handoff includes:
 
-- active objective and whether it is still aligned with the newest request
+- active objective, non-goals, authority/prohibitions, and alignment with the
+  newest request
+- target repo/worktree, branch/commit and applicable local instructions
 - gate ledger state when a scripted route was used
-- files changed, files inspected, files intentionally left alone, and known
-  unrelated user-owned changes
-- commands run with pass/fail/skip result and what each proved
+- files changed (including uncommitted changes), inspected or intentionally left
+  alone, and known unrelated user-owned changes
+- commands run with pass/fail/skip result, what each proved, and evidence
+  references; identify incomplete verification explicitly
 - blockers, assumptions, decisions made, and decisions still needed
-- decision pivots within the session: the initial approach, the feedback that
-  reversed it, and the final approach, so a future session does not re-propose
-  an already-rejected design
+- decision pivots that affect the next action: rejected approach, reason and
+  replacement, so the receiver does not re-propose it
 - deliberately-unapplied follow-up items recommended for separate work, kept
   distinct from blockers, so scope discipline survives the handoff
 - next smallest safe step and which document/card should govern it
@@ -61,29 +52,20 @@ A useful handoff includes:
 Do not hand off with only a narrative summary when verification, changed files,
 or gate status are known.
 
-When handoffs accumulate in one persistent note, keep the most recent N entries
-only, newest first, each entry carrying its branch, changes, and verification
-status — including checks that are explicitly unverified.
+Keep a persistent note bounded to its most recent N entries, newest first,
+with branch, changes and verification status in each. Replace obsolete recap
+instead of appending the session; do not copy transcripts, tool output, source
+or diffs. Preserve underlying evidence and use the session continuation protocol
+for persistence, without another tracker, packet format or routine gate.
 
 ## Completed Cycle Boundary
 
-After a verified unit closes, use the existing handoff summary to carry the
-remaining objective, authority and prohibitions, target/worktree and commit,
-uncommitted or unrelated changes, verification result and evidence reference,
-unresolved decisions, and next action. Retain a rejected approach only when it
-would affect that action. Replace obsolete recap text rather than append the
-whole session; do not copy transcripts, tool output, source or diffs into it.
-Keep underlying evidence intact and use the session continuation protocol for
-persistence, without adding another tracker, packet format or routine gate.
-
-A completed cycle is a candidate for a fresh thread when older context is no
-longer needed and the handoff can preserve correctness. Use a supported runtime
-transition only within user authority; do not abandon unfinished work, pending
-commands or required checks to reset context. If that transition is unavailable,
-continue the authorized work in the current thread without claiming a reset or
-making a new thread a prerequisite. The receiving session verifies current
-state and evidence before reuse. Do not claim token savings from thread age or
-summary length alone.
+After a verified cycle closes, its handoff may support a fresh thread if older
+context is unnecessary. Use only an authorized, supported runtime transition;
+never abandon unfinished work, pending commands or required checks to reset
+context. If unavailable, continue in the current thread without claiming a reset
+or making one a prerequisite. The receiver verifies state and evidence before
+reuse. Thread age or summary length alone does not prove token savings.
 
 ## Stop If
 

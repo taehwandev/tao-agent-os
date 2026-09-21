@@ -22,31 +22,23 @@ unchanged readings.
 
 ## Process
 
-1. Read this entrypoint; open detail only for a concrete unresolved decision.
-   Commit/PR work alone does not require development or branch-strategy cards.
-2. Collect independent Git facts in one bounded tool batch: branch/status,
-   changed paths and the scoped diff needed for the current decision. Inspect
-   each command result. Use summaries to locate the review scope, then read
-   every in-scope final change; a diff stat or truncated patch is not a review.
-   Reuse those observations while their covered state is unchanged. After an
-   edit, staging or integration, refresh the affected facts and review any new
-   differences; do not repeat the entire collection for each lifecycle phase.
-   Keep mutations and their dependent checks sequential. Runtime permission
-   contracts still govern command forms; batching is not a shell-chain waiver.
-   Reuse test/build results under the covered-input and freshness conditions in
-   `common/skills/testing/references/final-check.md`, including when Git metadata
-   changes without changing tested inputs. Review the final diff once.
-   The Review Hook's VibeGuard audit
-   replaces an adjacent identical audit; reuse the gate-batch remaining list.
-   For a fast-forward integration of that exact reviewed commit, verify clean
-   target state and commit identity, then cite the existing review and tests.
-   A required integration review records those checks; it does not require a
-   second source review or test run without drift or new findings.
-   Machine-check reuse searches registered worktrees for the original attested
-   review of a single commit. It requires a clean target at that commit, its
-   exact parent and changed bytes, unchanged rules/checker/limits, and valid
-   source evidence. Missing or mismatched evidence falls back to full checks;
-   safety audit, target drift checks, and the new review record remain fresh.
+1. Collect branch/status, changed paths and scoped diff in one bounded batch of
+   independent reads; inspect every result. Read every in-scope final change:
+   summaries locate scope, but a stat or truncated patch is not a review.
+   Reuse unchanged observations; after edits, staging or integration refresh
+   affected facts and review new differences. Keep mutations and dependent
+   checks sequential under runtime permission contracts, not a shell-chain
+   waiver. Commit/PR work alone needs no development or branch-strategy cards.
+2. Reuse tests/builds under `common/skills/testing/references/final-check.md`.
+   The Review Hook audit replaces an adjacent identical audit; reuse the
+   gate-batch remaining list. Exact fast-forward integration requires clean
+   target and commit identity checks, not another source review absent drift or
+   new findings. Cite the original review/tests in any required integration
+   review. Machine-check reuse requires the original single-commit attestation
+   in a registered worktree, clean target at that commit, exact parent and
+   changed bytes, unchanged rules/checker/limits, and valid source evidence.
+   Otherwise run full checks. Safety audit, drift checks and the new review
+   record remain fresh.
 3. Repair a final-review finding only with a reproducer, impact, evidence this
    diff caused it, owner, and nearest falsifying check. Give a proven blocker
    one bounded repair and affected recheck; otherwise keep it as follow-up or

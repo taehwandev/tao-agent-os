@@ -11,10 +11,8 @@ diff is reviewable.
 
 ## Default
 
-Prefer one narrow vertical slice that can be understood, tested, and reverted.
-
-Small is not the goal by itself. The goal is a change with one clear intent and
-enough surrounding code to be correct.
+Prefer one understandable, testable, revertible vertical slice with a clear
+intent and enough surrounding code to be correct; function count is not the goal.
 
 ## Reviewable Unit
 
@@ -25,15 +23,12 @@ A good change usually has:
 - focused tests or a clear smoke check
 - no unrelated formatting, generated churn, dependency update, or cleanup
 
-For behavior-preserving extraction, choose the unit by its contract rather
-than by function count. Related moves may share one unit when they serve the
-same owner and acceptance criterion, remain reviewable within project limits,
-and can be reverted together. Do not create a separate full closeout merely
-for every helper moved, or enlarge the scope merely to amortize overhead.
-Run focused checks as that unit develops and the required broader verification
-on its final state before commit. Explicit per-step project gates still apply.
-Unrelated owners, different risks or separate rollback needs remain split
-signals; lifecycle savings never justify skipping their checks.
+Related behavior-preserving moves may share a closeout when they have one owner
+and acceptance criterion, fit project review limits and can be reverted together.
+Run focused checks during development and required broader checks on the final
+state before commit; preserve explicit per-step gates. Do not split per helper
+or enlarge scope just to amortize overhead. Different owners, risks or rollback
+needs still favor splitting.
 
 ## Split Signals
 
@@ -58,16 +53,9 @@ For a large but necessary change, record:
 - what verification covers the risky parts
 - what rollback or forward-fix path exists
 
-## Avoid
+## Check / Avoid
 
-- Broad cleanup while implementing a feature.
-- Moving files and changing behavior in the same diff without a reason.
-- Using generated churn to hide manual edits.
-- Leaving placeholder behavior that makes the diff look complete.
-
-## Check
-
-- Can this be reviewed in one pass?
-- Can this be reverted without removing unrelated work?
-- Does every changed line trace to the stated purpose?
-- Would a smaller slice still prove the product or technical goal?
+Every changed line must serve the stated purpose and be reviewable in one pass;
+choose a smaller slice if it still proves the goal. Do not mix unjustified file
+moves and behavior changes, broad cleanup, generated churn that hides manual
+edits, or placeholder behavior that only makes the diff look complete.
