@@ -48,6 +48,10 @@ unchanged readings.
    existing one, pass the exact labeled contract separately through
    `--structure-review-evidence`, not `--boundary-plan-evidence`:
    `owner: ...; allowed imports: ...; forbidden imports: ...; callers/tests: ...; verification: ...`.
+   TypeScript owner comparison retains unchanged declarations that the previous
+   revision already grouped into a support family; new declarations and
+   visibility-expanded declarations still count as new owners. The detailed
+   rationale and examples live in `references/current-guidance.md`.
 
 ## Commit And PR Minimum
 
