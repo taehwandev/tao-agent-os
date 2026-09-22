@@ -36,6 +36,7 @@ WORKTREE_POLICY_REQUIRED_KEYS = frozenset(
 )
 WORKTREE_POLICY_OPTIONAL_KEYS = frozenset(
     {
+        "publication_commands",
         "require_workflow_entry",
         "require_ticketed_product_branch",
         "ticket_key_pattern",
@@ -126,9 +127,70 @@ def worktree_policy(root: Path) -> dict | None:
             for name in ("require_workflow_entry", "require_ticketed_product_branch")
             if name in parsed
         )
+        and _publication_commands_are_valid(parsed)
         and _ticket_policy_is_valid(parsed)
     )
     return parsed if valid else default_worktree_policy()
+
+
+def _publication_commands_are_valid(policy: dict) -> bool:
+    """Validate the repo-owned classifier for opaque publication commands.
+
+    The declaration answers only whether an argv prefix publishes. It never
+    claims that a script is read-only and cannot grant arbitrary local writes,
+    merge, release, deployment, or destructive authority. A malformed
+    declaration invalidates the policy instead of silently dropping the rule.
+    """
+
+    if "publication_commands" not in policy:
+        return True
+    rules = policy["publication_commands"]
+    if not isinstance(rules, list) or len(rules) > 16:
+        return False
+    prefixes: set[tuple[str, ...]] = set()
+    for rule in rules:
+        if not isinstance(rule, dict) or set(rule) != {"argv_prefix", "publishes"}:
+            return False
+        prefix = rule.get("argv_prefix")
+        if (
+            not isinstance(prefix, list)
+            or not 2 <= len(prefix) <= 12
+            or not all(isinstance(token, str) and token and len(token) <= 512 for token in prefix)
+            or not isinstance(rule.get("publishes"), bool)
+        ):
+            return False
+        key = tuple(prefix)
+        if key in prefixes:
+            return False
+        prefixes.add(key)
+    return True
+
+
+def project_publication_kind(root: Path, tokens: list[str], cwd: Path) -> str:
+    """Return ``publishes`` or ``not_publication`` for a declared argv prefix.
+
+    Relative script paths are meaningful only from the declaring project root.
+    Requiring that cwd prevents an identical spelling in another directory
+    from inheriting this repository's trust. Longest-prefix matching lets a
+    narrow non-publishing form (for example ``--check``) override its
+    publishing parent without claiming the script is generally read-only.
+    """
+
+    try:
+        if cwd.resolve() != root.resolve():
+            return ""
+    except OSError:
+        return ""
+    policy = worktree_policy(root)
+    if not policy:
+        return ""
+    matches = []
+    for rule in policy.get("publication_commands", []):
+        prefix = rule["argv_prefix"]
+        if tokens[: len(prefix)] == prefix:
+            kind = "publishes" if rule["publishes"] else "not_publication"
+            matches.append((len(prefix), kind))
+    return max(matches, default=(0, ""))[1]
 
 
 def _ticket_policy_is_valid(policy: dict) -> bool:

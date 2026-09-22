@@ -177,6 +177,67 @@ class ProjectWorktreePolicyTests(unittest.TestCase):
                 self.assertEqual(gate.default_worktree_policy(), gate.worktree_policy(target))
                 self.assertIn("worktree gate", self.edit(target, target))
 
+    def test_project_publication_kind_uses_the_longest_declared_argv_prefix(self):
+        target = self.project("external")
+        declared = self.policy(target, linked=False)
+        declared["publication_commands"] = [
+            {
+                "argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py"],
+                "publishes": True,
+            },
+            {
+                "argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py", "--check"],
+                "publishes": False,
+            },
+        ]
+        (target / gate.WORKTREE_POLICY_PATH).write_text(json.dumps(declared))
+
+        self.assertEqual(
+            "not_publication",
+            gate.project_publication_kind(
+                target,
+                ["python3", "tools/bitbucket_pr/create_pr.py", "--check", "--source", "work"],
+                target,
+            ),
+        )
+        self.assertEqual(
+            "publishes",
+            gate.project_publication_kind(
+                target,
+                ["python3", "tools/bitbucket_pr/create_pr.py", "--source", "work"],
+                target,
+            ),
+        )
+
+    def test_project_publication_kind_does_not_trust_another_working_directory(self):
+        target = self.project("external")
+        declared = self.policy(target, linked=False)
+        declared["publication_commands"] = [{
+            "argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py"],
+            "publishes": True,
+        }]
+        (target / gate.WORKTREE_POLICY_PATH).write_text(json.dumps(declared))
+
+        self.assertEqual(
+            "",
+            gate.project_publication_kind(
+                target,
+                ["python3", "tools/bitbucket_pr/create_pr.py"],
+                self.base,
+            ),
+        )
+
+    def test_malformed_project_publication_contract_fails_closed_with_the_policy(self):
+        target = self.project("external")
+        declared = self.policy(target, linked=False)
+        declared["publication_commands"] = [{
+            "argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py"],
+            "publishes": "yes",
+        }]
+        (target / gate.WORKTREE_POLICY_PATH).write_text(json.dumps(declared))
+
+        self.assertEqual(gate.default_worktree_policy(), gate.worktree_policy(target))
+
     def test_false_isolation_does_not_waive_explicit_workflow_entry(self):
         target = self.project("external")
         declared = self.policy(target, linked=False)

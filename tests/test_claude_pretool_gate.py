@@ -3358,6 +3358,21 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
             }
         )
 
+    def _declare_pr_command(self, project: Path) -> None:
+        policy = project / gate.WORKTREE_POLICY_PATH
+        declared = json.loads(policy.read_text(encoding="utf-8"))
+        declared["publication_commands"] = [
+            {
+                "argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py", "--check"],
+                "publishes": False,
+            },
+            {
+                "argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py"],
+                "publishes": True,
+            },
+        ]
+        policy.write_text(json.dumps(declared), encoding="utf-8")
+
     def test_the_run_is_open(self) -> None:
         """The premise: workflow entry passes, which is why push used to."""
 
@@ -3386,6 +3401,41 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertIn("still open", _reason(out))
+
+    def test_declared_project_pr_command_waits_for_finish(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+            self._declare_pr_command(project)
+
+            code, out = self._decide(
+                project,
+                "python3 tools/bitbucket_pr/create_pr.py --source work --dest develop",
+            )
+
+        self.assertEqual(0, code)
+        self.assertIn("still open", _reason(out))
+
+    def test_gh_pr_creation_waits_for_finish_too(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+
+            code, out = self._decide(project, "gh pr create --fill --base develop")
+
+        self.assertEqual(0, code)
+        self.assertIn("still open", _reason(out))
+
+    def test_declared_project_pr_check_is_not_mistaken_for_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._open_project(Path(tmp))
+            self._declare_pr_command(project)
+
+            code, out = self._decide(
+                project,
+                "python3 tools/bitbucket_pr/create_pr.py --check --source work --dest develop",
+            )
+
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
 
     def test_a_local_commit_is_left_alone(self) -> None:
         """It can be amended or reset, and a task commits while it works.
@@ -3802,6 +3852,15 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
             }
         )
 
+    def _declare_pr_command(self, project: Path) -> None:
+        policy = project / gate.WORKTREE_POLICY_PATH
+        declared = json.loads(policy.read_text(encoding="utf-8"))
+        declared["publication_commands"] = [{
+            "argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py"],
+            "publishes": True,
+        }]
+        policy.write_text(json.dumps(declared), encoding="utf-8")
+
     def test_the_run_is_no_longer_bound_once_it_is_finished(self) -> None:
         """The premise: this is why the commit was refused at all."""
 
@@ -3820,6 +3879,67 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
                     code, out = self._decide(project, command)
                     self.assertEqual(0, code)
                     self.assertIn("a successful finish", _reason(out))
+
+    def test_finish_allows_a_publication_chain_with_read_only_followup(self) -> None:
+        """Finishing must release the common chained spelling of the same push."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            code, out = self._decide(project, "git push origin work && git status --short")
+
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
+
+    def test_finish_does_not_let_a_publication_chain_edit_afterward(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            code, out = self._decide(project, "git push origin work && touch changed.txt")
+
+        self.assertEqual(0, code)
+        self.assertNotEqual("", out)
+        self.assertNotIn("a successful finish", _reason(out))
+
+    def test_finish_does_not_treat_redirect_targets_as_read_only_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            for command in (
+                "git push origin work > git status",
+                "git push origin work && echo ok > git status",
+                "git push origin work >> git status",
+                "git push origin work 2> git status",
+                "git push origin work &> git status",
+                "git push origin work < git status",
+            ):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertNotIn("a successful finish", _reason(out))
+                    self.assertIn('"permissionDecision": "deny"', out)
+
+    def test_finished_publication_preserves_shell_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            cases = (
+                ("git push origin work\ntouch changed.txt", False),
+                ("git push origin work # comment\ntouch changed.txt", False),
+                ("git push origin work \\ # ; touch changed.txt", False),
+                ("git push origin work\ngit status --short", True),
+                ('git push origin work && echo ">"', True),
+                ("git push origin work && echo '>'", True),
+                ("git push origin work && echo \\>", True),
+                ('git push origin work && echo "hello\nworld"', True),
+                ("git push origin work && echo ok # comment\ntouch changed.txt", False),
+                ("git push origin work # comment\necho $(touch changed.txt)", False),
+                ("git push origin work && \\\ngit status --short", True),
+            )
+            for command, allowed in cases:
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    decision = "allow" if allowed else "deny"
+                    self.assertIn(f'"permissionDecision": "{decision}"', out)
 
     def test_finish_does_not_reopen_editing(self) -> None:
         """Finish attested one diff; moving the tree would outdate it."""
@@ -3943,6 +4063,43 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertIn("a successful finish", _reason(out))
         self.assertEqual(0, read_code)
         self.assertEqual("", read_out)
+
+    def test_finish_opens_a_pr_through_the_declared_project_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            self._declare_pr_command(project)
+
+            code, out = self._decide(
+                project,
+                "python3 tools/bitbucket_pr/create_pr.py --source work --dest develop",
+            )
+
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
+
+    def test_finish_allows_push_and_declared_pr_as_one_publication_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            self._declare_pr_command(project)
+
+            code, out = self._decide(
+                project,
+                "git push origin work && python3 tools/bitbucket_pr/create_pr.py "
+                "--source work --dest develop",
+            )
+
+        self.assertEqual(0, code)
+        self.assertIn("a successful finish", _reason(out))
+
+    def test_finish_does_not_authorize_an_undeclared_python_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            code, out = self._decide(project, "python3 tools/custom_publish.py")
+
+        self.assertEqual(0, code)
+        self.assertNotEqual("", out)
+        self.assertNotIn("a successful finish", _reason(out))
 
     def test_finish_does_not_authorize_merging_shipping_or_the_api(self) -> None:
         """Publishing a branch is not integrating, releasing, or writing.

@@ -18,6 +18,12 @@ request actually packages, deploys, tags, migrates, or publishes a release
 artifact. The commit route exists to avoid running implementation gates after
 the code work is already done.
 
+`agent-hook start --command pr` and `--command pull-request` are compatibility
+aliases for this same `commit` lifecycle. They retain an `external_write`
+minimum before normalization, so a PR request cannot be admitted with local
+Git authority alone. Do not open another route between a successful finish and
+the push or PR creation it already attested.
+
 ## Same-Run Local Commit Continuation
 
 When implementation already includes an authorized local commit, prepare it
@@ -75,6 +81,11 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   state, complete the staged-diff/readiness checks, and run one read-only
   finish; do not rerun the full implementation route or full test suite solely
   because the user asked to commit; and
+- after finish, run the attested add/commit/push/PR steps directly. A shell
+  chain is allowed only when every segment is one of those publication steps
+  or independently read-only. Never replace a blocked Git push with a provider
+  REST write; preserve the local commit identity and repair the failed contract;
+  and
 - if a check blocks publication, distinguish a task-caused defect from
   pre-existing debt or an execution/access failure before choosing recovery.
   A failed check and a work route are not source-change authority. Do not

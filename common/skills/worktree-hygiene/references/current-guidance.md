@@ -133,15 +133,38 @@ closed contract:
   "schema_version": 1,
   "require_linked_worktree": true,
   "protected_branches": ["develop", "main"],
-  "require_workflow_entry": true
+  "require_workflow_entry": true,
+  "publication_commands": [
+    {
+      "argv_prefix": ["python3", "tools/provider_pr/create_pr.py", "--check"],
+      "publishes": false
+    },
+    {
+      "argv_prefix": ["python3", "tools/provider_pr/create_pr.py"],
+      "publishes": true
+    }
+  ]
 }
 ```
 
-`require_workflow_entry` is the one optional key; the waiver described below is
-what it turns off, and it defaults to absent so an existing declaration keeps
-its current behaviour. Every other key is required, and the contract stays
-closed in both directions: an unrecognised key is a malformed declaration that
-falls back to the default policy rather than an extra that is ignored.
+`require_workflow_entry`, `publication_commands`, and the ticketed-product
+branch fields are optional. The waiver described below is what
+`require_workflow_entry` turns off, and it defaults to absent so an existing
+declaration keeps its current behaviour. Every other key is required, and the
+contract stays closed in both directions: an unrecognised key is a malformed
+declaration that falls back to the default policy rather than an extra that is
+ignored.
+
+`publication_commands` is a longest-prefix argv classifier for a repository's
+official PR or branch publication tool when the generic gate can otherwise see
+only an interpreter. Each rule has exactly `argv_prefix` and boolean
+`publishes`; prefixes contain 2–12 non-empty tokens and cannot repeat. A longer
+`publishes: false` rule can exclude a check-only form from its publishing
+parent, but it does not certify that command as read-only or make it runnable
+without an active workflow. A `publishes: true` match waits for finish and may
+then use that same fresh finish. Undeclared interpreter calls remain unknown.
+Declare the literal argv the repository's documented tool uses; provider names
+and account details stay in the target repository, not Tao.
 
 `require_linked_worktree` accepts either boolean. `false` permits work in the
 main checkout but still enforces any `protected_branches`; an empty branch list
@@ -164,7 +187,7 @@ when linked isolation is required, and on any listed protected branch. A read-on
 `git worktree add` remain available so the agent can reach the compliant
 checkout. Source-development workflow `start` is denied there: opening a run
 before relocation leaves a second unfinished lifecycle behind. Administrative
-`cleanup`, `commit`, and `git_commit` starts may bind to the checkout they
+`cleanup`, `commit`, `git_commit`, `pr`, and `pull-request` starts may bind to the checkout they
 administer without `TAO_ALLOW_MAIN_CHECKOUT_EDIT`. This admits lifecycle metadata
 only; it does not grant source-edit permission, deletion authority, or publication
 before required gates finish. Every subsequent action retains its own isolation,

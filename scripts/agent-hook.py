@@ -102,7 +102,11 @@ from agent_transfer_cancel import (
     cancellation_receipt_failure,
     cancellation_worktree_drift,
 )
-from workflow_effect_policy import APPROVAL_REQUIRED_FROM, route_minimum_effect
+from workflow_effect_policy import (
+    APPROVAL_REQUIRED_FROM,
+    canonical_route_command,
+    route_minimum_effect,
+)
 from workflow_intent_envelope import (
     EFFECT_RANK,
     EFFECTS,
@@ -111,6 +115,8 @@ from workflow_intent_envelope import (
     SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION,
     intent_slug_failure,
     normalize_intent_slug,
+    read_approval_record,
+    read_intent_envelope,
 )
 from agent_context_store import (
     context_snapshot_failures_are_required_doc_drift,
@@ -1907,6 +1913,7 @@ def _materialize_compact_start_authority(
     prohibited = list(getattr(args, "prohibited_effect", []) or [])
     compact = bool(intent or target or requested or approved or prohibited)
     if not compact:
+        _canonicalize_publication_start(parser, args)
         return
     if args.intent_envelope or args.approval_record:
         parser.error(
@@ -1999,6 +2006,47 @@ def _materialize_compact_start_authority(
             ensure_ascii=False,
             separators=(",", ":"),
         )
+    _canonicalize_publication_start(parser, args)
+
+
+def _canonicalize_publication_start(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """Fold PR shorthand into commit after preserving its external-write floor.
+
+    The approval is rebound only from the exact alias being normalized. Other
+    route bindings stay untouched and fail normally, so this cannot repair or
+    widen an unrelated approval record.
+    """
+
+    original = str(args.command)
+    canonical = canonical_route_command(original)
+    if canonical == original:
+        return
+    envelope = read_intent_envelope(getattr(args, "intent_envelope", ""))
+    effects = envelope.get("requested_effects", []) if isinstance(envelope, dict) else []
+    if not any(
+        isinstance(effect, str)
+        and effect in EFFECT_RANK
+        and EFFECT_RANK[effect] >= EFFECT_RANK["external_write"]
+        for effect in effects
+    ):
+        parser.error(
+            f"publication alias `{original}` requires an `external_write` request; "
+            "use compact start with --approved-effect external_write or bind an "
+            "equivalent compatibility envelope"
+        )
+    approval = read_approval_record(getattr(args, "approval_record", ""))
+    if isinstance(approval, dict) and approval.get("command") == original:
+        approval = dict(approval)
+        approval["command"] = canonical
+        args.approval_record = json.dumps(
+            approval,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    args.command = canonical
 
 
 def _validate_hook_arguments_before_repair(

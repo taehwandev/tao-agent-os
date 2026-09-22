@@ -156,6 +156,56 @@ class CompactStartAuthorityTests(unittest.TestCase):
             requested_effect="external_write", approved_effect="git_write",
         ))
 
+    def test_pr_alias_uses_one_commit_lifecycle_with_external_authority(self) -> None:
+        """A PR follow-up is publication, not a second unknown workflow route."""
+
+        args = self._materialize(command="pr", approved_effect="external_write")
+        envelope = json.loads(args.intent_envelope)
+        approval = json.loads(args.approval_record)
+
+        self.assertEqual("commit", args.command)
+        self.assertEqual(["external_write"], envelope["requested_effects"])
+        self.assertEqual("external_write", approval["effect"])
+        self.assertEqual("commit", approval["command"])
+
+    def test_pr_alias_refuses_git_only_authority_before_normalizing(self) -> None:
+        message = self._refusal(command="pr", approved_effect="git_write")
+
+        self.assertIn("external_write", message)
+        self.assertIn("below", message)
+
+    def test_compatibility_pr_alias_keeps_the_external_effect_floor(self) -> None:
+        compact = self._materialize(command="pr", approved_effect="external_write")
+        envelope = compact.intent_envelope
+        approval = json.loads(compact.approval_record)
+        approval["command"] = "pr"
+
+        args = self._materialize(
+            command="pr",
+            intent="",
+            target_summary="",
+            approved_effect="",
+            intent_envelope=envelope,
+            approval_record=json.dumps(approval),
+        )
+
+        self.assertEqual("commit", args.command)
+        self.assertEqual("commit", json.loads(args.approval_record)["command"])
+
+    def test_compatibility_pr_alias_rejects_a_git_only_envelope(self) -> None:
+        compact = self._materialize(command="commit", approved_effect="git_write")
+
+        message = self._refusal(
+            command="pr",
+            intent="",
+            target_summary="",
+            approved_effect="",
+            intent_envelope=compact.intent_envelope,
+            approval_record=compact.approval_record,
+        )
+
+        self.assertIn("external_write", message)
+
     def test_foreign_session_is_rejected(self) -> None:
         self.assertIn("does not match", self._refusal(
             runtime_session_id="another-runtime-session",

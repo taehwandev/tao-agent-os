@@ -75,6 +75,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         raw_path_arguments,
         read_only_path_token_indices,
         policy_requires_workflow_entry,
+        project_publication_kind,
         ticketed_product_branch_denial,
         worktree_denial,
         worktree_policy,
@@ -161,6 +162,9 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
         # A broken install has read no declaration, so it cannot claim the
         # repository asked for the stricter path.
         return False
+
+    def project_publication_kind(root: Path, tokens: list[str], cwd: Path) -> str:
+        return ""
 
     def ticketed_product_branch_denial(root: Path, target: Path) -> str | None:
         return None
@@ -894,37 +898,85 @@ def _substitution_runs(command: str) -> bool:
     return False
 
 
-def _command_segments(command: str) -> "list[list[str]] | None":
-    """The simple commands a line is made of, or None when it cannot be read.
+def _shell_command_parts(command: str, reject_redirections: bool) -> list[str] | None:
+    """Split operators before unquoting so literal punctuation stays data."""
 
-    A substitution runs a program this cannot see -- `echo $(git push)` names
-    `echo` and publishes anyway -- so a line carrying one is not segmented.
-    """
-
-    if _substitution_runs(command):
+    parts: list[str] = []
+    current: list[str] = []
+    quote = ""
+    word_start = True
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if char == "\\" and quote != "'":
+            if index + 1 >= len(command):
+                return None
+            following = command[index + 1]
+            if following != "\n":
+                current.extend((char, following))
+                word_start = False
+            index += 2
+            continue
+        if quote != "'" and command.startswith(SUBSTITUTION_MARKERS, index):
+            return None
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+            current.append(char)
+            word_start = False
+        elif char == "#" and word_start:
+            # A comment ends at the newline; later commands still need checks.
+            newline = command.find("\n", index)
+            index = len(command) if newline < 0 else newline
+            continue
+        elif char == "\n" or char in SHELL_PUNCTUATION_CHARS:
+            if reject_redirections and char in "<>":
+                return None
+            if current:
+                parts.append("".join(current))
+                current = []
+            word_start = True
+        else:
+            current.append(char)
+            word_start = char in " \t"
+        index += 1
+    if quote:
         return None
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=SHELL_PUNCTUATION_CHARS)
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = list(lexer)
-    except ValueError:
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def _command_segments(
+    command: str, *, reject_redirections: bool = False
+) -> "list[list[str]] | None":
+    """Return simple commands, rejecting hidden substitutions and bad syntax."""
+
+    parts = _shell_command_parts(command, reject_redirections)
+    if parts is None:
         return None
     segments: list[list[str]] = []
-    current: list[str] = []
-    for token in tokens:
-        if token and set(token) <= set(SHELL_PUNCTUATION_CHARS):
-            if current:
-                segments.append(current)
-            current = []
-            continue
-        current.append(token)
-    if current:
-        segments.append(current)
+    for part in parts:
+        if _substitution_runs(part):
+            return None
+        try:
+            tokens = shlex.split(part)
+        except ValueError:
+            return None
+        if tokens:
+            segments.append(tokens)
     return segments
 
 
-def publication_hold(command: str, depth: int = 0) -> str:
+def publication_hold(
+    command: str,
+    depth: int = 0,
+    root: Path | None = None,
+    cwd: Path | None = None,
+) -> str:
     """The strongest hold any segment of this command line asks for.
 
     Running only on a lone simple command let `git push && echo done` past,
@@ -940,7 +992,7 @@ def publication_hold(command: str, depth: int = 0) -> str:
         return "unreadable"
     verdict = ""
     for tokens in segments:
-        found = _segment_hold(tokens, depth)
+        found = _segment_hold(tokens, depth, root, cwd)
         if found == "publishes":
             return "publishes"
         if found == "unreadable":
@@ -948,7 +1000,12 @@ def publication_hold(command: str, depth: int = 0) -> str:
     return verdict
 
 
-def _segment_hold(tokens: list[str], depth: int) -> str:
+def _segment_hold(
+    tokens: list[str],
+    depth: int,
+    root: Path | None = None,
+    cwd: Path | None = None,
+) -> str:
     """One simple command: what it publishes, or that its program is hidden."""
 
     command = _command_behind_environment(tokens, depth)
@@ -965,14 +1022,29 @@ def _segment_hold(tokens: list[str], depth: int) -> str:
         if not readable:
             return "unreadable"
         # `bash script.sh` runs a script, which is an ordinary program.
-        return publication_hold(payload, depth + 1) if payload is not None else ""
-    if Path(command[0]).name != "git":
-        return ""
-    subcommand, _arguments = git_subcommand(command)
-    return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
+        return (
+            publication_hold(payload, depth + 1, root, cwd)
+            if payload is not None
+            else ""
+        )
+    program = Path(command[0]).name
+    if program == "git":
+        subcommand, _arguments = git_subcommand(command)
+        return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
+    if program == "gh":
+        words = [token for token in command[1:] if not token.startswith("-")]
+        return "publishes" if tuple(words[:2]) in PUBLICATION_GH_SUBCOMMANDS else ""
+    if root is not None:
+        return project_publication_kind(root, command, cwd or root)
+    return ""
 
 
-def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> bool:
+def publishes_finished_work(
+    root: Path,
+    session_id: str,
+    tokens: list[str],
+    cwd: Path | None = None,
+) -> bool:
     """Whether this is the commit or push that a successful finish authorized.
 
     The lifecycle requires finish before commit, and finish settles the run. So
@@ -998,18 +1070,53 @@ def publishes_finished_work(root: Path, session_id: str, tokens: list[str]) -> b
 
     if not tokens:
         return False
-    program = Path(tokens[0]).name
+    command = _command_behind_environment(tokens, 0)
+    if not command:
+        return False
+    program = Path(command[0]).name
     if program == "gh":
-        words = [token for token in tokens[1:] if not token.startswith("-")]
+        words = [token for token in command[1:] if not token.startswith("-")]
         if tuple(words[:2]) not in PUBLICATION_GH_SUBCOMMANDS:
             return False
     elif program == "git":
-        subcommand, _arguments = git_subcommand(tokens)
+        subcommand, _arguments = git_subcommand(command)
         if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
             return False
-    else:
+    elif project_publication_kind(root, command, cwd or root) != "publishes":
         return False
     return evidence_is_fresh(finished_session_evidence(root, session_id))
+
+
+def publishes_finished_command(
+    root: Path,
+    session_id: str,
+    command: str,
+    cwd: Path,
+) -> bool:
+    """Allow only finished publications plus harmless observations in a chain.
+
+    A finished run already authorizes add/commit/push and PR creation. Shells
+    commonly join those with ``&&``; requiring a lone command recreated a
+    second lifecycle for the exact same publication. Every other segment must
+    independently classify read-only, so ``git push && touch file`` stays
+    blocked and a finish never becomes general shell authority.
+    """
+
+    # Redirection operands are file targets, not executable read-only segments.
+    # A completed run does not grant new filesystem writes via shell redirects.
+    segments = _command_segments(command, reject_redirections=True)
+    if not segments:
+        return False
+    published = False
+    for segment in segments:
+        if publishes_finished_work(root, session_id, segment, cwd):
+            published = True
+            continue
+        legacy_kind = bash_command_kind(segment, True)
+        effect, _reason = command_effect(segment, True, legacy_kind)
+        if effect != "read_only":
+            return False
+    return published
 
 
 def _read_run_mutation_denial(roots: list[Path], session_id: str, kind: str) -> str | None:
@@ -1309,6 +1416,7 @@ def _isolated_checkout_verdict(
     governed_roots: "list[Path] | None" = None,
     cwd_roots: "list[Path] | None" = None,
     unknown_reason: str = "",
+    effective_cwd: Path | None = None,
 ) -> int:
     """Answer a call the worktree policy has already cleared.
 
@@ -1338,7 +1446,9 @@ def _isolated_checkout_verdict(
             # publication most often takes, and requiring a lone command let
             # `git push && echo done` through.
             held = (
-                publication_hold(bash_command(payload))
+                publication_hold(
+                    bash_command(payload), root=governed, cwd=effective_cwd or cwd
+                )
                 if tool in BASH_TOOLS
                 else ""
             )
@@ -1351,8 +1461,12 @@ def _isolated_checkout_verdict(
             continue
         if (
             tool in BASH_TOOLS
-            and syntax_is_simple
-            and publishes_finished_work(governed, session_id, tokens or [])
+            and publishes_finished_command(
+                governed,
+                session_id,
+                bash_command(payload),
+                effective_cwd or cwd,
+            )
         ):
             finish_authorized = True
             continue
@@ -1536,7 +1650,7 @@ def _worktree_policy_verdict(
     # isolated-checkout branch, which never saw this command because this
     # function returns first.
     held = (
-        publication_hold(bash_command(payload))
+        publication_hold(bash_command(payload), root=root, cwd=command_cwd)
         if landing in {"allow", "defer", "ask"} and tool in BASH_TOOLS
         else ""
     )
@@ -2422,13 +2536,14 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
     command_cwd = _git_effective_cwd(tokens, effective_cwd)
     kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple))
+    roots = bash_governed_roots(tokens, command_cwd, command=bash_command(payload))
     return _CallScope(
         kind,
         tokens,
         syntax_is_simple,
         command_cwd,
         effective_cwd,
-        bash_governed_roots(tokens, command_cwd, command=bash_command(payload)),
+        roots,
         [
             found
             for found in (find_project_root(command_cwd), find_project_root(cwd))
@@ -2450,7 +2565,9 @@ def _administrative_workflow_start(tokens: list[str]) -> bool:
             routes.append(tokens[index + 1] if index + 1 < len(tokens) else "")
         elif token.startswith("--command="):
             routes.append(token.partition("=")[2])
-    return len(routes) == 1 and routes[0] in {"cleanup", "commit", "git_commit"}
+    return len(routes) == 1 and routes[0] in {
+        "cleanup", "commit", "git_commit", "pr", "pull-request"
+    }
 
 
 def _workflow_start_verdict(
@@ -2592,7 +2709,8 @@ def decide(payload: dict) -> int:
                 f"{hazard}. Allow it only if that is what you meant."
             )
     return _isolated_checkout_verdict(
-        payload, tool, root, cwd, tokens, syntax_is_simple, roots, cwd_roots, scope.unknown_reason
+        payload, tool, root, cwd, tokens, syntax_is_simple, roots, cwd_roots,
+        scope.unknown_reason, effective_cwd,
     )
 
 

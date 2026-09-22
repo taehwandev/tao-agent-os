@@ -58,6 +58,16 @@ ROUTE_MINIMUM_EFFECT = {
 APPROVAL_REQUIRED_FROM = "git_write"
 
 _UNKNOWN_ROUTE_FLOOR = "external_write"
+PUBLICATION_ROUTE_ALIASES = {
+    "pr": "commit",
+    "pull-request": "commit",
+}
+
+
+def canonical_route_command(command: str) -> str:
+    """Map publication shorthand to the one lifecycle that already owns it."""
+
+    return PUBLICATION_ROUTE_ALIASES.get(command, command)
 
 
 def route_minimum_effect(command: str) -> str:
@@ -67,6 +77,8 @@ def route_minimum_effect(command: str) -> str:
     least, so adding a route without declaring its floor fails closed.
     """
 
+    if command in PUBLICATION_ROUTE_ALIASES:
+        return "external_write"
     return ROUTE_MINIMUM_EFFECT.get(command, _UNKNOWN_ROUTE_FLOOR)
 
 
