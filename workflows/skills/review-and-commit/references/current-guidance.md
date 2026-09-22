@@ -46,9 +46,11 @@ necessary change to it.
 
 ### Local Fast-Forward Integration
 
-A local merge changes the destination checkout; it is not the post-finish
-publication exception for committing the exact staged unit. Keep the authorized
-integration run active until the merge and its verification are complete:
+A fast-forward of a finished, clean, unchanged worktree HEAD into the same
+repository's main checkout is admitted by that run's finish; do not open a
+commit route for it. Every other local merge changes the destination checkout
+and is not that exception, so keep the authorized integration run active until
+the merge and its verification are complete:
 
 1. Reuse the source unit's completed review and verification as evidence. In the
    destination, resolve immutable base/head SHAs, confirm clean state and the

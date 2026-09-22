@@ -700,7 +700,11 @@ def finish_hook(args: argparse.Namespace) -> int:
             "actions. Continue already-authorized steps within the same verified scope "
             "without reopening this lifecycle. Once the requested outcome is confirmed, "
             "report it; do not repeat review or finish merely to close publication. "
-            "New effects, targets or changed evidence still require matching admission."
+            "New effects, targets or changed evidence still require matching admission. "
+            "A fast-forward of this worktree's HEAD into the same repository's main "
+            "checkout (git -C <main> merge --ff-only <HEAD>) is admitted by this finish "
+            "while the worktree stays clean and unchanged; do not open a commit route "
+            "for it."
         )
         details.append(
             record_lifecycle_checkpoint(

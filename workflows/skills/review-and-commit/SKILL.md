@@ -19,8 +19,8 @@ applicable rule; load references only if their entrypoint cannot resolve it.
    Keep mutations/dependent checks sequential under runtime permissions.
 2. Reuse matching checks under `common/skills/testing/references/final-check.md`
    and gate-batch remaining list. Review Hook replaces duplicate adjacent audits.
-   Clean exact fast-forward needs identity checks; reuse source review absent
-   drift/findings and cite it in integration review.
+   A finished, clean, unchanged worktree's fast-forward is admitted by its
+   finish, not a commit route; other merges keep that route.
    Mechanical reuse requires a registered worktree's single-commit attestation,
    clean target at that commit, exact parent/bytes, unchanged rules/checker/limits
    and valid source evidence; else run full checks. Audit/drift checks and the
