@@ -140,12 +140,21 @@ A prerequisite that truly had to precede an action, such as authorization,
 cannot be supplied retroactively. Use the missed-gate recovery in
 `common/skills/worktree-hygiene/references/current-guidance.md` for that case.
 
-For sustained goals, each new implementation unit retains its required tests,
-review and integration checks. Reuse applies only to evidence whose covered
-state and required freshness still match; it is not a reason to skip the next
-unit's verification. Judge process quality by whether each decision had the
-needed guidance and evidence, not by minimizing reads, tests or lifecycle calls.
-This contract adds no gate, receipt, approval round or mandatory preview.
+For sustained goals, an iteration is not a new intake. Within the approved
+scope, keep the active action and retain instructions, accepted decisions,
+ownership and verification plan. Do not repeat discovery, document loading,
+planning, mailbox intake or start merely because another unit or turn begins.
+Inspect the next diff and update only changed assumptions, risks and checks.
+Read new/changed guidance or recover missing context only when needed; a new
+run manifest does not erase prior readings. Compaction alone does not prove
+all context was lost.
+
+Each changed unit still needs its required tests, review and integration checks;
+reuse evidence only while its inputs and freshness match. A completed run is
+not writable: use the existing continuation admission when another action needs
+it, without reconstructing retained intake or copying old gates as fresh.
+New targets, authority or effects require matching admission; paused goals
+require explicit resume. Add no goal-specific gate, receipt or approval round.
 
 ## Stale Evidence And Recovery
 

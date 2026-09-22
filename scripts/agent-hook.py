@@ -502,12 +502,17 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
 def _continuation_summary_lines(command: str) -> list[str]:
     publication = [_publication_continuity_guidance()] if command in {"commit", "git_commit"} else []
     return _release_reuse_lines(command) + publication + [
-        "Work continuity: keep the active action until its scope changes. For a new authorized "
-        "action of the same work, start --continue-from <previous run id>; add --reuse-inputs "
+        "Work continuity: a goal iteration is not a new intake. Within approved scope, "
+        "keep the active action; retain guidance, decisions and verification plan. Read "
+        "only changed, newly applicable or lost context; a new run does not erase retained "
+        "readings. Keep changed-unit tests and required pre-commit review/finish. A "
+        "completed run is not writable: when another action needs admission, use "
+        "start --continue-from <previous run id>; add --reuse-inputs "
         "with observed matching scope, toolchain, artifacts and external inputs to carry valid "
         "local gates automatically. Use the returned remaining gates, not a rewritten checklist. "
         "Work identity does not grant authority or carry remote results/review. Unrelated work "
-        "omits --continue-from; request wording never establishes this relationship."
+        "omits --continue-from; paused goals require explicit resume. Request wording "
+        "never establishes this relationship."
     ]
 
 

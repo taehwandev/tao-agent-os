@@ -29,9 +29,9 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
 4. Load optional procedures when the action needs them, not for every later
    workflow stage. PR metadata work does not itself require module-design rules;
    module creation needs the applicable platform's module rules. Read selected
-   instruction files completely; reuse unchanged readings still in context.
-   Deduplicate paths selected by
-   multiple skills; an entrypoint's topic links are not all mandatory reads.
+   instructions once; reuse retained readings across goal iterations and runs.
+   Read only changed/new or lost guidance, including after compaction.
+   Deduplicate paths; topic links are not all mandatory reads.
 5. Make only changes needed for the authorized outcome. An incidental finding
    is not permission for cleanup, redesign or environment changes. If required
    selection is excessive, report the conflict and repair its owner only with

@@ -306,6 +306,18 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("A expands to A+B", summary)
         self.assertIn("one semantic checkpoint", summary)
 
+    def test_goal_iterations_retain_context_without_restarting_intake(self) -> None:
+        for command in ("refactor", "bugfix", "task"):
+            with self.subTest(command=command):
+                summary = "\n".join(agent_hook._continuation_summary_lines(command))
+                self.assertIn("iteration is not a new intake", summary)
+                self.assertIn("retain guidance, decisions and verification plan", summary)
+                self.assertIn("only changed, newly applicable or lost context", summary)
+                self.assertIn("Keep changed-unit tests and required pre-commit review/finish", summary)
+                self.assertIn("completed run is not writable", summary)
+                self.assertIn("paused goals require explicit resume", summary)
+                self.assertIn("does not grant authority", summary)
+
     def test_start_shows_required_manifest_without_expanding_reference_reading(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             evidence = Path(directory) / "preflight.json"
