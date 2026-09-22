@@ -4,10 +4,46 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from claude_bash_readonly import bash_invocation, bash_command_kind
-from claude_command_effect import command_effect
+from claude_command_effect import command_effect, github_publication
 
 
 class CommandEffectTests(unittest.TestCase):
+    def test_publication_action_contract_does_not_depend_on_workflow_state(self):
+        for command in (
+            'gh release create v1 --notes-file /tmp/notes.md',
+            'gh release upload v1 package.tgz',
+            'gh api --method=POST repos/owner/repo/releases -f tag_name=v1',
+            'gh api repos/owner/repo/actions/runs/42/pending_deployments -f state=approved',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual('mutating', self.effect(command)[0])
+
+    def test_publication_contract_excludes_reads_and_unrelated_authority(self):
+        import shlex
+        for command in (
+            'gh release view v1', 'gh release delete v1', 'gh pr merge 1',
+            'gh api repos/owner/repo/releases',
+            'gh api -X DELETE repos/owner/repo/releases',
+            'gh api -X POST repos/owner/repo/hooks',
+            'gh api -X POST graphql -f query=mutation',
+            'gh api -X POST repos/owner/repo/releases --hostname other.test',
+            'gh api -X POST repos/owner/repo/releases -X GET',
+            'gh api -X POST repos/owner/repo/releases --input',
+            'gh api -X POST repos/owner/repo/releases extra',
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(github_publication(shlex.split(command)))
+
+    def test_release_notes_and_api_input_are_read_operands(self):
+        from claude_bash_readonly import read_only_path_token_indices
+        for tokens in (
+            ['gh', 'release', 'create', 'v1', '--notes-file', '/tmp/notes.md'],
+            ['gh', 'api', 'repos/owner/repo/releases', '--input', '/tmp/body.json'],
+        ):
+            self.assertIn(len(tokens) - 1, read_only_path_token_indices(tokens))
+            chained = tokens + ['&&', 'touch', tokens[-1]]
+            self.assertNotIn(len(chained) - 1, read_only_path_token_indices(chained))
+
     def test_branch_changes_keep_the_mutation_contract(self):
         for command in (
             "git switch -c owner/task", "git switch main",

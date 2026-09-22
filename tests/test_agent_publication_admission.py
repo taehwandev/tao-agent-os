@@ -12,6 +12,47 @@ from agent_publication_admission import PublicationAdmission
 
 
 class PublicationHoldTests(unittest.TestCase):
+    def test_real_gate_holds_then_releases_the_same_publication(self):
+        from tests.test_claude_pretool_gate import (
+            PublicationWaitsForFinishTests, _attest_finished_publication, _reason,
+            resolve_runtime_evidence, transition_run,
+        )
+        fixture = PublicationWaitsForFinishTests()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = fixture._open_project(Path(tmp))
+            policy_path = root / gate.WORKTREE_POLICY_PATH
+            policy = json.loads(policy_path.read_text())
+            policy['publication_commands'] = [{
+                'argv_prefix': ['gh', 'workflow', 'run', 'release.yml'], 'publishes': True,
+            }]
+            policy_path.write_text(json.dumps(policy))
+            commands = (
+                'gh release create v1 --verify-tag --notes-file /tmp/notes.md',
+                'gh api --method POST repos/owner/repo/releases -f tag_name=v1',
+                'gh api repos/owner/repo/actions/runs/42/pending_deployments -f state=approved',
+                'gh workflow run release.yml',
+            )
+            for command in commands:
+                self.assertIn('still open', _reason(fixture._decide(root, command)[1]))
+            evidence = resolve_runtime_evidence(root, {'runtime': 'claude', 'session_id': fixture.SESSION})
+            transition_run(root, evidence, 'completed')
+            _attest_finished_publication(root, evidence)
+            for command in commands:
+                self.assertIn('a successful finish', _reason(fixture._decide(root, command)[1]))
+
+    def test_release_uses_same_publication_boundary_in_all_command_forms(self):
+        for command in (
+            'gh release create v1 --verify-tag --notes-file /tmp/notes.md',
+            'gh release upload v1 artifact.tgz',
+            'gh api --method POST repos/owner/repo/releases -f tag_name=v1',
+            'gh api repos/owner/repo/actions/runs/42/pending_deployments -f state=approved',
+            'env gh release create v1',
+            'bash -lc "gh release create v1"',
+            'gh release create v1 && gh release view v1',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual('publishes', gate.publication_hold(command))
+
     def test_pr_creation_is_publication_in_plain_and_wrapped_commands(self):
         for command in ('gh pr create --fill', 'env gh pr create --fill',
                         'bash -lc "gh pr create --fill"', 'gh pr create --fill && echo done'):
@@ -92,3 +133,18 @@ class PublicationAdmissionTests(unittest.TestCase):
             self.assertTrue(gate.publishes_finished_work(self.root, 'session', ['gh', 'pr', 'create']))
             (self.root / 'source').write_text('unreviewed')
             self.assertFalse(gate.publishes_finished_work(self.root, 'session', ['git', 'push']))
+
+    def test_release_after_commit_needs_no_new_lifecycle(self):
+        (self.root / 'source').write_text('reviewed change')
+        self.finish()
+        self.git('add', '.')
+        self.git('commit', '-qm', 'release')
+        with patch.object(gate, 'finished_session_evidence', return_value=self.evidence):
+            command = 'gh release create v1 --verify-tag --notes-file /tmp/notes.md'
+            self.assertTrue(gate.publishes_finished_command(self.root, 'session', command, self.root))
+            self.assertFalse(gate.publishes_finished_command(self.root, 'session', command + ' && touch extra', self.root))
+            self.finish('git_write')
+            self.assertFalse(gate.publishes_finished_command(self.root, 'session', command, self.root))
+            self.finish()
+            (self.root / 'source').write_text('unreviewed change')
+            self.assertFalse(gate.publishes_finished_command(self.root, 'session', command, self.root))

@@ -16,15 +16,16 @@ Use this compact contract for the final `tests` gate on ordinary code work.
    boundary, a failure, or an explicit project gate.
 3. Record the exact check, its exit status or pass/fail result, and a count or
    selector that makes the result reproducible.
-4. Reuse only observed passing results with matching covered code, dependencies,
-   configuration, toolchain, fixtures and relevant external state. Commit or
-   fast-forward integration alone needs no rerun if tested content is unchanged
-   and the check is independent of checkout location and commit metadata.
-   Preserve project freshness and post-integration requirements. Edits, conflict
-   resolution, changed inputs/environment, new findings or uncertain provenance
-   invalidate affected results; failed, incomplete or unobserved runs cannot
-   pass. Cite reused results and provenance in existing evidence, never as a new
-   execution or a separate receipt/gate.
+4. Reuse observed passes only with matching code, dependencies, configuration,
+   toolchain, fixtures and external state. Commit/fast-forward alone needs no
+   rerun for unchanged tests independent of location and revision. Honor project
+   freshness and integration checks. Edits, conflict resolution, changed inputs,
+   new findings or uncertain provenance invalidate affected results. Failed,
+   incomplete or unobserved checks never pass by reuse.
+   In original local `gate-batch` records, use `input_paths: []` for checks
+   independent of commit metadata (all non-ignored files), or a complete file
+   dependency list. Omit for revision-sensitive/uncertain checks. Cite reused
+   results and provenance; never copy them as fresh evidence or add a reuse gate.
 5. A failed required check blocks completion. Unrelated passing checks do not
    replace it.
 

@@ -4151,8 +4151,8 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertNotEqual("", out)
         self.assertNotIn("a successful finish", _reason(out))
 
-    def test_finish_does_not_authorize_merging_shipping_or_the_api(self) -> None:
-        """Publishing a branch is not integrating, releasing, or writing.
+    def test_finish_does_not_authorize_merging_deleting_or_unrelated_api_writes(self) -> None:
+        """Publication authority is not integration or arbitrary mutation.
 
         Each of these is a separate authority the lifecycle names separately,
         and none of them is the publication of the diff a finish attested.
@@ -4163,7 +4163,7 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
 
             for command in (
                 "gh pr merge 166 --squash",
-                "gh release create v26.09.1",
+                "gh release delete v26.09.1",
                 "gh api -X POST repos/x/y/issues",
                 "gh repo delete x/y",
             ):

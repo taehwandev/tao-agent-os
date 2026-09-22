@@ -865,6 +865,11 @@ def _declared_read_indices(tokens: list[str], offset: int) -> list[int]:
             return list(range(offset, offset + len(tokens)))
     if _creates_a_pull_request(tokens):
         return _option_value_indices(tokens, offset, PULL_REQUEST_BODY_OPTIONS)
+    if Path(tokens[0]).name == "gh":
+        if tokens[1:3] == ["release", "create"]:
+            return _option_value_indices(tokens, offset, frozenset({"--notes-file", "-F"}))
+        if tokens[1:2] == ["api"]:
+            return _option_value_indices(tokens, offset, frozenset({"--input"}))
     if _is_installer_without_writes(tokens):
         return _option_value_indices(tokens, offset, INSTALLER_READ_ONLY_VALUE_OPTIONS)
     if _is_lifecycle_hook_invocation(tokens):

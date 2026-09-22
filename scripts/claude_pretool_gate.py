@@ -58,7 +58,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
     )
     from claude_bash_git import git_subcommand, names_unsafe_git_option
     from claude_bash_syntax import past_env_options
-    from claude_command_effect import command_effect, unknown_recovery
+    from claude_command_effect import command_effect, unknown_recovery, github_publication
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -303,12 +303,7 @@ ORDINARY_GIT_SUBCOMMANDS = frozenset(
 # `clean`, `reset`, `rm` and `rebase` -- a settled run may publish the diff it
 # attested, never rewrite or destroy the tree it attested.
 PUBLICATION_GIT_SUBCOMMANDS = frozenset({"add", "commit", "push", "tag"})
-# The same step, done through GitHub rather than Git. Opening the pull request
-# for the branch a finish just attested is publication; merging it, cutting a
-# release, or calling the API are not, and no finish authorizes them. Reading
-# the result is not here either: `gh pr view` is already classified read-only
-# and never reaches this question, and listing it would suggest otherwise.
-PUBLICATION_GH_SUBCOMMANDS = frozenset({("pr", "create")})
+# GitHub publication effects share one contract with command classification.
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cjs", ".dart", ".go", ".h", ".hpp",
     ".java", ".js", ".jsx", ".kt", ".kts", ".m", ".mjs", ".mm", ".php", ".py",
@@ -1039,9 +1034,8 @@ def _segment_hold(
     if program == "git":
         subcommand, _arguments = git_subcommand(command)
         return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
-    if program == "gh":
-        words = [token for token in command[1:] if not token.startswith("-")]
-        return "publishes" if tuple(words[:2]) in PUBLICATION_GH_SUBCOMMANDS else ""
+    if github_publication(command):
+        return "publishes"
     if root is not None:
         return project_publication_kind(root, command, cwd or root)
     return ""
@@ -1059,8 +1053,8 @@ def publishes_finished_work(
     must also bind unchanged source/rules content and an admitted effect at
     least as strong as this action. A commit of identical finished bytes does
     not invalidate that receipt; edits do. Repeated attempts are not counted
-    as authority and must pass these checks each time. PR merge, releases and
-    arbitrary API writes retain their separate admission paths.
+    as authority and must pass these checks each time. PR merge and arbitrary
+    API writes retain their separate admission paths.
     """
 
     if not tokens:
@@ -1069,15 +1063,11 @@ def publishes_finished_work(
     if not command:
         return False
     program = Path(command[0]).name
-    if program == "gh":
-        words = [token for token in command[1:] if not token.startswith("-")]
-        if tuple(words[:2]) not in PUBLICATION_GH_SUBCOMMANDS:
-            return False
-    elif program == "git":
+    if program == "git":
         subcommand, _arguments = git_subcommand(command)
         if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
             return False
-    elif project_publication_kind(root, command, cwd or root) != "publishes":
+    elif not github_publication(command) and project_publication_kind(root, command, cwd or root) != "publishes":
         return False
     evidence = finished_session_evidence(root, session_id)
     if not evidence_is_fresh(evidence):
@@ -1492,7 +1482,7 @@ def _isolated_checkout_verdict(
                     deny_reason(governed, session_id, tool, cwd_roots))
     if finish_authorized:
         return _approve(
-            "This is the ordinary Git command that a successful finish "
+            "This is a publication command that a successful finish "
             "authorized for this session."
         )
     sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)

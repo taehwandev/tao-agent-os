@@ -204,6 +204,12 @@ class StructuredGateFieldAdvertisement(unittest.TestCase):
     def test_unknown_gates_are_silent(self):
         self.assertEqual(self.lines(["not-a-real-gate"]), [])
 
+    def test_input_identity_is_advertised_once_before_recording_local_checks(self):
+        rendered = "\n".join(self.lines(["tests", "package", "smoke"]))
+        self.assertEqual(1, rendered.count("input_paths: []"))
+        self.assertIn("revision-sensitive/uncertain", rendered)
+        self.assertNotIn("input_paths", "\n".join(self.lines(["retrospective check"])))
+
     def test_named_fields_are_listed_verbatim_from_the_requirement(self):
         gate = "retrospective check"
         rendered = self.lines([gate])

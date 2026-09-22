@@ -8,10 +8,64 @@ Verification: classification and gate tests; no result grants permissions.
 """
 
 from pathlib import Path
+import re
 
 from claude_bash_http import curl_effect
 from claude_bash_git import git_subcommand
 from claude_bash_syntax import command_segments, shell_keyword_command
+
+
+def github_publication(tokens: list[str]) -> bool:
+    """One action contract for pre-finish holds and post-finish admission.
+
+    This describes effects, never user intent or approval. Unknown API targets,
+    deletion, merging and credential operations are not publication continuations.
+    """
+    if not tokens or Path(tokens[0]).name != "gh":
+        return False
+    if tuple(tokens[1:3]) in {("pr", "create"), ("release", "create"),
+                              ("release", "upload")}:
+        return True
+    if tokens[1:2] != ["api"]:
+        return False
+    endpoint = None
+    method = None
+    body = False
+    valued = {"-X", "--method", "-f", "--raw-field", "-F", "--field",
+              "--input", "--jq", "-q", "--template", "-t"}
+    switches = {"--silent", "--include", "-i", "--verbose"}
+    index = 2
+    while index < len(tokens):
+        word = tokens[index]
+        flag, equal, value = word.partition("=")
+        if flag in valued:
+            if not equal:
+                index += 1
+                if index >= len(tokens):
+                    return False
+                value = tokens[index]
+            if not value:
+                return False
+            if flag in {"-X", "--method"}:
+                if method is not None:
+                    return False
+                method = value
+            elif flag in {"-f", "--raw-field", "-F", "--field", "--input"}:
+                body = True
+        elif word in switches:
+            pass
+        elif word.startswith("-") or endpoint is not None:
+            return False
+        else:
+            endpoint = word
+        index += 1
+    if (method or ("POST" if body else "GET")) != "POST":
+        return False
+    return bool(re.fullmatch(
+        r"/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/"
+        r"(?:releases|actions/runs/[0-9]+/(?:pending_deployments|rerun|rerun-failed-jobs))",
+        endpoint or "",
+    ))
 
 
 def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[str, str]:
@@ -39,6 +93,8 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
     if not simple or not tokens:
         return "unknown", "shell composition or executable substitution could not be verified"
     executable = Path(tokens[0]).name
+    if github_publication(tokens):
+        return "mutating", "GitHub publication command"
     if executable in {"rm", "mv", "cp", "touch", "mkdir", "rmdir", "tee", "install", "chmod", "chown"}:
         return "mutating", "filesystem-changing command"
     if executable == "curl":

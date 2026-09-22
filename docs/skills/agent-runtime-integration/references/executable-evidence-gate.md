@@ -12,15 +12,22 @@ they never silently become SUCCESS without the declared snapshot. Omitted
 declarations retain conservative legacy behavior. Continuation reports bounded
 reasons for local evidence it cannot carry, leaving those gates unsatisfied.
 
-Post-finish commit, push and PR creation admission requires a receipt binding
+Post-finish commit, push and publication admission requires a receipt binding
 the admitted effect, preflight and current project/rules content. Completed
-registry status and freshness alone are insufficient. PR creation waits for
-finish, and git-write authority cannot authorize external publication. Each
+registry status and freshness alone are insufficient. The same action contract
+governs both the pre-finish hold and post-finish admission: PR creation, release
+creation/upload, and supported REST release/retry/deployment-review actions wait
+for finish. Git-write authority cannot authorize external publication. Each
 attempt checks the receipt again; unchanged-content commits preserve it, while
 source edits invalidate it. A finish without a receipt still completes ordinary
 work but does not admit later publication. Runtime judgment remains responsible
 for semantic destination authority and ignored artifacts; the receipt does not
 grant a new target or effect.
+
+Continue an admitted publication directly; do not reopen the lifecycle to make
+an unsupported command pass. After publication, verify external results without
+copying local gate records or repeating the unchanged source review. A changed
+scope or invalidated receipt needs the corresponding current evidence.
 
 Use this when a wrapper command, an evidence path, or a runtime permission
 prefix is what the task turns on: which wrapper runs at each lifecycle step,

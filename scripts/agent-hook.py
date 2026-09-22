@@ -588,6 +588,9 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
         "Replace placeholders using the fields and enum values below; reuse observed "
         "results rather than rerunning checks to fill a record.",
     ]
+    from agent_gate_reuse import GateEvidenceReuse
+    if any(GateEvidenceReuse.supports(gate) for gate in gates):
+        lines[0] += ' Local evidence: record input_paths: [] in gate-batch for revision-independent checks (all project files), or a complete dependency list. Omit for revision-sensitive/uncertain inputs. Never copy old records as fresh evidence.'
     for gate, fields in required:
         lines.append(f"  {gate}: {_rendered_fields(gate, fields)}")
         if gate in {"documentation", "documentation impact"}:
