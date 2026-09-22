@@ -3764,6 +3764,7 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
 
             for command in (
                 "git push origin work && echo done",
+                "git push origin work 2>&1 | tail -15",
                 "echo hi; git push origin work",
                 "git status && git tag v3",
                 "cd . && git push origin work",
@@ -3940,6 +3941,28 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     decision = "allow" if allowed else "deny"
                     self.assertIn(f'"permissionDecision": "{decision}"', out)
+
+    def test_finished_push_accepts_standard_stream_duplication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            for suffix in ("2>&1 | tail -15", "1>&2", ">&2", "2>&1|tail -15"):
+                with self.subTest(suffix=suffix):
+                    _, out = self._decide(project, f"git push origin HEAD:work {suffix}")
+                    self.assertIn('"permissionDecision": "allow"', out)
+
+    def test_finished_push_rejects_file_writes_without_reopening_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            for suffix in (
+                "2> errors.log", "2>&3", "2>&1 > git status",
+                "2>&1 && touch changed.txt", "2>&1\ntouch changed.txt",
+                "2>&1file", "2>&1$(touch changed.txt)",
+            ):
+                with self.subTest(suffix=suffix):
+                    _, out = self._decide(project, f"git push origin work {suffix}")
+                    self.assertIn('"permissionDecision": "deny"', out)
+                    self.assertIn("a completed run exists", _reason(out))
+                    self.assertNotIn("No exact registered preflight", out)
 
     def test_finish_does_not_reopen_editing(self) -> None:
         """Finish attested one diff; moving the tree would outdate it."""

@@ -8,6 +8,12 @@ import test_claude_pretool_execution as fixture_module
 
 class CommitReadyExecutionTests(unittest.TestCase):
     def test_completed_review_to_commit_ready_without_committing(self):
+        self._exercise_preparation("git_write")
+
+    def test_external_scope_reuses_review_and_falls_back_on_changed_bytes(self):
+        self._exercise_preparation("external_write")
+
+    def _exercise_preparation(self, effect):
         fixture = fixture_module.PretoolExecutionTests("runTest")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -51,8 +57,19 @@ class CommitReadyExecutionTests(unittest.TestCase):
         staged = fixture.run_command(["git", "diff", "--cached"], check=True).stdout
         output = invoke("start", "--command", "commit", "--request", "Commit the verified fixture",
                         "--intent", "prepare_commit", "--target-summary", "Disposable fixture",
-                        "--approved-effect", "git_write", "--commit-ready", explicit=False)
+                        "--approved-effect", effect, "--commit-ready", explicit=False)
         for step in ("start", "review", "gate-batch", "finish"):
             self.assertIn("SUCCESS " + step, output)
         self.assertEqual(head, fixture.run_command(["git", "rev-parse", "HEAD"], check=True).stdout)
         self.assertEqual(staged, fixture.run_command(["git", "diff", "--cached"], check=True).stdout)
+        if effect == "external_write":
+            source.write_text("changed after review\n")
+            fixture.run_command(["git", "add", "answer.txt"], check=True)
+            output = invoke("start", "--command", "commit", "--request", "Proceed with the agreed outcome",
+                            "--intent", "prepare_commit", "--target-summary", "Disposable fixture",
+                            "--approved-effect", effect, "--commit-ready", explicit=False)
+            self.assertIn("SUCCESS start", output)
+            self.assertIn("no evidence was reused", output)
+            self.assertNotIn("SUCCESS review", output)
+            self.assertNotIn("SUCCESS finish", output)
+            self.assertEqual(head, fixture.run_command(["git", "rev-parse", "HEAD"], check=True).stdout)

@@ -24,6 +24,21 @@ minimum before normalization, so a PR request cannot be admitted with local
 Git authority alone. Do not open another route between a successful finish and
 the push or PR creation it already attested.
 
+Declare the full currently authorized outcome at entry using the existing
+effect envelope: local Git work uses `git_write`; authorized external publication
+uses `external_write`. This is a runtime scope judgment, never request-keyword
+matching. `--commit-ready` accepts either declaration without widening it. When
+prior review cannot be reused, it enters the ordinary commit workflow once,
+without crediting prior gates or performing downstream review/finish. Follow
+that returned manifest rather than issuing another start. Invalid current
+authority and current review findings still fail.
+
+A successful finish completes verification; it does not claim that pending
+external actions ran. Perform the remaining authorized actions, confirm their
+results, and report completion. Changing from Git to a PR tool alone does not
+require another lifecycle. Changed scope, authority, target or invalidated
+evidence does. Never rerun review merely because publication has succeeded.
+
 ## Same-Run Local Commit Continuation
 
 When implementation already includes an authorized local commit, prepare it

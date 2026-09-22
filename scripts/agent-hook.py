@@ -368,6 +368,17 @@ def _release_reuse_lines(command: str) -> list[str]:
     return lines
 
 
+def _publication_continuity_guidance() -> str:
+    return (
+        "Publication continuity: declare authority for the full currently authorized "
+        "outcome at entry. After finish, continue only its authorized commit/push/PR "
+        "steps without another start, review or finish while scope and evidence "
+        "remain valid. A program change is not a scope change. Report completion "
+        "once the requested external results are confirmed. Do not infer authority "
+        "from request keywords or from finish itself."
+    )
+
+
 def _hook_summary_from_preflight(path: Path) -> list[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -489,7 +500,8 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
 
 
 def _continuation_summary_lines(command: str) -> list[str]:
-    return _release_reuse_lines(command) + [
+    publication = [_publication_continuity_guidance()] if command in {"commit", "git_commit"} else []
+    return _release_reuse_lines(command) + publication + [
         "Work continuity: keep the active action until its scope changes. For a new authorized "
         "action of the same work, start --continue-from <previous run id>; add --reuse-inputs "
         "with observed matching scope, toolchain, artifacts and external inputs to carry valid "
@@ -670,6 +682,13 @@ def finish_hook(args: argparse.Namespace) -> int:
         # writes, the run is already terminal and cannot be resumed from a
         # packet that still displays the pre-finish checkpoint.
         _transition_finished_run(args, True)
+        details.append(
+            "This run is closed; finish attests verification, not execution of pending "
+            "actions. Continue already-authorized steps within the same verified scope "
+            "without reopening this lifecycle. Once the requested outcome is confirmed, "
+            "report it; do not repeat review or finish merely to close publication. "
+            "New effects, targets or changed evidence still require matching admission."
+        )
         details.append(
             record_lifecycle_checkpoint(
                 args,

@@ -73,27 +73,41 @@ class CommitReadyTests(unittest.TestCase):
         self.assertEqual(before, self.fixture.git("rev-parse", "HEAD"))
         self.assertEqual(index, self.fixture.git("diff", "--cached"))
 
-    def test_changed_staged_bytes_refuse_before_start(self):
+    def assert_ordinary_entry(self):
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.start.assert_called_once()
+        self.assertFalse(self.start.call_args.args[0].commit_ready)
+        self.dispatch.assert_not_called()
+
+    def test_external_authority_is_preserved_without_request_phrase_matching(self):
+        self.args.approved_effect = "external_write"
+        self.args.request = "Carry out the previously agreed outcome"
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.assertEqual("external_write", self.start.call_args.args[0].approved_effect)
+        self.assertEqual(self.args.request, self.start.call_args.args[0].request)
+
+    def test_local_approval_is_not_widened_by_publication_words(self):
+        self.args.request = "commit push PR publish"
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.assertEqual("git_write", self.start.call_args.args[0].approved_effect)
+
+    def test_changed_staged_bytes_enter_ordinary_workflow_without_reuse(self):
         (self.fixture.project / "source.py").write_text("changed = True\n")
         self.fixture.git("add", "source.py")
-        self.assertEqual(2, prepare_commit(self.args, self.start, self.dispatch))
-        self.start.assert_not_called()
+        self.assert_ordinary_entry()
 
-    def test_unrelated_staging_refuses_before_start(self):
+    def test_unrelated_staging_requires_ordinary_review(self):
         (self.fixture.project / "unrelated.py").write_text("other = 1\n")
         self.fixture.git("add", "unrelated.py")
-        self.assertEqual(2, prepare_commit(self.args, self.start, self.dispatch))
-        self.start.assert_not_called()
+        self.assert_ordinary_entry()
 
-    def test_wrong_session_refuses_before_start(self):
+    def test_wrong_session_evidence_is_not_reused(self):
         with patch("agent_commit_ready.runtime_session", return_value={"runtime": "codex", "session_id": "other"}):
-            self.assertEqual(2, prepare_commit(self.args, self.start, self.dispatch))
-        self.start.assert_not_called()
+            self.assert_ordinary_entry()
 
-    def test_unfinished_source_refuses_before_start(self):
+    def test_unfinished_source_is_not_reused(self):
         self.registry.write_text(self.registry.read_text().replace("completed", "running"))
-        self.assertEqual(2, prepare_commit(self.args, self.start, self.dispatch))
-        self.start.assert_not_called()
+        self.assert_ordinary_entry()
 
     def test_missing_current_approval_refuses_before_start(self):
         self.args.approved_effect = ""
@@ -125,13 +139,21 @@ class CommitReadyTests(unittest.TestCase):
         self.assertEqual(2, prepare_commit(self.args, start, self.dispatch))
         self.dispatch.assert_not_called()
 
-    def test_altered_review_narrative_refuses_before_start(self):
+    def test_altered_review_narrative_is_not_reused(self):
         path = self.fixture.project / ".tao" / "review-checks-latest.json"
         cache = json.loads(path.read_text())
         cache["checks"]["review_input"]["code_review_evidence"] = "Altered narrative"
         path.write_text(json.dumps(cache))
-        self.assertEqual(2, prepare_commit(self.args, self.start, self.dispatch))
-        self.start.assert_not_called()
+        self.assert_ordinary_entry()
+
+    def test_fallback_start_failure_does_not_run_downstream_checks(self):
+        (self.fixture.project / "source.py").write_text("changed = True\n")
+        self.fixture.git("add", "source.py")
+        self.start.side_effect = None
+        self.start.return_value = 1
+        self.assertEqual(1, prepare_commit(self.args, self.start, self.dispatch))
+        self.start.assert_called_once()
+        self.dispatch.assert_not_called()
 
     def test_failed_start_prevents_all_dependent_calls(self):
         self.start.side_effect = None

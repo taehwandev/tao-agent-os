@@ -20,16 +20,25 @@ from agent_runtime_session import runtime_session
 def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
     """Reuse proof, never authority; stop before each dependent step on failure."""
     try:
-        if args.command not in {"commit", "git_commit"} or args.approved_effect != "git_write":
-            raise ValueError("--commit-ready requires commit and current --approved-effect git_write")
+        if args.command not in {"commit", "git_commit"} or args.approved_effect not in {"git_write", "external_write"}:
+            raise ValueError("--commit-ready requires commit and current git_write or external_write approval")
         if args.read_only or args.repair_cycle or args.output:
             raise ValueError("--commit-ready does not combine with read-only, repair or output")
         if getattr(args, "review_outcome", "") == "findings":
             raise ValueError("current review findings prevent compact commit preparation")
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        print(f"FAIL commit-ready: {error}.")
+        return 2
+
+    try:
         reuse, review_input = _completed_review(args)
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
-        print(f"FAIL commit-ready: {error}. Use ordinary commit entry when reuse is unavailable.")
-        return 2
+        # Unavailable optimization is not failed authorization. Ordinary start
+        # validates current authority and leaves every review gate outstanding.
+        current = copy.copy(args)
+        current.commit_ready = False
+        print(f"Commit review reuse unavailable: {error}. Entering ordinary commit workflow; no evidence was reused.")
+        return start(current)
 
     # No staging or committing: the caller already staged the exact reviewed unit.
     current = copy.copy(args)

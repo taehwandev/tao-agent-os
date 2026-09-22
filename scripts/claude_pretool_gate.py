@@ -908,6 +908,14 @@ def _shell_command_parts(command: str, reject_redirections: bool) -> list[str] |
     index = 0
     while index < len(command):
         char = command[index]
+        if not quote and word_start:
+            # Only duplicate the standard output streams, never an arbitrary
+            # descriptor that may name an already-open file. Keep this within
+            # its command so active-run publication detection is unchanged.
+            descriptor = re.match(r"[12]?>&[12](?=$|[ \t\n;&|])", command[index:])
+            if descriptor:
+                index += descriptor.end()
+                continue
         if char == "\\" and quote != "'":
             if index + 1 >= len(command):
                 return None
@@ -1470,6 +1478,21 @@ def _isolated_checkout_verdict(
         ):
             finish_authorized = True
             continue
+        if (
+            tool in BASH_TOOLS
+            and publication_hold(
+                bash_command(payload), root=governed, cwd=effective_cwd or cwd
+            )
+            and evidence_is_fresh(finished_session_evidence(governed, session_id))
+        ):
+            return deny(
+                "Tao lifecycle: a completed run exists for this session, but "
+                "this command is outside the supported publication form or includes "
+                "another effect. For the same authorized publication, use a plain "
+                "git push or the declared PR command; do not open another run or "
+                "repeat finish merely to change command syntax. Separate any new "
+                "write and enter its scoped workflow only if authorized."
+            )
         return deny(unknown_recovery(unknown_reason) + governed_because(governed, cwd_roots) if unknown_reason else
                     deny_reason(governed, session_id, tool, cwd_roots))
     if finish_authorized:
