@@ -4248,6 +4248,26 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertEqual("", out, f"{hook} must not be refused by the read contract")
 
+    def test_mailbox_intake_precedes_start_without_admitting_sends(self) -> None:
+        launcher = gate.stable_launcher_path()
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project)
+            command = f"{launcher} agent-mailbox receive --runtime codex --project {project}"
+            self.assertEqual((0, ""), self._bash(project, command))
+            self.assertFalse((project / ".tao/runs").exists())
+            for forbidden in (
+                command + " && touch changed", command + " > output",
+            ):
+                with self.subTest(command=forbidden), patch.dict(os.environ, _isolated_env(), clear=True):
+                    self.assertIn("deny", self._bash(project, forbidden)[1])
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._read_run(Path(tmp))
+            command = f"{launcher} agent-mailbox receive --runtime codex --project {project}"
+            self.assertEqual((0, ""), self._bash(project, command))
+            _, out = self._bash(project, f"{launcher} agent-mailbox send --to claude --project {project}")
+            self.assertIn("deny", out)
+
     def test_the_escalation_the_denial_names_is_reachable(self) -> None:
         """fingerprint then start is the whole escape route; both must pass."""
 

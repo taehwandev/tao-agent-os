@@ -159,6 +159,12 @@ Required sequence:
    consume the same message twice. It never selects messages addressed to a
    different runtime or project.
 
+Receive is a runtime-control operation available before `start`, not a
+read-only command or permission to execute the received brief. The gate admits
+only the installed launcher or canonical mailbox script; `status` is read-only,
+while `send` retains its writable lifecycle and source-capsule checks. Shell
+redirection and chained writes do not inherit the intake allowance.
+
 The default TTL is 24 hours and the maximum is seven days. A body is at most 32
 KiB, one source-run/recipient inbox holds at most 32 pending messages, one read
 scans at most 64 runs and 128 packets, and one receive returns at most eight

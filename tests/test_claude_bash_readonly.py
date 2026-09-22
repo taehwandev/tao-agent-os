@@ -40,6 +40,20 @@ class CompoundShellCommandTests(unittest.TestCase):
         self.assertEqual(self._kind("ls -la | wc -l"), "read_only")
         self.assertEqual(self._kind("cat notes.txt | grep todo | tail -3"), "read_only")
 
+    def test_mailbox_intake_is_runtime_control_only_for_trusted_entrypoints(self) -> None:
+        launcher = worktree_gate.stable_launcher_path()
+        script = ROOT / "scripts/agent-mailbox.py"
+        for entry in (f"{launcher} agent-mailbox", str(script), f"python3 -B {script}"):
+            with self.subTest(entry=entry):
+                self.assertEqual(self._kind(f"{entry} receive --runtime codex"), "runtime_control")
+                self.assertEqual(self._kind(f"{entry} status --runtime codex"), "read_only")
+                self.assertEqual(self._kind(f"{entry} send --to claude"), "mutating")
+                self.assertEqual(self._kind(f"{entry} receive --runtime codex > out"), "mutating")
+                self.assertEqual(self._kind(f"{entry} receive --runtime codex && touch out"), "mutating")
+        for entry in ("/tmp/agent-mailbox.py", "python3 /tmp/agent-mailbox.py",
+                      "/tmp/tao-hook agent-mailbox", f"env TAO_HOME=/tmp/other {launcher} agent-mailbox"):
+            self.assertEqual(self._kind(f"{entry} receive --runtime codex"), "mutating")
+
     def test_local_evidence_query_is_not_confused_with_evidence_writers(self) -> None:
         for command in ("vibeguard evidence", "vibeguard evidence .",
                         "vibeguard evidence --json", "vibeguard evidence . --json"):

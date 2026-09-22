@@ -220,6 +220,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     if executable_path == stable_launcher_path().expanduser().resolve() and len(tokens) > 1:
         if writes_output:
             return "mutating"
+        if tokens[1] == "agent-mailbox":
+            return _mailbox_intake_kind(tokens[2:])
         # The installed launcher also accepts `agent-hook <subcommand>`.
         # Normalize only this exact launcher alias, before classifying effects.
         if tokens[1] == "agent-hook" and len(tokens) > 2:
@@ -231,7 +233,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
         return RUNTIME_CONTROL_KIND if tokens[1] in RUNTIME_CONTROL_HOOKS else None
     # The executable shebang entrypoint is the same trusted hook as the
     # interpreter form below. Match the canonical sibling, never its basename.
-    if executable_path == Path(__file__).resolve().with_name("agent-hook.py"):
+    if executable_path in {Path(__file__).resolve().with_name(name)
+                           for name in ("agent-hook.py", "agent-mailbox.py")}:
         tokens = [sys.executable, *tokens]
     # Two tokens is enough for the installer, which takes no subcommand. The
     # hook below needs a third, and says so itself.
@@ -252,6 +255,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     except (OSError, ValueError):
         return None
     here = Path(__file__).resolve()
+    if script == here.with_name("agent-mailbox.py"):
+        return "mutating" if writes_output else _mailbox_intake_kind(tokens[2:])
     if script == here.with_name("agent-structure-check.py"):
         return "mutating" if writes_output else "read_only"
     # The installer is how a runtime is set up, repaired, and re-pointed at its
@@ -285,6 +290,17 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     if tokens[2] in RUNTIME_WRITE_HOOKS:
         return "bootstrap"
     return RUNTIME_CONTROL_KIND if tokens[2] in RUNTIME_CONTROL_HOOKS else None
+
+
+def _mailbox_intake_kind(arguments: list[str]) -> str | None:
+    # Receive acknowledges project-local context, not work authorization. It
+    # must precede start, like the other runtime controls. Sending still needs
+    # the ordinary writable lifecycle and the mailbox's capsule validation.
+    if arguments and arguments[0] == "receive":
+        return RUNTIME_CONTROL_KIND
+    if arguments and arguments[0] == "status":
+        return "read_only"
+    return None
 
 
 def read_only_python_scripts() -> dict[Path, str]:
