@@ -41,7 +41,10 @@ REFUSAL_GUIDANCE = {
     ),
     "drift_refused": (
         "HEAD, worktree, rules, required docs, or a pending mutation moved since the last "
-        "checkpoint; reconcile explicitly or carry the objective into a fresh start"
+        "checkpoint. Inspect the current state, then use checkpoint --checkpoint-kind "
+        "reconcile --phase acting --work-stdin with this run's --evidence and an "
+        "observed work summary including verification: []. Changed required guidance "
+        "requires refreshing this action with start --evidence first."
     ),
     "invalid_packet": (
         "the targeted packet failed containment, schema, binding, or integrity validation; "

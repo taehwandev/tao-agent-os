@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -151,6 +152,54 @@ class GateEvidenceReuseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             record_hook_gate_batch(self.target, [self.reuse(), self.reuse("config")])
         self.assertFalse(gate_evidence_path_for_preflight(self.target.evidence).exists())
+
+    def test_explicit_input_failure_rejects_entire_batch(self):
+        for paths in (["../outside"], ["."], None):
+            with self.subTest(paths=paths), self.assertRaisesRegex(ValueError, "input_paths"):
+                record_hook_gate_batch(self.target, [{
+                    "gate": "tests", "input_paths": paths,
+                    "fields": {"check": "local tests", "result": "7 tests passed, exit 0"},
+                }])
+            self.assertFalse(gate_evidence_path_for_preflight(self.target.evidence).exists())
+
+    def test_explicit_capture_failure_is_bounded_and_does_not_leak_error(self):
+        with patch("agent_gate_reuse.EvidenceInputs.capture", side_effect=OSError("private payload")):
+            with self.assertRaisesRegex(ValueError, "input_paths snapshot capture failed") as raised:
+                record_hook_gate_batch(self.target, [{
+                    "gate": "tests", "input_paths": [],
+                    "fields": {"check": "local tests", "result": "7 tests passed, exit 0"},
+                }])
+        self.assertNotIn("private payload", str(raised.exception))
+        self.assertFalse(gate_evidence_path_for_preflight(self.target.evidence).exists())
+
+    def test_undeclared_capture_unavailable_keeps_legacy_non_reusable_record(self):
+        with patch("agent_gate_reuse.git_state", side_effect=OSError("unavailable")):
+            record = self.record_source()
+        self.assertNotIn("reuse_snapshot", record)
+
+    def test_explicit_capture_requires_session_binding(self):
+        current = json.loads(self.target.evidence.read_text())
+        current.pop("runtime_session")
+        self.target.evidence.write_text(json.dumps(current))
+        with self.assertRaisesRegex(ValueError, "input_paths snapshot requires"):
+            record_hook_gate_batch(self.target, [{
+                "gate": "tests", "input_paths": [],
+                "fields": {"check": "local tests", "result": "7 tests passed, exit 0"},
+            }])
+        self.assertFalse(gate_evidence_path_for_preflight(self.target.evidence).exists())
+
+    def test_late_capture_failure_keeps_existing_ledger_unchanged(self):
+        self.record_source()
+        ledger = gate_evidence_path_for_preflight(self.source.evidence)
+        original = ledger.read_bytes()
+        with self.assertRaisesRegex(ValueError, "input_paths"):
+            record_hook_gate_batch(self.source, [{
+                "gate": "tests", "fields": {"check": "local tests", "result": "8 tests passed, exit 0"},
+            }, {
+                "gate": "tests", "input_paths": ["../outside"],
+                "fields": {"check": "local tests", "result": "9 tests passed, exit 0"},
+            }])
+        self.assertEqual(original, ledger.read_bytes())
 
 
 if __name__ == "__main__":

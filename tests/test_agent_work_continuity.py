@@ -80,8 +80,18 @@ class WorkContinuityTests(unittest.TestCase):
     def test_default_revision_sensitive_evidence_still_invalidates(self):
         self.record_source()
         self.git(self.project, "commit", "--allow-empty", "-qm", "new revision")
-        self.continuation().apply(self.target.evidence)
+        details = self.continuation().apply(self.target.evidence)
         self.assertNotIn("tests", self.passed())
+        self.assertIn("Local gate not carried: tests; missing, stale or incompatible evidence; revalidate this gate.", details)
+        self.assertFalse(any("not carried: config" in line for line in details))
+
+    def test_inheritance_io_failure_is_visible_without_exception_payload(self):
+        self.record_source()
+        with patch("agent_work_continuity._nearest_record", side_effect=OSError("private payload")):
+            details = self.continuation().apply(self.target.evidence)
+        self.assertNotIn("tests", self.passed())
+        self.assertIn("Local gate not carried: tests; unreadable evidence; revalidate this gate.", details)
+        self.assertNotIn("private payload", "\n".join(details))
 
     def test_latest_failure_cannot_be_hidden_by_continuation(self):
         self.record_source()

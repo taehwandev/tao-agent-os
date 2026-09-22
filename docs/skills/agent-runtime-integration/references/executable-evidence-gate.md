@@ -6,6 +6,22 @@ type: human-reviewed-needed
 
 # Executable Evidence Gate
 
+Explicit `input_paths` on a reusable local gate requires a valid dependency
+snapshot. Malformed declarations or capture failures reject the atomic batch;
+they never silently become SUCCESS without the declared snapshot. Omitted
+declarations retain conservative legacy behavior. Continuation reports bounded
+reasons for local evidence it cannot carry, leaving those gates unsatisfied.
+
+Post-finish commit, push and PR creation admission requires a receipt binding
+the admitted effect, preflight and current project/rules content. Completed
+registry status and freshness alone are insufficient. PR creation waits for
+finish, and git-write authority cannot authorize external publication. Each
+attempt checks the receipt again; unchanged-content commits preserve it, while
+source edits invalidate it. A finish without a receipt still completes ordinary
+work but does not admit later publication. Runtime judgment remains responsible
+for semantic destination authority and ignored artifacts; the receipt does not
+grant a new target or effect.
+
 Use this when a wrapper command, an evidence path, or a runtime permission
 prefix is what the task turns on: which wrapper runs at each lifecycle step,
 what each one writes, where its evidence lives, and the exact permission-entry

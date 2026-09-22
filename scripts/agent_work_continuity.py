@@ -78,12 +78,16 @@ class WorkContinuity:
         reuse = GateEvidenceReuse(current)
         records = []
         for gate in current.get("route", {}).get("gates", []):
+            if not reuse.supports(gate):
+                continue  # Current authority/external/review gates never carry.
             try:
                 source_id = _nearest_record(self.args.project, self.source_id, work_id, gate)
                 records.extend(reuse.prepare([{"gate": gate, "reuse_from": source_id,
                                                "reuse_reason": self.reason}]))
-            except (OSError, ValueError, RuntimeError, KeyError, TypeError):
-                pass  # Missing or invalid evidence stays unsatisfied, never reworded.
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+                # Fixed categories never echo paths or arbitrary exception text.
+                reason = "unreadable evidence" if isinstance(error, OSError) else "missing, stale or incompatible evidence"
+                details.append(f"Local gate not carried: {gate}; {reason}; revalidate this gate.")
         if records:
             # Ordinary validation and atomic batch write still own the gate contract.
             record_hook_gate_batch(self.args, records)

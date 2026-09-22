@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agent_continuation_checkpoint import binding_record
-from agent_continuation_store import continuation_path, read_continuation_packet
+from agent_continuation_checkpoint import binding_record, binding_required_docs
+from agent_continuation_drift import capture_drift_state, verify_drift
+from agent_continuation_store import continuation_path, read_continuation_packet, write_continuation_packet
 from agent_execution_capsule_state import atomic_write_json, read_json_object
 from agent_route_state import route_fingerprint
 from agent_run_registry import (
@@ -23,7 +24,8 @@ def record_turn_boundary(
 
     Read-only selection precedes locking so no-run and legacy stops create no
     state. The transaction rechecks the exact run instance and generation.
-    No packet or finish receipt is authored, and failed writes permit turn end.
+    Valid packets may refresh their measured baseline, never their verification.
+    No finish receipt is authored, and failed writes permit turn end.
     """
     identity = {"runtime": runtime, "session_id": session_id}
     if not session_id or not runtime:
@@ -118,7 +120,25 @@ def _checkpoint_outcome(project: Path, run: dict, evidence: Path, binding: dict)
         result.get("status") == "ok"
         and packet.get("run_id") == run["run_id"]
         and packet.get("binding") == binding_record(evidence, binding)
-        and packet.get("phase") == "blocked"
     ):
-        return "blocked"
+        _refresh_stop_packet(project, binding, packet)
+        return "blocked" if packet.get("phase") == "blocked" else "interrupted"
     return "interrupted"
+
+
+def _refresh_stop_packet(project: Path, binding: dict, packet: dict) -> None:
+    """Record observed end-of-turn bytes without blessing stale conclusions."""
+    if (packet.get("checkpoint") or {}).get("mutation_pending") is not None:
+        return  # A tool's unresolved outcome needs explicit reconciliation.
+    rules = Path(binding["rules"]).resolve()
+    drift = verify_drift(project, rules, packet,
+                         required_doc_records=binding_required_docs(binding))
+    signals = drift.get("changed_signals") or []
+    if not signals or any(item not in {"head", "project_worktree", "rules_worktree"} for item in signals):
+        return  # Preserve unread guidance and invalid bindings as drift.
+    current = capture_drift_state(project, rules, packet["drift"]["required_docs_sha256"])
+    updated = {**packet, "drift": current,
+               "generation": int(packet["generation"]) + 1,
+               "updated_at": datetime.now(timezone.utc).isoformat(),
+               "work": {**packet["work"], "verification": []}}
+    write_continuation_packet(project, updated)

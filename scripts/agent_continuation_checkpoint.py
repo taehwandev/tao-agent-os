@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_continuation_drift import capture_drift_state, required_docs_digest
+from agent_continuation_drift import capture_drift_state, required_docs_digest, verify_drift
 from agent_continuation_fields import failure
 from agent_continuation_mutation_state import MutationCheckpointState
 from agent_continuation_packet import (
@@ -40,11 +40,12 @@ from agent_gate_evidence import (
 )
 from agent_route_state import route_fingerprint
 from agent_run_owner import process_owner
+from agent_runtime_session import runtime_session
 from agent_run_registry import read_registry_state, registry_path
 from agent_state_lock import project_state_lock, state_lock
 
 
-CHECKPOINT_KINDS = ("initial", "pre_mutation", "post_mutation", "decision", "lifecycle", "stop")
+CHECKPOINT_KINDS = ("initial", "pre_mutation", "post_mutation", "decision", "lifecycle", "stop", "reconcile")
 PHASE_BY_KIND = {"initial": "scoped", "pre_mutation": "acting", "post_mutation": "acting"}
 ACTIVE_CHECKPOINT_STATES = {"running", "resuming"}
 EMPTY_WORK: dict[str, Any] = {
@@ -94,6 +95,8 @@ def write_continuation_checkpoint(
     base = _base_packet(project, run_id, kind)
     binding_payload = _binding_payload(project, run_id, binding_path)
     work_update = dict(work or {})
+    if kind == "reconcile":
+        _validate_reconciliation(project, rules, record, binding_payload, base, work_update, phase)
     if kind == "post_mutation":
         if "verification" in work_update:
             raise ContinuationPacketError(
@@ -161,8 +164,22 @@ def write_continuation_checkpoint(
         if kind == "initial"
         else int(base.get("generation") or 0),
         finalize_completed=finalize_completed,
+        reconcile=kind == "reconcile",
     )
     return packet
+
+
+def _validate_reconciliation(project, rules, record, binding, base, work, phase):
+    """Explicit recovery acknowledges observed state; it never grants authority."""
+    identity = runtime_session()
+    if (record.get("state") != "reconcile_required" or not identity.get("session_id")
+            or binding.get("runtime_session") != identity):
+        raise ValueError("reconcile requires this session's exact reconcile_required run")
+    if not work.get("objective") or work.get("verification") != [] or phase not in {"acting", "blocked"}:
+        raise ValueError("reconcile requires observed work via --work-stdin, verification: [], and phase acting or blocked")
+    drift = verify_drift(project, rules, base, required_doc_records=binding_required_docs(binding))
+    if "required_docs" in drift.get("changed_signals", []):
+        raise ValueError("required guidance changed: refresh the same action with start --evidence before reconciliation")
 
 
 def first_unfinished_checkpoint(binding_path: Path, *, run_state: str = "") -> str | None:
@@ -245,6 +262,7 @@ def _write_owned_checkpoint(
     baseline: dict[str, str] | None,
     expected_packet_generation: int | None,
     finalize_completed: bool,
+    reconcile: bool = False,
 ) -> None:
     """Compare owner/generation and replace the packet under one registry lock."""
 
@@ -255,7 +273,7 @@ def _write_owned_checkpoint(
         if current is None:
             raise ContinuationPacketError([failure("unknown_run", "/run_id")])
         allowed_states = (
-            {"completed"} if finalize_completed else ACTIVE_CHECKPOINT_STATES
+            {"completed"} if finalize_completed else {"reconcile_required"} if reconcile else ACTIVE_CHECKPOINT_STATES
         )
         if current.get("state") not in allowed_states:
             raise ContinuationPacketError([failure("run_not_active", "/run_id")])
@@ -294,6 +312,10 @@ def _write_owned_checkpoint(
             )
         if (packet.get("checkpoint") or {}).get("mutation_pending") is None:
             baseline_path.unlink(missing_ok=True)
+        if reconcile:
+            current["state"] = "running"
+            current["updated_at"] = packet["updated_at"]
+            atomic_write_json(path, payload)
 
 
 def _binding_payload(project: Path, run_id: str, binding_path: Path) -> dict[str, Any]:
@@ -358,6 +380,8 @@ def _pending(
     drift: dict[str, Any],
 ) -> dict[str, Any] | None:
     previous = (base.get("checkpoint") or {}).get("mutation_pending")
+    if kind == "reconcile":
+        return None
     if kind == "post_mutation":
         if previous is None:
             raise ContinuationPacketError([failure("no_pending_mutation", "/checkpoint")])

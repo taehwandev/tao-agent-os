@@ -223,10 +223,12 @@ The run that `finish` settled still publishes its own result. `finish` runs
 before the commit and closes the run, so requiring an active binding for that
 commit would refuse the last step of the order this contract asks for, and the
 only way through would be to open a second run for work the first already
-attested. A successful `finish` therefore keeps `add`, `commit`, `push` and
-`tag` available to that session while its evidence is fresh. It does not reopen
-editing: `finish` attested one diff, so moving the worktree afterwards needs a
-new run, and rewriting or discarding commands are not part of publishing.
+attested. A successful `finish` keeps authorized publication available while
+its receipt binds the admitted effect and unchanged project/rules content, and
+its evidence remains fresh. Completion alone grants no permission: a git-write
+ceiling cannot admit push or PR creation. An unchanged-content commit preserves
+the receipt; edits invalidate it. Rewriting or discarding commands retain their
+separate checks.
 
 Two environment variables bridge and override this declaration, and both must
 stay rare and explicit. During a transition window where the tracked

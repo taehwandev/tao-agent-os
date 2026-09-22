@@ -180,6 +180,9 @@ def _commit_claim(
                     "pending_clean",
                 )
         resumable = clean or _stopped_session_reconciles(reservation, drift)
+        if resumable and not clean:
+            # Returning the objective does not make pre-drift checks reusable.
+            packet = {**packet, "work": {**packet["work"], "verification": []}}
         generation = reservation["resume_generation"]
         if not resumable:
             # A refused claim is not a taken claim. The reservation advanced the

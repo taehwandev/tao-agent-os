@@ -8,6 +8,7 @@ import unittest
 import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,7 @@ from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_continuation_claim import claim_resume
 from agent_continuation_resume import resume_list
 from agent_continuation_store import continuation_path
+from agent_hook_checkpoint import checkpoint_hook
 from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
 from agent_route_state import request_fingerprint, route_fingerprint
 from agent_run_registry import active_runs, register_run, registry_path, transition_run
@@ -54,11 +56,12 @@ class Run:
         }
         self.evidence.write_text(json.dumps(self.binding))
 
-    def checkpoint(self, phase='acting'):
+    def checkpoint(self, phase='acting', verification=None):
         return write_continuation_checkpoint(
             project=self.project, rules=self.project, run_id=self.run['run_id'],
             kind='initial', binding_path=self.evidence, phase=phase,
-            work={'objective': 'bounded local work', 'blockers': ['external outcome unresolved'] if phase == 'blocked' else []},
+            work={'objective': 'bounded local work', 'blockers': ['external outcome unresolved'] if phase == 'blocked' else [],
+                  'verification': verification or []},
         )
 
     def state(self):
@@ -69,6 +72,87 @@ class Run:
 
 
 class RunInterruptionTests(unittest.TestCase):
+    prior_verification = [{'id': 'before_edit', 'kind': 'unit', 'result': 'success',
+                           'evidence_sha256': 'a' * 64, 'completed_at': '2026-08-13T00:00:00+00:00'}]
+
+    def test_stop_and_reconcile_preserve_required_guidance_refusal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint()
+            before = continuation_path(run.project, run.run['run_id']).read_bytes()
+            changed = {'changed_signals': ['required_docs', 'rules_worktree']}
+            with patch('agent_run_interruption.verify_drift', return_value=changed):
+                run.stop()
+            self.assertEqual(before, continuation_path(run.project, run.run['run_id']).read_bytes())
+            transition_run(run.project, run.evidence, 'reconcile_required')
+            with (patch('agent_continuation_checkpoint.runtime_session', return_value=run.session),
+                  patch('agent_continuation_checkpoint.verify_drift', return_value=changed)):
+                with self.assertRaisesRegex(ValueError, 'required guidance changed'):
+                    write_continuation_checkpoint(project=run.project, rules=run.project,
+                        run_id=run.run['run_id'], binding_path=run.evidence, kind='reconcile',
+                        phase='acting', work={'objective': 'observe edits', 'verification': []})
+            self.assertEqual('reconcile_required', run.state())
+            self.assertEqual(before, continuation_path(run.project, run.run['run_id']).read_bytes())
+
+    def test_reconcile_command_recovers_pending_mutation_without_success_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint()
+            write_continuation_checkpoint(
+                project=run.project, rules=run.project, run_id=run.run['run_id'],
+                kind='pre_mutation', binding_path=run.evidence,
+                mutation={'kind': 'update', 'paths': ['source.txt']})
+            (run.project / 'source.txt').write_text('partially completed edit\n')
+            run.stop()
+            with patch('agent_continuation_claim.runtime_session', return_value=run.session):
+                refused = claim_resume(run.project, run.run['run_id'], expected_generation=0)
+            self.assertEqual('drift_refused', refused['result'])
+            self.assertEqual('reconcile_required', run.state())
+            args = SimpleNamespace(project=run.project, rules=run.project, work_stdin=True,
+                                   checkpoint_kind='reconcile', phase='acting', last_completed=None,
+                                   output=None, repair_cycle=False)
+            summary = {'objective': 'finish the observed partial edit', 'verification': []}
+            with (patch('agent_hook_checkpoint.run_binding_path', return_value=run.evidence),
+                  patch('agent_hook_checkpoint._read_work_stdin', return_value=summary),
+                  patch('agent_continuation_checkpoint.runtime_session', return_value=run.session),
+                  redirect_stdout(io.StringIO())):
+                self.assertEqual(0, checkpoint_hook(args))
+            self.assertEqual('running', run.state())
+            packet = json.loads(continuation_path(run.project, run.run['run_id']).read_text())
+            self.assertIsNone(packet['checkpoint']['mutation_pending'])
+            self.assertEqual([], packet['work']['verification'])
+            self.assertFalse(list((run.project / '.tao').rglob('finish.json')))
+
+    def test_reconcile_requires_own_session_and_empty_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint()
+            transition_run(run.project, run.evidence, 'reconcile_required')
+            before = continuation_path(run.project, run.run['run_id']).read_bytes()
+            for identity, work in [({'runtime': 'codex', 'session_id': 'foreign'},
+                                    {'objective': 'observe', 'verification': []}),
+                                   (run.session, {'objective': 'observe'})]:
+                with patch('agent_continuation_checkpoint.runtime_session', return_value=identity):
+                    with self.assertRaises(ValueError):
+                        write_continuation_checkpoint(project=run.project, rules=run.project,
+                            run_id=run.run['run_id'], binding_path=run.evidence,
+                            kind='reconcile', phase='acting', work=work)
+                self.assertEqual(before, continuation_path(run.project, run.run['run_id']).read_bytes())
+                self.assertEqual('reconcile_required', run.state())
+
+    def test_stop_captures_turn_edits_for_clean_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            before = run.checkpoint(verification=self.prior_verification)
+            (run.project / 'source.txt').write_text('edited during turn\n')
+            self.assertTrue(run.stop())
+            with patch('agent_continuation_claim.runtime_session', return_value=run.session):
+                result = claim_resume(run.project, run.run['run_id'], expected_generation=0)
+            self.assertEqual('ready', result['result'])
+            self.assertEqual([], result['changed_signals'])
+            self.assertGreater(result['packet']['generation'], before['generation'])
+            self.assertEqual([], result['packet']['work']['verification'])
+
     def test_both_adapters_end_without_closeout_or_success_receipts(self):
         for runtime, adapter in [('codex', codex_stop_gate), ('claude', claude_stop_gate)]:
             with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
@@ -187,7 +271,7 @@ class RunInterruptionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             run = Run(directory, packet=True)
-            run.checkpoint('acting')
+            run.checkpoint('acting', verification=self.prior_verification)
             run.stop()
             (run.project / 'source.txt').write_text('changed by this session\n')
 
@@ -199,6 +283,7 @@ class RunInterruptionTests(unittest.TestCase):
             # under both names; every signal is still handed to the agent.
             self.assertEqual(['project_worktree', 'rules_worktree'], result['changed_signals'])
             self.assertEqual('bounded local work', result['packet']['work']['objective'])
+            self.assertEqual([], result['packet']['work']['verification'])
             self.assertEqual('running', run.state())
 
     def test_unmeasurable_drift_still_refuses_and_returns_the_claim(self):

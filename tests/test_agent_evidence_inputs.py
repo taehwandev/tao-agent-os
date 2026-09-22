@@ -1,12 +1,54 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from tests import test_agent_gate_reuse as fixture
 from agent_evidence_inputs import EvidenceInputs
 
 
 class EvidenceInputsTests(unittest.TestCase):
+    def test_read_access_time_change_does_not_invalidate_capture(self):
+        self._capture_with_stat_change("st_atime_ns", succeeds=True)
+
+    def test_identity_or_write_time_change_invalidates_capture(self):
+        for field in ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns"):
+            with self.subTest(field=field):
+                self._capture_with_stat_change(field, succeeds=False)
+
+    def _capture_with_stat_change(self, field, *, succeeds):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "input"
+            source.write_text("stable contents")
+            expected = EvidenceInputs.capture(root, ["input"])
+            baseline = source.stat()
+            original_open, original_stat = Path.open, Path.stat
+            read_started = False
+
+            def open_file(path, *args, **kwargs):
+                nonlocal read_started
+                stream = original_open(path, *args, **kwargs)
+                if path == source:
+                    read_started = True
+                return stream
+
+            def stat_file(path, *args, **kwargs):
+                if path == source:
+                    values = {name: getattr(baseline, name) for name in dir(baseline) if name.startswith("st_")}
+                    if read_started:
+                        values[field] += 1
+                    return SimpleNamespace(**values)
+                return original_stat(path, *args, **kwargs)
+
+            with patch.object(Path, "open", open_file), patch.object(Path, "stat", stat_file):
+                if succeeds:
+                    self.assertEqual(expected, EvidenceInputs.capture(root, ["input"]))
+                else:
+                    with self.assertRaisesRegex(ValueError, "input changed during capture"):
+                        EvidenceInputs.capture(root, ["input"])
+
     def test_safe_paths_absence_and_content_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

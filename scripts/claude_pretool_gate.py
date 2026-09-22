@@ -684,8 +684,8 @@ def publication_before_finish_reason(root: Path, *, unreadable: bool = False) ->
         f"Tao lifecycle: this session's run in {root} is still open, so no gate "
         "ledger is closed and no review attestation covers what this would "
         "publish. Next: record the route's remaining gates, run the review "
-        "hook, then run finish. The publish is authorized once that finish "
-        "succeeds."
+        "hook, then run finish. Publication still requires matching action "
+        "authority and unchanged finished inputs."
     )
 
 
@@ -1053,27 +1053,14 @@ def publishes_finished_work(
     tokens: list[str],
     cwd: Path | None = None,
 ) -> bool:
-    """Whether this is the commit or push that a successful finish authorized.
+    """Admit finished work without granting new publication authority.
 
-    The lifecycle requires finish before commit, and finish settles the run. So
-    the ordinary git command that follows it has no active binding left and was
-    refused -- the contract's own order made its last step unreachable, and the
-    only way through was to open a second run for work the first had already
-    attested.
-
-    The allowance is deliberately narrow. It covers publishing subcommands
-    only, so an edit after finish still needs a new run: finish attested one
-    diff, and letting the worktree move afterwards would leave that attestation
-    describing something that no longer exists. Freshness still applies, so an
-    abandoned session cannot come back days later to push on a stale finish.
-
-    Opening the pull request for the branch just pushed is the same step by a
-    different program, and leaving it out sent a session back through a whole
-    second `start` for work the first had already attested -- the exact detour
-    this exists to remove. Only `gh pr create` is covered: `gh pr merge`
-    integrates, `gh release` ships and `gh api` writes anything at all, and
-    none of those is the publication of an attested branch, so a finish is not
-    authority for them.
+    Registry completion and freshness select a candidate only. Its receipt
+    must also bind unchanged source/rules content and an admitted effect at
+    least as strong as this action. A commit of identical finished bytes does
+    not invalidate that receipt; edits do. Repeated attempts are not counted
+    as authority and must pass these checks each time. PR merge, releases and
+    arbitrary API writes retain their separate admission paths.
     """
 
     if not tokens:
@@ -1092,7 +1079,13 @@ def publishes_finished_work(
             return False
     elif project_publication_kind(root, command, cwd or root) != "publishes":
         return False
-    return evidence_is_fresh(finished_session_evidence(root, session_id))
+    evidence = finished_session_evidence(root, session_id)
+    if not evidence_is_fresh(evidence):
+        return False
+    from agent_publication_admission import PublicationAdmission
+
+    effect = "git_write" if program == "git" and subcommand != "push" else "external_write"
+    return PublicationAdmission.allows(root, evidence, effect)
 
 
 def publishes_finished_command(
@@ -1487,8 +1480,10 @@ def _isolated_checkout_verdict(
         ):
             return deny(
                 "Tao lifecycle: a completed run exists for this session, but "
-                "this command is outside the supported publication form or includes "
-                "another effect. For the same authorized publication, use a plain "
+                "publication admission failed: its receipt may be missing, its inputs "
+                "changed, its effect may exceed approval, or the command is unsupported. "
+                "Revalidate changed evidence and preserve the approved scope. "
+                "For an unchanged authorized publication, use a plain "
                 "git push or the declared PR command; do not open another run or "
                 "repeat finish merely to change command syntax. Separate any new "
                 "write and enter its scoped workflow only if authorized."

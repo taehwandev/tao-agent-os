@@ -678,6 +678,11 @@ def finish_hook(args: argparse.Namespace) -> int:
     details = ["finish check completed" if success else "finish check failed"]
     details.extend(_summary_lines(result))
     if success:
+        from agent_publication_admission import PublicationAdmission
+
+        captured = PublicationAdmission.record_finish(args.project, preflight_evidence_path(args))
+        details.append("publication inputs: captured" if captured else
+                       "publication inputs: unavailable; this finish does not admit post-finish publication")
         # Complete the registry first. If the process dies between these two
         # writes, the run is already terminal and cannot be resumed from a
         # packet that still displays the pre-finish checkpoint.

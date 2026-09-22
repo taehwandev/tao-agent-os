@@ -54,6 +54,21 @@ its binding fingerprint.
 
 ## Decisions
 
+For implemented lifecycle-v2 runs, Stop refreshes a valid packet's measured
+HEAD/worktree baseline when no mutation is pending and required guidance is
+unchanged. It clears saved verification when bytes moved, without completing
+gates or granting publication. Same-session resume that accepts later byte
+movement also returns no pre-drift verification successes.
+
+An owned `reconcile_required` run has an explicit recovery command:
+`checkpoint --checkpoint-kind reconcile --phase acting --work-stdin`, with the
+run's exact `--evidence`. Supply a bounded observed objective and
+`verification: []`; `blocked` is also an allowed phase. The current owner and
+runtime session must match. This clears unresolved mutation state and returns
+the run to running; it is not successful verification or a new approval.
+Changed required guidance first needs the same action refreshed through
+`start --evidence`. Failed recovery leaves the run uncompleted.
+
 `references/decisions.md` covers the four: when the checkpoint is written,
 what drift does, how takeover works, and how the content boundary is
 enforced.

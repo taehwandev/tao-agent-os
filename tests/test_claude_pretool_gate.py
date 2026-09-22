@@ -3799,11 +3799,34 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
             )
             assert evidence is not None
             transition_run(project, evidence, "completed")
+            _attest_finished_publication(project, evidence)
             code, out = self._decide(project, "git push origin work")
 
         self.assertIn("still open", refused)
         self.assertEqual(0, code)
         self.assertIn("a successful finish", _reason(out))
+
+
+def _attest_finished_publication(project: Path, evidence: Path) -> None:
+    """Give synthetic registry fixtures real Git bytes and an admitted effect."""
+    from agent_publication_admission import PublicationAdmission
+
+    marker = project / '.git'
+    if marker.is_file():
+        marker.unlink()
+    subprocess.run(['git', 'init', '-q', str(project)], check=True)
+    subprocess.run(['git', '-C', str(project), 'symbolic-ref', 'HEAD', 'refs/heads/work'], check=True)
+    metadata = project.parent / ('publication-git-' + uuid.uuid4().hex)
+    marker.rename(metadata)
+    marker.write_text(f'gitdir: {metadata}\n')
+    (project / '.gitignore').write_text('.tao/\n')
+    payload = json.loads(evidence.read_text())
+    payload['route']['request_classification'] = {'intent_envelope': {
+        'authority': 'envelope', 'schema_valid': True, 'failures': [],
+        'effective_effect': 'external_write',
+    }}
+    evidence.write_text(json.dumps(payload))
+    assert PublicationAdmission.record_finish(project, evidence)
 
 
 class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
@@ -3841,6 +3864,7 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         )
         assert evidence is not None
         transition_run(project, evidence, state)
+        _attest_finished_publication(project, evidence)
         return project
 
     def _decide(self, project: Path, command: str) -> tuple[int, str]:
@@ -4058,6 +4082,7 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
                 declared["require_workflow_entry"] = True
                 policy.write_text(json.dumps(declared), encoding="utf-8")
 
+                _attest_finished_publication(project, evidence)
                 code, out = self._decide(project, "git push origin work")
 
         self.assertEqual(0, code)
@@ -4091,6 +4116,7 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))
             self._declare_pr_command(project)
+            _attest_finished_publication(project, gate.finished_session_evidence(project, self.SESSION))
 
             code, out = self._decide(
                 project,
@@ -4104,6 +4130,7 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))
             self._declare_pr_command(project)
+            _attest_finished_publication(project, gate.finished_session_evidence(project, self.SESSION))
 
             code, out = self._decide(
                 project,

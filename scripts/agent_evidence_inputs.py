@@ -76,7 +76,11 @@ class EvidenceInputs:
             with path.open("rb") as stream:
                 for block in iter(lambda: stream.read(1024 * 1024), b""):
                     contents.update(block)
-            if path.stat() != before:
+            after = path.stat()
+            # Reading may update atime itself; only identity, metadata and write
+            # timestamps signal that the captured input changed underneath us.
+            stable_fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")
+            if any(getattr(after, field) != getattr(before, field) for field in stable_fields):
                 raise ValueError("input changed during capture")
             digest.update(json.dumps([relative, stat.S_IMODE(before.st_mode), contents.hexdigest()]).encode())
         return digest.hexdigest()

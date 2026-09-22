@@ -98,7 +98,9 @@ def checkpoint_hook(args: argparse.Namespace) -> int:
             "requires a recorded pre_mutation and must omit verification entirely. "
             "Do not fabricate past mutation or verification evidence.",
         )
-    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+    except ValueError as error:
+        return _result(args, False, f"checkpoint refused: {error}")
+    except (OSError, RuntimeError) as error:
         return _result(args, False, f"checkpoint unavailable: {type(error).__name__}")
     return finish_with_result(
         "checkpoint",

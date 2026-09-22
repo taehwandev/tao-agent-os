@@ -34,6 +34,11 @@ class GateEvidenceReuse:
             if "reuse_from" in record:
                 record = self._resolve(record)
             record = dict(record)
+            if "input_paths" in record and (
+                record.get("gate") not in _LOCAL_GATES
+                or not isinstance(record["input_paths"], list)
+            ):
+                raise ValueError("input_paths requires a list on a local reusable gate")
             # Callers cannot supply a trusted snapshot through the CLI.
             record.pop("reuse_snapshot", None)
             if record.get("gate") in _LOCAL_GATES and record.get("status", "SUCCESS") == "SUCCESS":
@@ -43,6 +48,10 @@ class GateEvidenceReuse:
             result.append(record)
         return result
 
+    @staticmethod
+    def supports(gate: str) -> bool:
+        return gate in _LOCAL_GATES
+
     def _snapshot(self, paths: list[str] | None = None) -> dict[str, Any] | None:
         key = json.dumps(paths, sort_keys=True)
         if key in self.snapshots:
@@ -50,22 +59,17 @@ class GateEvidenceReuse:
         session = self.preflight.get("runtime_session") or {}
         if (not self.preflight.get("project") or not self.preflight.get("rules")
                 or not session.get("runtime") or not session.get("session_id")):
+            if paths is not None:
+                raise ValueError("input_paths snapshot requires bound project, rules and runtime session")
             return None
         try:
-            states = {}
-            for name, root in (("project", self.project), ("rules", self.rules)):
-                state = git_state(root)
-                states[name] = {key: state[key] for key in ("head", "worktree_fingerprint")}
-            snapshot = {"schema_version": 1, "project": str(self.project),
-                        "rules": str(self.rules), "session": session, "states": states}
-            if paths is not None:
-                snapshot.update(schema_version=2, input_paths=paths)
-                snapshot["states"] = {
-                    "project": EvidenceInputs.capture(self.project, paths),
-                    "rules": EvidenceInputs.capture(self.rules, []),
-                }
+            snapshot = _capture_snapshot(self.project, self.rules, session, paths)
             self.snapshots[key] = snapshot
-        except (OSError, RuntimeError, ValueError, KeyError):
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError):
+            if paths is not None:
+                # Do not publish SUCCESS with an explicitly requested dependency
+                # declaration silently discarded, or expose filesystem errors.
+                raise ValueError("input_paths snapshot capture failed; check relative file declarations, readability and capture limits") from None
             return None
         return snapshot
 
@@ -137,3 +141,20 @@ def _read(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("invalid gate reuse evidence")
     return value
+
+
+def _capture_snapshot(project: Path, rules: Path, session: dict, paths: list[str] | None) -> dict:
+    """Capture input identity independently from reuse admission and ledger validation."""
+    states = {}
+    for name, root in (("project", project), ("rules", rules)):
+        state = git_state(root)
+        states[name] = {key: state[key] for key in ("head", "worktree_fingerprint")}
+    snapshot = {"schema_version": 1, "project": str(project),
+                "rules": str(rules), "session": session, "states": states}
+    if paths is not None:
+        snapshot.update(schema_version=2, input_paths=paths)
+        snapshot["states"] = {
+            "project": EvidenceInputs.capture(project, paths),
+            "rules": EvidenceInputs.capture(rules, []),
+        }
+    return snapshot
