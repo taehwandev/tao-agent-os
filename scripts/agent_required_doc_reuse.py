@@ -47,9 +47,13 @@ def required_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
         reusable_records: set[tuple[str, str, int]] = set()
         registry = _read(project / ".tao" / "run-registry.json", MAX_REGISTRY_BYTES)
         runs = registry.get("runs")
-        if not isinstance(runs, list) or len(runs) > MAX_RUNS:
+        if not isinstance(runs, list):
             return {"reused": [], "unread": unread}
-        for record in runs:
+        # Registry entries are appended. Bound history work, not goal length.
+        wanted = {current_records[doc] for doc in docs if doc in current_records}
+        if not wanted:
+            return {"reused": [], "unread": unread}
+        for record in reversed(runs[-MAX_RUNS:]):
             if not isinstance(record, dict) or record.get("state") != "completed":
                 continue
             run_id = record.get("run_id")
@@ -69,6 +73,8 @@ def required_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
                 ):
                     continue
                 reusable_records.update(_doc_records(prior).values())
+                if wanted <= reusable_records:
+                    break
             except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                 continue
 

@@ -412,19 +412,19 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
                 reuse = candidate
         if reuse["reused"]:
             lines.append(
-                "Already loaded from completed same-session evidence "
-                f"({len(reuse['reused'])} unchanged required docs; Do not reopen):"
+                "Matching completed same-session evidence "
+                f"({len(reuse['reused'])} unchanged required docs; reuse retained readings):"
             )
             lines.extend(f"  {doc}" for doc in reuse["reused"])
         if reuse["unread"]:
-            label = "Read now" if reuse["reused"] else "Read first"
-            detail = "new or changed required docs" if reuse["reused"] else "required docs"
-            lines.append(f"{label} ({len(reuse['unread'])} {detail}):")
+            lines.append(f"Required knowledge ({len(reuse['unread'])} required docs; "
+                         "no matching history proof, not proof of unread context):")
             lines.extend(f"  {doc}" for doc in reuse["unread"])
         lines.append(
             "Reading boundary: reference docs are on demand, not a recursive reading "
             "queue. Reuse a complete reading only while unchanged and available in "
-            "current context; otherwise read it. Expand only for an unresolved "
+            "current context; otherwise read it. Missing history proof does not require "
+            "another read or a separate reuse check when guidance is retained. Expand only for an unresolved "
             "in-scope question. Keep read results within both per-call and batch "
             "output limits; recover only missing ranges after truncation, never "
             "repeat a whole truncated batch. Discover uncertain paths with rg --files or quoted "

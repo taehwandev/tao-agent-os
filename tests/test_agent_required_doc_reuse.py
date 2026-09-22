@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ if str(SCRIPTS) not in sys.path:
 
 
 from agent_required_doc_reuse import required_doc_reuse
+import agent_required_doc_reuse as reuse_module
 
 
 class RequiredDocReuseTests(unittest.TestCase):
@@ -111,6 +113,44 @@ class RequiredDocReuseTests(unittest.TestCase):
                 ["workflows/skills/review-and-commit/SKILL.md"],
                 reuse["unread"],
             )
+
+    def test_recent_complete_match_stops_history_reads_even_in_long_goals(self) -> None:
+        for count in (8, 101):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                current = self._fixture(root)
+                payload = json.loads(current.read_text())
+                payload['route']['required_docs'] = payload['route']['required_docs'][:1]
+                current.write_text(json.dumps(payload))
+                registry = root / '.tao/run-registry.json'
+                records = json.loads(registry.read_text())
+                recent = records['runs'][0]
+                records['runs'] = [
+                    {'run_id': f'{index:032x}', 'state': 'completed'}
+                    for index in range(count - 1)
+                ] + [recent]
+                for record in records['runs'][:-1]:
+                    historical = root / '.tao/runs' / record['run_id'] / 'preflight.json'
+                    historical.parent.mkdir()
+                    historical.write_text(json.dumps({**payload, 'agent_run_id': record['run_id']}))
+                registry.write_text(json.dumps(records))
+                with patch.object(reuse_module, '_read', wraps=reuse_module._read) as reads:
+                    result = required_doc_reuse(current)
+                self.assertEqual([], result['unread'])
+                self.assertEqual(3, reads.call_count, 'current, registry, latest match only')
+
+    def test_history_scan_remains_bounded_without_a_match(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root)
+            registry = root / '.tao/run-registry.json'
+            registry.write_text(json.dumps({'runs': [
+                {'run_id': f'{index:032x}', 'state': 'completed'} for index in range(150)
+            ]}))
+            with patch.object(reuse_module, '_read', wraps=reuse_module._read) as reads:
+                result = required_doc_reuse(current)
+            self.assertEqual([], result['reused'])
+            self.assertEqual(102, reads.call_count)
 
     def test_another_session_or_changed_hash_cannot_reuse_docs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

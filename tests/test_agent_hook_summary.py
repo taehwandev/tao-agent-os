@@ -253,11 +253,12 @@ class AgentHookSummaryTests(unittest.TestCase):
             ):
                 summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
 
-        self.assertIn("Already loaded", summary)
+        self.assertIn("Matching completed same-session evidence", summary)
         self.assertIn("reused.md", summary)
-        self.assertIn("Read now (1", summary)
+        self.assertIn("Required knowledge (1", summary)
         self.assertIn("new.md", summary)
-        self.assertIn("Do not reopen", summary)
+        self.assertIn("reuse retained readings", summary)
+        self.assertIn("not proof of unread context", summary)
         self.assertIn("source.py", summary)
         self.assertIn("Do not search, reopen, or manually review", summary)
 
@@ -281,7 +282,7 @@ class AgentHookSummaryTests(unittest.TestCase):
             ):
                 summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
 
-        self.assertIn("Read first (2 required docs)", summary)
+        self.assertIn("Required knowledge (2 required docs;", summary)
         self.assertIn("first.md", summary)
         self.assertIn("second.md", summary)
 
@@ -328,7 +329,8 @@ class AgentHookSummaryTests(unittest.TestCase):
                 "gates": ["handoff"],
             }}), encoding="utf-8")
             summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
-        self.assertIn("Read first (2 required docs):", summary)
+        self.assertIn("Required knowledge (2 required docs;", summary)
+        self.assertIn("does not require another read or a separate reuse check", summary)
         self.assertIn("required/one.md", summary)
         self.assertIn("required/two.md", summary)
         self.assertNotIn("unrelated/three.md", summary)
