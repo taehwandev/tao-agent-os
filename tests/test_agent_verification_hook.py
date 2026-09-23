@@ -68,6 +68,50 @@ class VerificationHookTests(unittest.TestCase):
         self.assertEqual(1, self.run_hook())
         self.assertIn("tests=0", self.entries()[-1]["fields"]["result"])
 
+    def test_project_packages_take_priority_over_hook_packages(self):
+        (self.project / "tests" / "__init__.py").write_text("")
+        (self.project / "tests" / "helper.py").write_text("VALUE = 'project tests'\n")
+        support = self.project / "support"
+        support.mkdir()
+        (support / "__init__.py").write_text("VALUE = 'project support'\n")
+        (self.project / "tests" / "test_case.py").write_text(
+            "import unittest\n"
+            "from tests.helper import VALUE as TESTS_VALUE\n"
+            "from support import VALUE as SUPPORT_VALUE\n"
+            "class Case(unittest.TestCase):\n"
+            "    def test_imports(self):\n"
+            "        self.assertEqual('project tests', TESTS_VALUE)\n"
+            "        self.assertEqual('project support', SUPPORT_VALUE)\n"
+        )
+        self.assertEqual(0, self.run_hook())
+        self.assertIn("tests=1", self.entries()[-1]["fields"]["result"])
+
+    def test_project_venv_python_is_selected(self):
+        python = self.project / ".venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.symlink_to(sys.executable)
+        self.assertEqual(str(python), verify._command(self.args)[0])
+        self.write_test()
+        self.assertEqual(0, self.run_hook())
+        self.assertIn(str(python), self.entries()[-1]["fields"]["check"])
+
+    def test_zero_exit_without_receipt_fails_closed(self):
+        with patch.object(verify, "_command", return_value=[sys.executable, "-c", "pass"]):
+            self.assertEqual(1, self.run_hook())
+        self.assertEqual("FAIL", self.entries()[-1]["status"])
+        self.assertIn("exit=0; tests=0", self.entries()[-1]["fields"]["result"])
+
+    def test_success_receipt_with_nonzero_exit_fails_closed(self):
+        script = (
+            "import json,sys; "
+            "open(sys.argv[1], 'w').write(json.dumps({'tests_run': 1, 'successful': True})); "
+            "sys.exit(1)"
+        )
+        with patch.object(verify, "_command", return_value=[sys.executable, "-c", script]):
+            self.assertEqual(1, self.run_hook())
+        self.assertEqual("FAIL", self.entries()[-1]["status"])
+        self.assertIn("exit=1; tests=1", self.entries()[-1]["fields"]["result"])
+
     def test_forged_terminal_test_count_does_not_pass(self):
         (self.project / "tests" / "test_case.py").write_text(
             "import atexit\n"

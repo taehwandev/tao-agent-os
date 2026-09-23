@@ -8,6 +8,7 @@ Caller: agent-hook verify; verification: test_agent_verification_hook.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -86,7 +87,14 @@ def _command(args) -> list[str]:
     if args.verify_timeout <= 0:
         raise ValueError("verify timeout must be positive")
     runner = Path(__file__).with_name("agent_unittest_result.py")
-    return [sys.executable, "-B", str(runner), str(directory), pattern]
+    project_python = args.project / ".venv" / "bin" / "python"
+    if project_python.parent.parent.exists():
+        if not project_python.is_file() or not os.access(project_python, os.X_OK):
+            raise ValueError("project .venv Python is unavailable; use the project test runner")
+        python = str(project_python)
+    else:
+        python = sys.executable
+    return [python, "-B", str(runner), str(args.project.resolve()), str(directory), pattern]
 
 
 def _execute(command: list[str], project: Path, timeout: int) -> tuple[int, int, bool]:

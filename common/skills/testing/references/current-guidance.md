@@ -202,6 +202,21 @@ conflicts between unrelated changes.
 - A guarantee is asserted only by tests that pass, with no negative control
   proving they fail when the property is violated.
 
+### Optional Python unittest verification
+
+`<TAO_LAUNCHER> verify --project <TARGET_REPO> --rules <TAO_ROOT>
+--test-pattern 'test_owner*.py'` executes a bounded standard unittest selection
+and records its observed tests-gate result. It requires this session's active
+run with a tests gate. A zero count, failure, timeout, missing receipt, process
+exit mismatch, or changed source/rules inputs cannot pass. Interruption leaves
+failed evidence instead of retaining an older pass. It uses the project's
+`.venv/bin/python` when present and executable, otherwise the launcher's Python.
+If the project requires another interpreter or a project-specific runner, use
+that runner and the existing gate path. The receipt covers only the selected
+tests; assess ignored artifacts, dependencies and external state normally.
+Do not rerun a completed selection merely to adopt this shortcut, and keep
+final review.
+
 ## Report
 
 For automated checks, report command, result, and what boundary it proved. For

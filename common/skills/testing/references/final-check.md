@@ -24,13 +24,10 @@ For the final `tests` gate:
    or revision sensitivity are uncertain. Cite reuse provenance; add no reuse
    gate and never copy an old result as fresh.
 
-For Python unittest, optional `<TAO_LAUNCHER> verify --project <TARGET_REPO>
---rules <TAO_ROOT> --test-pattern 'test_owner*.py'` runs the selection and
-records its tests gate. It requires the bound active run, rejects zero tests,
-failure, timeout or changed inputs, and leaves failure on interruption. Its
-receipt covers only that selection; assess ignored artifacts and external state
-normally. Keep the required runner and final review. Do not repeat a check
-just to use this shortcut.
+Optional `verify` runs standard Python unittest with the project's `.venv`
+Python when present, otherwise the launcher's Python. For another interpreter
+or a project-specific runner, use that runner and the existing tests gate.
+Read `current-guidance.md` before choosing `verify`; it does not replace review.
 
 Read `current-guidance.md` only for unresolved test-boundary, fixture, scenario
 or failure-classification decisions.

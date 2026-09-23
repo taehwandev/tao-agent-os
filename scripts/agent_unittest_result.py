@@ -9,7 +9,8 @@ from pathlib import Path
 
 
 def main() -> int:
-    directory, pattern, receipt = sys.argv[1:4]
+    project, directory, pattern, receipt = sys.argv[1:5]
+    sys.path.insert(0, str(Path(project).resolve()))
     suite = unittest.defaultTestLoader.discover(start_dir=directory, pattern=pattern)
     result = unittest.TextTestRunner().run(suite)
     Path(receipt).write_text(
