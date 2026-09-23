@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_block_lessons import is_stale, recurring_signatures
 from agent_lesson_store import promote_repaired_candidates, upsert_retrospective_candidate
 from agent_skill_retention import skill_learning_summary
 from support.global_state import STATE_HOME_ENV, global_state_dir
@@ -182,6 +183,8 @@ def _inbox_summary(path: Path) -> dict[str, Any]:
     lesson_ids: set[str] = set()
     best: dict[str, Any] = {}
     best_count = 0
+    open_records: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc)
     if path.exists():
         for lesson_path in sorted(path.glob("*.json")):
             try:
@@ -193,6 +196,11 @@ def _inbox_summary(path: Path) -> dict[str, Any]:
             lesson_id = str(lesson.get("lesson_id") or "")
             if lesson_id:
                 lesson_ids.add(lesson_id)
+            # A signature unseen for the stale window, or marked stale by
+            # compaction, is history rather than a current recurrence.
+            if is_stale(lesson, now):
+                continue
+            open_records.append(lesson)
             count = lesson.get("occurrence_count")
             if not isinstance(count, int) or isinstance(count, bool):
                 continue
@@ -201,6 +209,7 @@ def _inbox_summary(path: Path) -> dict[str, Any]:
     return {
         "candidate_count": len(lesson_ids),
         "top_recurrence": _recurrence_notice(best, best_count),
+        "recurring": recurring_signatures(open_records, now),
     }
 
 

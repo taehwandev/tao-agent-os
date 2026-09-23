@@ -61,19 +61,38 @@ def promote_repaired_candidates(
     return {"promoted": promoted}
 
 
+def promote_fixed_candidate(
+    root: Path,
+    lesson_id: str,
+    *,
+    receipt_id: str,
+    promotion_status: str,
+) -> bool:
+    """Promote one named inbox candidate, e.g. one a clean finish says it fixed."""
+
+    path = root / "lessons" / "inbox" / f"{lesson_id}.json"
+    lesson = _read_lesson(path)
+    if lesson.get("lesson_id") != lesson_id or not receipt_id.strip():
+        return False
+    return _promote_one(
+        root, path, lesson, receipt_id=receipt_id.strip(), promotion_status=promotion_status
+    )
+
+
 def _promote_one(
     root: Path,
     inbox_path: Path,
     lesson: dict[str, Any],
     *,
     receipt_id: str,
+    promotion_status: str = "repair_verified",
 ) -> bool:
     relative_path = Path("lessons") / "promoted" / f"{lesson['lesson_id']}.json"
     destination = root / relative_path
     payload = {
         **lesson,
         "status": "promoted",
-        "promotion_status": "repair_verified",
+        "promotion_status": promotion_status,
         "repair_receipt_id": receipt_id,
     }
     try:

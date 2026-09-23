@@ -14,6 +14,7 @@ from typing import Any
 from agent_execution_capsule import create_preflight_snapshot
 from agent_execution_capsule_state import atomic_write_json
 from agent_route_state import request_fingerprint
+from agent_block_lessons import recurring_lines
 from agent_global_lessons import lesson_summary, state_home
 from agent_skill_backlog import format_skill_backlog, skill_backlog_summary
 from agent_runtime_session import runtime_session
@@ -620,13 +621,18 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
         f"candidates={global_lessons['candidate_count']}"
     )
     top_recurrence = global_lessons.get("top_recurrence") or {}
-    if top_recurrence:
+    recurring = recurring_lines(global_lessons.get("recurring") or [])
+    # The recurring lines already name the worst current signature; repeating
+    # it on the summary line only costs tokens.
+    if top_recurrence and not recurring:
         lessons_line += (
             f"; unrepaired recurrence: {top_recurrence['failure_type']} "
             f"x{top_recurrence['occurrence_count']} "
             f"({top_recurrence['promotion_status']}, lesson {top_recurrence['lesson_id']})"
         )
     print(lessons_line)
+    for line in recurring:
+        print(line)
     backlog_line = format_skill_backlog(skill_backlog_summary(state_home()))
     if backlog_line:
         print(backlog_line)

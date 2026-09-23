@@ -21,6 +21,11 @@ read in full by every preflight.
 Folding them cannot be a plain delete. A lesson's occurrence count is the sum
 across its records, so dropping the older ones would silently reduce it. This
 merges by the store's own rules and then removes what it merged.
+
+The same pass triages what no longer matters: a lesson unseen for the stale
+window is marked `stale` (kept, with its count, so a return keeps counting and
+the writer reopens it), and lock files untouched for a day are removed when no
+writer holds them. Without `--apply` it only reports.
 """
 
 from __future__ import annotations
@@ -28,16 +33,25 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows hosts keep their lock files
+    fcntl = None
 
 SCRIPTS = Path(__file__).resolve().parent
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from agent_block_lessons import is_stale  # noqa: E402
 from agent_lesson_files import _read_lesson_records  # noqa: E402
 from agent_lesson_store import _merged_occurrence_keys  # noqa: E402
 from agent_state_lock import state_lock  # noqa: E402
 from support.global_state import global_state_dir  # noqa: E402
+
+LOCK_DEBRIS_AGE_SECONDS = 24 * 60 * 60
 
 
 def inbox_path(state_home: Path) -> Path:
@@ -97,17 +111,22 @@ def merge_group(records: list[dict]) -> dict:
     }
 
 
-def plan(inbox: Path) -> dict:
+def plan(inbox: Path, now: datetime | None = None) -> dict:
     groups, unreadable = read_records(inbox)
+    current = now or datetime.now(timezone.utc)
     folds = []
+    stale = []
     for lesson_id, items in sorted(groups.items()):
+        merged = merge_group([record for _, record in items])
+        if merged.get("status") != "stale" and is_stale(merged, current):
+            stale.append(lesson_id)
         if len(items) == 1 and items[0][0].name == f"{lesson_id}.json":
             continue
         folds.append(
             {
                 "lesson_id": lesson_id,
                 "paths": [path for path, _ in items],
-                "merged": merge_group([record for _, record in items]),
+                "merged": merged,
             }
         )
     return {
@@ -115,7 +134,67 @@ def plan(inbox: Path) -> dict:
         "lessons": len(groups),
         "unreadable": unreadable,
         "folds": folds,
+        "stale": stale,
+        "lock_debris": lock_debris(inbox, current),
     }
+
+
+def lock_debris(inbox: Path, now: datetime) -> list[Path]:
+    """Lock files the writer leaves behind, untouched for over a day."""
+
+    cutoff = now.timestamp() - LOCK_DEBRIS_AGE_SECONDS
+    debris = []
+    for path in sorted(inbox.glob("*.lock")):
+        try:
+            if path.stat().st_mtime < cutoff:
+                debris.append(path)
+        except OSError:
+            continue
+    return debris
+
+
+def remove_lock_debris(paths: list[Path]) -> int:
+    """Remove each old lock only when nobody holds it right now."""
+
+    removed = 0
+    if fcntl is None:
+        return removed
+    for path in paths:
+        try:
+            with path.open("a+b") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                path.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def mark_stale(inbox: Path, lesson_ids: list[str], now: datetime) -> int:
+    """Mark lessons unseen for the stale window, re-checked under their lock.
+
+    The record stays, with its count and keys, so a signature that returns
+    keeps counting; the writer replaces the status on its next occurrence.
+    """
+
+    marked = 0
+    for lesson_id in lesson_ids:
+        target = inbox / f"{lesson_id}.json"
+        with state_lock(target):
+            try:
+                record = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(record, dict) or not is_stale(record, now):
+                continue
+            if record.get("status") == "stale":
+                continue
+            record["status"] = "stale"
+            temporary = target.with_suffix(".compact.tmp")
+            temporary.write_text(json.dumps(record, indent=1, sort_keys=True), encoding="utf-8")
+            temporary.replace(target)
+            marked += 1
+    return marked
 
 
 def _lesson_records_now(
@@ -196,11 +275,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no candidate inbox at {inbox}")
         return 0
 
-    report = plan(inbox)
+    now = datetime.now(timezone.utc)
+    report = plan(inbox, now)
     removed = sum(len(fold["paths"]) for fold in report["folds"]) - len(report["folds"])
     print(f"inbox: {inbox}")
     print(f"records: {report['records']}  lessons: {report['lessons']}")
     print(f"lessons to fold: {len(report['folds'])}  files to remove: {removed}")
+    print(
+        f"lessons to mark stale (unseen 14+ days): {len(report['stale'])}  "
+        f"lock files older than a day: {len(report['lock_debris'])}"
+    )
     if report["unreadable"]:
         print(f"unreadable, left untouched: {len(report['unreadable'])}")
         for path in report["unreadable"][:5]:
@@ -215,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     written = apply_plan(inbox, report["folds"])
     print(f"folded {written} lessons; {removed} files removed")
+    marked = mark_stale(inbox, report["stale"], now)
+    cleared = remove_lock_debris(report["lock_debris"])
+    print(f"marked {marked} lessons stale; removed {cleared} lock files")
     return 0
 
 

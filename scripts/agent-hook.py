@@ -175,6 +175,7 @@ def start_hook(args: argparse.Namespace) -> int:
     try:
         continuity = WorkContinuity(args)
     except (OSError, ValueError, KeyError, TypeError) as error:
+        _learn_start_block("start_continuity_invalid")
         return finish_with_result("start", False, [str(error)], args.output, {},
                                   args.repair_cycle, invocation_error=True)
     request_intake = {
@@ -190,6 +191,7 @@ def start_hook(args: argparse.Namespace) -> int:
         if PublicationAdmission.already_finished_same_request(
             args.project, args.rules, request_intake, effect, runtime_session(),
         ):
+            _learn_start_block("publication_already_finished")
             return finish_with_result(
                 "start", False,
                 ["This exact request already has a completed, unchanged publication receipt. "
@@ -208,6 +210,7 @@ def start_hook(args: argparse.Namespace) -> int:
         else None
     )
     if affinity_denial:
+        _learn_start_block("task_affinity_conflict")
         return finish_with_result(
             "start",
             False,
@@ -243,6 +246,7 @@ def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_in
         request_intake,
     )
     if claim["conflict"]:
+        _learn_start_block("run_claim_conflict")
         return finish_with_result(
             "start",
             False,
@@ -310,6 +314,8 @@ def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_in
             )
             if release_error:
                 details.append(release_error)
+    if not success:
+        _learn_start_block("start_preflight_failed")
     return finish_with_result(
         "start",
         success,
@@ -321,6 +327,16 @@ def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_in
             not success and result.get("returncode") == 0
         ),
     )
+
+
+def _learn_start_block(reason_code: str) -> None:
+    """Count a start refusal as a content-free lesson; never affects start."""
+    try:
+        from agent_block_lessons import record_block
+        record_block("agent_hook_start", reason_code,
+                     session_id=str(runtime_session().get("session_id") or ""))
+    except Exception:  # noqa: BLE001 - learning is best-effort
+        pass
 
 
 def _start_reference_lines(args: argparse.Namespace) -> list[str]:
@@ -522,6 +538,9 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         )
     lines.extend(_closeout_gate_lines(gates) + _gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
+    if "retrospective check" in gates:
+        from agent_block_lessons import retrospective_guidance_line
+        lines.extend(filter(None, [retrospective_guidance_line(payload.get("global_lessons") or {})]))
     return lines
 
 
@@ -1077,6 +1096,7 @@ def _register_started_run(
         )
         return True
     if superseded:
+        _learn_start_block("leaked_session_runs")
         details.append(
             f"agent run registry: settled {len(superseded)} superseded run(s) "
             "from this runtime session"
@@ -1245,14 +1265,17 @@ def _summary_lines(result: dict[str, Any]) -> list[str]:
                 "Retrospective repair required:",
                 "Closeout retrospective:",
                 "Retrospective lesson candidate:",
+                "Retrospective lesson resolved:",
                 "Global lessons:",
+                "Recurring block:",
                 "- routed doc candidates:",
                 "- on-demand reference docs:",
             )):
                 info_lines.append(stripped)
     if not fail_lines and result.get("returncode") not in (0, None):
         fail_lines = _fallback_failure_lines(result)
-    return info_lines[:8] + fail_lines
+    # Room for up to three recurring-block lines beside the routed-doc lines.
+    return info_lines[:11] + fail_lines
 
 
 def _fallback_failure_lines(result: dict[str, Any]) -> list[str]:
@@ -2083,6 +2106,7 @@ def _materialize_compact_start_authority(
             f"required only from `{APPROVAL_REQUIRED_FROM}` up"
         )
     if problems:
+        _learn_start_block(_start_problem_code(problems[0]))
         parser.error("; ".join(problems))
 
     fingerprint = request_fingerprint(request_intake_from_args(args))
@@ -2116,6 +2140,17 @@ def _materialize_compact_start_authority(
             separators=(",", ":"),
         )
     _canonicalize_publication_start(parser, args)
+
+
+def _start_problem_code(problem: str) -> str:
+    """Map a compact-start refusal to its fixed lesson slug, never its text."""
+    if problem.startswith("--intent"):
+        return "start_intent_slug_invalid"
+    if "effect" in problem:
+        return "start_effect_approval_mismatch"
+    if "session" in problem:
+        return "start_session_unbound"
+    return "start_arguments_invalid"
 
 
 def _canonicalize_publication_start(

@@ -369,7 +369,27 @@ def _approve(reason: str) -> int:
     return 0
 
 
-def deny(reason: str) -> int:
+_BLOCK_SESSION: dict[str, str] = {"session_id": ""}
+
+
+def _learn_block(code: str) -> None:
+    """Count this denial as a content-free lesson, after the verdict is final.
+
+    Only the fixed reason code and the session reach the store -- never the
+    command, a path or the reason text -- and the recorder rate-limits per
+    session and swallows every error, so it cannot change or delay a verdict
+    beyond one small file read and at most one write.
+    """
+
+    try:
+        from agent_block_lessons import record_block
+
+        record_block("pretool_gate", code, session_id=_BLOCK_SESSION["session_id"])
+    except Exception:  # noqa: BLE001 - learning never changes the verdict
+        pass
+
+
+def deny(reason: str, code: str = "workflow_entry_missing") -> int:
     """Stop a policy violation without turning it into an operator prompt.
 
     ``ask`` makes Claude request confirmation for every gated Edit, Write, and
@@ -377,6 +397,9 @@ def deny(reason: str) -> int:
     workflow, move to a permitted worktree, or reduce/justify the edit -- so the
     agent should apply the remedy instead of delegating every decision to the
     operator.
+
+    ``code`` names which denial branch fired, as a fixed slug for the lesson
+    store; it never alters the decision printed here.
     """
 
     print(
@@ -388,8 +411,10 @@ def deny(reason: str) -> int:
                     "permissionDecisionReason": reason,
                 }
             }
-        )
+        ),
+        flush=True,
     )
+    _learn_block(code)
     return 0
 
 
@@ -1662,7 +1687,7 @@ def _isolated_checkout_verdict(
         for governed in governed_roots or [root]:
             ticket_reason = ticketed_product_branch_denial(governed, target)
             if ticket_reason:
-                return deny(ticket_reason)
+                return deny(ticket_reason, "ticketed_product_branch")
     # Every governed project, for the same reason the mutation and worktree
     # checks already use all of them: a command writing into a second project
     # is governed by that project's workflow entry too, and reading only the
@@ -1685,7 +1710,8 @@ def _isolated_checkout_verdict(
                 return deny(
                     publication_before_finish_reason(
                         governed, unreadable=held == "unreadable"
-                    )
+                    ),
+                    "publication_before_finish",
                 )
             continue
         if (
@@ -1707,11 +1733,13 @@ def _isolated_checkout_verdict(
             and evidence_is_fresh(finished_session_evidence(governed, session_id))
         ):
             return deny(finished_publication_denial(
-                governed, session_id, bash_command(payload), effective_cwd or cwd))
+                governed, session_id, bash_command(payload), effective_cwd or cwd),
+                "publication_after_finish_mismatch")
         if unknown_reason:
             after_finish = evidence_is_fresh(finished_session_evidence(governed, session_id))
             return deny(unknown_recovery(unknown_reason, after_finish=after_finish)
-                        + governed_because(governed, cwd_roots))
+                        + governed_because(governed, cwd_roots),
+                        "unreadable_command_effect")
         return deny(deny_reason(governed, session_id, tool, cwd_roots))
     if finish_authorized:
         return _approve(
@@ -1720,7 +1748,7 @@ def _isolated_checkout_verdict(
         )
     sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
     if sprawl_reason:
-        return deny(sprawl_reason)
+        return deny(sprawl_reason, "file_sprawl_budget")
     # A missing adapter module is a broken install, not a policy violation. This
     # gate promises never to fail to load; denying every edit because an import
     # failed breaks that promise and removes the means of repairing the install.
@@ -1741,7 +1769,7 @@ def _isolated_checkout_verdict(
                 payload, root=root, cwd=cwd, session_id=session_id
             )
             if continuation_reason:
-                return deny(continuation_reason)
+                return deny(continuation_reason, "continuation_pre_mutation")
     record_edit_activity(root, session_id)
     record_session_project(root, session_id)
     return allow()
@@ -1909,7 +1937,8 @@ def _worktree_policy_verdict(
             return deny(
                 publication_before_finish_reason(
                     open_run, unreadable=held == "unreadable"
-                )
+                ),
+                "publication_before_finish",
             )
     if landing == "allow":
         return _approve(
@@ -1936,7 +1965,8 @@ def _worktree_policy_verdict(
             payload=payload,
             tokens=tokens,
             command_cwd=command_cwd,
-        )
+        ),
+        "worktree_isolation",
     )
 
 
@@ -2831,7 +2861,7 @@ def _workflow_start_verdict(
 
     target_root = workflow_start_target_root(tokens, effective_cwd)
     if target_root is None:
-        return deny(worktree_reason) if worktree_reason else allow()
+        return deny(worktree_reason, "workflow_start_worktree") if worktree_reason else allow()
     if _administrative_workflow_start(tokens):
         # Cleanup/publication needs a run in the checkout it administers. The
         # route still validates user authority, and later commands still pass
@@ -2849,12 +2879,13 @@ def _workflow_start_verdict(
             "permission review.",
             tokens=tokens,
         )
-    return deny(reason) if reason else allow()
+    return deny(reason, "workflow_start_worktree") if reason else allow()
 
 
 def decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
+    _BLOCK_SESSION["session_id"] = str(payload.get("session_id") or "")
     tool = payload.get("tool_name")
     if tool not in GATED_TOOLS:
         return allow()
@@ -2880,7 +2911,10 @@ def decide(payload: dict) -> int:
         roots, str(payload.get("session_id") or ""), bash_kind
     )
     if read_denial:
-        return deny(unknown_recovery(scope.unknown_reason) if scope.unknown_reason else read_denial)
+        return deny(
+            unknown_recovery(scope.unknown_reason) if scope.unknown_reason else read_denial,
+            "unreadable_command_effect" if scope.unknown_reason else "read_only_run_mutation",
+        )
     if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:
         # The hazard list is consulted here too. Nothing Git classifies as
         # bootstrap is destructive today -- `fetch` and `worktree add` are the

@@ -62,7 +62,20 @@ def claim_resume(
     except (OSError, RuntimeError, ValueError):
         capture = None
         drift = _drift_verdict([UNMEASURED, "project_worktree"], [], None)
-    return _commit_claim(project, reservation, capture, drift)
+    result = _commit_claim(project, reservation, capture, drift)
+    if result.get("result") == "drift_refused":
+        _learn_reconcile_block(run_id)
+    return result
+
+
+def _learn_reconcile_block(run_id: str) -> None:
+    """Count a drift-refused resume, keyed by the run so its repair retires it."""
+    try:
+        from agent_block_lessons import record_block
+
+        record_block("run_reconcile", "resume_drift_refused", run_id=run_id)
+    except Exception:  # noqa: BLE001 - learning never changes the claim result
+        pass
 
 def _reserve(
     project: Path,

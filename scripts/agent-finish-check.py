@@ -12,6 +12,7 @@ from typing import Any
 
 from agent_delegation_plan import read_delegation_plan
 from agent_execution_capsule_state import contained_doc_path, doc_hash_record
+from agent_block_lessons import resolve_fixed_lesson
 from agent_global_lessons import state_home, write_retrospective_candidate
 from agent_runtime_session import (
     FINISHED_SUFFIX,
@@ -575,6 +576,12 @@ def main() -> int:
     if not failures:
         record_session_finished(project, result["runtime_session"])
     print_result(output_path, required_gates, overall, result)
+    if not failures:
+        # A clean finish whose retrospective names the recurring lesson it
+        # fixed retires that lesson, so it stops surfacing at start.
+        resolved = resolve_fixed_lesson(gate_evidence_ledger, preflight)
+        if resolved:
+            print(f"Retrospective lesson resolved: {resolved}")
 
     return _report_finish_failures(
         failures=failures,
