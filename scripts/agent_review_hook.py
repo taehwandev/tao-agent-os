@@ -105,6 +105,8 @@ def _review_working_tree(
     if review_subject["kind"] == "commit-range":
         status_before = review_subject["path_discovery"]
         status_before_lines = list(review_subject["changed_paths"])
+    elif not review_paths:
+        status_before, status_before_lines = full_status_before, full_status_before_lines
     else:
         status_before, status_before_lines = git_status_for_review(
             args.project,
@@ -873,13 +875,14 @@ def record_review_worktree_stability(
             failures.append("review hook changed the worktree; review hooks must stay read-only")
         return
 
-    status_after, status_after_lines = git_status_for_review(
-        args.project,
-        run_command,
-        git_status,
-        review_paths,
-    )
-    full_status_after, full_status_after_lines = git_status(args.project)
+    if review_paths:
+        status_after, status_after_lines = git_status_for_review(
+            args.project, run_command, git_status, review_paths,
+        )
+        full_status_after, full_status_after_lines = git_status(args.project)
+    else:
+        status_after, status_after_lines = git_status(args.project)
+        full_status_after, full_status_after_lines = status_after, status_after_lines
     if is_git_status_review_only(args.project, full_status_after):
         full_status_after["review_only"] = True
         full_status_after["review_note"] = non_git_writing_workspace_note(args.project)
