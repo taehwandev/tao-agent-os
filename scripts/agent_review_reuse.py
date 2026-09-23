@@ -8,6 +8,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -19,6 +20,13 @@ from agent_route_state import route_fingerprint
 from support.bounded_git import run_git
 from support.stage_timing import stage
 from agent_review_integration_reuse import reuse_committed_review
+
+
+# A file whose last change is this close to the moment it was hashed is "racy"
+# in Git's sense: a later write could land in the same timestamp tick and leave
+# every stat field unchanged. Such files are never memoized. Two seconds covers
+# the coarsest common timestamp granularity (FAT) with room to spare.
+RACY_WINDOW_NS = 2_000_000_000
 
 
 class ReviewReuse:
@@ -34,6 +42,10 @@ class ReviewReuse:
         self.project, self.rules = args.project.resolve(), args.rules.resolve()
         self.evidence = args.evidence or self.project / '.tao' / 'preflight.json'
         self.path = self.project / '.tao' / 'review-checks-latest.json'
+        # complete() captures again to prove nothing moved while the hook ran.
+        # Rules and checker files are ~1100 unchanged reads the second time, so
+        # it reuses their hashes while every stat field still matches.
+        self.hash_memo: dict[tuple[Any, ...], dict[str, Any]] = {}
         self.before = self.capture()
         self.reused: dict[str, Any] | None = None
 
@@ -159,7 +171,13 @@ def _publication_candidate(
         return None
 
 
-def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -> dict[str, Any]:
+def _file_records(
+    root: Path,
+    paths: list[str],
+    *,
+    follow_rules: bool = False,
+    memo: dict[tuple[Any, ...], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     records: dict[str, Any] = {}
     resolved_root = root.resolve()
     budget = [0, 0]
@@ -170,10 +188,20 @@ def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -
         budget[1] += info.st_size
         if budget[1] > 256 * 1024 * 1024:
             raise ValueError('review snapshot byte budget exceeded')
+        # ctime is in the key because no caller can set it back: any write, or
+        # a utime that restores mtime, moves it and so misses the memo.
+        key = (str(path), info.st_dev, info.st_ino, info.st_mode, info.st_size,
+               info.st_mtime_ns, info.st_ctime_ns)
+        if memo is not None and key in memo:
+            return dict(memo[key])
+        hashed_at = time.time_ns()
         data = path.read_bytes()
-        return {'mode': '100755' if info.st_mode & 0o111 else '100644',
-                'permissions': stat.S_IMODE(info.st_mode), 'sha256': hashlib.sha256(data).hexdigest(),
-                'blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+        record = {'mode': '100755' if info.st_mode & 0o111 else '100644',
+                  'permissions': stat.S_IMODE(info.st_mode), 'sha256': hashlib.sha256(data).hexdigest(),
+                  'blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+        if memo is not None and max(info.st_mtime_ns, info.st_ctime_ns) < hashed_at - RACY_WINDOW_NS:
+            memo[key] = dict(record)
+        return record
 
     if len(paths) > 10000:
         raise ValueError('review snapshot file budget exceeded')
@@ -185,7 +213,7 @@ def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -
         if Path(relative).is_absolute() or '..' in Path(relative).parts:
             raise ValueError('foreign snapshot path')
         path.parent.resolve().relative_to(resolved_root)
-        if any(parent.is_symlink() for parent in (path.parent, *path.parent.parents) if parent != root and root in parent.parents):
+        if _symlinked_parent(root, path):
             raise ValueError('symlinked review parent')
         try:
             info = path.lstat()
@@ -220,6 +248,22 @@ def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -
         records[relative] = {'link': os.readlink(path), 'target': target_relative,
                              'permissions': stat.S_IMODE(info.st_mode), 'contents': contents}
     return records
+
+
+def _symlinked_parent(root: Path, path: Path) -> bool:
+    """Whether a directory between ``root`` (exclusive) and ``path`` is a symlink.
+
+    ``path`` is ``root / relative`` with no ``..`` and no absolute part, so its
+    lexical ancestors reach ``root`` exactly. Walking up to it checks the same
+    directories as testing ``root in parent.parents`` for each ancestor, in one
+    pass instead of rebuilding every ancestor chain for every file.
+    """
+    parent = path.parent
+    while parent != root and parent != parent.parent:
+        if parent.is_symlink():
+            return True
+        parent = parent.parent
+    return False
 
 
 def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
@@ -259,9 +303,12 @@ def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
         if any(files.get(os.fsdecode(name)) is not None for name in staged - indexed if name):
             raise ValueError('staged deletion differs from working bytes')
         rules_names = reuse.git(reuse.rules, 'ls-files', '--cached', '--others', '--exclude-standard', '-z')
-        rules_files = _file_records(reuse.rules, [os.fsdecode(p) for p in rules_names.split(b'\0') if p], follow_rules=True)
+        memo = getattr(reuse, 'hash_memo', None)
+        rules_files = _file_records(reuse.rules, [os.fsdecode(p) for p in rules_names.split(b'\0') if p],
+                                    follow_rules=True, memo=memo)
         checker = Path(__file__).resolve().parent
-        checker_files = _file_records(checker, [p.relative_to(checker).as_posix() for p in checker.rglob('*.py')])
+        checker_files = _file_records(checker, [p.relative_to(checker).as_posix() for p in checker.rglob('*.py')],
+                                      memo=memo)
         return {
             **({'base': base} if kind == 'commit-range' else {}),
             'project': str(reuse.project), 'head': head, 'files': files,

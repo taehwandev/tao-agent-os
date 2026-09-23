@@ -153,8 +153,12 @@ def record_successful_review_workflow_validation(
     validate: dict[str, Any],
     diff_check: dict[str, Any],
     review_scope: str,
-) -> None:
-    """Persist successful review checks with their exact source snapshot."""
+) -> tuple[dict[str, str], dict[str, str]] | None:
+    """Persist successful review checks with their exact source snapshot.
+
+    Returns the project and rules states it captured, so the attestation written
+    right after can revalidate them instead of fingerprinting both trees again.
+    """
 
     if (
         validate.get("returncode") != 0
@@ -162,7 +166,7 @@ def record_successful_review_workflow_validation(
         or not review_scope.strip()
         or not evidence_path.is_file()
     ):
-        return
+        return None
     try:
         project_git, rules_git = git_states_for_paths(project, rules)
         evidence_relative = evidence_path.resolve().relative_to(
@@ -173,7 +177,7 @@ def record_successful_review_workflow_validation(
             "sha256": file_hash_record(evidence_path)["sha256"],
         }
     except (OSError, RuntimeError, ValueError):
-        return
+        return None
     try:
         atomic_write_json(
             review_validation_path(project),
@@ -194,7 +198,8 @@ def record_successful_review_workflow_validation(
         # The run-bound review attestation remains the authoritative evidence,
         # so a sandbox that permits the run directory but not the shared .tao
         # root must not turn a successful review into a structural failure.
-        return
+        pass
+    return project_git, rules_git
 
 
 def reusable_review_workflow_validation(project: Path, rules: Path) -> dict[str, Any] | None:

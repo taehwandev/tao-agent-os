@@ -255,6 +255,85 @@ class ReviewReuseTests(unittest.TestCase):
         self.assertNotIn('review_checks', self.checks)
         self.assertEqual(['files', 'rules_sha256'], self.checks['review_snapshot_stability']['changed_fields'])
 
+    def test_stability_capture_rereads_only_the_reviewed_files(self):
+        """Settled rules and checker bytes are read once per review, not twice."""
+        original = Path.read_bytes
+        reads = []
+
+        def recording(path):
+            reads.append(path.name)
+            return original(path)
+
+        with patch('agent_review_reuse.RACY_WINDOW_NS', 0):
+            cache = self.cache()
+            with patch.object(Path, 'read_bytes', recording):
+                failures = []
+                cache.complete(self.checks, failures)
+        self.assertEqual([], failures)
+        self.assertIn('review_checks', self.checks)
+        self.assertEqual(['extra.py', 'source.py'], sorted(reads))
+
+    def test_same_size_rewrite_with_restored_mtime_still_changes_the_snapshot(self):
+        rule = self.project / 'rule.md'
+        with patch('agent_review_reuse.RACY_WINDOW_NS', 0):
+            cache = self.cache()
+            before = rule.stat()
+            rule.write_text('review ruleX\n')
+            os.utime(rule, ns=(before.st_atime_ns, before.st_mtime_ns))
+            if rule.stat().st_ctime_ns == before.st_ctime_ns:
+                self.skipTest('filesystem ctime is too coarse to observe this rewrite')
+            failures = []
+            cache.complete(self.checks, failures)
+        self.assertIn('reviewed bytes changed', failures[0])
+        self.assertIn('rules_sha256', self.checks['review_snapshot_stability']['changed_fields'])
+
+    def test_attestation_revalidates_the_validation_states_instead_of_recapturing(self):
+        from agent_execution_capsule_state import git_states_for_paths
+        from agent_finish_final_checks import record_successful_review_workflow_validation
+
+        states = record_successful_review_workflow_validation(
+            self.project, self.project, self.source.evidence,
+            {'returncode': 0}, {'returncode': 0}, 'working-tree')
+        self.assertEqual(git_states_for_paths(self.project, self.project), states)
+        with patch('agent_review_attestation.git_states_for_paths', wraps=git_states_for_paths) as capture:
+            record_review_gate(self.source, self.checks, states)
+        self.assertEqual({'project_record': states[0], 'rules_record': states[1]}, capture.call_args.kwargs)
+        attestation = json.loads(ReviewAttestation.path(self.source.evidence).read_text())
+        self.assertEqual(states, (attestation['project_git'], attestation['rules_git']))
+
+        with patch('agent_review_attestation.git_states_for_paths', wraps=git_states_for_paths) as capture:
+            record_review_gate(self.source, self.checks, object())
+        self.assertEqual({'project_record': None, 'rules_record': None}, capture.call_args.kwargs)
+
+    def test_symlinked_parent_matches_the_ancestor_predicate_it_replaced(self):
+        from agent_review_reuse import _symlinked_parent
+
+        def replaced(root, path):
+            return any(parent.is_symlink() for parent in (path.parent, *path.parent.parents)
+                       if parent != root and root in parent.parents)
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            real = base / 'real' / 'root'
+            (real / 'd1' / 'd2').mkdir(parents=True)
+            for name in ('top.txt', 'd1/f1', 'd1/d2/f'):
+                (real / name).write_text('x\n')
+            (real / 'link1').symlink_to('d1', target_is_directory=True)
+            (real / 'd1' / 'link2').symlink_to('d2', target_is_directory=True)
+            (base / 'alias').symlink_to(base / 'real', target_is_directory=True)
+            relatives = ('top.txt', 'd1/f1', 'd1/d2/f', 'link1/f1', 'link1/d2/f', 'd1/link2/f')
+            outcomes = []
+            for root in (real, base / 'alias' / 'root'):
+                for relative in relatives:
+                    expected = replaced(root, root / relative)
+                    self.assertEqual(expected, _symlinked_parent(root, root / relative), (root, relative))
+                    outcomes.append(expected)
+        self.assertEqual({True, False}, set(outcomes))
+
+    def test_recently_changed_files_are_never_memoized(self):
+        cache = self.cache()
+        self.assertFalse([key for key in cache.hash_memo if key[0].startswith(str(self.project))])
+
     def test_unavailable_snapshot_remains_fail_closed_with_bounded_diagnostic(self):
         cache = self.cache()
         failures = []

@@ -450,7 +450,7 @@ def _review_verdict(
         )
         try:
             with stage("review_attestation"):
-                record_successful_review_workflow_validation(
+                git_states = record_successful_review_workflow_validation(
                     args.project,
                     args.rules,
                     evidence_path,
@@ -458,7 +458,7 @@ def _review_verdict(
                     checks["diff_check"],
                     review_scope,
                 )
-                record_review_gate(args, checks)
+                record_review_gate(args, checks, git_states)
                 if reuse is not None:
                     reuse.publish(checks)
         except OSError as error:
@@ -937,7 +937,18 @@ def workflow_validate_failure_detail(validate: dict[str, Any]) -> str:
     return f"workflow validate failed: {compact[:800]}"
 
 
-def record_review_gate(args: Any, checks: dict[str, Any]) -> None:
+def record_review_gate(
+    args: Any,
+    checks: dict[str, Any],
+    git_states: Any = None,
+) -> None:
+    """Attest the review, revalidating ``git_states`` when a caller just took them.
+
+    The workflow-validation record written immediately before captures the same
+    two trees; handing its states over lets the attestation check they are still
+    current rather than fingerprinting both trees a second time.
+    """
+
     evidence_path = args.evidence if args.evidence else args.project / ".tao" / "preflight.json"
     try:
         preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
@@ -955,6 +966,7 @@ def record_review_gate(args: Any, checks: dict[str, Any]) -> None:
         changed_path_count=int(checks.get("changed_path_count") or 0),
         checks=checks,
         review_subject=dict(checks.get("review_subject") or {}),
+        git_records=git_states,
     )
     record_gate_evidence(
         evidence_path=evidence_path,

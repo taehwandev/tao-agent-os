@@ -62,7 +62,7 @@ class ReviewAttestation:
         review_paths: list[str],
         changed_path_count: int,
         checks: dict[str, Any],
-        review_subject: dict[str, Any] | None = None,
+        review_subject: dict[str, Any] | None = None, git_records: Any = None,
     ) -> dict[str, Any]:
         """Atomically bind one successful review to its exact current bytes."""
 
@@ -83,7 +83,7 @@ class ReviewAttestation:
             raise ValueError(
                 "review attestation evidence path must be inside the review project .tao root"
             ) from error
-        project_git, rules_git = git_states_for_paths(project, rules)
+        project_git, rules_git = _review_git_states(project, rules, git_records)
         rules_inputs = review_rules_inputs(project, rules)
         payload: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
@@ -273,6 +273,30 @@ def _attestation_failures(
     if rules_git != record["rules_git"] and not same_rules_inputs:
         failures.append("review hook attestation rules worktree binding is stale")
     return list(dict.fromkeys(failures))
+
+
+def _review_git_states(
+    project: Path,
+    rules: Path,
+    git_records: Any,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """The project and rules states to attest, revalidating a fresh capture.
+
+    ``git_records`` is an optional (project, rules) pair the same hook captured
+    moments earlier. It is only a hint: ``git_states_for_paths`` reuses a record
+    solely while HEAD and the worktree signature still match, and otherwise
+    captures both trees afresh. Anything but two dicts is ignored.
+    """
+
+    usable = (
+        isinstance(git_records, tuple)
+        and len(git_records) == 2
+        and all(isinstance(record, dict) for record in git_records)
+    )
+    project_record, rules_record = git_records if usable else (None, None)
+    return git_states_for_paths(
+        project, rules, project_record=project_record, rules_record=rules_record
+    )
 
 
 def _paths_fingerprint(paths: list[str]) -> str:
