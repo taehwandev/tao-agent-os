@@ -63,6 +63,23 @@ class PublicationHoldTests(unittest.TestCase):
     def test_pr_reads_remain_reads(self):
         self.assertEqual('', gate.publication_hold('gh pr view 1'))
 
+    def test_real_gate_names_the_missing_effect_for_a_git_write_run(self):
+        """A commit-only run's push refusal says which effect is missing and how to declare it."""
+        from tests.test_claude_pretool_gate import (
+            PublicationWaitsForFinishTests, _attest_finished_publication, _reason,
+            resolve_runtime_evidence, transition_run,
+        )
+        fixture = PublicationWaitsForFinishTests()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = fixture._open_project(Path(tmp))
+            evidence = resolve_runtime_evidence(root, {'runtime': 'claude', 'session_id': fixture.SESSION})
+            transition_run(root, evidence, 'completed')
+            _attest_finished_publication(root, evidence, effect='git_write')
+            reason = _reason(fixture._decide(root, 'git push origin work')[1])
+        self.assertIn('admitted for git_write and this publication needs external_write', reason)
+        self.assertIn('--approved-effect external_write', reason)
+        self.assertNotIn('may be missing', reason)
+
 
 class PublicationAdmissionTests(unittest.TestCase):
     def setUp(self):
@@ -139,6 +156,41 @@ class PublicationAdmissionTests(unittest.TestCase):
         self.finish()
         self.evidence.write_text('{}')
         self.assertFalse(self.allowed())
+
+    def refusal(self, effect='external_write'):
+        return PublicationAdmission.refusal(self.root, self.evidence, effect)
+
+    def test_refusal_names_the_first_failed_check_and_matches_allows(self):
+        self.assertEqual('missing_receipt', self.refusal())
+        self.finish('git_write')
+        self.assertEqual('', self.refusal('git_write'))
+        self.assertEqual('effect:git_write<external_write', self.refusal())
+        self.finish()
+        (self.root / 'source').write_text('unreviewed')
+        self.assertEqual('project_changed', self.refusal())
+        (self.root / 'source').write_text('original')
+        self.assertEqual('', self.refusal())
+        self.evidence.write_text('{}')
+        self.assertEqual('foreign_receipt', self.refusal())
+        self.evidence.with_name('publication.json').write_text('not json')
+        self.assertEqual('unreadable_receipt', self.refusal())
+        for effect in ('git_write', 'external_write'):
+            self.assertEqual(self.allowed(effect), self.refusal(effect) == '')
+        self.finish()
+        self.evidence.unlink()
+        self.assertEqual('unverifiable_receipt', self.refusal())
+        self.assertFalse(self.allowed())
+
+    def test_denial_names_each_cause_instead_of_every_possibility(self):
+        with patch.object(gate, 'finished_session_evidence', return_value=self.evidence):
+            deny = lambda command: gate.finished_publication_denial(self.root, 'session', command, self.root)
+            self.finish('git_write')
+            self.assertIn('admitted for git_write and this publication needs external_write', deny('git push'))
+            self.finish()
+            (self.root / 'source').write_text('unreviewed')
+            self.assertIn('project files changed after finish', deny('git push'))
+            (self.root / 'source').write_text('original')
+            self.assertIn('not a lone admissible publication', deny('git push && touch extra'))
 
     def test_read_finish_does_not_create_publication_authority(self):
         self.assertFalse(self.finish('read'))

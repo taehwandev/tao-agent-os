@@ -191,6 +191,21 @@ class AgentHookSummaryTests(unittest.TestCase):
                     self.assertIn("approved identical pending action without reconfirming", summary)
                     self.assertIn("unless scope, target, risk or required approval freshness changed", summary)
 
+    def test_commit_start_names_a_git_write_publication_ceiling_only_when_it_applies(self) -> None:
+        for effect, warned in (("git_write", True), ("external_write", False), (None, False)):
+            with self.subTest(effect=effect), tempfile.TemporaryDirectory() as directory:
+                evidence = Path(directory) / "preflight.json"
+                envelope = {"effective_effect": effect} if effect else {}
+                evidence.write_text(json.dumps({"route": {
+                    "command": "commit",
+                    "request_classification": {"intent_envelope": envelope},
+                }}), encoding="utf-8")
+                summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+                self.assertIn("Publication scope:", summary)
+                self.assertEqual(warned, "Publication effect: this run admits git_write" in summary)
+                if warned:
+                    self.assertIn("--approved-effect external_write", summary)
+
     def test_release_followup_summary_reuses_evidence_without_reading_sources(self) -> None:
         for command in ("release", "ship", "commit", "analysis"):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:

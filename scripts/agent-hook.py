@@ -463,13 +463,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "missing context require the relevant read/check; prior approval does "
             "not authorize new external writes."
         )
-        lines.append(
-            "Publication scope: a failed check is not source-change authority; "
-            "do not switch to implementation or waive a guard without matching scope. "
-            "Continue an approved identical pending action without reconfirming "
-            "unless scope, target, risk or required approval freshness changed. "
-            "Do not retry an unchanged known failure."
-        )
+        lines.extend(_publication_scope_lines(route))
     lines.extend(_continuation_summary_lines(route.get("command", "")))
     if required:
         lines.append(f"Required hooks: {required}")
@@ -496,6 +490,33 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         )
     lines.extend(_closeout_gate_lines(gates) + _gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
+    return lines
+
+
+def _publication_scope_lines(route: dict[str, Any]) -> list[str]:
+    """Commit-route publication guidance, naming the run's own publication ceiling.
+
+    A git_write finish records a receipt that admits commit but never push or
+    pull-request creation, and discovering that after finish costs a second
+    full lifecycle for the same bytes. Saying so at start, only when it applies,
+    is the cheapest point to correct the admitted effect.
+    """
+
+    lines = [
+        "Publication scope: a failed check is not source-change authority; "
+        "do not switch to implementation or waive a guard without matching scope. "
+        "Continue an approved identical pending action without reconfirming "
+        "unless scope, target, risk or required approval freshness changed. "
+        "Do not retry an unchanged known failure."
+    ]
+    envelope = (route.get("request_classification") or {}).get("intent_envelope") or {}
+    if envelope.get("effective_effect") == "git_write":
+        lines.append(
+            "Publication effect: this run admits git_write, which covers commit but not "
+            "push or pull-request creation. If the current request authorizes those, "
+            "rerun this start now with --approved-effect external_write; a git_write "
+            "finish cannot admit them afterwards."
+        )
     return lines
 
 

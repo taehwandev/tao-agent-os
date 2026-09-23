@@ -14,6 +14,8 @@ from claude_bash_http import curl_effect
 from claude_bash_git import git_subcommand
 from claude_bash_syntax import command_segments, shell_keyword_command
 
+INTERPRETER_REASON = "interpreter or script effects are not declared by a supported command contract"
+
 
 def github_publication(tokens: list[str]) -> bool:
     """One action contract for pre-finish holds and post-finish admission.
@@ -106,16 +108,24 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
         if subcommand in {"add", "commit", "push", "merge", "rebase", "reset", "restore", "cherry-pick", "revert", "rm", "mv", "clean", "switch", "checkout", "branch"}:
             return "mutating", "Git state-changing command"
     if executable in {"python", "python3", "python3.14", "node", "bash", "sh", "zsh"}:
-        return "unknown", "interpreter or script effects are not declared by a supported command contract"
+        return "unknown", INTERPRETER_REASON
     return "unknown", "command or options have no verified effect contract"
 
 
 def unknown_recovery(reason: str) -> str:
+    # A project script that publishes (a pull-request helper, say) is exactly
+    # this case, and its fix is a declaration, not another workflow run.
+    declaration = (
+        " If this is a project script that publishes, such as one that creates a pull "
+        "request, the project can declare its argv prefix under publication_commands in "
+        ".agents/shared/worktree-policy.json so a finished run admits it."
+        if reason == INTERPRETER_REASON else ""
+    )
     return (
         f"Tao command effect: unknown. Boundary: {reason}. "
         "This is not proof it changes data. For a lookup, use a supported read-only form or split the unsupported wrapper "
         "into independently verifiable reads; do not request write authority just to run a lookup. "
         "Do not repeat the unchanged command. For an intended write already authorized by the user, "
         "enter its scoped writable route once and retry; no duplicate user approval is needed. "
-        "Worktree and native permission boundaries still apply."
+        "Worktree and native permission boundaries still apply." + declaration
     )

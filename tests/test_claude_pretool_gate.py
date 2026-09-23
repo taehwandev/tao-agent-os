@@ -3807,7 +3807,7 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
         self.assertIn("a successful finish", _reason(out))
 
 
-def _attest_finished_publication(project: Path, evidence: Path) -> None:
+def _attest_finished_publication(project: Path, evidence: Path, effect: str = 'external_write') -> None:
     """Give synthetic registry fixtures real Git bytes and an admitted effect."""
     from agent_publication_admission import PublicationAdmission
 
@@ -3823,7 +3823,7 @@ def _attest_finished_publication(project: Path, evidence: Path) -> None:
     payload = json.loads(evidence.read_text())
     payload['route']['request_classification'] = {'intent_envelope': {
         'authority': 'envelope', 'schema_valid': True, 'failures': [],
-        'effective_effect': 'external_write',
+        'effective_effect': effect,
     }}
     evidence.write_text(json.dumps(payload))
     assert PublicationAdmission.record_finish(project, evidence)

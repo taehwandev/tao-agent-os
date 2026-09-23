@@ -4,10 +4,19 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from claude_bash_readonly import bash_invocation, bash_command_kind
-from claude_command_effect import command_effect, github_publication
+from claude_command_effect import INTERPRETER_REASON, command_effect, github_publication, unknown_recovery
 
 
 class CommandEffectTests(unittest.TestCase):
+    def test_unknown_project_script_recovery_names_the_publication_declaration(self):
+        """A publishing project script is fixed by declaring it, which the denial must say."""
+        tokens = ['python3', 'tools/bitbucket_pr/create_pr.py', '--source', 'feature', '--dest', 'develop']
+        effect, reason = command_effect(tokens, True, 'mutating')
+        self.assertEqual(('unknown', INTERPRETER_REASON), (effect, reason))
+        self.assertIn('publication_commands in .agents/shared/worktree-policy.json', unknown_recovery(reason))
+        self.assertNotIn('publication_commands',
+                         unknown_recovery('command or options have no verified effect contract'))
+
     def test_publication_action_contract_does_not_depend_on_workflow_state(self):
         for command in (
             'gh release create v1 --notes-file /tmp/notes.md',

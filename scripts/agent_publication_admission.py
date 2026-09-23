@@ -62,16 +62,34 @@ class PublicationAdmission:
 
     @staticmethod
     def allows(project: Path, evidence: Path, required_effect: str) -> bool:
+        return not PublicationAdmission.refusal(project, evidence, required_effect)
+
+    @staticmethod
+    def refusal(project: Path, evidence: Path, required_effect: str) -> str:
+        """Name the first check a receipt fails, or return "" when it admits the effect.
+
+        The checks and their order are exactly what admission requires, so the
+        denial can say which one failed instead of listing every possibility.
+        Values are enum words or content-free labels, never paths or digests.
+        """
         try:
             receipt = json.loads(evidence.with_name('publication.json').read_text())
             rules = Path(receipt['rules'])
-            return (
-                receipt.get('schema_version') == 1
-                and receipt['project'] == str(project.resolve())
-                and receipt['evidence_sha256'] == hashlib.sha256(evidence.read_bytes()).hexdigest()
-                and EFFECT_RANK[receipt['effect']] >= EFFECT_RANK[required_effect]
-                and receipt['project_content'] == PublicationAdmission._capture(project.resolve())
-                and receipt['rules_content'] == PublicationAdmission._capture(rules)
-            )
+        except FileNotFoundError:
+            return 'missing_receipt'
+        except (OSError, ValueError, KeyError, TypeError):
+            return 'unreadable_receipt'
+        try:
+            if (receipt.get('schema_version') != 1
+                    or receipt['project'] != str(project.resolve())
+                    or receipt['evidence_sha256'] != hashlib.sha256(evidence.read_bytes()).hexdigest()):
+                return 'foreign_receipt'
+            if EFFECT_RANK[receipt['effect']] < EFFECT_RANK[required_effect]:
+                return f"effect:{receipt['effect']}<{required_effect}"
+            if receipt['project_content'] != PublicationAdmission._capture(project.resolve()):
+                return 'project_changed'
+            if receipt['rules_content'] != PublicationAdmission._capture(rules):
+                return 'rules_changed'
+            return ''
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
-            return False
+            return 'unverifiable_receipt'

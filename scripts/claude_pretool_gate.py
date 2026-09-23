@@ -1242,25 +1242,78 @@ def publishes_finished_work(
     command = _command_behind_environment(tokens, 0)
     if not command:
         return False
-    program = Path(command[0]).name
-    if program == "git":
-        subcommand, _arguments = git_subcommand(command)
-        # Integration of a finished worktree is admitted here so that every
-        # caller of this function -- the chain reader, the main verdict loop
-        # and the reached-into-project check -- inherits one answer.
-        if subcommand == "merge":
-            return integrates_finished_worktree(root, session_id, command, cwd)
-        if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
-            return False
-    elif not github_publication(command) and project_publication_kind(root, command, cwd or root) != "publishes":
+    # Integration of a finished worktree is admitted here so that every
+    # caller of this function -- the chain reader, the main verdict loop
+    # and the reached-into-project check -- inherits one answer.
+    if Path(command[0]).name == "git" and git_subcommand(command)[0] == "merge":
+        return integrates_finished_worktree(root, session_id, command, cwd)
+    effect = _publication_effect(root, command, cwd or root)
+    if not effect:
         return False
     evidence = finished_session_evidence(root, session_id)
     if not evidence_is_fresh(evidence):
         return False
     from agent_publication_admission import PublicationAdmission
 
-    effect = "git_write" if program == "git" and subcommand != "push" else "external_write"
     return PublicationAdmission.allows(root, evidence, effect)
+
+
+def _publication_effect(root: Path, command: list[str], cwd: Path) -> str:
+    """The effect a post-finish publication needs, or "" when it is not one.
+
+    One answer for admission and for the denial that explains a refusal, so
+    the two can never disagree about what a command requires.
+    """
+
+    if Path(command[0]).name == "git":
+        subcommand, _arguments = git_subcommand(command)
+        if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
+            return ""
+        return "external_write" if subcommand == "push" else "git_write"
+    if github_publication(command) or project_publication_kind(root, command, cwd) == "publishes":
+        return "external_write"
+    return ""
+
+
+_REFUSAL_CAUSES = {
+    "missing_receipt": "finish recorded no publication receipt for this run",
+    "unreadable_receipt": "this run's publication receipt is unreadable",
+    "unverifiable_receipt": "the receipt could not be checked against this run's current evidence and inputs",
+    "foreign_receipt": "the receipt belongs to other evidence; the run changed after finish",
+    "project_changed": "project files changed after finish; review and finish the changed bytes",
+    "rules_changed": "Tao rules changed after finish; rerun review and finish on the current rules",
+}
+
+
+def finished_publication_denial(root: Path, session_id: str, command: str, cwd: Path) -> str:
+    """Say why a completed run cannot admit this publication, not every reason it might."""
+
+    cause = "the command is not a lone admissible publication; run it without chained writes"
+    evidence = finished_session_evidence(root, session_id)
+    for segment in _command_segments(command, reject_redirections=True) or []:
+        tokens = _command_behind_environment(segment, 0)
+        effect = _publication_effect(root, tokens, cwd) if tokens else ""
+        if not effect or evidence is None:
+            continue
+        from agent_publication_admission import PublicationAdmission
+
+        refusal = PublicationAdmission.refusal(root, evidence, effect)
+        if refusal.startswith("effect:"):
+            granted, needed = refusal.removeprefix("effect:").split("<")
+            cause = (
+                f"the run was admitted for {granted} and this publication needs {needed}. "
+                "When the user's request authorizes push or pull-request creation, start "
+                "that run with --approved-effect external_write so its finish admits them"
+            )
+        elif refusal:
+            cause = _REFUSAL_CAUSES.get(refusal, refusal)
+        break
+    return (
+        "Tao lifecycle: a completed run exists for this session, but it cannot "
+        f"admit this publication: {cause}. Do not open another run or repeat finish "
+        "merely to change command syntax; enter a new scoped workflow only for a new "
+        "authorized write."
+    )
 
 
 def publishes_finished_command(
@@ -1653,16 +1706,8 @@ def _isolated_checkout_verdict(
             )
             and evidence_is_fresh(finished_session_evidence(governed, session_id))
         ):
-            return deny(
-                "Tao lifecycle: a completed run exists for this session, but "
-                "publication admission failed: its receipt may be missing, its inputs "
-                "changed, its effect may exceed approval, or the command is unsupported. "
-                "Revalidate changed evidence and preserve the approved scope. "
-                "For an unchanged authorized publication, use a plain "
-                "git push or the declared PR command; do not open another run or "
-                "repeat finish merely to change command syntax. Separate any new "
-                "write and enter its scoped workflow only if authorized."
-            )
+            return deny(finished_publication_denial(
+                governed, session_id, bash_command(payload), effective_cwd or cwd))
         return deny(unknown_recovery(unknown_reason) + governed_because(governed, cwd_roots) if unknown_reason else
                     deny_reason(governed, session_id, tool, cwd_roots))
     if finish_authorized:
