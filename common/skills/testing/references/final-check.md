@@ -14,15 +14,17 @@ For the final `tests` gate:
    gate.
 2. Record the exact check, exit/pass result, and reproducible count or selector.
    A failed required check blocks completion; unrelated passes cannot replace it.
-3. Reuse a pass only while code, dependencies, config, toolchain, fixtures and
-   external state match. Commit/fast-forward alone needs no rerun. Honor project
-   freshness/integration checks; edits, conflicts, changed inputs, findings or
-   uncertain provenance invalidate affected passes. Never reuse failed,
-   incomplete or unobserved checks.
-4. For revision-independent local `gate-batch` checks, `input_paths: []` covers
-   all non-ignored files; otherwise list every dependency. Omit it when inputs
-   or revision sensitivity are uncertain. Cite reuse provenance; add no reuse
-   gate and never copy an old result as fresh.
+3. Reuse a pass only when code, dependencies, config, toolchain, fixtures and
+   external state match. For `tests`, check that the prior `check`/result covers
+   this task's selector and runner. Commit/fast-forward alone needs no rerun;
+   honor project freshness and integration checks. Edits, conflicts, changed
+   inputs, findings, uncertain provenance, or failed, incomplete or unobserved
+   checks invalidate reuse.
+4. `gate-batch` `input_paths: []` covers non-ignored project files; explicit
+   paths must list every dependency. Omit it for uncertain or revision-sensitive
+   checks. Cite provenance; add no reuse gate or fresh-result claim. The snapshot
+   checks project/rules state, not ignored tools, artifacts, external state or
+   task intent. Verify those separately or rerun.
 
 Optional `verify` runs standard Python unittest with the project's `.venv`
 Python when present, otherwise the launcher's Python. For another interpreter
