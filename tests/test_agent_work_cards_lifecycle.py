@@ -105,6 +105,29 @@ class WorkCardLifecycleTests(unittest.TestCase):
                          {c["work_id"]: c["state"] for c in cards.list_cards(self.project, include_settled=True)})
 
 
+class ProjectMemoryAtStartTests(unittest.TestCase):
+    def test_the_next_start_recalls_a_capture_without_approval(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        state_home = mock.patch.dict(os.environ, {"TAO_STATE_HOME": str(Path(temp.name) / "state-home")})
+        state_home.start()
+        self.addCleanup(state_home.stop)
+        project = PlainCheckout(temp.name).project
+        captured = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "agent_project_memory.py"),
+             "--project", str(project), "capture", "--source", "design note",
+             "--review-on", "2999-01-01"],
+            input="Run the adapter contract check first.", capture_output=True, text=True,
+        )
+        self.assertEqual(0, captured.returncode, captured.stderr)
+
+        started = start(project, ROOT, "가드를 고쳐줘")
+
+        self.assertEqual(0, started.returncode, started.stdout)
+        self.assertIn("Project memory (agent-written reference", started.stdout)
+        self.assertIn("Run the adapter contract check first.", started.stdout)
+
+
 class TestRunsNeverReachTheUsersStoreTests(unittest.TestCase):
     """A test that forgets TAO_STATE_HOME still cannot write the real ~/.tao.
 

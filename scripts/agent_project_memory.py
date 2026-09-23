@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Operator-reviewed, project-local guidance for later Tao tasks."""
+"""Agent-written, source-attributed project memory recalled by later Tao tasks.
+
+A capture is active at once and later starts recall it without an approval
+step. Memory is reference, never authority: the current request, repository
+rules and source evidence prevail. Wrong records are corrected by replacing
+(`capture --replaces`) or retiring them, and every record expires on its
+`--review-on` date.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +31,9 @@ SCOPE_RE = re.compile(r"[a-z][a-z0-9_-]{1,40}\Z")
 STORE_NAME = "project-memory"
 MAX_RECALL_ITEMS = 3
 MAX_RECALL_CHARS = 1200
+# `pending` and `approved` are the former review states; both are recallable.
+RECALLABLE_STATUSES = frozenset({"active", "pending", "approved"})
+STATUSES = RECALLABLE_STATUSES | {"retired"}
 
 
 def _timestamp() -> str:
@@ -31,9 +41,9 @@ def _timestamp() -> str:
 
 
 def _digest(record: dict[str, Any]) -> str:
-    reviewed = {key: record[key] for key in ("body", "source", "scope", "review_on")}
+    content = {key: record[key] for key in ("body", "source", "scope", "review_on")}
     return hashlib.sha256(
-        json.dumps(reviewed, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        json.dumps(content, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
 
 
@@ -85,7 +95,7 @@ def _read(path: Path) -> dict[str, Any] | None:
         valid = (
             ID_RE.fullmatch(record["id"]) is not None
             and path.name == f'{record["id"]}.json'
-            and record["status"] in {"pending", "approved", "retired"}
+            and record["status"] in STATUSES
             and SCOPE_RE.fullmatch(record["scope"]) is not None
             and isinstance(record["body"], str)
             and 1 <= len(record["body"]) <= 500
@@ -95,14 +105,36 @@ def _read(path: Path) -> dict[str, Any] | None:
             and record["source"].isprintable()
             and date.fromisoformat(record["review_on"]) >= date(2000, 1, 1)
             and record["digest"] == _digest(record)
-            and (record["status"] != "approved" or bool(datetime.fromisoformat(record["approved_at"])))
+            and ID_RE.fullmatch(record.get("replaces") or "0" * 16) is not None
         )
     except (KeyError, TypeError, ValueError):
         return None
     return record if valid else None
 
 
-def _capture(project: Path, *, body: str, source: str, scope: str, review_on: str) -> dict[str, Any]:
+def _existing(project: Path, record_id: str) -> tuple[Path, dict[str, Any]]:
+    path = _record_path(project, record_id)
+    record = _read(path)
+    if record is None:
+        raise ValueError("memory record is missing or invalid")
+    return path, record
+
+
+def _retire(project: Path, record_id: str, *, replaced_by: str = "") -> dict[str, Any]:
+    path, record = _existing(project, record_id)
+    if record["status"] == "retired":
+        return record
+    record["status"] = "retired"
+    record["retired_at"] = _timestamp()
+    if replaced_by:
+        record["replaced_by"] = replaced_by
+    _writable_store(project)
+    atomic_write_json(path, record)
+    return record
+
+
+def _capture(project: Path, *, body: str, source: str, scope: str, review_on: str,
+             replaces: str = "") -> dict[str, Any]:
     body, source = body.strip(), source.strip()
     if not (1 <= len(body) <= 500 and body.isprintable()):
         raise ValueError("memory body must be one line of 1–500 characters")
@@ -112,44 +144,28 @@ def _capture(project: Path, *, body: str, source: str, scope: str, review_on: st
         raise ValueError("scope must be a reusable workflow slug")
     if date.fromisoformat(review_on) <= date.today():
         raise ValueError("review date must be in the future")
+    if replaces:
+        _existing(project, replaces)
     _writable_store(project).mkdir(parents=True, exist_ok=True, mode=0o700)
     record_id = secrets.token_hex(8)
     record = {
         "schema_version": SCHEMA_VERSION,
         "id": record_id,
-        "status": "pending",
+        "status": "active",
         "scope": scope,
         "body": body,
         "source": source,
         "review_on": review_on,
         "created_at": _timestamp(),
     }
+    if replaces:
+        record["replaces"] = replaces
     record["digest"] = _digest(record)
+    # The new record is the commit point: recall already hides the record it
+    # replaces, so an interrupted retire below never shows both.
     atomic_write_json(_record_path(project, record_id), record)
-    return record
-
-
-def _decide(project: Path, record_id: str, *, decision: str, digest: str = "") -> dict[str, Any]:
-    path = _record_path(project, record_id)
-    record = _read(path)
-    if record is None:
-        raise ValueError("memory record is missing or invalid")
-    if decision == "approve":
-        if record["status"] != "pending" or digest != record["digest"]:
-            raise ValueError("approval requires the current pending digest")
-        if date.fromisoformat(record["review_on"]) <= date.today():
-            raise ValueError("review date has passed")
-        record["status"] = "approved"
-        record["approved_at"] = _timestamp()
-    elif decision == "retire":
-        if record["status"] == "retired":
-            return record
-        record["status"] = "retired"
-        record["retired_at"] = _timestamp()
-    else:
-        raise ValueError("unknown decision")
-    _writable_store(project)
-    atomic_write_json(path, record)
+    if replaces:
+        _retire(project, replaces, replaced_by=record_id)
     return record
 
 
@@ -160,16 +176,17 @@ def _recall(project: Path, scope: str, *, today: date | None = None) -> list[dic
     directory = _store(project)
     if not directory.is_dir() or directory.is_symlink():
         return []
-    eligible = []
-    for path in directory.glob("*.json"):
-        record = _read(path)
-        if (
-            record is not None
-            and record["status"] == "approved"
-            and record["scope"] in {scope, "all"}
-            and date.fromisoformat(record["review_on"]) > today
-        ):
-            eligible.append(record)
+    live = [
+        record for record in (_read(path) for path in directory.glob("*.json"))
+        if record is not None and record["status"] in RECALLABLE_STATUSES
+    ]
+    replaced = {record.get("replaces") for record in live}
+    eligible = [
+        record for record in live
+        if record["id"] not in replaced
+        and record["scope"] in {scope, "all"}
+        and date.fromisoformat(record["review_on"]) > today
+    ]
     eligible.sort(key=lambda item: (item["review_on"], item["id"]))
     return eligible
 
@@ -189,7 +206,8 @@ def recall_lines(project: Path, scope: str) -> list[str]:
         size += len(payload)
     if not lines:
         return []
-    return ["Project memory (reviewed reference only; current instructions and source evidence prevail):", *lines]
+    return ["Project memory (agent-written reference; the current request, repo rules "
+            "and source evidence prevail):", *lines]
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -200,9 +218,11 @@ def _main(argv: list[str] | None = None) -> int:
     capture_parser.add_argument("--source", required=True)
     capture_parser.add_argument("--scope", default="all")
     capture_parser.add_argument("--review-on", required=True)
+    capture_parser.add_argument("--replaces", default="")
+    # Former review step, kept so older instructions still run; it changes nothing.
     approve_parser = commands.add_parser("approve")
     approve_parser.add_argument("id")
-    approve_parser.add_argument("--digest", required=True)
+    approve_parser.add_argument("--digest", default="")
     retire_parser = commands.add_parser("retire")
     retire_parser.add_argument("id")
     recall_parser = commands.add_parser("recall")
@@ -212,10 +232,12 @@ def _main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "capture":
             result = _capture(project, body=sys.stdin.read(), source=args.source,
-                             scope=args.scope, review_on=args.review_on)
-        elif args.command in {"approve", "retire"}:
-            result = _decide(project, args.id, decision=args.command,
-                            digest=getattr(args, "digest", ""))
+                              scope=args.scope, review_on=args.review_on,
+                              replaces=args.replaces)
+        elif args.command == "approve":
+            result = _existing(project, args.id)[1]
+        elif args.command == "retire":
+            result = _retire(project, args.id)
         else:
             result = _recall(project, args.scope)
     except (OSError, ValueError) as error:

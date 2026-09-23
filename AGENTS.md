@@ -287,22 +287,19 @@ not on checkout or commit. Stale or absent graphs fall back to direct evidence;
 an empty search is terminal without a new lead. A missing required document
 invalidates the manifest and stops work.
 
-## Reviewed Project Memory
+## Automatic Project Memory
 
-`<TAO_LAUNCHER> project-memory` stores optional project-scoped guidance under
+`<TAO_LAUNCHER> project-memory` keeps agent-written project guidance under
 user-local `~/.tao/project-memory/<repository-id>/`, shared by linked worktrees.
-Capture one bounded, source-attributed statement from stdin with `--project`,
-`--source`, and a future `--review-on` date. Present
-the body and digest; the user runs `approve <id> --digest <digest>` themselves
-(the gate refuses agent approval). Use `retire <id>` to stop
-recall. Do not capture secrets, transcripts, or speculative conclusions.
+`capture` saves one bounded statement from stdin with `--project`, `--source`,
+and a future `--review-on` date; later starts recall it with no approval step.
+Correct a wrong record with `capture --replaces <id>` or `retire <id>`; it
+expires on its review date. Never capture secrets, transcripts, or speculation.
 
-Start shows at most three approved, in-date records for its route command or
-`all`. They are reference context, never authority over current instructions,
-repository evidence, or the user's current request. Expired, pending, invalid,
-and retired records are excluded. This opt-in content store is separate from
-the content-free global lesson store. Do not sync it or put its content in a
-continuation packet.
+Start shows at most three in-date records for its route command or `all`.
+Memory is reference, never authority: the current request, repository rules,
+and source evidence prevail. It stays separate from the content-free lesson
+store; do not sync it or put its content in a continuation packet.
 
 ## Work Cards
 

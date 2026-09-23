@@ -4393,5 +4393,33 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
                 self.assertIn("read-only", _reason(out))
 
 
+class ProjectMemoryIsAgentWrittenTests(unittest.TestCase):
+    """Memory writes are ordinary user-store writes, not a user-only approval."""
+
+    def _decide(self, project: Path, command: str) -> tuple[int, str]:
+        return _decide({"tool_name": "Bash", "cwd": str(project), "session_id": "memory-session",
+                        "tool_input": {"command": command}})
+
+    def test_capture_and_approve_are_judged_like_work_card_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            launcher = gate.stable_launcher_path()
+            _code, card_write = self._decide(project, f"{launcher} work-cards close x --project {project}")
+            for command in (
+                f"{launcher} project-memory --project {project} approve 0123456789abcdef --digest d",
+                f"{launcher} project-memory --project {project} capture --source note --review-on 2999-01-01",
+                f"{launcher} project-memory --project {project} capture --source note "
+                "--review-on 2999-01-01 --replaces 0123456789abcdef",
+            ):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertNotIn("reviewed this memory", out)
+                    self.assertEqual(json.loads(card_write)["hookSpecificOutput"]["permissionDecision"],
+                                     json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+            self.assertEqual("", self._decide(
+                project, f"{launcher} project-memory --project {project} recall --scope task")[1])
+
+
 if __name__ == "__main__":
     unittest.main()

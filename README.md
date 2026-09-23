@@ -143,12 +143,13 @@ git add .agents/tao-agent-os
 
 Public site: `https://tao.thdev.app/#update`
 
-### Reviewed Project Memory
+### Automatic Project Memory
 
-The installed `<TAO_LAUNCHER> project-memory` command captures, approves,
-recalls, and retires short project guidance. Only the user runs approval, with
-the exact digest of the candidate they reviewed; agents cannot approve. A task start may show approved, current
-records as reference context; it never treats them as instructions.
+The installed `<TAO_LAUNCHER> project-memory` command lets agents capture,
+recall, replace, and retire short, source-attributed project guidance. A capture
+is recalled by later task starts without an approval step; records expire on
+their review date. Memory is reference context, never instructions: the current
+request, repository rules, and source evidence prevail.
 
 The command and start behavior travel with every Tao Agent OS installation.
 The records remain in that PC's user-local `~/.tao/project-memory/` store;
