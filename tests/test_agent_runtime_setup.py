@@ -461,8 +461,9 @@ class RuntimeSetupTests(unittest.TestCase):
 
         for surface in surfaces:
             self.assertIn(LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE, surface)
-        self.assertIn("Do not ask the user for a room or task id", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
-        self.assertIn("exact active Tao run", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("Do not ask for room or task ids", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("only this runtime's messages in the repository", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("no start, task worktree or handoff is needed", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
         self.assertIn("consumed once", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
         self.assertIn("never invokes a provider CLI or API", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
         self.assertIn("never creates a daemon, watcher, polling loop", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
