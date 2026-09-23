@@ -146,8 +146,8 @@ Public site: `https://tao.thdev.app/#update`
 ### Reviewed Project Memory
 
 The installed `<TAO_LAUNCHER> project-memory` command captures, approves,
-recalls, and retires short project guidance. Approval requires the exact digest
-of the candidate the user reviewed. A task start may show approved, current
+recalls, and retires short project guidance. Only the user runs approval, with
+the exact digest of the candidate they reviewed; agents cannot approve. A task start may show approved, current
 records as reference context; it never treats them as instructions.
 
 The command and start behavior travel with every Tao Agent OS installation.

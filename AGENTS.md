@@ -293,8 +293,8 @@ invalidates the manifest and stops work.
 user-local `~/.tao/project-memory/<repository-id>/`, shared by linked worktrees.
 Capture one bounded, source-attributed statement from stdin with `--project`,
 `--source`, and a future `--review-on` date. Present
-the candidate body and digest to the user; run `approve <id> --digest <digest>`
-only after explicit approval of that exact statement. Use `retire <id>` to stop
+the body and digest; the user runs `approve <id> --digest <digest>` themselves
+(the gate refuses agent approval). Use `retire <id>` to stop
 recall. Do not capture secrets, transcripts, or speculative conclusions.
 
 Start shows at most three approved, in-date records for its route command or
