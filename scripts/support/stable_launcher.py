@@ -172,6 +172,7 @@ SCRIPT_ALIASES = {
     "agent-os-maintenance": "agent-os-maintenance.py",
     "agent-mailbox": "agent-mailbox.py",
     "project-memory": "agent_project_memory.py",
+    "work-cards": "agent_work_cards.py",
     "workflow-dispatch": "workflow_dispatch.py",
     "workflow-dispatch-launch": "workflow_dispatch_launch.py",
     "claude-pretool-gate": "claude_pretool_gate.py",

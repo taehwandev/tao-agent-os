@@ -1141,6 +1141,33 @@ class SetupAgentHooksTests(unittest.TestCase):
             self.assertEqual(0, recalled.returncode, recalled.stderr)
             self.assertEqual(record["id"], json.loads(recalled.stdout)[0]["id"])
 
+    def test_installed_launcher_can_list_and_close_work_cards(self) -> None:
+        from agent_work_cards import open_card
+
+        with tempfile.TemporaryDirectory() as temp_home:
+            project = Path(temp_home) / "project"
+            project.mkdir()
+            subprocess.run(["git", "init", "-q", str(project)], check=True)
+            environment = {key: value for key, value in os.environ.items() if key != "TAO_STATE_HOME"}
+            environment["HOME"] = temp_home
+            with patch.dict(os.environ, environment, clear=True):
+                ensure_stable_launcher(ROOT, dry_run=False)
+                launcher = stable_launcher_path()
+                open_card(project, "a" * 32, summary="unfinished slice", command="task")
+
+            def invoke(*args: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [str(launcher), "work-cards", "--project", str(project), *args],
+                    env=environment, text=True, capture_output=True, check=False,
+                )
+
+            listed = invoke("list")
+            self.assertEqual(0, listed.returncode, listed.stderr)
+            self.assertEqual(["unfinished slice"], [card["summary"] for card in json.loads(listed.stdout)])
+            closed = invoke("close", "a" * 32)
+            self.assertEqual(0, closed.returncode, closed.stderr)
+            self.assertEqual([], json.loads(invoke("list").stdout))
+
     def test_full_setup_keeps_agent_mailbox_alias_in_an_isolated_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp_home:
             environment = {**os.environ, "HOME": temp_home}

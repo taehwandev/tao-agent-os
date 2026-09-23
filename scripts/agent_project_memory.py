@@ -37,8 +37,8 @@ def _digest(record: dict[str, Any]) -> str:
     ).hexdigest()
 
 
-def _store(project: Path) -> Path:
-    """Use one local store across every worktree of the same Git repository."""
+def repository_key(project: Path) -> str:
+    """Name one repository the same way from every one of its worktrees."""
     try:
         result = subprocess.run(
             ["git", "-C", str(project), "rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -47,9 +47,13 @@ def _store(project: Path) -> Path:
         identity = result.stdout.strip() if result.returncode == 0 else str(project.resolve())
     except (OSError, subprocess.TimeoutExpired):
         identity = str(project.resolve())
-    key = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+
+
+def _store(project: Path) -> Path:
+    """Use one local store across every worktree of the same Git repository."""
     root = global_state_dir() / STORE_NAME
-    directory = root / key
+    directory = root / repository_key(project)
     if root.is_symlink() or directory.is_symlink():
         raise ValueError("memory directory must not be a symlink")
     return directory

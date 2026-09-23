@@ -155,6 +155,22 @@ The records remain in that PC's user-local `~/.tao/project-memory/` store;
 linked worktrees of the same repository share them, while another PC starts
 with its own empty store. Tao does not sync memory content between PCs.
 
+### Work Cards
+
+Each tracked start opens a local work card holding its `--target-summary` line,
+route command, project path, state, and timestamps. A run continued with
+`--continue-from` keeps the same card; a successful finish or a transfer to a
+completed replacement marks it `done`, and a no-change cancel marks it
+`cancelled`. Start lists up to three other open cards
+of the same repository as reference context, so unfinished work stays visible in
+a new session. `<TAO_LAUNCHER> work-cards list [--all]` shows the board and
+`work-cards close <work id>` settles a card by hand.
+
+Cards live in one SQLite file under the PC's user-local `~/.tao/work-cards/`,
+shared by linked worktrees of a repository. Cards idle for 90 days are dropped.
+They hold no prompt, transcript, or log, and Tao never syncs them. The
+content-free delegation queue in `.tao/scheduler.json` is separate.
+
 ### Connect The Target Repo
 
 After choosing the root, add a short pointer to the target repo's canonical agent instruction file. Prefer `AGENTS.md` when the active runtimes read it. If existing runtime-specific files such as `CLAUDE.md`, `CODEX.md`, `.agents/README.md`, Antigravity CLI docs, or explicitly documented local override files are present, update their Tao Agent OS pointer in the same pass or point them back to `AGENTS.md`. Do not create extra runtime-specific files only to duplicate the same routing block.

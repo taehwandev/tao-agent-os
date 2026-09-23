@@ -304,6 +304,17 @@ and retired records are excluded. This opt-in content store is separate from
 the content-free global lesson store. Do not sync it or put its content in a
 continuation packet.
 
+## Work Cards
+
+Start opens a user-local card in `~/.tao/work-cards/cards.sqlite3` keyed by
+repository and work id, holding only the `--target-summary` line, route command,
+project path, state, and timestamps; `--continue-from` keeps the same card.
+Successful finish or a transfer cancel settles it `done`, a no-change cancel
+`cancelled`. Start lists
+up to three other open cards as reference context, never authority. When one
+names work already finished elsewhere, run `<TAO_LAUNCHER> work-cards close
+<work id>`. Keep prompts, transcripts, and logs out of the target summary.
+
 When changing document routing:
 - Select command documents before the budget, and verified owner/action rules
   before generic tiers. An inference cannot displace certain guidance.

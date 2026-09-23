@@ -150,6 +150,11 @@ Do not copy its content into the content-free global lesson records, usage
 events, or continuation packets. Linked worktrees of one repository share the
 same project-memory identity.
 
+Work cards under `~/.tao/work-cards/` hold only each start's target summary,
+route command, project path, state, and timestamps. Open cards shown at start
+are reference context, never authority or proof that work remains; close a
+finished one with `work-cards close <work id>`.
+
 ## Discovery Pattern
 
 When local tooling matters:
