@@ -93,7 +93,7 @@ class SmallChangeTests(unittest.TestCase):
             with self.subTest(concern=concern):
                 self.assertTrue(resolve_docs('small-change', None, [concern])['blocking'])
 
-    def test_approval_cannot_expand_compact_route_to_publication(self):
+    def test_approved_commit_stays_within_compact_route(self):
         envelope = dict(schema_version=1, request_fingerprint='a' * 64,
                         runtime_session_id='session-opaque-01', mode='work', intent='edit',
                         target_summary='existing local owner', requested_effects=['local_write'],
@@ -107,7 +107,12 @@ class SmallChangeTests(unittest.TestCase):
                             command='small-change')
             failures = effect_decision('small-change', envelope, tool_effect=effect,
                                        approval=approval, **binding)
-            self.assertTrue(any('only local writes' in item for item in failures))
+            if effect == 'git_write':
+                self.assertEqual([], failures)
+            else:
+                self.assertTrue(any('only local Git writes' in item for item in failures))
+        self.assertTrue(effect_decision('small-change', envelope, tool_effect='git_write',
+                                        **binding))
 
     def test_review_caller_cannot_raise_four_file_limit(self):
         with tempfile.TemporaryDirectory() as tmp:

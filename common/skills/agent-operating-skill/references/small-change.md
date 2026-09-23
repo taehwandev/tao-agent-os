@@ -42,8 +42,10 @@ to shorten the process.
 
 Use the full route before changing multiple owners/repos, architecture, public
 API contracts, authentication/permissions, security, persisted data, migrations,
-dependencies, infrastructure, billing, deployment or external state. The compact
-route cannot authorize Git writes even with an approval record. If its size or
-risk limit is exceeded, retain the partial work and enter the matching full
-route with current scope and authority before further edits or completion.
+dependencies, infrastructure, billing, deployment or external state. An approved
+`git_write` at start permits the exact reviewed local commit after finish in the
+same run. Without that bound approval, Git writes remain denied. Push, PR
+creation, remote changes, and destructive actions require a matching route and
+authority. If the size or risk limit is exceeded, retain the partial work and
+enter the matching full route before further edits or completion.
 Review enforces the four-file limit; it cannot be raised through review options. Existing tracked runs keep their original gate manifest.

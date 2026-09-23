@@ -211,16 +211,17 @@ class CompactStartAuthorityTests(unittest.TestCase):
             runtime_session_id="another-runtime-session",
         ))
 
-    def test_small_change_names_the_routes_that_take_the_git_write(self) -> None:
+    def test_small_change_accepts_bound_commit_authority_in_one_run(self) -> None:
         envelope, approval = self._envelope_and_approval(
             command="small-change", approved_effect="git_write"
         )
 
         failures = effect_decision("small-change", envelope, approval=approval)
 
-        self.assertEqual(1, len(failures))
-        self.assertIn("small-change permits only local writes", failures[0])
-        self.assertIn("`commit`", failures[0])
+        self.assertEqual(["git_write"], envelope["requested_effects"])
+        self.assertEqual([], failures)
+        self.assertTrue(effect_decision("small-change", envelope,
+                                         tool_effect="external_write", approval=approval))
 
     def test_a_hyphenated_intent_is_the_same_slug_as_an_underscored_one(self) -> None:
         envelope, _ = self._envelope_and_approval(intent="fix-start-failures")
