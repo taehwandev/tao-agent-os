@@ -222,6 +222,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
             return "mutating"
         if tokens[1] == "agent-mailbox":
             return _mailbox_intake_kind(tokens[2:])
+        if tokens[1] in LOCAL_STORE_LOOKUPS:
+            return _local_store_lookup_kind(tokens[1], tokens[2:])
         # The installed launcher also accepts `agent-hook <subcommand>`.
         # Normalize only this exact launcher alias, before classifying effects.
         if tokens[1] == "agent-hook" and len(tokens) > 2:
@@ -294,6 +296,31 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     if tokens[2] in RUNTIME_WRITE_HOOKS:
         return "bootstrap"
     return RUNTIME_CONTROL_KIND if tokens[2] in RUNTIME_CONTROL_HOOKS else None
+
+
+# Launcher aliases whose one subcommand only reads the user-local store:
+# alias -> (subcommand, its bare flags, its flags that take a value).
+LOCAL_STORE_LOOKUPS = {
+    "work-cards": ("list", {"--all"}, set()),
+    "project-memory": ("recall", set(), {"--scope"}),
+}
+
+
+def _local_store_lookup_kind(alias: str, arguments: list[str]) -> str | None:
+    """Read-only only for the exact lookup grammar; close, capture and approve write."""
+    subcommand, flags, valued = LOCAL_STORE_LOOKUPS[alias]
+    seen, index = False, 0
+    while index < len(arguments):
+        name, has_value, _ = arguments[index].partition("=")
+        if name == "--project" or (seen and name in valued):
+            index += 1 if has_value else 2
+        elif seen and arguments[index] in flags:
+            index += 1
+        elif not seen and arguments[index] == subcommand:
+            seen, index = True, index + 1
+        else:
+            return None
+    return "read_only" if seen else None
 
 
 def _mailbox_intake_kind(arguments: list[str]) -> str | None:

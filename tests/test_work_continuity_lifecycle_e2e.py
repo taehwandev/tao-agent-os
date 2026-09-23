@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -40,6 +41,26 @@ TESTS_GATE = {
         "result": "12 tests passed, exit 0",
     },
 }
+
+
+_STATE_HOME: list = []
+
+
+def setUpModule() -> None:
+    # Every start here opens a user-local work card, and `environment()` hands
+    # os.environ to each hook process. Without this the suite fills the
+    # developer's own ~/.tao/work-cards with cards for throwaway checkouts.
+    directory = tempfile.TemporaryDirectory(prefix="tao-state-home-")
+    patch = mock.patch.dict(os.environ, {"TAO_STATE_HOME": directory.name})
+    patch.start()
+    _STATE_HOME.extend((patch, directory))
+
+
+def tearDownModule() -> None:
+    patch, directory = _STATE_HOME
+    patch.stop()
+    directory.cleanup()
+    _STATE_HOME.clear()
 
 
 def git(root: Path, *arguments: str) -> str:

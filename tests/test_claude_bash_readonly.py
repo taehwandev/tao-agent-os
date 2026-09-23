@@ -59,6 +59,25 @@ class CompoundShellCommandTests(unittest.TestCase):
                       "/tmp/tao-hook agent-mailbox", f"env TAO_HOME=/tmp/other {launcher} agent-mailbox"):
             self.assertEqual(self._kind(f"{entry} receive --runtime codex"), "mutating")
 
+    def test_local_store_lookups_are_read_only_only_in_their_exact_grammar(self) -> None:
+        launcher = worktree_gate.stable_launcher_path()
+        for command in ("work-cards --project /repo list", "work-cards --project=/repo list --all",
+                        "work-cards list --project /repo", "project-memory --project /repo recall",
+                        "project-memory --project /repo recall --scope task",
+                        "project-memory recall --scope=all --project=/repo"):
+            with self.subTest(command=command):
+                self.assertEqual(self._kind(f"{launcher} {command}"), "read_only")
+        for command in ("work-cards --project /repo close " + "a" * 32,
+                        "work-cards --project /repo list --state done", "work-cards --all list",
+                        "project-memory --project /repo capture --source note --review-on 2099-01-01",
+                        "project-memory --project /repo approve 0123456789abcdef --digest x",
+                        "project-memory --project /repo recall --all",
+                        "work-cards --project /repo list > cards.json",
+                        "work-cards --project /repo list && touch out"):
+            with self.subTest(command=command):
+                self.assertNotEqual(self._kind(f"{launcher} {command}"), "read_only")
+        self.assertNotEqual(self._kind("/tmp/tao-hook work-cards --project /repo list"), "read_only")
+
     def test_local_evidence_query_is_not_confused_with_evidence_writers(self) -> None:
         for command in ("vibeguard evidence", "vibeguard evidence .",
                         "vibeguard evidence --json", "vibeguard evidence . --json"):
