@@ -187,12 +187,13 @@ command.
 The same stable launcher exposes `agent-mailbox` for all configured runtimes.
 Setup adds that entrypoint to the managed narrow permission surface and
 refreshes each runtime bridge with two rules: check the current project's local
-mailbox once at the start of a normal user-visible task, and use `handoff` plus
-`agent-mailbox send` when another runtime needs the bounded context. The
-sender's exact active Tao run is the internal source key, so users never choose
-room or task ids.
+mailbox once at the start of a normal user-visible task, and use
+`agent-mailbox send` for bounded reference context without a development run.
+Only explicit execution-evidence sends require `handoff`. Users never choose
+room or task ids; linked worktrees share the reference inbox.
 
-Mailbox state stays below the selected project's `.tao/agent-mailbox/`. Setup
+Reference state stays under user-local `~/.tao/agent-mailbox/`; explicit
+run-bound handoffs retain the project's `.tao/agent-mailbox/` store. Setup
 does not install a provider adapter, daemon, LaunchAgent, watcher, polling
 process, external API service, or background queue for it. Sending writes a
 local packet only. An idle target remains idle and incurs no model use until

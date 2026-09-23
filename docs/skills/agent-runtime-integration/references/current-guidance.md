@@ -130,39 +130,36 @@ context between products. The mailbox is transport only. It never invokes a
 provider CLI or API, starts a model turn, or keeps a daemon, watcher, poller,
 background process, or external service alive.
 
-The maintainer never chooses a room or task id. On send, Tao resolves the exact
-active run bound to the sender's runtime session and revalidates the capsule
-created by `handoff`. It stores one packet below
-`.tao/agent-mailbox/runs/<opaque-run>/inbox/<recipient>/`. Each packet binds its
-project fingerprint, source-run id, evidence fingerprint, sender, recipient,
-kind, timestamps, and bounded body. Copying a packet to another project or
-moving it under another source run makes validation fail.
+The maintainer never chooses a room or task id. Default sends store reference
+context under user-local `~/.tao/agent-mailbox/<repository-id>/`, shared by
+linked worktrees. They need no active run, worktree isolation or capsule.
+For execution-capsule reuse, run `handoff` and pass `--evidence <preflight-path>`
+explicitly. That form retains source-run binding and capsule validation in
+`.tao/agent-mailbox/runs/<opaque-run>/inbox/<recipient>/`; invalid evidence
+never falls back to a reference send. Neither form grants action authority.
 
 Required sequence:
 
-1. The sender completes `start`, required-document reading, and task scoping.
-2. Immediately before sending, the sender runs `<TAO_LAUNCHER> handoff` so the
-   source capsule reflects the current worktree and gate ledger.
-3. From the selected project, the sender posts one compact brief through stdin:
+1. From the selected project, the sender posts one compact brief through stdin:
 
    ```text
    <bounded review brief> | <TAO_LAUNCHER> agent-mailbox send --to claude --kind review
    ```
 
-4. The target remains idle. On its next normal user-visible prompt, its runtime
+2. The target remains idle. On its next normal user-visible prompt, its runtime
    bridge runs `<TAO_LAUNCHER> agent-mailbox receive --runtime <target>` once
    from the selected project. A returned brief is context, not authority: the
    current user request and the target's normal Tao lifecycle still decide what
    it may do.
-5. Receive writes a body-free acknowledgement record atomically and removes
+3. Receive writes a body-free acknowledgement record atomically and removes
    the pending packet before returning it, so concurrent receivers cannot
    consume the same message twice. It never selects messages addressed to a
    different runtime or project.
 
-Receive is a runtime-control operation available before `start`, not a
+Send and receive are runtime-control operations available before `start`, not a
 read-only command or permission to execute the received brief. The gate admits
 only the installed launcher or canonical mailbox script; `status` is read-only,
-while `send` retains its writable lifecycle and source-capsule checks. Shell
+while explicit execution evidence retains source-capsule checks. Shell
 redirection and chained writes do not inherit the intake allowance.
 
 The default TTL is 24 hours and the maximum is seven days. A body is at most 32

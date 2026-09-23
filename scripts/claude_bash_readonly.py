@@ -13,6 +13,7 @@ from pathlib import Path
 
 from claude_bash_git import git_command_kind
 from claude_bash_http import curl_read_only
+from claude_local_context_commands import local_context_kind
 from claude_bash_syntax import (
     ENV_ASSIGNMENT_RE,
     ENV_IDENTITY_ONLY_FLAGS,
@@ -222,6 +223,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
             return "mutating"
         if tokens[1] == "agent-mailbox":
             return _mailbox_intake_kind(tokens[2:])
+        if tokens[1] == "project-memory":
+            return local_context_kind("project-memory", tokens[2:])
         if tokens[1] in LOCAL_STORE_LOOKUPS:
             return _local_store_lookup_kind(tokens[1], tokens[2:])
         # The installed launcher also accepts `agent-hook <subcommand>`.
@@ -238,7 +241,7 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     # The executable shebang entrypoint is the same trusted hook as the
     # interpreter form below. Match the canonical sibling, never its basename.
     if executable_path in {Path(__file__).resolve().with_name(name)
-                           for name in ("agent-hook.py", "agent-mailbox.py")}:
+                           for name in ("agent-hook.py", "agent-mailbox.py", "agent_project_memory.py")}:
         tokens = [sys.executable, *tokens]
     # Two tokens is enough for the installer, which takes no subcommand. The
     # hook below needs a third, and says so itself.
@@ -261,6 +264,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     here = Path(__file__).resolve()
     if script == here.with_name("agent-mailbox.py"):
         return "mutating" if writes_output else _mailbox_intake_kind(tokens[2:])
+    if script == here.with_name("agent_project_memory.py"):
+        return "mutating" if writes_output else local_context_kind("project-memory", tokens[2:])
     if script == here.with_name("agent-structure-check.py"):
         return "mutating" if writes_output else "read_only"
     # The installer is how a runtime is set up, repaired, and re-pointed at its
@@ -324,14 +329,9 @@ def _local_store_lookup_kind(alias: str, arguments: list[str]) -> str | None:
 
 
 def _mailbox_intake_kind(arguments: list[str]) -> str | None:
-    # Receive acknowledges project-local context, not work authorization. It
-    # must precede start, like the other runtime controls. Sending still needs
-    # the ordinary writable lifecycle and the mailbox's capsule validation.
-    if arguments and arguments[0] == "receive":
-        return RUNTIME_CONTROL_KIND
-    if arguments and arguments[0] == "status":
-        return "read_only"
-    return None
+    # Reference exchange writes only the bounded local context store. Explicit
+    # execution evidence remains validated by the mailbox implementation.
+    return local_context_kind("agent-mailbox", arguments)
 
 
 def read_only_python_scripts() -> dict[Path, str]:

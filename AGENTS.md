@@ -293,6 +293,8 @@ invalidates the manifest and stops work.
 user-local `~/.tao/project-memory/<repository-id>/`, shared by linked worktrees.
 `capture` saves one bounded statement from stdin with `--project`, `--source`,
 and a future `--review-on` date; later starts recall it with no approval step.
+Capture and correction need no active run or task worktree; they write only
+the local reference store, not project files.
 Correct a wrong record with `capture --replaces <id>` or `retire <id>`; it
 expires on its review date. Never capture secrets, transcripts, or speculation.
 

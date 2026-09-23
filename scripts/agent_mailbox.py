@@ -11,11 +11,12 @@ from agent_execution_capsule import (
     validate_execution_capsule,
 )
 from agent_mailbox_store import MailboxStore
-from agent_runtime_session import resolve_runtime_evidence, runtime_session
+from agent_mailbox_reference import ReferenceMailboxStore
+from agent_runtime_session import runtime_session
 
 
 class AgentMailbox:
-    """Bind sends to exact active work and expose project-local one-time receives."""
+    """Exchange references, or explicitly bind a handoff to execution evidence."""
 
     def __init__(self, project: Path, rules: Path) -> None:
         self.project = project.expanduser().resolve()
@@ -31,12 +32,16 @@ class AgentMailbox:
         evidence_path: Path | None = None,
         sender: str = "",
     ) -> dict[str, object]:
-        evidence = self._evidence(evidence_path)
-        self._validate_source(evidence)
+        if evidence_path is not None:
+            evidence = evidence_path.expanduser().resolve()
+            self._validate_source(evidence)
+            store = MailboxStore(self.project, evidence_path=evidence)
+        else:
+            store = ReferenceMailboxStore(self.project)
         selected_sender = sender or str(runtime_session().get("runtime") or "")
         if not selected_sender:
             raise RuntimeError("mailbox sender runtime is unavailable")
-        return MailboxStore(self.project, evidence_path=evidence).enqueue(
+        return store.enqueue(
             sender=selected_sender,
             recipient=recipient,
             kind=kind,
@@ -45,20 +50,17 @@ class AgentMailbox:
         )
 
     def receive(self, runtime: str, *, limit: int = 8) -> list[dict[str, object]]:
-        return MailboxStore(self.project).consume(runtime, limit=limit)
+        packets = MailboxStore(self.project).consume(runtime, limit=limit)
+        if len(packets) < limit:
+            packets.extend(ReferenceMailboxStore(self.project).consume(runtime, limit=limit - len(packets)))
+        return packets
 
     def status(self, runtime: str) -> dict[str, int | str]:
-        return MailboxStore(self.project).status(runtime)
-
-    def _evidence(self, provided: Path | None) -> Path:
-        if provided is not None:
-            return provided.expanduser().resolve()
-        resolved = resolve_runtime_evidence(self.project)
-        if resolved is None:
-            raise RuntimeError(
-                "no exact active Tao work is bound to this runtime session; run the normal Tao start flow first"
-            )
-        return resolved.resolve()
+        result = MailboxStore(self.project).status(runtime)
+        reference = ReferenceMailboxStore(self.project).status(runtime)
+        for key in ("pending", "expired", "acked"):
+            result[key] += reference[key]
+        return result
 
     def _validate_source(self, evidence: Path) -> None:
         if not self.project.is_dir():

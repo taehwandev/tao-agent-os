@@ -4281,13 +4281,15 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertEqual("", out, f"{hook} must not be refused by the read contract")
 
-    def test_mailbox_intake_precedes_start_without_admitting_sends(self) -> None:
+    def test_mailbox_exchange_precedes_start(self) -> None:
         launcher = gate.stable_launcher_path()
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _require_linked_worktree(project)
             command = f"{launcher} agent-mailbox receive --runtime codex --project {project}"
             self.assertEqual((0, ""), self._bash(project, command))
+            self.assertEqual((0, ""), self._bash(project,
+                f"{launcher} agent-mailbox send --to claude --project {project}"))
             self.assertFalse((project / ".tao/runs").exists())
             for forbidden in (
                 command + " && touch changed", command + " > output",
@@ -4299,7 +4301,7 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
             command = f"{launcher} agent-mailbox receive --runtime codex --project {project}"
             self.assertEqual((0, ""), self._bash(project, command))
             _, out = self._bash(project, f"{launcher} agent-mailbox send --to claude --project {project}")
-            self.assertIn("deny", out)
+            self.assertEqual("", out)
 
     def test_the_escalation_the_denial_names_is_reachable(self) -> None:
         """fingerprint then start is the whole escape route; both must pass."""
@@ -4394,29 +4396,30 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
 
 
 class ProjectMemoryIsAgentWrittenTests(unittest.TestCase):
-    """Memory writes are ordinary user-store writes, not a user-only approval."""
+    """Local reference writes do not require a development lifecycle."""
 
     def _decide(self, project: Path, command: str) -> tuple[int, str]:
         return _decide({"tool_name": "Bash", "cwd": str(project), "session_id": "memory-session",
                         "tool_input": {"command": command}})
 
-    def test_capture_and_approve_are_judged_like_work_card_writes(self) -> None:
+    def test_memory_writes_on_protected_main_need_no_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             launcher = gate.stable_launcher_path()
-            _code, card_write = self._decide(project, f"{launcher} work-cards close x --project {project}")
+            _require_linked_worktree(project)
             for command in (
                 f"{launcher} project-memory --project {project} approve 0123456789abcdef --digest d",
                 f"{launcher} project-memory --project {project} capture --source note --review-on 2999-01-01",
                 f"{launcher} project-memory --project {project} capture --source note "
                 "--review-on 2999-01-01 --replaces 0123456789abcdef",
+                f"{launcher} project-memory --project {project} retire 0123456789abcdef",
             ):
                 with self.subTest(command=command):
                     code, out = self._decide(project, command)
                     self.assertEqual(0, code)
-                    self.assertNotIn("reviewed this memory", out)
-                    self.assertEqual(json.loads(card_write)["hookSpecificOutput"]["permissionDecision"],
-                                     json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+                    self.assertEqual("", out)
+                    self.assertIn("deny", self._decide(project, command + " && touch changed")[1])
+            self.assertFalse((project / ".tao/runs").exists())
             self.assertEqual("", self._decide(
                 project, f"{launcher} project-memory --project {project} recall --scope task")[1])
 

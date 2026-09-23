@@ -52,12 +52,31 @@ class CompoundShellCommandTests(unittest.TestCase):
             with self.subTest(entry=entry):
                 self.assertEqual(self._kind(f"{entry} receive --runtime codex"), "runtime_control")
                 self.assertEqual(self._kind(f"{entry} status --runtime codex"), "read_only")
-                self.assertEqual(self._kind(f"{entry} send --to claude"), "mutating")
+                self.assertEqual(self._kind(f"{entry} send --to claude"), "runtime_control")
+                self.assertEqual(self._kind(f"{entry} send --to claude < /tmp/brief.txt"), "runtime_control")
+                self.assertEqual(self._kind(f"cat /tmp/brief.txt | {entry} send --to claude"), "runtime_control")
                 self.assertEqual(self._kind(f"{entry} receive --runtime codex > out"), "mutating")
                 self.assertEqual(self._kind(f"{entry} receive --runtime codex && touch out"), "mutating")
         for entry in ("/tmp/agent-mailbox.py", "python3 /tmp/agent-mailbox.py",
                       "/tmp/tao-hook agent-mailbox", f"env TAO_HOME=/tmp/other {launcher} agent-mailbox"):
             self.assertEqual(self._kind(f"{entry} receive --runtime codex"), "mutating")
+
+    def test_local_context_writes_need_no_development_lifecycle(self) -> None:
+        launcher = worktree_gate.stable_launcher_path()
+        script = ROOT / "scripts/agent_project_memory.py"
+        for entry in (f"{launcher} project-memory", f"python3 -B {script}"):
+            for operation in ("capture --source note --review-on 2999-01-01",
+                              "capture --source note --review-on 2999-01-01 --replaces abc",
+                              "retire abc", "approve abc --digest xyz"):
+                command = f"{entry} --project /repo {operation}"
+                self.assertEqual("runtime_control", self._kind(command))
+                self.assertEqual("runtime_control", self._kind(command + " < /tmp/note.txt"))
+                self.assertEqual("mutating", self._kind(command + " > out"))
+                self.assertEqual("mutating", self._kind(command + " && touch out"))
+        for command in (f"{launcher} project-memory --project /repo capture --output out",
+                        f"{launcher} agent-mailbox send --to claude --output out",
+                        "python3 /tmp/agent_project_memory.py --project /repo retire abc"):
+            self.assertEqual("mutating", self._kind(command))
 
     def test_local_store_lookups_are_read_only_only_in_their_exact_grammar(self) -> None:
         launcher = worktree_gate.stable_launcher_path()
@@ -69,8 +88,6 @@ class CompoundShellCommandTests(unittest.TestCase):
                 self.assertEqual(self._kind(f"{launcher} {command}"), "read_only")
         for command in ("work-cards --project /repo close " + "a" * 32,
                         "work-cards --project /repo list --state done", "work-cards --all list",
-                        "project-memory --project /repo capture --source note --review-on 2099-01-01",
-                        "project-memory --project /repo approve 0123456789abcdef --digest x",
                         "project-memory --project /repo recall --all",
                         "work-cards --project /repo list > cards.json",
                         "work-cards --project /repo list && touch out"):

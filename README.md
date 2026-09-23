@@ -150,6 +150,7 @@ recall, replace, and retire short, source-attributed project guidance. A capture
 is recalled by later task starts without an approval step; records expire on
 their review date. Memory is reference context, never instructions: the current
 request, repository rules, and source evidence prevail.
+Capture and correction work without an active development run or task worktree.
 
 The command and start behavior travel with every Tao Agent OS installation.
 The records remain in that PC's user-local `~/.tao/project-memory/` store;

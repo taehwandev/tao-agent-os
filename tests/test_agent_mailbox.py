@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,9 @@ class AgentMailboxTests(unittest.TestCase):
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
         root = Path(self._temporary.name)
+        self.environment = patch.dict(os.environ, {"TAO_STATE_HOME": str(root / "state")})
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
         self.project = root / "project"
         self.rules = root / "rules"
         self.evidence = self.project / ".tao" / "runs" / ("a" * 32) / "preflight.json"
@@ -35,11 +39,10 @@ class AgentMailboxTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._temporary.cleanup()
 
-    def test_send_resolves_active_work_and_receive_needs_no_room_or_task_id(self) -> None:
+    def test_reference_send_needs_no_active_work_or_capsule(self) -> None:
         mailbox = AgentMailbox(self.project, self.rules)
         with (
-            patch("agent_mailbox.resolve_runtime_evidence", return_value=self.evidence) as resolver,
-            patch("agent_mailbox.validate_execution_capsule", return_value=[]),
+            patch("agent_mailbox.validate_execution_capsule") as validator,
             patch("agent_mailbox.runtime_session", return_value={"runtime": "codex", "session_id": "opaque"}),
         ):
             sent = mailbox.send(
@@ -48,17 +51,18 @@ class AgentMailboxTests(unittest.TestCase):
                 body="Review the bounded local change.",
             )
 
-        resolver.assert_called_once_with(self.project.resolve())
+        validator.assert_not_called()
+        self.assertNotIn("source_run_id", sent)
         received = mailbox.receive("claude")
         self.assertEqual("codex", sent["sender"])
         self.assertEqual([sent], received)
         self.assertEqual([], mailbox.receive("claude"))
 
-    def test_send_refuses_missing_work_invalid_capsule_and_oversized_body(self) -> None:
+    def test_explicit_send_refuses_missing_evidence_invalid_capsule_and_oversized_body(self) -> None:
         mailbox = AgentMailbox(self.project, self.rules)
-        with patch("agent_mailbox.resolve_runtime_evidence", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "no exact active Tao work"):
-                mailbox.send(recipient="claude", kind="review", body="Check")
+        with self.assertRaisesRegex(ValueError, "preflight evidence does not exist"):
+            mailbox.send(recipient="claude", kind="review", body="Check",
+                         evidence_path=self.project / "missing", sender="codex")
 
         with patch("agent_mailbox.validate_execution_capsule", return_value=["worktree changed"]):
             with self.assertRaisesRegex(RuntimeError, "run parent handoff"):
@@ -85,7 +89,8 @@ class AgentMailboxTests(unittest.TestCase):
         for relative in (
             "scripts/agent-mailbox.py",
             "scripts/agent_mailbox.py",
-            "scripts/agent_mailbox_store.py",
+                "scripts/agent_mailbox_store.py",
+                "scripts/agent_mailbox_reference.py",
         ):
             with self.subTest(path=relative):
                 source = (ROOT / relative).read_text(encoding="utf-8")
@@ -103,6 +108,19 @@ class AgentMailboxTests(unittest.TestCase):
                 self.assertTrue(forbidden_imports.isdisjoint(imported))
                 self.assertNotIn("ProviderRuntime", source)
                 self.assertNotIn("CodexAppServer", source)
+
+    def test_receive_and_status_include_legacy_and_reference_with_one_limit(self) -> None:
+        mailbox = AgentMailbox(self.project, self.rules)
+        with patch("agent_mailbox.validate_execution_capsule", return_value=[]):
+            legacy = mailbox.send(recipient="claude", kind="review", body="Bound handoff",
+                                  evidence_path=self.evidence, sender="codex")
+        reference = mailbox.send(recipient="claude", kind="opinion", body="Reference",
+                                 sender="codex")
+        self.assertEqual(2, mailbox.status("claude")["pending"])
+        self.assertEqual([legacy], mailbox.receive("claude", limit=1))
+        self.assertEqual([reference], mailbox.receive("claude", limit=1))
+        self.assertEqual(2, mailbox.status("claude")["acked"])
+        self.assertEqual([], mailbox.receive("claude"))
 
     def test_cli_consumes_pending_message_once(self) -> None:
         mailbox = AgentMailbox(self.project, self.rules)
