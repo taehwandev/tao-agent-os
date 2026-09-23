@@ -86,6 +86,20 @@ class VerificationHookTests(unittest.TestCase):
         self.assertEqual(0, self.run_hook())
         self.assertIn("tests=1", self.entries()[-1]["fields"]["result"])
 
+    def test_a_module_only_tao_has_is_not_importable_by_project_tests(self):
+        """A project lacking `agent_gate_reuse` must fail, not import Tao's copy."""
+        (self.project / "tests" / "test_case.py").write_text(
+            "import unittest\n"
+            "class Case(unittest.TestCase):\n"
+            "    def test_imports(self):\n"
+            "        with self.assertRaises(ImportError):\n"
+            "            import agent_gate_reuse\n"
+            "        with self.assertRaises(ImportError):\n"
+            "            import stable_launcher\n"
+        )
+        self.assertEqual(0, self.run_hook())
+        self.assertIn("tests=1", self.entries()[-1]["fields"]["result"])
+
     def test_project_venv_python_is_selected(self):
         python = self.project / ".venv" / "bin" / "python"
         python.parent.mkdir(parents=True)

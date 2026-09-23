@@ -112,7 +112,13 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
     return "unknown", "command or options have no verified effect contract"
 
 
-def unknown_recovery(reason: str) -> str:
+def unknown_recovery(reason: str, *, after_finish: bool = False) -> str:
+    """Explain an unknown effect; `after_finish` names the finished-run remedy.
+
+    Only a session whose run already finished can be continuing a publication
+    that finish admitted, so only that denial may say to continue without
+    another start. Every other unknown effect still needs its writable route.
+    """
     # A project script that publishes (a pull-request helper, say) is exactly
     # this case, and its fix is a declaration, not another workflow run.
     declaration = (
@@ -121,13 +127,17 @@ def unknown_recovery(reason: str) -> str:
         ".agents/shared/worktree-policy.json so a finished run admits it."
         if reason == INTERPRETER_REASON else ""
     )
+    finished = (
+        "If this session already finished the same authorized publication, correct the "
+        "declared command form and continue without another workflow start. Otherwise "
+        if after_finish else ""
+    )
+    route = "enter its scoped writable route once" if after_finish else "Enter its scoped writable route once"
     return (
         f"Tao command effect: unknown. Boundary: {reason}. "
         "This is not proof it changes data. For a lookup, use a supported read-only form or split the unsupported wrapper "
         "into independently verifiable reads; do not request write authority just to run a lookup. "
-        "Do not repeat the unchanged command. If this session already finished the same "
-        "authorized publication, correct the declared command form and continue without "
-        "another workflow start. Otherwise enter its scoped writable route once; no "
+        f"Do not repeat the unchanged command. {finished}{route}; no "
         "duplicate user approval is needed. "
         "Worktree and native permission boundaries still apply." + declaration
     )

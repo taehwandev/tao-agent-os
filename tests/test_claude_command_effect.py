@@ -14,9 +14,17 @@ class CommandEffectTests(unittest.TestCase):
         effect, reason = command_effect(tokens, True, 'mutating')
         self.assertEqual(('unknown', INTERPRETER_REASON), (effect, reason))
         self.assertIn('publication_commands in .agents/shared/worktree-policy.json', unknown_recovery(reason))
-        self.assertIn('continue without another workflow start', unknown_recovery(reason))
         self.assertNotIn('publication_commands',
                          unknown_recovery('command or options have no verified effect contract'))
+
+    def test_only_a_finished_session_is_told_to_continue_without_a_start(self):
+        """An unknown effect with no finished run still needs its writable route."""
+        for reason in (INTERPRETER_REASON, 'command or options have no verified effect contract'):
+            with self.subTest(reason=reason):
+                self.assertNotIn('without another workflow start', unknown_recovery(reason))
+                self.assertIn('Enter its scoped writable route once', unknown_recovery(reason))
+                self.assertIn('continue without another workflow start',
+                              unknown_recovery(reason, after_finish=True))
 
     def test_publication_action_contract_does_not_depend_on_workflow_state(self):
         for command in (

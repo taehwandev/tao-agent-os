@@ -150,7 +150,7 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
     def command_effect(tokens, simple, kind):
         return kind, ""
 
-    def unknown_recovery(reason):
+    def unknown_recovery(reason, **_kwargs):
         return "Command effect could not be verified."
 
     RUNTIME_CONTROL_KIND = "runtime_control"
@@ -979,6 +979,51 @@ def _command_segments(
     return segments
 
 
+PROJECT_MEMORY_ENTRY_NAMES = frozenset(
+    {"project-memory", "agent_project_memory", "agent_project_memory.py"}
+)
+PROJECT_MEMORY_APPROVAL_DENIAL = (
+    "Tao project memory: `project-memory approve` records that the user reviewed "
+    "this memory, so an agent may not run it. Show the user the record id and "
+    "digest and ask them to run the approve command themselves (in Claude Code "
+    "as `! <command>`, or in their own shell). `capture`, `recall` and `list` "
+    "remain available."
+)
+
+
+def approves_project_memory(command: str, depth: int = 0) -> bool:
+    """Whether any command on this line approves a project-memory record.
+
+    Approval is the user's review, so it is refused in every spelling: the
+    launcher alias, the script path, a module run, a chain, or a shell `-c`
+    payload. A line whose shell form cannot be read is judged by its words.
+    """
+
+    if depth >= 3:
+        return False
+    segments = _command_segments(command)
+    if segments is None:
+        segments = [re.findall(r"[^\s;&|()<>`'\"$]+", command)]
+    for tokens in segments:
+        program = _command_behind_environment(tokens)
+        if program and Path(program[0]).name in SHELL_PROGRAMS:
+            payload, _readable = _shell_payload(program, 1)
+            if payload is not None and approves_project_memory(payload, depth + 1):
+                return True
+        elif program is None and any(
+            approves_project_memory(token, depth + 1) for token in tokens if " " in token
+        ):
+            return True
+        entry = next(
+            (index for index, token in enumerate(tokens)
+             if Path(token).name in PROJECT_MEMORY_ENTRY_NAMES),
+            None,
+        )
+        if entry is not None and "approve" in tokens[entry + 1:]:
+            return True
+    return False
+
+
 def publication_hold(
     command: str,
     depth: int = 0,
@@ -1708,8 +1753,11 @@ def _isolated_checkout_verdict(
         ):
             return deny(finished_publication_denial(
                 governed, session_id, bash_command(payload), effective_cwd or cwd))
-        return deny(unknown_recovery(unknown_reason) + governed_because(governed, cwd_roots) if unknown_reason else
-                    deny_reason(governed, session_id, tool, cwd_roots))
+        if unknown_reason:
+            after_finish = evidence_is_fresh(finished_session_evidence(governed, session_id))
+            return deny(unknown_recovery(unknown_reason, after_finish=after_finish)
+                        + governed_because(governed, cwd_roots))
+        return deny(deny_reason(governed, session_id, tool, cwd_roots))
     if finish_authorized:
         return _approve(
             "This is a publication command that a successful finish "
@@ -2855,6 +2903,9 @@ def decide(payload: dict) -> int:
     tool = payload.get("tool_name")
     if tool not in GATED_TOOLS:
         return allow()
+    if tool in BASH_TOOLS and approves_project_memory(bash_command(payload)):
+        # Before any project lookup: approval is refused wherever it runs.
+        return deny(PROJECT_MEMORY_APPROVAL_DENIAL)
     cwd_raw = payload.get("cwd") or os.getcwd()
     try:
         cwd = Path(cwd_raw).resolve()

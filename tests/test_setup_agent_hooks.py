@@ -1122,7 +1122,9 @@ class SetupAgentHooksTests(unittest.TestCase):
             with patch.dict(os.environ, {"HOME": temp_home}):
                 ensure_stable_launcher(ROOT, dry_run=False)
                 launcher = stable_launcher_path()
-            environment = {**os.environ, "HOME": temp_home}
+            # Test runs must name their state home; the stores refuse the default.
+            environment = {**os.environ, "HOME": temp_home,
+                           "TAO_STATE_HOME": str(Path(temp_home) / ".tao")}
 
             def invoke(*args: str, body: str = "") -> subprocess.CompletedProcess[str]:
                 return subprocess.run(
@@ -1148,8 +1150,10 @@ class SetupAgentHooksTests(unittest.TestCase):
             project = Path(temp_home) / "project"
             project.mkdir()
             subprocess.run(["git", "init", "-q", str(project)], check=True)
-            environment = {key: value for key, value in os.environ.items() if key != "TAO_STATE_HOME"}
+            environment = dict(os.environ)
             environment["HOME"] = temp_home
+            # Test runs must name their state home; the stores refuse the default.
+            environment["TAO_STATE_HOME"] = str(Path(temp_home) / ".tao")
             with patch.dict(os.environ, environment, clear=True):
                 ensure_stable_launcher(ROOT, dry_run=False)
                 launcher = stable_launcher_path()

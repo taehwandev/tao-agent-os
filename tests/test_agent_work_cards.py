@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -43,6 +44,13 @@ class WorkCardTests(unittest.TestCase):
         path.write_text(json.dumps({"work": {"id": work_id, "schema_version": 1}}))
         return path
 
+    def _register(self, project: Path, runs: dict[str, str]) -> None:
+        registry = project / ".tao" / "run-registry.json"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text(json.dumps({"schema_version": 1, "runs": [
+            {"run_id": run, "state": state} for run, state in runs.items()
+        ]}))
+
     def test_continued_runs_update_one_card_and_linked_worktrees_share_it(self) -> None:
         cards.open_card(self.project, WORK_A, summary="first  target\nline", command="task")
         worktree = self.root / "linked"
@@ -76,6 +84,7 @@ class WorkCardTests(unittest.TestCase):
 
     def test_start_lines_open_this_card_and_name_only_the_others(self) -> None:
         cards.open_card(self.project, WORK_B, summary="other unfinished work", command="task")
+        self._register(self.project, {WORK_B: "interrupted"})
         lines = cards.start_lines(self.project, self._evidence(WORK_A), summary="this work", command="task")
 
         self.assertEqual(2, len(lines))
@@ -87,6 +96,7 @@ class WorkCardTests(unittest.TestCase):
     def test_start_lines_cap_the_listing_and_count_the_rest(self) -> None:
         for digit in "12345":
             cards.open_card(self.project, digit * 32, summary=f"work {digit}", command="task")
+        self._register(self.project, {digit * 32: "running" for digit in "12345"})
         lines = cards.start_lines(self.project, self._evidence(WORK_A), summary="", command="task")
         self.assertEqual(1 + cards.MAX_RECALL_ITEMS + 1, len(lines))
         self.assertIn("2 more", lines[-1])
@@ -137,6 +147,66 @@ class WorkCardTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as exit_info, mock.patch("sys.stderr"):
             cards._main(["--project", str(self.project), "close", WORK_A])
         self.assertEqual(2, exit_info.exception.code)
+
+    def test_a_lookup_creates_nothing_on_disk(self) -> None:
+        state_home = self.root / "state-home"
+        self.assertEqual([], cards.list_cards(self.project, include_settled=True))
+        with mock.patch("sys.stdout"):
+            self.assertEqual(0, cards._main(["--project", str(self.project), "list", "--all"]))
+        self.assertFalse(state_home.exists(), "a lookup must not create the store")
+
+        # An existing but empty database gains no table, pragma or journal.
+        (state_home / cards.STORE_NAME).mkdir(parents=True)
+        database = state_home / cards.STORE_NAME / cards.DATABASE_NAME
+        sqlite3.connect(database).close()
+        self.assertEqual([], cards.list_cards(self.project))
+        with sqlite3.connect(database) as connection:
+            self.assertEqual([], connection.execute("SELECT name FROM sqlite_master").fetchall())
+            self.assertEqual(0, connection.execute("PRAGMA user_version").fetchone()[0])
+
+    def test_start_skips_and_settles_cards_whose_run_cannot_finish(self) -> None:
+        removed = self.root / "removed-worktree"
+        self._git("worktree", "add", "-q", str(removed), "-b", "gone")
+        live, finished, vanished, unknown = "1" * 32, "2" * 32, "3" * 32, "4" * 32
+        cards.open_card(self.project, live, summary="still running", command="task")
+        cards.open_card(self.project, finished, summary="completed elsewhere", command="task")
+        cards.open_card(self.project, unknown, summary="never registered", command="task")
+        cards.open_card(removed, vanished, summary="worktree removed", command="task")
+        self._register(self.project, {live: "running", finished: "completed"})
+        self._git("worktree", "remove", "--force", str(removed))
+
+        lines = cards.start_lines(self.project, self._evidence(WORK_A), summary="", command="task")
+
+        self.assertEqual(2, len(lines), lines)
+        self.assertIn(live, lines[1])
+        states = {c["work_id"]: c["state"] for c in cards.list_cards(self.project, include_settled=True)}
+        self.assertEqual(
+            {live: "active", finished: "done", vanished: "cancelled", unknown: "cancelled"}, states
+        )
+
+    def test_start_records_the_run_id_the_registry_is_asked_about(self) -> None:
+        run = "e" * 32
+        evidence = self.root / ".tao" / "runs" / run / "preflight.json"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text(json.dumps({"work": {"id": WORK_A, "schema_version": 1}}))
+        cards.start_lines(self.project, evidence, summary="continued work", command="task")
+        [card] = cards.list_cards(self.project)
+        self.assertEqual(run, card["run_id"])
+
+    def test_a_version_one_store_is_read_then_upgraded_on_write(self) -> None:
+        directory = self.root / "state-home" / cards.STORE_NAME
+        directory.mkdir(parents=True)
+        with closing(sqlite3.connect(directory / cards.DATABASE_NAME)) as connection, connection:
+            connection.execute(cards._SCHEMA.replace("    run_id TEXT NOT NULL DEFAULT '',\n", ""))
+            connection.execute(
+                "INSERT INTO cards VALUES (?, ?, 'old', 'task', ?, 'active', 't', 't')",
+                (cards.repository_key(self.project), WORK_B, str(self.project)),
+            )
+            connection.execute("PRAGMA user_version = 1")
+        self.assertEqual("", cards.list_cards(self.project)[0]["run_id"])
+        cards.open_card(self.project, WORK_A, summary="new", command="task")
+        self.assertEqual({WORK_A: WORK_A, WORK_B: ""},
+                         {c["work_id"]: c["run_id"] for c in cards.list_cards(self.project)})
 
 
 if __name__ == "__main__":

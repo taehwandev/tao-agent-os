@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json
-from support.global_state import global_state_dir
+from support.global_state import global_state_dir, user_store_write_error
 
 
 SCHEMA_VERSION = 1
@@ -57,6 +57,13 @@ def _store(project: Path) -> Path:
     if root.is_symlink() or directory.is_symlink():
         raise ValueError("memory directory must not be a symlink")
     return directory
+
+
+def _writable_store(project: Path) -> Path:
+    refusal = user_store_write_error()
+    if refusal:
+        raise ValueError(refusal)
+    return _store(project)
 
 
 def _record_path(project: Path, record_id: str) -> Path:
@@ -105,7 +112,7 @@ def _capture(project: Path, *, body: str, source: str, scope: str, review_on: st
         raise ValueError("scope must be a reusable workflow slug")
     if date.fromisoformat(review_on) <= date.today():
         raise ValueError("review date must be in the future")
-    _store(project).mkdir(parents=True, exist_ok=True, mode=0o700)
+    _writable_store(project).mkdir(parents=True, exist_ok=True, mode=0o700)
     record_id = secrets.token_hex(8)
     record = {
         "schema_version": SCHEMA_VERSION,
@@ -141,6 +148,7 @@ def _decide(project: Path, record_id: str, *, decision: str, digest: str = "") -
         record["retired_at"] = _timestamp()
     else:
         raise ValueError("unknown decision")
+    _writable_store(project)
     atomic_write_json(path, record)
     return record
 

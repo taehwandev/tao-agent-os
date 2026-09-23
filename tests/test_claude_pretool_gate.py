@@ -4163,6 +4163,17 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertIn("continue without another workflow start", _reason(out))
         self.assertNotIn("a successful finish", _reason(out))
 
+    def test_unknown_effect_without_a_finished_run_keeps_the_route_remedy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+
+            code, out = self._decide(project, "python3 tools/bitbucket_pr/create_pr.py --check")
+
+        self.assertEqual(0, code)
+        self.assertIn("Tao command effect: unknown", _reason(out))
+        self.assertNotIn("without another workflow start", _reason(out))
+        self.assertIn("Enter its scoped writable route once", _reason(out))
+
     def test_finish_does_not_authorize_an_undeclared_python_tool(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))

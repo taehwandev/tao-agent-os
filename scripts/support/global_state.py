@@ -24,6 +24,7 @@ exactly when it is not the global install directory.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 
@@ -44,6 +45,40 @@ def global_state_dir() -> Path:
     if override:
         return Path(override).expanduser()
     return Path.home() / STATE_DIR_NAME
+
+
+# Marks a process tree started by `python -m unittest`. Discover imports every
+# test module before any test runs, and at least one of them imports this
+# module, so the marker is in the environment before the first test starts and
+# every hook subprocess a test launches inherits it. `tests/__init__.py` cannot
+# carry this: with `-t tests` discover never imports it as a package.
+UNDER_TEST_ENV = "TAO_UNDER_UNITTEST"
+
+
+def _running_unittest() -> bool:
+    spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    return bool(spec and str(getattr(spec, "name", "")).startswith("unittest"))
+
+
+if _running_unittest():
+    os.environ.setdefault(UNDER_TEST_ENV, "1")
+
+
+def user_store_write_error() -> str:
+    """Why a user-level store (work cards, project memory) may not be written.
+
+    A test that forgets TAO_STATE_HOME would otherwise write into the
+    developer's real `~/.tao`, where nothing removes it. Only writes are
+    refused; lookups read nothing that is not already there.
+    """
+    if os.environ.get(STATE_HOME_ENV, "").strip():
+        return ""
+    if os.environ.get(UNDER_TEST_ENV, "").strip() or _running_unittest():
+        return (
+            f"refusing to write the user's Tao state from a test run; set "
+            f"{STATE_HOME_ENV} to a temporary directory"
+        )
+    return ""
 
 
 def _resolved(path: Path) -> Path | None:

@@ -105,5 +105,40 @@ class WorkCardLifecycleTests(unittest.TestCase):
                          {c["work_id"]: c["state"] for c in cards.list_cards(self.project, include_settled=True)})
 
 
+class TestRunsNeverReachTheUsersStoreTests(unittest.TestCase):
+    """A test that forgets TAO_STATE_HOME still cannot write the real ~/.tao.
+
+    HOME stands in for the developer's home: with no state-home override, the
+    stores would resolve to `<HOME>/.tao`, which is exactly where a forgotten
+    override used to leave cards for throwaway checkouts.
+    """
+
+    def test_a_real_start_without_a_state_home_writes_no_card_or_memory(self) -> None:
+        from support.global_state import STATE_HOME_ENV, UNDER_TEST_ENV
+
+        if UNDER_TEST_ENV not in os.environ:
+            self.skipTest("the marker is set by `python -m unittest`, the suite's runner")
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        home = Path(temp.name) / "home"
+        home.mkdir()
+        checkout = PlainCheckout(temp.name)
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            os.environ.pop(STATE_HOME_ENV, None)
+            started = start(checkout.project, ROOT, "가드를 고쳐줘")
+            memory = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "agent_project_memory.py"),
+                 "--project", str(checkout.project), "capture", "--source", "test",
+                 "--review-on", "2999-01-01"],
+                input="a reviewed rule", capture_output=True, text=True,
+            )
+
+        self.assertEqual(0, started.returncode, started.stdout + started.stderr)
+        self.assertEqual(2, memory.returncode)
+        self.assertIn(STATE_HOME_ENV, memory.stderr)
+        self.assertFalse((home / ".tao" / cards.STORE_NAME).exists())
+        self.assertFalse((home / ".tao" / "project-memory").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
