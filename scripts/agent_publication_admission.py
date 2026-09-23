@@ -13,6 +13,8 @@ from pathlib import Path
 
 from agent_evidence_inputs import EvidenceInputs
 from agent_execution_capsule_state import atomic_write_json
+from agent_route_state import request_fingerprint
+from agent_runtime_session import resolve_runtime_evidence
 from workflow_intent_envelope import EFFECT_RANK
 
 
@@ -20,6 +22,35 @@ class PublicationAdmission:
     # Publication covers the whole source tree, unlike a bounded local tests gate.
     _MAX_FILES = 20_000
     _MAX_BYTES = 1024 * 1024 * 1024
+
+    @staticmethod
+    def already_finished_same_request(
+        project: Path,
+        rules: Path,
+        request_intake: dict,
+        required_effect: str,
+        session: dict[str, str],
+    ) -> bool:
+        """Avoid reopening an identical, still-admitted commit/PR action."""
+        if required_effect not in EFFECT_RANK or not session.get('session_id'):
+            return False
+        try:
+            evidence = resolve_runtime_evidence(
+                project, session, frozenset({'completed'}), latest_of_several=True,
+            )
+            if evidence is None:
+                return False
+            prior = json.loads(evidence.read_text(encoding='utf-8'))
+            if (
+                prior.get('request_fingerprint') != request_fingerprint(request_intake)
+                or prior.get('project') != str(project.resolve())
+                or prior.get('rules') != str(rules.resolve())
+                or (prior.get('route') or {}).get('command') != 'commit'
+            ):
+                return False
+            return PublicationAdmission.allows(project, evidence, required_effect)
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            return False
 
     @staticmethod
     def _capture(root: Path) -> str:

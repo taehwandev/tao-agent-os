@@ -1,4 +1,6 @@
 from pathlib import Path
+from argparse import Namespace
+import importlib.util
 import json
 import subprocess
 import sys
@@ -10,6 +12,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import claude_pretool_gate as gate
 from agent_evidence_inputs import EvidenceInputs
 from agent_publication_admission import PublicationAdmission
+from agent_route_state import request_fingerprint
+from agent_run_registry import register_run, transition_run
+
+
+def _agent_hook():
+    script = Path(__file__).resolve().parents[1] / 'scripts' / 'agent-hook.py'
+    spec = importlib.util.spec_from_file_location('publication_repeat_hook', script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class PublicationHoldTests(unittest.TestCase):
@@ -112,6 +124,67 @@ class PublicationAdmissionTests(unittest.TestCase):
 
     def allowed(self, effect='external_write'):
         return PublicationAdmission.allows(self.root, self.evidence, effect)
+
+    def test_same_finished_request_does_not_start_a_second_publication_run(self):
+        request = '커밋+pr 해줘. 플립에 설치해주고'
+        intake = {'request': request, 'continuation_scope': '',
+                  'request_classified': False, 'classification_evidence': ''}
+        session = {'runtime': 'codex', 'session_id': 'publication-session'}
+        evidence = self.root / '.tao' / 'preflight.json'
+        evidence.write_text(json.dumps({
+            'project': str(self.root), 'rules': str(self.root),
+            'request_fingerprint': request_fingerprint(intake),
+            'runtime_session': session,
+            'route': {'command': 'commit', 'request_classification': {
+                'intent_envelope': {'authority': 'envelope', 'schema_valid': True,
+                                    'failures': [], 'effective_effect': 'external_write'},
+            }},
+        }))
+        run = register_run(self.root, evidence, {'command': 'commit'}, intake)
+        transition_run(self.root, evidence, 'completed', run_id=run['run_id'])
+        self.assertTrue(PublicationAdmission.record_finish(self.root, evidence))
+
+        hook = _agent_hook()
+        args = Namespace(
+            project=self.root, rules=self.root, command='commit', request=request,
+            continuation_scope='', request_classified=False,
+            classification_evidence='', read_only=False, output=None,
+            repair_cycle=0, approved_effect='external_write',
+        )
+        results = []
+        def record(_hook, success, details, *_args, **_kwargs):
+            results.append((success, details))
+            return 0 if success else 1
+
+        with (patch.object(hook, 'runtime_session', return_value=session),
+              patch.object(hook, 'finish_with_result', side_effect=record),
+              patch.object(hook, '_start_admitted_action', side_effect=AssertionError('second preflight'))):
+            hook.start_hook(args)
+        self.assertEqual(1, len(results))
+        self.assertFalse(results[0][0])
+        self.assertIn('completed, unchanged publication receipt', ' '.join(results[0][1]))
+
+        with (patch.object(hook, 'runtime_session', return_value={
+                  'runtime': 'codex', 'session_id': 'another-session',
+              }),
+              patch.object(hook, '_start_admitted_action', side_effect=AssertionError('fresh preflight'))):
+            with self.assertRaisesRegex(AssertionError, 'fresh preflight'):
+                hook.start_hook(args)
+
+        # A new request, a stronger effect, and changed source each need fresh admission.
+        for changed_request, changed_effect, change_source in (
+            (request + ' 새 작업', 'external_write', False),
+            (request, 'destructive', False),
+            (request, 'external_write', True),
+        ):
+            if change_source:
+                (self.root / 'source').write_text('new bytes')
+            args.request = changed_request
+            args.approved_effect = changed_effect
+            with (patch.object(hook, 'runtime_session', return_value=session),
+                  patch.object(hook, '_start_admitted_action', side_effect=AssertionError('fresh preflight'))):
+                with self.assertRaisesRegex(AssertionError, 'fresh preflight'):
+                    hook.start_hook(args)
 
     def test_git_write_finish_never_authorizes_external_publication(self):
         self.assertTrue(self.finish('git_write'))

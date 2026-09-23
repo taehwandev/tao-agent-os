@@ -183,6 +183,21 @@ def start_hook(args: argparse.Namespace) -> int:
         "request_classified": bool(args.request_classified),
         "classification_evidence": args.classification_evidence,
     }
+    if args.command == "commit" and not args.read_only:
+        from agent_publication_admission import PublicationAdmission
+
+        effect = str(getattr(args, "approved_effect", "") or "")
+        if PublicationAdmission.already_finished_same_request(
+            args.project, args.rules, request_intake, effect, runtime_session(),
+        ):
+            return finish_with_result(
+                "start", False,
+                ["This exact request already has a completed, unchanged publication receipt. "
+                 "Do not start, review, or finish again. Continue the pending authorized "
+                 "commit, push, or PR command from this worktree; check whether it already "
+                 "succeeded before retrying an external write."],
+                args.output, {}, args.repair_cycle, invocation_error=True,
+            )
     writable_route = (
         not args.read_only
         and EFFECT_RANK[route_minimum_effect(args.command)] > EFFECT_RANK["read"]

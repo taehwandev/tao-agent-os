@@ -125,7 +125,9 @@ def unknown_recovery(reason: str) -> str:
         f"Tao command effect: unknown. Boundary: {reason}. "
         "This is not proof it changes data. For a lookup, use a supported read-only form or split the unsupported wrapper "
         "into independently verifiable reads; do not request write authority just to run a lookup. "
-        "Do not repeat the unchanged command. For an intended write already authorized by the user, "
-        "enter its scoped writable route once and retry; no duplicate user approval is needed. "
+        "Do not repeat the unchanged command. If this session already finished the same "
+        "authorized publication, correct the declared command form and continue without "
+        "another workflow start. Otherwise enter its scoped writable route once; no "
+        "duplicate user approval is needed. "
         "Worktree and native permission boundaries still apply." + declaration
     )

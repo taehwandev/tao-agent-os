@@ -4141,6 +4141,28 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("a successful finish", _reason(out))
 
+    def test_unknown_pr_check_after_finish_does_not_suggest_another_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            policy = project / gate.WORKTREE_POLICY_PATH
+            declared = json.loads(policy.read_text(encoding="utf-8"))
+            declared["publication_commands"] = [
+                {"argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py"],
+                 "publishes": True},
+                {"argv_prefix": ["python3", "tools/bitbucket_pr/create_pr.py", "--check"],
+                 "publishes": False},
+            ]
+            policy.write_text(json.dumps(declared), encoding="utf-8")
+            _attest_finished_publication(
+                project, gate.finished_session_evidence(project, self.SESSION),
+            )
+
+            code, out = self._decide(project, "python3 tools/bitbucket_pr/create_pr.py --check")
+
+        self.assertEqual(0, code)
+        self.assertIn("continue without another workflow start", _reason(out))
+        self.assertNotIn("a successful finish", _reason(out))
+
     def test_finish_does_not_authorize_an_undeclared_python_tool(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))

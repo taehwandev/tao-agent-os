@@ -14,6 +14,7 @@ class CommandEffectTests(unittest.TestCase):
         effect, reason = command_effect(tokens, True, 'mutating')
         self.assertEqual(('unknown', INTERPRETER_REASON), (effect, reason))
         self.assertIn('publication_commands in .agents/shared/worktree-policy.json', unknown_recovery(reason))
+        self.assertIn('continue without another workflow start', unknown_recovery(reason))
         self.assertNotIn('publication_commands',
                          unknown_recovery('command or options have no verified effect contract'))
 
