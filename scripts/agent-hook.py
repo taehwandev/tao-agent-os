@@ -1223,6 +1223,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
             "checkpoint",
             "gate",
             "gate-batch",
+            "verify",
             "review",
             "finish",
             "skill-feedback",
@@ -1543,6 +1544,9 @@ def _add_skill_feedback_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _add_gate_arguments(parser: argparse.ArgumentParser) -> None:
     gate = parser.add_argument_group("gate evidence hook")
+    gate.add_argument("--test-directory", default="tests", help="verify: project-local unittest discovery directory")
+    gate.add_argument("--test-pattern", default="test_*.py", help="verify: unittest discovery filename glob")
+    gate.add_argument("--verify-timeout", type=int, default=600, help="verify: maximum test process seconds")
     gate.add_argument("--gate-name", help="route gate name to record in the structured ledger")
     gate.add_argument("--status", choices=("SUCCESS", "FAIL"), default="SUCCESS")
     gate.add_argument("--source", default="manual")
@@ -2289,6 +2293,9 @@ def _checkpointed_hook(
         )
     if args.hook == "gate-batch":
         return checkpoint_after_hook(args, gate_batch_hook(args), "lifecycle")
+    if args.hook == "verify":
+        from agent_verification_hook import verification_hook
+        return checkpoint_after_hook(args, verification_hook(args), "lifecycle")
     return None
 
 

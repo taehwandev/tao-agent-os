@@ -154,7 +154,7 @@ WORKFLOW_START_HOOK = "start"
 # and never the project it writes. Listed rather than open-ended so a later
 # subcommand has to be added here deliberately.
 HOOKS_READING_RULES = frozenset(
-    {WORKFLOW_START_HOOK, *RUNTIME_CONTROL_HOOKS, *RUNTIME_WRITE_HOOKS}
+    {"verify", WORKFLOW_START_HOOK, *RUNTIME_CONTROL_HOOKS, *RUNTIME_WRITE_HOOKS}
 )
 # The lifecycle hooks are their own kind rather than ordinary bootstrap. They
 # write run evidence, never the project, and they are how a run records what it
@@ -228,6 +228,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
             tokens = [tokens[0], *tokens[2:]]
         if tokens[1] == WORKFLOW_START_HOOK:
             return "workflow_start"
+        if tokens[1] == "verify":
+            return "mutating"
         if tokens[1] in RUNTIME_WRITE_HOOKS:
             return "bootstrap"
         return RUNTIME_CONTROL_KIND if tokens[1] in RUNTIME_CONTROL_HOOKS else None
@@ -287,6 +289,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
         return "mutating"
     if tokens[2] == WORKFLOW_START_HOOK:
         return "workflow_start"
+    if tokens[2] == "verify":
+        return "mutating"
     if tokens[2] in RUNTIME_WRITE_HOOKS:
         return "bootstrap"
     return RUNTIME_CONTROL_KIND if tokens[2] in RUNTIME_CONTROL_HOOKS else None

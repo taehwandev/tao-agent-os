@@ -190,6 +190,7 @@ HOOK_ALIASES = {
     "checkpoint",
     "gate",
     "gate-batch",
+    "verify",
     "review",
     "finish",
     "skill-feedback",

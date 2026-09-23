@@ -40,6 +40,11 @@ class CompoundShellCommandTests(unittest.TestCase):
         self.assertEqual(self._kind("ls -la | wc -l"), "read_only")
         self.assertEqual(self._kind("cat notes.txt | grep todo | tail -3"), "read_only")
 
+    def test_verify_requires_write_admission_and_rules_are_read_only_input(self) -> None:
+        launcher = worktree_gate.stable_launcher_path()
+        self.assertEqual(self._kind(f"{launcher} verify --project /tmp/project --rules {ROOT}"), "mutating")
+        self.assertIn("verify", bash_readonly.HOOKS_READING_RULES)
+
     def test_mailbox_intake_is_runtime_control_only_for_trusted_entrypoints(self) -> None:
         launcher = worktree_gate.stable_launcher_path()
         script = ROOT / "scripts/agent-mailbox.py"
