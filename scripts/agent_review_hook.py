@@ -337,18 +337,18 @@ def _run_review_checks(
         if reused_checks is not None:
             structure = reused_checks["structure_review"]
         else:
-            structure = structure_review(
-                args.project,
-                args.max_source_file_lines,
-                args.max_function_lines,
-                run_command,
-                None if review_subject["kind"] == "commit-range" else review_paths,
-                max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
-                source_project=source_project,
-                review_commits=(review_subject["base_sha"], review_subject["head_sha"])
-                if review_subject["kind"] == "commit-range"
-                else None,
-            )
+            with stage("review_structure"):
+                structure = structure_review(
+                    args.project, args.max_source_file_lines,
+                    args.max_function_lines,
+                    run_command,
+                    None if review_subject["kind"] == "commit-range" else review_paths,
+                    max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
+                    source_project=source_project,
+                    review_commits=(review_subject["base_sha"], review_subject["head_sha"])
+                    if review_subject["kind"] == "commit-range"
+                    else None,
+                )
     except (OSError, RuntimeError, ValueError) as error:
         failures.append(f"commit snapshot materialization failed: {error}")
         structure = unavailable_structure_review(str(error))
@@ -449,17 +449,18 @@ def _review_verdict(
             else args.project / ".tao" / "preflight.json"
         )
         try:
-            record_successful_review_workflow_validation(
-                args.project,
-                args.rules,
-                evidence_path,
-                checks["workflow_validate"],
-                checks["diff_check"],
-                review_scope,
-            )
-            record_review_gate(args, checks)
-            if reuse is not None:
-                reuse.publish(checks)
+            with stage("review_attestation"):
+                record_successful_review_workflow_validation(
+                    args.project,
+                    args.rules,
+                    evidence_path,
+                    checks["workflow_validate"],
+                    checks["diff_check"],
+                    review_scope,
+                )
+                record_review_gate(args, checks)
+                if reuse is not None:
+                    reuse.publish(checks)
         except OSError as error:
             failures.append(f"review attestation failed: {error}")
             attestation_invocation_failure = True
@@ -1480,7 +1481,8 @@ def vibeguard_supports_path_option(
     if not base_command:
         return False
     command = _vibeguard_help_command(base_command)
-    result = run_command(command, project)
+    with stage("vibeguard_capability"):
+        result = run_command(command, project)
     if result.get("returncode") != 0:
         return False
     return "--path" in f"{result.get('stdout', '')}\n{result.get('stderr', '')}"

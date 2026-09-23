@@ -37,7 +37,9 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
         # validates current authority and leaves every review gate outstanding.
         current = copy.copy(args)
         current.commit_ready = False
-        print(f"Commit review reuse unavailable: {error}. Entering ordinary commit workflow; no evidence was reused.")
+        print(f"Commit review reuse unavailable: {error}. Entering ordinary commit workflow; no evidence was reused. "
+              "Continue this run and stage only the intended files before review; do not start again. "
+              "For future compact entry, stage the reviewed unit before --commit-ready.")
         return start(current)
 
     # No staging or committing: the caller already staged the exact reviewed unit.
@@ -50,7 +52,10 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
     current.reuse_inputs = ""
     try:
         if required_doc_reuse(current.evidence)["unread"]:
-            raise ValueError("new required documents need reading; continue this commit run normally")
+            print("Compact completion deferred: required knowledge lacks matching history evidence. "
+                  "Reuse unchanged readings retained in context; read only missing knowledge. "
+                  "Continue this existing run with review and finish; do not start again.")
+            return 0
         preflight = ReviewReuse.read(current.evidence)
         if set(preflight["route"]["gates"]) != {"request intake", "review hook", "commit readiness"}:
             raise ValueError("commit route has additional gates; continue this run normally")

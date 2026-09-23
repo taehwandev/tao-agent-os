@@ -1561,8 +1561,13 @@ def _add_gate_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+class _HookArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        self.exit(2, f"{self.prog}: error: {message}\nUse --help for command options.\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _HookArgumentParser(
         description="Run essential Tao Agent OS hooks.",
         allow_abbrev=False,
     )

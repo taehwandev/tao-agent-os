@@ -125,11 +125,21 @@ class CommitReadyTests(unittest.TestCase):
         self.dispatch.assert_called_once()
         self.assertEqual("review", self.dispatch.call_args.args[0].hook)
 
-    def test_new_docs_stop_before_review_and_keep_started_run(self):
-        with patch("agent_commit_ready.required_doc_reuse", return_value={"unread": ["new.md"]}):
-            self.assertEqual(2, prepare_commit(self.args, self.start, self.dispatch))
+    def test_missing_doc_history_defers_compact_completion_without_failing_entry(self):
+        with patch("agent_commit_ready.required_doc_reuse", return_value={"unread": ["new.md"]}), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
         self.start.assert_called_once()
         self.dispatch.assert_not_called()
+        self.assertIn("Reuse unchanged readings retained in context", output.getvalue())
+        self.assertIn("do not start again", output.getvalue())
+
+    def test_unstaged_entry_explains_staging_and_preserves_the_current_run(self):
+        self.fixture.git("reset", "--quiet")
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assert_ordinary_entry()
+        self.assertIn("stage only the intended files before review", output.getvalue())
+        self.assertIn("before --commit-ready", output.getvalue())
 
     def test_drift_during_start_stops_before_review(self):
         def start(args):

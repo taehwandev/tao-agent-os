@@ -17,6 +17,7 @@ from agent_gate_evidence import gate_evidence_path_for_preflight
 from agent_review_attestation import ReviewAttestation, _attestation_id, _record_shape_failures
 from agent_route_state import route_fingerprint
 from support.bounded_git import run_git
+from support.stage_timing import stage
 from agent_review_integration_reuse import reuse_committed_review
 
 
@@ -57,10 +58,12 @@ class ReviewReuse:
         return result.stdout
 
     def capture(self) -> dict[str, Any] | None:
-        return _capture(self)
+        with stage('review_snapshot'):
+            return _capture(self)
 
     def load(self, *, require_fully_staged: bool = True, require_commit_route: bool = True) -> dict[str, Any] | None:
-        return _load(self, require_fully_staged=require_fully_staged, require_commit_route=require_commit_route)
+        with stage('review_reuse_lookup'):
+            return _load(self, require_fully_staged=require_fully_staged, require_commit_route=require_commit_route)
 
     @classmethod
     def publication_candidate(cls, evidence: Path) -> dict[str, Any] | None:
@@ -158,6 +161,7 @@ def _publication_candidate(
 
 def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -> dict[str, Any]:
     records: dict[str, Any] = {}
+    resolved_root = root.resolve()
     budget = [0, 0]
 
     def regular(path: Path, info: os.stat_result) -> dict[str, Any]:
@@ -180,7 +184,7 @@ def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -
         path = root / relative
         if Path(relative).is_absolute() or '..' in Path(relative).parts:
             raise ValueError('foreign snapshot path')
-        path.parent.resolve().relative_to(root.resolve())
+        path.parent.resolve().relative_to(resolved_root)
         if any(parent.is_symlink() for parent in (path.parent, *path.parent.parents) if parent != root and root in parent.parents):
             raise ValueError('symlinked review parent')
         try:
@@ -192,7 +196,7 @@ def _file_records(root: Path, paths: list[str], *, follow_rules: bool = False) -
             records[relative] = regular(path, info)
             continue
         target = path.resolve(strict=True)
-        target_relative = target.relative_to(root.resolve()).as_posix()
+        target_relative = target.relative_to(resolved_root).as_posix()
         contents = {}
         pending = [target]
         while pending:
