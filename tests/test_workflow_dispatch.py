@@ -1312,7 +1312,7 @@ class WorkflowDispatchTests(unittest.TestCase):
 
         self.assertTrue(str(handoff_state["preflight_evidence"]).endswith("preflight.json"))
         self.assertTrue(str(handoff_state["gate_ledger"]).endswith("gate-evidence.json"))
-        self.assertNotIn("receipt", prompt.lower())
+        self.assertNotIn("receipt", prompt.replace(str(ROOT), "<TAO_ROOT>").lower())
         self.assertIn("Do not overwrite parent gate-ledger entries", prompt)
 
     def test_dispatch_invalid_capsule_uses_isolated_worker_evidence(self) -> None:

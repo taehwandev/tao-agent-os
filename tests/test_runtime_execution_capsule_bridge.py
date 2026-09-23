@@ -176,7 +176,7 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                 self.assertIn(RUNTIME_NATIVE_DELEGATION_PHRASES[runtime_name], block)
                 self.assertIn("worker-specific evidence paths", block)
                 self.assertNotIn("docs-read", block.lower())
-                self.assertNotIn("receipt", block.lower())
+                self.assertNotIn("receipt", block.replace(str(ROOT), "<TAO_ROOT>").lower())
 
     def test_start_bridge_never_teaches_unconditional_request_classified(self) -> None:
         # The flag is honored only for a delegated worker whose parent left a
