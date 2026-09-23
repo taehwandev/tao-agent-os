@@ -143,6 +143,13 @@ Treat global lessons as local guidance, not proof that work was completed. A
 lesson becomes durable only when it is promoted into shared docs, tests,
 workflow validation, hooks, or repo-local instructions.
 
+Reviewed project memory is a separate, opt-in user-local store under
+`~/.tao/project-memory/`. Its bounded content may be shown as reference context
+only after exact user approval; pending or overdue records stay out of recall.
+Do not copy its content into the content-free global lesson records, usage
+events, or continuation packets. Linked worktrees of one repository share the
+same project-memory identity.
+
 ## Discovery Pattern
 
 When local tooling matters:

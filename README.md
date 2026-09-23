@@ -143,6 +143,18 @@ git add .agents/tao-agent-os
 
 Public site: `https://tao.thdev.app/#update`
 
+### Reviewed Project Memory
+
+The installed `<TAO_LAUNCHER> project-memory` command captures, approves,
+recalls, and retires short project guidance. Approval requires the exact digest
+of the candidate the user reviewed. A task start may show approved, current
+records as reference context; it never treats them as instructions.
+
+The command and start behavior travel with every Tao Agent OS installation.
+The records remain in that PC's user-local `~/.tao/project-memory/` store;
+linked worktrees of the same repository share them, while another PC starts
+with its own empty store. Tao does not sync memory content between PCs.
+
 ### Connect The Target Repo
 
 After choosing the root, add a short pointer to the target repo's canonical agent instruction file. Prefer `AGENTS.md` when the active runtimes read it. If existing runtime-specific files such as `CLAUDE.md`, `CODEX.md`, `.agents/README.md`, Antigravity CLI docs, or explicitly documented local override files are present, update their Tao Agent OS pointer in the same pass or point them back to `AGENTS.md`. Do not create extra runtime-specific files only to duplicate the same routing block.

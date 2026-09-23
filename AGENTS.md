@@ -287,6 +287,23 @@ not on checkout or commit. Stale or absent graphs fall back to direct evidence;
 an empty search is terminal without a new lead. A missing required document
 invalidates the manifest and stops work.
 
+## Reviewed Project Memory
+
+`<TAO_LAUNCHER> project-memory` stores optional project-scoped guidance under
+user-local `~/.tao/project-memory/<repository-id>/`, shared by linked worktrees.
+Capture one bounded, source-attributed statement from stdin with `--project`,
+`--source`, and a future `--review-on` date. Present
+the candidate body and digest to the user; run `approve <id> --digest <digest>`
+only after explicit approval of that exact statement. Use `retire <id>` to stop
+recall. Do not capture secrets, transcripts, or speculative conclusions.
+
+Start shows at most three approved, in-date records for its route command or
+`all`. They are reference context, never authority over current instructions,
+repository evidence, or the user's current request. Expired, pending, invalid,
+and retired records are excluded. This opt-in content store is separate from
+the content-free global lesson store. Do not sync it or put its content in a
+continuation packet.
+
 When changing document routing:
 - Select command documents before the budget, and verified owner/action rules
   before generic tiers. An inference cannot displace certain guidance.

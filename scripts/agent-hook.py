@@ -58,6 +58,7 @@ from agent_hook_runtime import (
 )
 from agent_inprocess import run_script_main
 from agent_global_lessons import promote_lessons_for_repair
+from agent_project_memory import recall_lines as project_memory_recall_lines
 from agent_review_hook import required_review_evidence_flags, review_hook
 from agent_review_reuse import ReviewReuse
 from agent_required_doc_reuse import required_doc_reuse
@@ -280,6 +281,11 @@ def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_in
                 kind, work = start_checkpoint(args)
                 details.append(record_lifecycle_checkpoint(args, kind, work=work))
                 details.extend(work_checkpoint_advice(args))
+                try:
+                    details.extend(project_memory_recall_lines(args.project, args.command))
+                except (OSError, ValueError):
+                    # Optional reference context cannot strand an admitted run.
+                    pass
     finally:
         if not committed:
             restore_errors = _restore_preflight_refresh_state(refresh_snapshot)

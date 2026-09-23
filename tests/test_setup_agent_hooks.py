@@ -1114,6 +1114,33 @@ class SetupAgentHooksTests(unittest.TestCase):
         self.assertIn("receive", result.stdout)
         self.assertNotIn("unsupported Tao Agent OS script alias", result.stderr)
 
+    def test_installed_launcher_can_review_and_recall_project_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_home:
+            project = Path(temp_home) / "project"
+            project.mkdir()
+            subprocess.run(["git", "init", "-q", str(project)], check=True)
+            with patch.dict(os.environ, {"HOME": temp_home}):
+                ensure_stable_launcher(ROOT, dry_run=False)
+                launcher = stable_launcher_path()
+            environment = {**os.environ, "HOME": temp_home}
+
+            def invoke(*args: str, body: str = "") -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [str(launcher), "project-memory", "--project", str(project), *args],
+                    input=body, env=environment, text=True, capture_output=True, check=False,
+                )
+
+            candidate = invoke("capture", "--source", "operator-reviewed note",
+                               "--review-on", "9999-12-31", body="Check the local contract.")
+            self.assertEqual(0, candidate.returncode, candidate.stderr)
+            record = json.loads(candidate.stdout)
+            self.assertEqual([], json.loads(invoke("recall").stdout))
+            approved = invoke("approve", record["id"], "--digest", record["digest"])
+            self.assertEqual(0, approved.returncode, approved.stderr)
+            recalled = invoke("recall")
+            self.assertEqual(0, recalled.returncode, recalled.stderr)
+            self.assertEqual(record["id"], json.loads(recalled.stdout)[0]["id"])
+
     def test_full_setup_keeps_agent_mailbox_alias_in_an_isolated_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp_home:
             environment = {**os.environ, "HOME": temp_home}
