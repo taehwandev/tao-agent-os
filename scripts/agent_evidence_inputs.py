@@ -34,15 +34,18 @@ class EvidenceInputs:
             return False
 
     @staticmethod
-    def capture(root: Path, paths: list[str]) -> str:
-        if not isinstance(paths, list) or len(paths) > 5000 or any(
+    def capture(
+        root: Path, paths: list[str], *, max_files: int = 5_000,
+        max_bytes: int = 256 * 1024 * 1024,
+    ) -> str:
+        if not isinstance(paths, list) or len(paths) > max_files or any(
             not isinstance(path, str) or not path for path in paths
         ):
             raise ValueError("input_paths must be a bounded list of relative files")
         selected = paths or sorted(set(git_output(
             root, "ls-files", "--cached", "--others", "--exclude-standard", "-z",
         ).split("\0")) - {""})
-        if len(selected) > 5000:
+        if len(selected) > max_files:
             raise ValueError("input snapshot exceeds file limit")
         digest = hashlib.sha256()
         total = 0
@@ -70,7 +73,7 @@ class EvidenceInputs:
             if not stat.S_ISREG(before.st_mode):
                 raise ValueError("input paths must name regular files, not directories or submodules")
             total += before.st_size
-            if total > 256 * 1024 * 1024:
+            if total > max_bytes:
                 raise ValueError("input snapshot exceeds byte limit")
             contents = hashlib.sha256()
             with path.open("rb") as stream:

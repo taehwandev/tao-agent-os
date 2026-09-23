@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import claude_pretool_gate as gate
+from agent_evidence_inputs import EvidenceInputs
 from agent_publication_admission import PublicationAdmission
 
 
@@ -82,7 +83,7 @@ class PublicationAdmissionTests(unittest.TestCase):
         return subprocess.run(['git', '-C', str(self.root), *args], check=True,
                               capture_output=True, text=True).stdout
 
-    def finish(self, effect='external_write'):
+    def finish(self, effect='external_write', failure_reason=None):
         self.evidence.write_text(json.dumps({
             'rules': str(self.root),
             'route': {'request_classification': {'intent_envelope': {
@@ -90,7 +91,7 @@ class PublicationAdmissionTests(unittest.TestCase):
                 'failures': [], 'effective_effect': effect,
             }}},
         }))
-        return PublicationAdmission.record_finish(self.root, self.evidence)
+        return PublicationAdmission.record_finish(self.root, self.evidence, failure_reason)
 
     def allowed(self, effect='external_write'):
         return PublicationAdmission.allows(self.root, self.evidence, effect)
@@ -112,6 +113,26 @@ class PublicationAdmissionTests(unittest.TestCase):
         self.git('commit', '-qm', 'reviewed')
         self.assertTrue(self.allowed())
         self.assertTrue(self.allowed())
+
+    def test_large_repository_keeps_publication_bound_to_finished_bytes(self):
+        files = self.root / 'files'
+        files.mkdir()
+        for index in range(5_001):
+            (files / f'{index:04d}.txt').write_text('reviewed')
+
+        with self.assertRaisesRegex(ValueError, 'input snapshot exceeds file limit'):
+            EvidenceInputs.capture(self.root, [])
+        self.assertTrue(self.finish())
+        self.assertTrue(self.allowed())
+        (files / '0000.txt').write_text('changed after finish')
+        self.assertFalse(self.allowed())
+
+    def test_publication_budget_failure_is_reported_without_a_receipt(self):
+        reasons = []
+        with patch.object(PublicationAdmission, '_MAX_FILES', 1):
+            self.assertFalse(self.finish('git_write', reasons))
+        self.assertEqual(['input snapshot exceeds file limit'], reasons)
+        self.assertFalse(self.evidence.with_name('publication.json').exists())
 
     def test_missing_receipt_and_changed_evidence_fail_closed(self):
         self.assertFalse(self.allowed())

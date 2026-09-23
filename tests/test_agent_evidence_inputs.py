@@ -9,6 +9,14 @@ from agent_evidence_inputs import EvidenceInputs
 
 
 class EvidenceInputsTests(unittest.TestCase):
+    def test_byte_budget_can_be_scoped_without_changing_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "input").write_text("reviewed")
+            with self.assertRaisesRegex(ValueError, "input snapshot exceeds byte limit"):
+                EvidenceInputs.capture(root, ["input"], max_bytes=1)
+            self.assertEqual(64, len(EvidenceInputs.capture(root, ["input"])))
+
     def test_read_access_time_change_does_not_invalidate_capture(self):
         self._capture_with_stat_change("st_atime_ns", succeeds=True)
 
