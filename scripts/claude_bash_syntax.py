@@ -555,3 +555,154 @@ def has_unresolvable_expansion(command: str) -> bool:
         not PLAIN_PARAMETER_RE.fullmatch(brace)
         for brace in PARAMETER_BRACE_RE.findall(masked)
     )
+
+
+# ---------------------------------------------------------------------------
+# Which program a raw command line runs, through prefixes and wrappers.
+#
+# The token reader above answers "does this write" on one lexed line. The
+# publication hold asks something narrower -- which program each segment of a
+# raw line runs, through wrappers and `$(...)` -- and it used to carry its own
+# copy of this grammar inside the gate. Two copies drifted: `env -S "git push"`
+# and `time -o out -P git push` were each fixed in one and not the other.
+# The vocabulary lives here; claude_bash_raw_lines splits the raw text.
+# ---------------------------------------------------------------------------
+
+# A prefix assignment, matched on its name alone. Unlike ENV_ASSIGNMENT_RE this
+# does not require the value to end the token, so a value holding a newline is
+# still stepped over and the program behind it is still found.
+ENV_ASSIGNMENT_PREFIX_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# A shell given `-c` carries the command inside a string.
+SHELL_PROGRAMS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+# Wrappers whose options are modelled, so the command after them is read.
+# `!` is the shell's own negation and takes nothing.
+WRAPPER_FLAGS_BY_NAME = {
+    "!": frozenset(),
+    "command": frozenset({"-p", "-v", "-V"}),
+    "exec": frozenset({"-c", "-l"}),
+    "nohup": frozenset(),
+    "setsid": frozenset({"-c", "-f", "-w"}),
+    "time": frozenset({"-p", "-a", "-v", "--portability", "--verbose", "--append"}),
+}
+WRAPPER_VALUES_BY_NAME = {
+    "exec": frozenset({"-a"}),
+    "time": frozenset({"-o", "-f", "--output", "--format"}),
+}
+# Wrappers that run another program through arguments this does not model --
+# `nice -n 5 cmd`, `timeout 30 cmd`, `xargs cmd` -- so the program behind them
+# is held rather than guessed at.
+OPAQUE_WRAPPERS = frozenset(
+    {
+        "chroot", "doas", "ionice", "nice", "script", "stdbuf", "sudo",
+        "taskset", "timeout", "unbuffer", "xargs",
+    }
+)
+# Words and brackets that open a construct the raw reader does not model.
+SHELL_STRUCTURE_WORDS = frozenset(
+    {
+        "if", "then", "else", "elif", "fi", "for", "while", "until", "do",
+        "done", "case", "esac", "in", "select", "function", "coproc",
+        "{", "}", "(", ")", "[[", "]]",
+    }
+)
+# Clause words that carry at most one ordinary command, and the words that
+# close them. `case`, `select`, functions and groups stay unread.
+CLAUSE_WORDS = frozenset({"if", "elif", "then", "else", "while", "until", "do"})
+LOOP_CLOSING_WORDS = frozenset({"done", "fi"})
+# Every marker that runs a command where it stands. `=(` is zsh's temporary
+# file substitution and counts only at the start of an unquoted word, where
+# zsh expands it: `arr=(a b)` is an array, `cat =(git push)` runs git.
+RUNNING_SUBSTITUTION_MARKERS = ("$(", "`", "<(", ">(")
+ZSH_FILE_SUBSTITUTION = "=("
+# What a judged `$(...)` leaves behind: one word that names no program, so a
+# substitution in command position still reads as computed.
+SUBSTITUTED_WORD = "__tao_substituted__"
+
+
+def computed_word(word: str) -> bool:
+    return "$" in word or "`" in word or SUBSTITUTED_WORD in word
+
+
+def past_assignments(tokens: list[str], index: int) -> int:
+    while index < len(tokens) and ENV_ASSIGNMENT_PREFIX_RE.match(tokens[index]):
+        index += 1
+    return index
+
+
+def past_wrapper_options(tokens: list[str], index: int, name: str) -> "int | None":
+    """Step over one wrapper's options, or None for an option it does not model.
+
+    Unknown means unread, not skipped: `time -o out git push` puts a filename
+    where the program would be, and guessing past it is how `-P` got missed.
+    """
+
+    flags = WRAPPER_FLAGS_BY_NAME.get(name, frozenset())
+    values = WRAPPER_VALUES_BY_NAME.get(name, frozenset())
+    while index < len(tokens) and tokens[index].startswith("-"):
+        option = tokens[index].split("=", 1)[0]
+        if tokens[index] == "--":
+            return index + 1
+        if option in values:
+            index += 1 if "=" in tokens[index] else 2
+            continue
+        if option in flags:
+            index += 1
+            continue
+        return None
+    return index
+
+
+def command_behind_wrappers(tokens: list[str]) -> "list[str] | None":
+    """The program a prefix or wrapper runs, or None when it cannot be read.
+
+    Assignments are stepped over here although `strip_env_assignments` refuses
+    them: that answers what a command does, this only which program runs, and
+    the shell executes git behind `LD_PRELOAD=...` either way. None is the
+    answer for a wrapper whose program is not a token here -- `env -S`, an
+    unknown option, `sudo` -- and callers hold it rather than release it.
+    """
+
+    index = 0
+    for _ in range(len(tokens) + 1):
+        index = past_assignments(tokens, index)
+        if index >= len(tokens):
+            return []
+        head = tokens[index]
+        name = head if head == "!" else Path(head).name
+        if name == "env":
+            stepped = past_env_options(tokens, index + 1)
+        elif name in WRAPPER_FLAGS_BY_NAME:
+            stepped = past_wrapper_options(tokens, index + 1, name)
+        elif name in OPAQUE_WRAPPERS:
+            return None
+        else:
+            return tokens[index:]
+        if stepped is None:
+            return None
+        index = stepped
+    return None
+
+
+def shell_c_payload(tokens: list[str], index: int) -> "tuple[str | None, bool]":
+    """The string a shell's `-c` carries, and whether the form was read.
+
+    `-c` is not always its own token: `-lc` says the same thing. Anything
+    before the payload that is neither an understood option nor the
+    end-of-options marker leaves the form unread, because an option taking a
+    value would shift which word the payload is.
+    """
+
+    saw_option = False
+    while index < len(tokens) and tokens[index].startswith("-"):
+        token = tokens[index]
+        if token == "--":
+            return None, True
+        saw_option = True
+        if not token.startswith("--") and "c" in token[1:]:
+            following = index + 1
+            return (tokens[following], True) if following < len(tokens) else (None, False)
+        index += 1
+    # `bash script.sh` runs a script, which is an ordinary program, but an
+    # option this did not recognise may have taken the payload's place.
+    return None, not saw_option

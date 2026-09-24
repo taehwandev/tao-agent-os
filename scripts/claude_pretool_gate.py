@@ -41,7 +41,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
 import sys
 import time
 from datetime import datetime
@@ -57,15 +56,16 @@ try:  # The gate must never fail to load; the import is only used for a message.
         is_project_state_dir,
         prefer_git_root,
     )
-    from claude_bash_git import git_subcommand, names_unsafe_git_option
-    from claude_bash_syntax import past_env_options
-    from claude_command_effect import (
-        GH_PR_MERGE_REASON,
-        command_effect,
-        github_pr_merge,
-        github_publication,
-        unknown_recovery,
+    from claude_bash_git import git_subcommand
+    import claude_pretool_publication as _publication
+    import claude_pretool_finished_admission as _admission
+    import claude_pretool_worktree_integration as _integration
+    from claude_pretool_git_hazards import shared_repository_hazard
+    from claude_pretool_protected_checkout import (
+        is_git_deletion as _is_git_deletion,
+        protected_checkout_verdict,
     )
+    from claude_command_effect import command_effect, unknown_recovery
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -82,7 +82,6 @@ try:  # The gate must never fail to load; the import is only used for a message.
         raw_path_arguments,
         read_only_path_token_indices,
         policy_requires_workflow_entry,
-        project_publication_kind,
         ticketed_product_branch_denial,
         worktree_denial,
         worktree_policy,
@@ -101,6 +100,9 @@ try:  # The gate must never fail to load; the import is only used for a message.
     _BROKEN_INSTALL = ""
 except ImportError as _import_failure:  # pragma: no cover - exercised only on a broken install
     _BROKEN_INSTALL = type(_import_failure).__name__
+    # Without the publication reader nothing is held or admitted, which is
+    # what the stubs below already answered for every Git command.
+    _publication = _admission = _integration = None
 
     def stable_launcher_path() -> Path:
         return Path.home() / ".tao" / "bin" / "tao-hook"
@@ -142,11 +144,6 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
         # a target and the gate keeps its strictest reading.
         return frozenset()
 
-    def past_env_options(tokens: list[str], index: int, **_kwargs: object) -> "int | None":
-        # Without the reader, no `env` form is readable, which keeps the
-        # publication hold on and leaves the wrapper judged as it always was.
-        return None
-
     def has_unresolvable_expansion(command: str) -> bool:
         return False
 
@@ -177,17 +174,6 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
         # repository asked for the stricter path.
         return False
 
-    def project_publication_kind(root: Path, tokens: list[str], cwd: Path) -> str:
-        return ""
-
-    def github_publication(tokens: list[str]) -> bool:
-        return False
-
-    def github_pr_merge(tokens: list[str]) -> str:
-        return ""
-
-    GH_PR_MERGE_REASON = "gh pr merge option outside the admitted merge contract"
-
     def ticketed_product_branch_denial(root: Path, target: Path) -> str | None:
         return None
 
@@ -212,8 +198,16 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
         # switches off.
         return "", []
 
-    def names_unsafe_git_option(argument: str) -> bool:
+    # With `git_subcommand` stubbed to read no subcommand, the hazard module
+    # answered "nothing to report" for every command; these say the same.
+    def _is_git_deletion(tokens: list[str]) -> bool:
         return False
+
+    def protected_checkout_verdict(tokens: list[str], protected: "frozenset[str] | None" = None) -> str:
+        return "defer" if tokens and Path(tokens[0]).name != "git" else ""
+
+    def shared_repository_hazard(tokens: list[str], protected: "frozenset[str] | None" = None) -> str:
+        return ""
 
 
 def __getattr__(name: str):
@@ -320,17 +314,6 @@ ORDINARY_GIT_SUBCOMMANDS = frozenset(
         "worktree",
     }
 )
-# The steps the lifecycle names after finish: "before final report, commit,
-# release, or handoff". Deliberately not the ordinary-Git set, which also holds
-# `clean`, `reset`, `rm` and unrestricted `rebase`. The separate bounded rebase
-# path admits local Git work, then checks resulting inputs before publication.
-PUBLICATION_GIT_SUBCOMMANDS = frozenset({"add", "commit", "push", "tag"})
-# The only options a fast-forward integration of an attested worktree may
-# carry. `--ff-only` is what makes it a reference move rather than a merge;
-# the rest only quieten it. Anything else -- `--no-ff`, `-m`, `--squash`, a
-# strategy option -- builds a commit nobody reviewed, so it is not this shape.
-FAST_FORWARD_MERGE_FLAGS = frozenset({"--ff-only", "-q", "--quiet", "--no-edit"})
-# GitHub publication effects share one contract with command classification.
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cs", ".css", ".cjs", ".dart", ".go", ".h", ".hpp",
     ".java", ".js", ".jsx", ".kt", ".kts", ".m", ".mjs", ".mm", ".php", ".py",
@@ -760,420 +743,28 @@ def finished_session_evidence(root: Path, session_id: str) -> Path | None:
     )
 
 
-PUBLICATION_LEAVES_THIS_MACHINE = frozenset({"push", "tag"})
-
-
-def publication_before_finish_reason(root: Path, *, unreadable: bool = False) -> str:
-    """Said from both places that can answer a publishing command."""
-
-    if unreadable:
-        return (
-            f"Tao lifecycle: this session's run in {root} is still open, and "
-            "this command hides the program it runs behind a wrapper, so "
-            "whether it publishes cannot be read. Next: spell the command "
-            "plainly, or record the route's remaining gates, run the review "
-            "hook and run finish."
-        )
-    return (
-        f"Tao lifecycle: this session's run in {root} is still open, so no gate "
-        "ledger is closed and no review attestation covers what this would "
-        "publish. Next: record the route's remaining gates, run the review "
-        "hook, then run finish. Publication still requires matching action "
-        "authority and unchanged finished inputs."
+# What a command publishes while its run is open, and what a finished run
+# admits afterwards, live in claude_pretool_publication,
+# claude_pretool_finished_admission and claude_pretool_worktree_integration.
+# These keep the gate's names, and hand those modules this one's run-evidence
+# lookups, so that a caller
+# patching `finished_session_evidence` here still decides the admission.
+def _finished_runs() -> "_integration.FinishedRuns":
+    return _integration.FinishedRuns(
+        evidence=lambda root, session_id: finished_session_evidence(root, session_id),
+        is_fresh=lambda evidence: finished_evidence_is_fresh(evidence),
+        protected_branches=lambda root: protected_branch_names(root),
     )
 
 
+def publication_before_finish_reason(root: Path, *, unreadable: bool = False) -> str:
+    if _publication is None:
+        return f"Tao lifecycle: this session's run in {root} is still open."
+    return _publication.publication_before_finish_reason(root, unreadable=unreadable)
+
+
 def publishes_before_finish(tokens: list[str]) -> str:
-    """Why this is held while its run is open: `publishes`, `unreadable`, or "".
-
-    Only reached from the active-run branch, so the run has not finished: no
-    gate ledger is closed and no review attestation covers what is about to
-    leave. A local commit stays out of this set because it can be amended or
-    reset, and a task legitimately commits while it works; a push, and the pull
-    request opened from it, is what other people start acting on.
-
-    `unreadable` is a wrapper that hides its program. Releasing those meant
-    `env -S`, `env -P` and `command` each walked the publication straight out,
-    and each was a separate option nobody had enumerated yet.
-    """
-
-    return _segment_hold(tokens, 0)
-
-
-ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
-# Wrappers that run the command that follows them. `command -v git` is a
-# lookup, not a run, and resolves harmlessly: `git` alone has no subcommand.
-# A shell given `-c` carries the command inside a string. That string is read
-# rather than refused, so the hold stays about publishing: `bash -c "echo ok"`
-# publishes nothing and `bash -lc "git push"` does, and only the option
-# spelling differed.
-SHELL_PROGRAMS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
-
-
-def _past_assignments(tokens: list[str], index: int) -> int:
-    while index < len(tokens) and ENV_ASSIGNMENT.match(tokens[index]):
-        index += 1
-    return index
-
-
-def _past_wrapper_options(tokens: list[str], index: int, name: str) -> "int | None":
-    """Step over one wrapper's options, or None for an option it does not model.
-
-    Unknown means unread, not skipped: `time -o out git push` puts a filename
-    where the program would be, and guessing past it is how `-P` got missed.
-    """
-
-    flags = WRAPPER_FLAGS_BY_NAME.get(name, frozenset())
-    values = WRAPPER_VALUES_BY_NAME.get(name, frozenset())
-    while index < len(tokens) and tokens[index].startswith("-"):
-        option = tokens[index].split("=", 1)[0]
-        if tokens[index] == "--":
-            return index + 1
-        if option in values:
-            index += 1 if "=" in tokens[index] else 2
-            continue
-        if option in flags:
-            index += 1
-            continue
-        return None
-    return index
-
-
-def _command_behind_environment(
-    tokens: list[str], depth: int = 0
-) -> "list[str] | None":
-    """The program a prefix or wrapper runs, or None when it cannot be read.
-
-    `strip_env_assignments` refuses a prefix it cannot call inert, which is
-    right for the question it answers: `LD_PRELOAD=... cat` must not be
-    classified by `cat`, because the assignment changes what `cat` does. This
-    asks something narrower -- which program runs -- and there the assignment
-    does not matter: the shell executes git either way.
-
-    Stepping over it here therefore changes nothing else. The command
-    classifier, `strip_env_assignments` and the main-checkout override, which
-    reads the raw prefix, all keep their current meaning, so `add`, `commit`
-    and `reset` are judged exactly as before.
-
-    None is the answer for a wrapper whose program is not a token here, and the
-    caller holds it rather than releasing it. An earlier version answered `[]`
-    for that case, which the caller read as "not a publication" -- the opposite
-    of what its own comment claimed -- so `env -S "git push"` went through.
-    """
-
-    index = 0
-    for _ in range(len(tokens) + 1):
-        index = _past_assignments(tokens, index)
-        if index >= len(tokens):
-            return []
-        head = tokens[index]
-        name = head if head == "!" else Path(head).name
-        if name == "env":
-            stepped = past_env_options(tokens, index + 1)
-            if stepped is None:
-                return None
-            index = stepped
-            continue
-        if name in WRAPPER_FLAGS_BY_NAME:
-            stepped = _past_wrapper_options(tokens, index + 1, name)
-            if stepped is None:
-                return None
-            index = stepped
-            continue
-        if name in OPAQUE_WRAPPERS:
-            return None
-        return tokens[index:]
-    return None
-
-
-def _shell_payload(tokens: list[str], index: int) -> "tuple[str | None, bool]":
-    """The string a shell's `-c` carries, and whether the form was read.
-
-    `-c` is not always its own token: `-lc` says the same thing, and matching
-    the exact token let `bash -lc "git push"` past. Anything before the payload
-    that is neither an understood option nor the end-of-options marker leaves
-    the form unread, because an option taking a value would shift which word
-    the payload is.
-    """
-
-    saw_option = False
-    while index < len(tokens) and tokens[index].startswith("-"):
-        token = tokens[index]
-        if token == "--":
-            return None, True
-        saw_option = True
-        if not token.startswith("--") and "c" in token[1:]:
-            following = index + 1
-            return (tokens[following], True) if following < len(tokens) else (None, False)
-        index += 1
-    # `bash script.sh` runs a script, which is an ordinary program, but an
-    # option this did not recognise may have taken the payload's place.
-    return None, not saw_option
-
-
-SHELL_PUNCTUATION_CHARS = ";&|<>"
-SUBSTITUTION_MARKERS = ("$(", "`", "<(", ">(")
-# Wrappers whose options are modelled, so the command after them is read.
-# `!` is the shell's own negation and takes nothing.
-WRAPPER_FLAGS_BY_NAME = {
-    "!": frozenset(),
-    "command": frozenset({"-p", "-v", "-V"}),
-    "exec": frozenset({"-c", "-l"}),
-    "nohup": frozenset(),
-    "setsid": frozenset({"-c", "-f", "-w"}),
-    "time": frozenset({"-p", "-a", "-v", "--portability", "--verbose", "--append"}),
-}
-WRAPPER_VALUES_BY_NAME = {
-    "exec": frozenset({"-a"}),
-    "time": frozenset({"-o", "-f", "--output", "--format"}),
-}
-# Wrappers that run another program through arguments this does not model --
-# `nice -n 5 cmd`, `timeout 30 cmd`, `xargs cmd` -- so the program behind them
-# is held rather than guessed at.
-OPAQUE_WRAPPERS = frozenset(
-    {
-        "chroot", "doas", "ionice", "nice", "script", "stdbuf", "sudo",
-        "taskset", "timeout", "unbuffer", "xargs",
-    }
-)
-# Words and brackets that open a construct this does not model. A segment
-# starting with one is held rather than read: `(git push)` and
-# `if true; then git push; fi` both name git somewhere this was not looking.
-SHELL_STRUCTURE_WORDS = frozenset(
-    {
-        "if", "then", "else", "elif", "fi", "for", "while", "until", "do",
-        "done", "case", "esac", "in", "select", "function", "coproc",
-        "{", "}", "(", ")", "[[", "]]",
-    }
-)
-# Clause words that carry at most one ordinary command, and the words that
-# close them. `case`, `select`, functions and groups stay unread above.
-CLAUSE_WORDS = frozenset({"if", "elif", "then", "else", "while", "until", "do"})
-LOOP_CLOSING_WORDS = frozenset({"done", "fi"})
-ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-# What a judged `$(...)` leaves behind: one word that names no program, so a
-# substitution in command position still reads as computed.
-SUBSTITUTED_WORD = "__tao_substituted__"
-
-
-def _computed_word(word: str) -> bool:
-    return "$" in word or "`" in word or SUBSTITUTED_WORD in word
-
-
-def _substitution_end(command: str, index: int) -> "int | None":
-    """Index of the `)` closing the `$(` whose body starts at `index`."""
-
-    depth = 1
-    quote = ""
-    while index < len(command):
-        character = command[index]
-        if character == "\\" and quote != "'":
-            index += 2
-            continue
-        if quote:
-            if character == quote:
-                quote = ""
-        elif character in "'\"":
-            quote = character
-        elif character == "(":
-            depth += 1
-        elif character == ")":
-            depth -= 1
-            if depth == 0:
-                return index
-        index += 1
-    return None
-
-
-def _read_substitutions(
-    command: str, depth: int, root: "Path | None", cwd: "Path | None"
-) -> "tuple[str, str] | None":
-    """Judge each `$(...)` body and put one inert word in its place.
-
-    Refusing every substitution held `s=$(curl -s ...)` inside a read loop as
-    a hidden program. The body is an ordinary command line, so it is judged
-    like one; the word left behind is data unless it lands where a program
-    name goes, where `_segment_hold` still calls it computed. Backticks,
-    process substitution and a body nested past the depth limit stay unread.
-    None means unreadable.
-    """
-
-    pieces: list[str] = []
-    verdict = ""
-    quote = ""
-    index = 0
-    while index < len(command):
-        character = command[index]
-        if quote == "'":
-            pieces.append(character)
-            if character == "'":
-                quote = ""
-            index += 1
-            continue
-        if character == "\\":
-            pieces.append(command[index:index + 2])
-            index += 2
-            continue
-        if not quote and character == "#" and (
-            index == 0
-            or command[index - 1].isspace()
-            or command[index - 1] in SHELL_PUNCTUATION_CHARS
-        ):
-            newline = command.find("\n", index)
-            end = len(command) if newline < 0 else newline
-            pieces.append(command[index:end])
-            index = end
-            continue
-        if command.startswith("$(", index):
-            end = _substitution_end(command, index + 2)
-            if end is None:
-                return None
-            body = command[index + 2:end]
-            if body.startswith("(") and body.endswith(")"):
-                # Arithmetic: nothing runs unless it nests a substitution.
-                if "$(" in body or "`" in body:
-                    return None
-                pieces.append("0")
-            else:
-                found = publication_hold(body, depth + 1, root, cwd)
-                if found == "publishes":
-                    return command, "publishes"
-                verdict = verdict or found
-                pieces.append(SUBSTITUTED_WORD)
-            index = end + 1
-            continue
-        if character == '"':
-            quote = "" if quote else '"'
-        elif character == "'" and not quote:
-            quote = "'"
-        pieces.append(character)
-        index += 1
-    return "".join(pieces), verdict
-
-
-def _substitution_runs(command: str) -> bool:
-    """Whether a substitution marker sits where the shell would run it.
-
-    Looking for the marker in the raw text refused `echo '$(git push)'` and
-    `echo ok # $(git push)`, neither of which runs anything. Single quotes and
-    a comment hide it; double quotes do not, because `"$(git push)"` runs.
-    """
-
-    quote = ""
-    index = 0
-    while index < len(command):
-        character = command[index]
-        if quote:
-            if character == quote:
-                quote = ""
-            elif quote == '"':
-                # Only single quotes hide a substitution; inside double quotes
-                # the shell still runs it.
-                if character == "\\":
-                    index += 1
-                elif command.startswith(SUBSTITUTION_MARKERS, index):
-                    return True
-            index += 1
-            continue
-        if character in "\'\"":
-            quote = character
-            index += 1
-            continue
-        if character == "\\":
-            index += 2
-            continue
-        # `;#` opens a comment as surely as ` #` does.
-        if character == "#" and (
-            index == 0
-            or command[index - 1].isspace()
-            or command[index - 1] in SHELL_PUNCTUATION_CHARS
-        ):
-            return False
-        if command.startswith(SUBSTITUTION_MARKERS, index):
-            return True
-        index += 1
-    return False
-
-
-def _shell_command_parts(command: str, reject_redirections: bool) -> list[str] | None:
-    """Split operators before unquoting so literal punctuation stays data."""
-
-    parts: list[str] = []
-    current: list[str] = []
-    quote = ""
-    word_start = True
-    index = 0
-    while index < len(command):
-        char = command[index]
-        if not quote and word_start:
-            # Only duplicate the standard output streams, never an arbitrary
-            # descriptor that may name an already-open file. Keep this within
-            # its command so active-run publication detection is unchanged.
-            descriptor = re.match(r"[12]?>&[12](?=$|[ \t\n;&|])", command[index:])
-            if descriptor:
-                index += descriptor.end()
-                continue
-        if char == "\\" and quote != "'":
-            if index + 1 >= len(command):
-                return None
-            following = command[index + 1]
-            if following != "\n":
-                current.extend((char, following))
-                word_start = False
-            index += 2
-            continue
-        if quote != "'" and command.startswith(SUBSTITUTION_MARKERS, index):
-            return None
-        if quote:
-            current.append(char)
-            if char == quote:
-                quote = ""
-        elif char in "\"'":
-            quote = char
-            current.append(char)
-            word_start = False
-        elif char == "#" and word_start:
-            # A comment ends at the newline; later commands still need checks.
-            newline = command.find("\n", index)
-            index = len(command) if newline < 0 else newline
-            continue
-        elif char == "\n" or char in SHELL_PUNCTUATION_CHARS:
-            if reject_redirections and char in "<>":
-                return None
-            if current:
-                parts.append("".join(current))
-                current = []
-            word_start = True
-        else:
-            current.append(char)
-            word_start = char in " \t"
-        index += 1
-    if quote:
-        return None
-    if current:
-        parts.append("".join(current))
-    return parts
-
-
-def _command_segments(
-    command: str, *, reject_redirections: bool = False
-) -> "list[list[str]] | None":
-    """Return simple commands, rejecting hidden substitutions and bad syntax."""
-
-    parts = _shell_command_parts(command, reject_redirections)
-    if parts is None:
-        return None
-    segments: list[list[str]] = []
-    for part in parts:
-        if _substitution_runs(part):
-            return None
-        try:
-            tokens = shlex.split(part)
-        except ValueError:
-            return None
-        if tokens:
-            segments.append(tokens)
-    return segments
+    return _publication.publishes_before_finish(tokens) if _publication else ""
 
 
 def publication_hold(
@@ -1182,415 +773,45 @@ def publication_hold(
     root: Path | None = None,
     cwd: Path | None = None,
 ) -> str:
-    """The strongest hold any segment of this command line asks for.
-
-    Running only on a lone simple command let `git push && echo done` past,
-    and calling every chain unreadable refused `bash -c "echo hi; echo bye"`.
-    Segments answer both: one publishing segment holds the line, and a line
-    whose segments all read and none publish is left alone.
-    """
-
-    if depth >= 3:
-        return "unreadable"
-    read = _read_substitutions(command, depth, root, cwd)
-    if read is None:
-        return "unreadable"
-    command, verdict = read
-    if verdict == "publishes":
-        return "publishes"
-    segments = _command_segments(command)
-    if segments is None:
-        return "unreadable"
-    for tokens in segments:
-        found = _segment_hold(tokens, depth, root, cwd)
-        if found == "publishes":
-            return "publishes"
-        if found == "unreadable":
-            verdict = "unreadable"
-    return verdict
-
-
-def _segment_hold(
-    tokens: list[str],
-    depth: int,
-    root: Path | None = None,
-    cwd: Path | None = None,
-) -> str:
-    """One simple command: what it publishes, or that its program is hidden."""
-
-    command = _command_behind_environment(tokens, depth)
-    if command is None:
-        return "unreadable"
-    if not command:
+    if _publication is None:
         return ""
-    head = command[0]
-    # A loop or conditional is read, not refused: each clause word carries at
-    # most one ordinary command, which is judged like any other segment, so
-    # `for u in a b; do curl ...; done` is the curl it runs and
-    # `if true; then git push; fi` is still the push.
-    if head in LOOP_CLOSING_WORDS:
-        return "" if len(command) == 1 else "unreadable"
-    if head in CLAUSE_WORDS:
-        return _segment_hold(command[1:], depth, root, cwd) if len(command) > 1 else ""
-    if head == "for":
-        # The word list is data. `$(...)` in it was already judged, and an
-        # arithmetic `for ((...))` header is not modelled.
-        plain = len(command) >= 2 and ENV_NAME.fullmatch(command[1]) and (
-            len(command) == 2 or command[2] == "in"
-        )
-        return "" if plain else "unreadable"
-    # Checked on what the reader returned, so `! (git push)` is seen as the
-    # construct it is rather than as a command called `!`.
-    if head in SHELL_STRUCTURE_WORDS or head[0] in "({":
-        return "unreadable"
-    # A program the shell computes -- `$cmd push`, `bash -c "$cmd"`,
-    # `$(echo git) push`, `eval "$cmd"` -- names nothing this can read.
-    if _computed_word(head) or Path(head).name == "eval":
-        return "unreadable"
-    if Path(command[0]).name in SHELL_PROGRAMS:
-        payload, readable = _shell_payload(command, 1)
-        if not readable:
-            return "unreadable"
-        # `bash script.sh` runs a script, which is an ordinary program.
-        return (
-            publication_hold(payload, depth + 1, root, cwd)
-            if payload is not None
-            else ""
-        )
-    program = Path(command[0]).name
-    if program == "git":
-        subcommand, _arguments = git_subcommand(command)
-        if subcommand and _computed_word(subcommand):
-            return "unreadable"
-        return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
-    # Every merge spelling is held before finish; only the admitted one is
-    # later let through by a finished run.
-    if github_publication(command) or github_pr_merge(command):
-        return "publishes"
-    if root is not None:
-        return project_publication_kind(root, command, cwd or root)
-    return ""
-
-
-def _git_read(root: Path, arguments: list[str]) -> "tuple[int, str] | None":
-    """One short read of a repository, or None when it cannot be answered.
-
-    Every caller below treats None and a non-zero status the same way -- the
-    integration is not admitted -- so a missing git, a timeout and an
-    unreadable administrative directory all fail closed without a branch each.
-    """
-
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(root), *arguments],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return result.returncode, result.stdout
-
-
-def _fast_forward_merge_target(tokens: list[str], base: Path) -> "Path | None":
-    """The checkout `git [-C <path>] merge ...` acts on, or None if unreadable.
-
-    Only `-C` is stepped over. `--git-dir`, `--work-tree`, `-c` and
-    `--config-env` also choose or reconfigure the repository, and one of them
-    can put a program where this admission expects a reference move, so a
-    command carrying any of them is not the shape being admitted.
-    """
-
-    target = base
-    index = 1
-    while index < len(tokens):
-        token = tokens[index]
-        if not token.startswith("-"):
-            return target if token == "merge" else None
-        if token == "-C" and index + 1 < len(tokens):
-            raw = Path(tokens[index + 1]).expanduser()
-            target = raw if raw.is_absolute() else base / raw
-            index += 2
-            continue
-        return None
-    return None
-
-
-def _names_exact_fast_forward(arguments: list[str]) -> str:
-    """The single ref of an exact `--ff-only` merge, or "" for any other shape.
-
-    `--no-ff`, a plain merge, a second positional and an option that runs a
-    program all mean the command can bring in bytes no finish attested, so
-    each of them leaves the ordinary refusal in place.
-    """
-
-    if any(names_unsafe_git_option(argument) for argument in arguments):
-        return ""
-    flags = [argument for argument in arguments if argument.startswith("-")]
-    words = [argument for argument in arguments if not argument.startswith("-")]
-    if "--ff-only" not in flags or set(flags) - FAST_FORWARD_MERGE_FLAGS:
-        return ""
-    if len(words) != 1 or not words[0] or words[0].split() != [words[0]]:
-        return ""
-    return words[0]
-
-
-def _registered_worktrees(target: Path) -> list[Path]:
-    """The repository's other checkouts, as git itself registers them.
-
-    Asking the target rather than searching the filesystem is what keeps this
-    to one repository: a directory that merely looks like a worktree, or one
-    belonging to some other project, is never in this list.
-    """
-
-    read = _git_read(target, ["worktree", "list", "--porcelain"])
-    if read is None or read[0] != 0:
-        return []
-    paths: list[Path] = []
-    for line in read[1].splitlines():
-        if not line.startswith("worktree "):
-            continue
-        try:
-            candidate = Path(line[len("worktree ") :]).resolve()
-        except OSError:
-            continue
-        if candidate != target and candidate not in paths:
-            paths.append(candidate)
-    return paths
-
-
-def _holds_exactly_the_finished_commit(
-    worktree: Path, session_id: str, sha: str
-) -> bool:
-    """Whether this worktree's finish attested exactly the commit being merged.
-
-    The receipt binds the finished bytes; HEAD and a clean status bind the
-    commit to those same bytes. Without both, a worktree edited or advanced
-    after its finish would hand that receipt to a commit nobody reviewed.
-    """
-
-    evidence = finished_session_evidence(worktree, session_id)
-    if not finished_evidence_is_fresh(evidence):
-        return False
-    from agent_publication_admission import PublicationAdmission
-
-    if not PublicationAdmission.allows(worktree, evidence, "git_write"):
-        return False
-    head = _git_read(worktree, ["rev-parse", "HEAD"])
-    if head is None or head[0] != 0 or head[1].strip() != sha:
-        return False
-    status = _git_read(
-        worktree, ["status", "--porcelain", "--untracked-files=normal"]
-    )
-    return status is not None and status[0] == 0 and not status[1].strip()
+    return _publication.publication_hold(command, depth, root, cwd)
 
 
 def integrates_finished_worktree(
-    root: Path,
-    session_id: str,
-    tokens: list[str],
-    cwd: Path | None = None,
+    root: Path, session_id: str, tokens: list[str], cwd: Path | None = None
 ) -> bool:
-    """Admit a fast-forward of a finished linked worktree into its repository.
-
-    A goal loop works in `<repo>/.tao/worktrees/<slice>`, runs the whole
-    lifecycle there, and then brings the commit home with
-    `git -C <repo> merge --ff-only <sha>`. That merge had no admission of its
-    own: publication covers `add`, `commit`, `push` and `tag`, and it is
-    looked up against the checkout the command names, which never held the
-    run. So every iteration opened a second lifecycle in the main checkout to
-    fast-forward bytes the first had already tested, reviewed and attested --
-    eight tool calls of ceremony for a reference move.
-
-    The admission is the finish that already happened, never a new authority.
-    A fast-forward writes no commit and no bytes: the target's HEAD must
-    already be an ancestor of the commit, the commit must be exactly some
-    registered worktree's HEAD, and that worktree must be clean and unchanged
-    since its receipt. Anything else -- a plain `merge`, `--no-ff`, a rebase,
-    a second ref, a dirty or advanced worktree, a diverged target, a
-    read-route finish -- fails closed and keeps the ordinary refusal.
-    """
-
-    if not session_id:
+    if _publication is None:
         return False
-    subcommand, arguments = git_subcommand(tokens)
-    if subcommand != "merge":
-        return False
-    ref = _names_exact_fast_forward(arguments)
-    if not ref:
-        return False
-    target = _fast_forward_merge_target(tokens, cwd or root)
-    if target is None:
-        return False
-    try:
-        target = target.resolve()
-    except OSError:
-        return False
-    resolved = _git_read(target, ["rev-parse", "--verify", f"{ref}^{{commit}}"])
-    if resolved is None or resolved[0] != 0:
-        return False
-    sha = resolved[1].strip()
-    if not sha:
-        return False
-    # The ancestry is the whole reason this is admissible: a diverged target
-    # makes the same command an ordinary merge wearing the flag, which would
-    # integrate bytes no finish attested -- and which git refuses anyway.
-    ancestry = _git_read(target, ["merge-base", "--is-ancestor", "HEAD", sha])
-    if ancestry is None or ancestry[0] != 0:
-        return False
-    return any(
-        _holds_exactly_the_finished_commit(worktree, session_id, sha)
-        for worktree in _registered_worktrees(target)
+    return _integration.integrates_finished_worktree(
+        root, session_id, tokens, _finished_runs(), cwd
     )
 
 
 def publishes_finished_work(
-    root: Path,
-    session_id: str,
-    tokens: list[str],
-    cwd: Path | None = None,
+    root: Path, session_id: str, tokens: list[str], cwd: Path | None = None
 ) -> bool:
-    """Admit finished work without granting new publication authority.
-
-    Registry completion and freshness select a candidate only. Its receipt
-    must also bind unchanged source/rules content and an admitted effect at
-    least as strong as this action. A commit of identical finished bytes does
-    not invalidate that receipt; edits do. Repeated attempts are not counted
-    as authority and must pass these checks each time. PR merge and arbitrary
-    API writes retain their separate admission paths.
-    """
-
-    if not tokens:
+    if _publication is None:
         return False
-    command = _command_behind_environment(tokens, 0)
-    if not command:
-        return False
-    # Integration of a finished worktree is admitted here so that every
-    # caller of this function -- the chain reader, the main verdict loop
-    # and the reached-into-project check -- inherits one answer.
-    if Path(command[0]).name == "git" and git_subcommand(command)[0] == "merge":
-        return integrates_finished_worktree(root, session_id, command, cwd)
-    if Path(command[0]).name == "git" and git_subcommand(command)[0] == "rebase":
-        from agent_rebase_admission import rebase_continuation_shape
-
-        # Only the ordinary invocation: no -c, alternate worktree or git-dir.
-        if command != tokens or command[:2] != ["git", "rebase"] or not rebase_continuation_shape(
-            root, command[2:], set(protected_branch_names(root) or {"main", "master", "develop"}),
-        ):
-            return False
-        evidence = finished_session_evidence(root, session_id)
-        from agent_publication_admission import PublicationAdmission
-
-        return finished_evidence_is_fresh(evidence) and PublicationAdmission.allows(root, evidence, "git_write")
-    effect = _publication_effect(root, command, cwd or root)
-    if not effect:
-        return False
-    evidence = finished_session_evidence(root, session_id)
-    if not finished_evidence_is_fresh(evidence):
-        return False
-    from agent_publication_admission import PublicationAdmission
-
-    return PublicationAdmission.allows(root, evidence, effect)
-
-
-def _publication_effect(root: Path, command: list[str], cwd: Path) -> str:
-    """The effect a post-finish publication needs, or "" when it is not one.
-
-    One answer for admission and for the denial that explains a refusal, so
-    the two can never disagree about what a command requires.
-    """
-
-    if Path(command[0]).name == "git":
-        subcommand, _arguments = git_subcommand(command)
-        if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
-            return ""
-        return "external_write" if subcommand == "push" else "git_write"
-    if github_publication(command) or project_publication_kind(root, command, cwd) == "publishes":
-        return "external_write"
-    return ""
-
-
-_REFUSAL_CAUSES = {
-    "missing_receipt": "finish recorded no publication receipt for this run",
-    "unreadable_receipt": "this run's publication receipt is unreadable",
-    "unverifiable_receipt": "the receipt could not be checked against this run's current evidence and inputs",
-    "foreign_receipt": "the receipt belongs to other evidence; the run changed after finish",
-    "project_changed": "project files changed after finish; review and finish the changed bytes",
-    "rules_changed": "Tao rules changed after finish; rerun review and finish on the current rules",
-}
-
-
-def finished_publication_denial(root: Path, session_id: str, command: str, cwd: Path) -> str:
-    """Say why a completed run cannot admit this publication, not every reason it might."""
-
-    cause = "the command is not a lone admissible publication; run it without chained writes"
-    evidence = finished_session_evidence(root, session_id)
-    for segment in _command_segments(command, reject_redirections=True) or []:
-        tokens = _command_behind_environment(segment, 0)
-        effect = _publication_effect(root, tokens, cwd) if tokens else ""
-        if not effect and tokens and github_pr_merge(tokens) == "unadmitted":
-            cause = GH_PR_MERGE_REASON
-            break
-        if not effect or evidence is None:
-            continue
-        from agent_publication_admission import PublicationAdmission
-
-        refusal = PublicationAdmission.refusal(root, evidence, effect)
-        if refusal.startswith("effect:"):
-            granted, needed = refusal.removeprefix("effect:").split("<")
-            cause = (
-                f"the run was admitted for {granted} and this publication needs {needed}. "
-                "When the user's request authorizes push, pull-request creation or merge, start "
-                "that run with --approved-effect external_write so its finish admits them"
-            )
-        elif refusal:
-            cause = _REFUSAL_CAUSES.get(refusal, refusal)
-        break
-    return (
-        "Tao lifecycle: a completed run exists for this session, but it cannot "
-        f"admit this publication: {cause}. Do not open another run or repeat finish "
-        "merely to change command syntax; enter a new scoped workflow only for a new "
-        "authorized write."
+    return _admission.publishes_finished_work(
+        root, session_id, tokens, _finished_runs(), cwd
     )
 
 
-def publishes_finished_command(
-    root: Path,
-    session_id: str,
-    command: str,
-    cwd: Path,
-) -> bool:
-    """Allow only finished publications plus harmless observations in a chain.
+def finished_publication_denial(root: Path, session_id: str, command: str, cwd: Path) -> str:
+    if _publication is None:
+        return "Tao lifecycle: a completed run exists for this session, but it cannot admit this publication."
+    return _admission.finished_publication_denial(
+        root, session_id, command, cwd, _finished_runs()
+    )
 
-    A finished run already authorizes add/commit/push and PR creation. Shells
-    commonly join those with ``&&``; requiring a lone command recreated a
-    second lifecycle for the exact same publication. Every other segment must
-    independently classify read-only, so ``git push && touch file`` stays
-    blocked and a finish never becomes general shell authority.
-    """
 
-    # Redirection operands are file targets, not executable read-only segments.
-    # A completed run does not grant new filesystem writes via shell redirects.
-    segments = _command_segments(command, reject_redirections=True)
-    if not segments:
+def publishes_finished_command(root: Path, session_id: str, command: str, cwd: Path) -> bool:
+    if _publication is None:
         return False
-    # A rebase may change the attested bytes. Never pre-authorize a following
-    # push/commit using the receipt captured before that rebase executes.
-    if len(segments) != 1 and any(git_subcommand(segment)[0] == "rebase" for segment in segments):
-        return False
-    published = False
-    for segment in segments:
-        if publishes_finished_work(root, session_id, segment, cwd):
-            published = True
-            continue
-        legacy_kind = bash_command_kind(segment, True)
-        effect, _reason = command_effect(segment, True, legacy_kind)
-        if effect != "read_only":
-            return False
-    return published
+    return _admission.publishes_finished_command(
+        root, session_id, command, cwd, _finished_runs()
+    )
 
 
 def _read_run_mutation_denial(roots: list[Path], session_id: str, kind: str) -> str | None:
@@ -2458,201 +1679,6 @@ def _git_effective_cwd(tokens: list[str], cwd: Path) -> Path:
     return resolved
 
 
-# Writing new content into the working tree is the one thing the protected
-# checkout is protected from. These author it; everything else Git does there
-# moves or removes what already exists.
-AUTHORING_GIT_SUBCOMMANDS = frozenset(
-    {"add", "am", "apply", "cherry-pick", "commit", "mv", "rebase", "revert", "rm"}
-)
-
-
-# In the protected checkout these either write a new commit or throw away
-# uncommitted work there. Neither is authoring in the sense the refusal covers,
-# but both are a decision worth one question. `switch` is absent on purpose:
-# git refuses to change branches over uncommitted changes, so it cannot lose
-# them, and it is how you move around a checkout at all. Two members of this
-# set have a spelling that only unstages; `unstages_only` names it, because
-# the question is about losing work and unstaging loses none.
-COMMITTING_OR_DISCARDING_SUBCOMMANDS = frozenset(
-    {"checkout", "clean", "merge", "pull", "reset", "restore", "stash"}
-)
-# Reference maintenance: moving or removing things that already exist, without
-# touching the working tree. These are what a task's last step is made of, so
-# they are approved outright -- and the list is positive, so a subcommand
-# nobody has read still asks.
-ROUTINE_PROTECTED_SUBCOMMANDS = frozenset(
-    {"branch", "config", "fetch", "gc", "push", "remote", "switch", "tag", "worktree"}
-)
-
-
-def unstages_only(subcommand: str, arguments: list[str]) -> bool:
-    """True for the two spellings of "take these paths back out of the index".
-
-    Unstaging is the one member of `COMMITTING_OR_DISCARDING_SUBCOMMANDS` that
-    cannot lose anything: the files keep their contents on disk, no ref moves,
-    and in the protected checkout it cannot even lead anywhere, because `git
-    commit` is refused there. Reading it as a discard put a prompt in front of
-    tidying a single stray index entry.
-
-    Only the long option spellings are read. `-S` is `--staged`, but a short
-    flag that this function does not recognise falls through to the question,
-    which is the direction a misreading should fail in.
-    """
-
-    flags = {argument.split("=", 1)[0] for argument in arguments}
-    if subcommand == "reset":
-        # The pathspec is what makes a reset index-only. Given one, Git refuses
-        # `--hard` and leaves HEAD where it is whatever commit is named, so the
-        # separator -- not the absence of a commit -- is the thing to look for.
-        # Requiring it explicitly also keeps a branch name from being read as a
-        # path.
-        if "--" not in arguments or arguments[-1] == "--":
-            return False
-        return not flags & {"--hard", "--merge", "--keep"}
-    if subcommand == "restore":
-        return "--staged" in flags and "--worktree" not in flags
-    return False
-
-
-def _is_git_deletion(tokens: list[str]) -> bool:
-    """Recognize deletion forms only; native permissions still decide access."""
-    if not tokens or Path(tokens[0]).name != "git":
-        return False
-    if any(arg.split("=", 1)[0] in {"--git-dir", "--work-tree", "--config-env", "-c"} for arg in tokens[1:]):
-        return False  # Repository/configuration overrides need their own review.
-    subcommand, arguments = git_subcommand(tokens)
-    if any(names_unsafe_git_option(arg) for arg in arguments):
-        return False
-    flags = {arg.split("=", 1)[0] for arg in arguments if arg.startswith("--")}
-    short = {c for arg in arguments if arg.startswith("-") and not arg.startswith("--") for c in arg[1:]}
-    words = [arg for arg in arguments if not arg.startswith("-")]
-    first = words[0] if words else ""
-    if subcommand in {"branch", "tag"}:
-        return bool(short & ({"d", "D"} if subcommand == "branch" else {"d"}) or "--delete" in flags)
-    if subcommand == "push":
-        return "d" in short or "--delete" in flags or any(word.startswith(":") for word in words[1:])
-    if subcommand in {"remote", "worktree"}:
-        return first in ({"remove", "rm"} if subcommand == "remote" else {"remove", "prune"})
-    if subcommand == "stash":
-        return first in {"drop", "clear"}
-    if subcommand in {"update-ref", "replace"}:
-        return "d" in short or "--delete" in flags
-    return subcommand in {"clean", "prune"} or (subcommand == "reflog" and first in {"delete", "expire"}) or (subcommand == "gc" and "--prune" in flags)
-
-
-def protected_checkout_verdict(
-    tokens: list[str], protected: frozenset[str] | None = None
-) -> str:
-    """`allow`, `ask`, or `""` for a Git command aimed at the protected checkout.
-
-    The policy is that new work is authored in a linked worktree and the
-    original is left alone, so authoring is what the refusal is for. It was
-    written the other way round -- a short list of permitted commands, refusing
-    everything else -- and the list was never going to be complete. First it
-    missed `merge` and `pull`, so work done in a worktree had no way home. Then
-    it missed `branch -D`, so deleting two merged branches meant creating a
-    throwaway worktree to delete them from, which is ceremony standing in for a
-    decision the operator had already made.
-
-    Naming what is refused instead makes the boundary answer for cases nobody
-    listed. Authoring is refused outright, because the remedy is deterministic:
-    do it in a worktree.
-
-    Everything else was then put to the operator as a decision, on the belief
-    that Claude's prompt carries "don't ask again" so a routine one would cost
-    a single answer. It does not: a hook's `ask` offers yes or no, every time.
-    So tidying up a merged branch here asked on the last step of every task,
-    forever -- which is the machine that only takes Enter, rebuilt one tier
-    down.
-
-    The asking tier is therefore the same one a worktree uses: a shared-state
-    hazard, plus the commands that create a commit or throw away uncommitted
-    work in this checkout. Ordinary reference maintenance -- deleting a merged
-    branch, removing a tag, tidying a remote, pruning a worktree -- is approved
-    outright, exactly as it is inside a worktree.
-
-    Returns `defer` for what belongs to Claude's own permission flow rather
-    than to this gate, `""` for a refusal, and covers anything that is not Git
-    at all.
-    """
-
-    if not tokens:
-        return ""
-    if Path(tokens[0]).name == "gh":
-        # `gh` talks to GitHub and writes nothing into this working tree, so it
-        # is not this gate's business either way -- the same answer it gets
-        # inside a worktree.
-        return "defer"
-    if Path(tokens[0]).name != "git":
-        # A test runner, a build, a package manager, the project's own
-        # maintenance tooling: a question rather than a refusal.
-        #
-        # Refusing them read as "authoring", and for a build or a test that is
-        # fair -- the remedy is deterministic, do it in a worktree. But the same
-        # wall stood in front of commands with no such remedy. `vibeguard
-        # update` writes per-checkout state a worktree run cannot refresh here,
-        # so there was no route at all, only a hand-run command, and seven
-        # ordinary runners sat behind it too.
-        #
-        # And a question this gate does not answer, because Claude already
-        # answers it. A hook's `ask` overrides the permission rules, so asking
-        # here re-asked about commands the operator had already allowed once and
-        # for all: `vibeguard`, `npm test` and `pytest` all had standing allow
-        # rules and started prompting every time. Turning a dead end into a
-        # prompt is only an improvement when there was no prompt before.
-        #
-        # Deferring keeps both halves. A command with a standing rule runs
-        # silently again; one without still reaches the operator, through the
-        # layer whose answers persist. This gate keeps only what it alone
-        # knows -- authoring here, and the shared refs below.
-        #
-        # The caller keeps two refusals in front of this: a command whose text
-        # cannot be read stays denied, because nothing downstream can describe
-        # it either, and an Edit or Write naming a path here never reaches this
-        # function at all.
-        return "defer"
-    subcommand, arguments = git_subcommand(tokens)
-    if subcommand is None:
-        # An option this gate cannot read hides which subcommand runs. That is
-        # the dangerous case, and a question is the safe answer to it -- the
-        # same fail-closed reading the hazard check uses.
-        return "ask"
-    if not subcommand or subcommand in AUTHORING_GIT_SUBCOMMANDS:
-        return ""
-    if any(names_unsafe_git_option(argument) for argument in arguments):
-        # A subcommand that only reads still writes when handed `--output`, and
-        # runs a program when handed `--ext-diff` or `--textconv`. Naming the
-        # refusal by subcommand alone missed that: `git diff --output=<a path
-        # in the protected checkout>` authors a file there under a verb that
-        # looks like inspection.
-        return ""
-    flags = {argument.split("=", 1)[0] for argument in arguments}
-    if subcommand in {"merge", "pull"} and "--ff-only" in flags:
-        return "allow"
-    if subcommand == "merge" and not flags & {"--abort", "--quit"}:
-        # Integration belongs in this checkout. This hook cannot see the
-        # user's merge authorization, so do not override Claude's native
-        # permission decision with a new ask on every invocation.
-        return "defer"
-    if subcommand in COMMITTING_OR_DISCARDING_SUBCOMMANDS:
-        return "allow" if unstages_only(subcommand, arguments) else "ask"
-    if shared_repository_hazard(tokens, protected):
-        return "ask"
-    # Approve only what has been read and found routine. Defaulting the other
-    # way was the mistake: it handed an outright approval -- which bypasses
-    # Claude's permission flow entirely -- to every subcommand nobody had
-    # thought about, and several of those rewrite this working tree.
-    # `sparse-checkout` removes files from it, `checkout-index` and `read-tree`
-    # overwrite them, `bisect` checks out other commits, `symbolic-ref` moves
-    # HEAD without moving the index, `replace` changes what a commit resolves
-    # to for the whole repository. None of them is authoring, so none was
-    # refused, and none was named, so all were approved.
-    #
-    # Everywhere else in this gate the unknown case asks. This is the same
-    # rule, applied where it was skipped.
-    return "allow" if subcommand in ROUTINE_PROTECTED_SUBCOMMANDS else "ask"
-
-
 def _ordinary_git_invocation(tokens: list[str]) -> bool:
     subcommand, _arguments = git_subcommand(tokens)
     return subcommand in ORDINARY_GIT_SUBCOMMANDS
@@ -2837,33 +1863,6 @@ def worktree_policy_satisfied(root: Path) -> bool:
     return worktree_policy(root) is not None and worktree_denial(root) is None
 
 
-def names_a_protected_branch(words: list[str], protected: frozenset[str] | None) -> bool:
-    """Whether this command's targets include a branch the repository protects.
-
-    Fails closed twice over: an unreadable policy (`None`) and a command that
-    names no branch at all are both answered "yes". Deleting without saying
-    what, or without knowing what is protected, is exactly when a question is
-    worth asking.
-
-    A refspec may arrive as `topic`, `:topic` or `heads/topic`; all three name
-    the same branch, and matching only the first spelling would let the other
-    two through.
-    """
-
-    if protected is None or not words:
-        return True
-    for word in words:
-        candidate = word.split(":")[-1].strip()
-        if not candidate:
-            continue
-        for prefix in ("refs/heads/", "heads/"):
-            if candidate.startswith(prefix):
-                candidate = candidate[len(prefix) :]
-        if candidate in protected:
-            return True
-    return False
-
-
 def protected_branch_names(root: Path) -> frozenset[str] | None:
     """The branches this project protects, or `None` when that cannot be read."""
 
@@ -2874,157 +1873,6 @@ def protected_branch_names(root: Path) -> frozenset[str] | None:
     if not isinstance(names, list):
         return None
     return frozenset(str(name) for name in names)
-
-
-def _shared_history_hazard(
-    subcommand: str,
-    arguments: list[str],
-    flags: set[str],
-    short_flags: set[str],
-    words: list[str],
-    first: str,
-) -> str:
-    """Why this command deserves a question about state every worktree shares.
-
-    The other half of the list asks about this working tree -- a branch
-    deleted, a push, a hard reset, a checkout over local edits. These reach
-    further: refs, reflogs, objects, remotes and config that every worktree
-    on the repository reads. Split for the block limit, along the line the
-    list already divides on.
-    """
-
-    if subcommand == "tag" and (
-        short_flags & {"d", "f"} or flags & {"--delete", "--force"}
-    ):
-        return "deletes or overwrites a tag every worktree shares"
-    update_ref_help = flags in ({"-h"}, {"--help"})
-    if subcommand == "update-ref" and arguments and not update_ref_help:
-        return "writes a shared ref directly, past the commands that check it"
-    if subcommand in {"filter-branch", "filter-repo"}:
-        return "rewrites the entire shared history"
-    if subcommand == "reflog" and first in {"expire", "delete"}:
-        return "removes the reflog, which is how the rest of this list is undone"
-    if subcommand == "gc" and "--prune" in flags:
-        return "prunes objects the reflog would otherwise recover"
-    if subcommand == "prune":
-        return "deletes unreachable objects from the shared object store"
-    if subcommand == "replace" and flags & {"-d", "--delete"}:
-        return "deletes a replacement ref every worktree shares"
-    if subcommand == "remote" and first in {"remove", "rm", "set-url"}:
-        return "changes a remote every worktree shares"
-    if subcommand == "stash" and first in {"drop", "clear"}:
-        return "drops stashed work every worktree shares"
-    if subcommand == "worktree" and flags & {"-f", "--force"}:
-        # Only the forced forms. Git refuses to remove a worktree holding
-        # modified or untracked files, and refuses to add one over a path it
-        # already registers; the plain forms therefore cannot lose anything,
-        # and asking about them put a prompt on the step that closes every
-        # task, on top of a check git was already making. `--force` is what
-        # overrides both refusals.
-        return "forces past git's own refusal to overwrite or drop a worktree"
-    if subcommand == "submodule" and first in {"deinit", "foreach", "set-url"}:
-        return "removes files, changes shared config, or executes a nested command"
-    if subcommand == "config":
-        getters = {"--get", "--get-all", "--get-regexp", "--list"}
-        if flags & getters:
-            return ""
-        if flags & {"-f", "--file", "--global", "--system"}:
-            return "changes Git configuration outside this repository"
-        if "core.hooksPath" in words:
-            return "changes the executable hooks path every worktree shares"
-    return ""
-
-
-def shared_repository_hazard(
-    tokens: list[str], protected: frozenset[str] | None = None
-) -> str:
-    """Why this Git command deserves one question, or "" for the ordinary kind.
-
-    A linked worktree isolates the working tree and nothing else. Refs,
-    remotes, tags, config, the object store and the reflog live in the common
-    Git directory every worktree shares, so a handful of commands reach exactly
-    what they would reach from the protected checkout.
-
-    That is a reason to name those commands, not to distrust Git. Committing,
-    branching, merging, stashing and pushing inside your own worktree is the
-    work, and stopping it stops everything for the sake of the rare case. So
-    this returns a reason only for the short list below, where losing
-    work or escaping through an output/execution option is the command's actual
-    effect -- and the answer there is `ask`, not `deny`, because each of these
-    is sometimes precisely what was meant.
-    """
-
-    if not tokens or Path(tokens[0]).name != "git":
-        return ""
-    subcommand, arguments = git_subcommand(tokens)
-    if subcommand is None:
-        return "uses a Git option this gate cannot read, so what it does is unknown"
-    if subcommand:
-        subcommand_index = len(tokens) - len(arguments) - 1
-        global_names = {
-            token.split("=", 1)[0] for token in tokens[1:subcommand_index]
-        }
-        if global_names & {"-c", "--config-env", "--exec-path"}:
-            return "changes configuration or executable lookup for this Git invocation"
-    if any(names_unsafe_git_option(argument) for argument in arguments):
-        return "names an option that can write output or execute another program"
-    flags = {argument.split("=", 1)[0] for argument in arguments}
-    words = [argument for argument in arguments if not argument.startswith("-")]
-    first = words[0] if words else ""
-    short_flags = {
-        letter
-        for argument in arguments
-        if argument.startswith("-") and not argument.startswith("--")
-        for letter in argument[1:]
-    }
-
-    if subcommand == "branch":
-        # `-d` refuses to drop unmerged work; `-D`, `-M`, and `-f` do not.
-        # Git accepts bundled short flags, so `-vD` must be read as containing
-        # `-D`, not mistaken for an unrelated listing option.
-        forced_long = "--force" in flags and flags & {"--delete", "--move"}
-        if short_flags & {"D", "M", "f"} or forced_long:
-            # Which branch decides, not which flag. A squash merge leaves the
-            # topic branch looking unmerged to `-d`, so `-D` is the ordinary way
-            # to clean it up -- and asking about every one of those put a prompt
-            # on the last step of every task. What must not go quietly is the
-            # branch this repository names as protected.
-            if names_a_protected_branch(words, protected):
-                return "deletes or overwrites a branch this repository protects"
-    if subcommand == "push":
-        if "f" in short_flags or flags & {"--force", "--force-with-lease", "--mirror"}:
-            return "rewrites or deletes a published branch"
-        deleting = "--delete" in flags or "d" in short_flags
-        # `git push origin :main` deletes main too: a refspec with an empty
-        # source pushes nothing onto the target. It carries no flag, so a check
-        # that looked only at `--delete` let the older spelling through.
-        colon_deletes = [word for word in words[1:] if word.startswith(":")]
-        if deleting or colon_deletes:
-            # `git push <remote> --delete <branch>`: the first word is the
-            # remote, so the branches are what follow it.
-            if names_a_protected_branch(colon_deletes or words[1:], protected):
-                return "deletes a published branch this repository protects"
-        if any(word.startswith("+") for word in words):
-            return "force-pushes: a leading + in a refspec rewrites the remote"
-    if subcommand == "reset" and "--hard" in flags:
-        return "discards committed work reachable only from here"
-    dry_run = short_flags & {"n"} or "--dry-run" in flags
-    if subcommand == "clean" and not dry_run:
-        return "deletes untracked work from this worktree"
-    if subcommand == "restore":
-        staged_only = "--staged" in flags and "--worktree" not in flags
-        if not staged_only:
-            return "discards uncommitted work from this worktree"
-    if subcommand == "checkout":
-        if short_flags & {"B", "f"} or flags & {"--force"} or "--" in arguments:
-            return "discards work or overwrites a branch"
-    if subcommand == "switch":
-        force_flags = {"--discard-changes", "--force", "--force-create"}
-        if short_flags & {"C", "f"} or flags & force_flags:
-            return "discards work or overwrites a branch"
-    return _shared_history_hazard(
-        subcommand, arguments, flags, short_flags, words, first
-    )
 
 
 class _CallScope(NamedTuple):

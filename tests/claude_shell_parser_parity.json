@@ -1,0 +1,6808 @@
+{
+ "schema_version": 1,
+ "cases": [
+  {
+   "command": "git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "status"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status"
+    ],
+    "unwrapped": [
+     "git",
+     "status"
+    ],
+    "tokens": [
+     "git",
+     "status"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "git",
+      "status"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "env",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "env",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "env",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env -S \"git push\"",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "env",
+      "-S",
+      "git push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "-S",
+      "git push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "env",
+     "-S",
+     "git push"
+    ],
+    "unwrapped": null,
+    "tokens": [
+     "env",
+     "-S",
+     "git push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "-S",
+      "git push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env --split-string='git push origin main'",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "env",
+      "--split-string=git push origin main"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "--split-string=git push origin main"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "env",
+     "--split-string=git push origin main"
+    ],
+    "unwrapped": null,
+    "tokens": [
+     "env",
+     "--split-string=git push origin main"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "--split-string=git push origin main"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env -P /usr/bin git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "env",
+      "-P",
+      "/usr/bin",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "-P",
+      "/usr/bin",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "env",
+     "-P",
+     "/usr/bin",
+     "git",
+     "push"
+    ],
+    "unwrapped": null,
+    "tokens": [
+     "env",
+     "-P",
+     "/usr/bin",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "-P",
+      "/usr/bin",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env -u HOME git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "env",
+      "-u",
+      "HOME",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "-u",
+      "HOME",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "env",
+     "-u",
+     "HOME",
+     "git",
+     "push"
+    ],
+    "unwrapped": null,
+    "tokens": [
+     "env",
+     "-u",
+     "HOME",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "-u",
+      "HOME",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env -i git status",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "env",
+      "-i",
+      "git",
+      "status"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "-i",
+      "git",
+      "status"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "env",
+     "-i",
+     "git",
+     "status"
+    ],
+    "unwrapped": null,
+    "tokens": [
+     "env",
+     "-i",
+     "git",
+     "status"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "-i",
+      "git",
+      "status"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env -- git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "env",
+      "--",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "--",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "env",
+     "--",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "env",
+     "--",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "--",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env -v git status",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "env",
+      "-v",
+      "git",
+      "status"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "-v",
+      "git",
+      "status"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "env",
+     "-v",
+     "git",
+     "status"
+    ],
+    "unwrapped": [
+     "git",
+     "status"
+    ],
+    "tokens": [
+     "env",
+     "-v",
+     "git",
+     "status"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "env",
+      "-v",
+      "git",
+      "status"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env LD_PRELOAD=x.so cat file",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "env",
+      "LD_PRELOAD=x.so",
+      "cat",
+      "file"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "LD_PRELOAD=x.so",
+      "cat",
+      "file"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "cat",
+     "file"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "env",
+     "LD_PRELOAD=x.so",
+     "cat",
+     "file"
+    ],
+    "unwrapped": null,
+    "tokens": [
+     "env",
+     "LD_PRELOAD=x.so",
+     "cat",
+     "file"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "LD_PRELOAD=x.so",
+      "cat",
+      "file"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env LANG=C git status",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "env",
+      "LANG=C",
+      "git",
+      "status"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "LANG=C",
+      "git",
+      "status"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "env",
+     "LANG=C",
+     "git",
+     "status"
+    ],
+    "unwrapped": [
+     "git",
+     "status"
+    ],
+    "tokens": [
+     "env",
+     "LANG=C",
+     "git",
+     "status"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "env",
+      "LANG=C",
+      "git",
+      "status"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "env -x git push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "env",
+      "-x",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "env",
+      "-x",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "env",
+     "-x",
+     "git",
+     "push"
+    ],
+    "unwrapped": null,
+    "tokens": [
+     "env",
+     "-x",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "env",
+      "-x",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "FOO=1 git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "FOO=1",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "FOO=1",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": null,
+    "unwrapped": [
+     "FOO=1",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "FOO=1",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "FOO=1",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "LANG=C LC_ALL=C git log --oneline",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "LANG=C",
+      "LC_ALL=C",
+      "git",
+      "log",
+      "--oneline"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "LANG=C",
+      "LC_ALL=C",
+      "git",
+      "log",
+      "--oneline"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "log",
+     "--oneline"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "log",
+     "--oneline"
+    ],
+    "unwrapped": [
+     "LANG=C",
+     "LC_ALL=C",
+     "git",
+     "log",
+     "--oneline"
+    ],
+    "tokens": [
+     "LANG=C",
+     "LC_ALL=C",
+     "git",
+     "log",
+     "--oneline"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "LANG=C",
+      "LC_ALL=C",
+      "git",
+      "log",
+      "--oneline"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "LD_PRELOAD=evil.so cat README.md",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "LD_PRELOAD=evil.so",
+      "cat",
+      "README.md"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "LD_PRELOAD=evil.so",
+      "cat",
+      "README.md"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "cat",
+     "README.md"
+    ],
+    "before_finish": "",
+    "stripped": null,
+    "unwrapped": [
+     "LD_PRELOAD=evil.so",
+     "cat",
+     "README.md"
+    ],
+    "tokens": [
+     "LD_PRELOAD=evil.so",
+     "cat",
+     "README.md"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "LD_PRELOAD=evil.so",
+      "cat",
+      "README.md"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "A='x y' B=2 git push origin main",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "A=x y",
+      "B=2",
+      "git",
+      "push",
+      "origin",
+      "main"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "A=x y",
+      "B=2",
+      "git",
+      "push",
+      "origin",
+      "main"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push",
+     "origin",
+     "main"
+    ],
+    "before_finish": "publishes",
+    "stripped": null,
+    "unwrapped": [
+     "A=x y",
+     "B=2",
+     "git",
+     "push",
+     "origin",
+     "main"
+    ],
+    "tokens": [
+     "A=x y",
+     "B=2",
+     "git",
+     "push",
+     "origin",
+     "main"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "A=x y",
+      "B=2",
+      "git",
+      "push",
+      "origin",
+      "main"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "time git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "time",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "time",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "time",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "time",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "time",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "time",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "time -p git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "time",
+      "-p",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "time",
+      "-p",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "time",
+     "-p",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "time",
+     "-p",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "time",
+     "-p",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "time",
+      "-p",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "time -o out.txt git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "time",
+      "-o",
+      "out.txt",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "time",
+      "-o",
+      "out.txt",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "time",
+     "-o",
+     "out.txt",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "time",
+     "-o",
+     "out.txt",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "time",
+     "-o",
+     "out.txt",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "time",
+      "-o",
+      "out.txt",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "time -o out.txt -P git push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "time",
+      "-o",
+      "out.txt",
+      "-P",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "time",
+      "-o",
+      "out.txt",
+      "-P",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "time",
+     "-o",
+     "out.txt",
+     "-P",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "time",
+     "-o",
+     "out.txt",
+     "-P",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "time",
+     "-o",
+     "out.txt",
+     "-P",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "time",
+      "-o",
+      "out.txt",
+      "-P",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "time --output=out.txt git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "time",
+      "--output=out.txt",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "time",
+      "--output=out.txt",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "time",
+     "--output=out.txt",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "time",
+     "--output=out.txt",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "time",
+     "--output=out.txt",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "time",
+      "--output=out.txt",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "time -f %e git status",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "time",
+      "-f",
+      "%e",
+      "git",
+      "status"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "time",
+      "-f",
+      "%e",
+      "git",
+      "status"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "time",
+     "-f",
+     "%e",
+     "git",
+     "status"
+    ],
+    "unwrapped": [
+     "time",
+     "-f",
+     "%e",
+     "git",
+     "status"
+    ],
+    "tokens": [
+     "time",
+     "-f",
+     "%e",
+     "git",
+     "status"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "time",
+      "-f",
+      "%e",
+      "git",
+      "status"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "command git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "command",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "command",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "command",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "command",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "command",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "command",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "command -v git",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "command",
+      "-v",
+      "git"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "command",
+      "-v",
+      "git"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "command",
+     "-v",
+     "git"
+    ],
+    "unwrapped": [
+     "command",
+     "-v",
+     "git"
+    ],
+    "tokens": [
+     "command",
+     "-v",
+     "git"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "command",
+      "-v",
+      "git"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "command -p git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "command",
+      "-p",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "command",
+      "-p",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "command",
+     "-p",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "command",
+     "-p",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "command",
+     "-p",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "command",
+      "-p",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "exec git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "exec",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "exec",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "exec",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "exec",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "exec",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "exec",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "exec -a name git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "exec",
+      "-a",
+      "name",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "exec",
+      "-a",
+      "name",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "exec",
+     "-a",
+     "name",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "exec",
+     "-a",
+     "name",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "exec",
+     "-a",
+     "name",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "exec",
+      "-a",
+      "name",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "nohup git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "nohup",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "nohup",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "nohup",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "nohup",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "nohup",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "nohup",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "setsid -f git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "setsid",
+      "-f",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "setsid",
+      "-f",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "setsid",
+     "-f",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "setsid",
+     "-f",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "setsid",
+     "-f",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "setsid",
+      "-f",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "! git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "!",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "!",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "!",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "!",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "!",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "!",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "! (git push)",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "!",
+      "(git",
+      "push)"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "!",
+      "(git",
+      "push)"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "(git",
+     "push)"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "!",
+     "(git",
+     "push)"
+    ],
+    "unwrapped": [
+     "!",
+     "(git",
+     "push)"
+    ],
+    "tokens": [
+     "!",
+     "(git",
+     "push)"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "!",
+      "(git",
+      "push)"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "sudo git push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "sudo",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "sudo",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "sudo",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "sudo",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "sudo",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "sudo",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "nice -n 5 git push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "nice",
+      "-n",
+      "5",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "nice",
+      "-n",
+      "5",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "nice",
+     "-n",
+     "5",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "nice",
+     "-n",
+     "5",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "nice",
+     "-n",
+     "5",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "nice",
+      "-n",
+      "5",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "timeout 30 git push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "timeout",
+      "30",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "timeout",
+      "30",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "timeout",
+     "30",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "timeout",
+     "30",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "timeout",
+     "30",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "timeout",
+      "30",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "xargs git push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "xargs",
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "xargs",
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": "unreadable",
+    "stripped": [
+     "xargs",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "xargs",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "xargs",
+     "git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "xargs",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "echo main | xargs git push origin",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "echo",
+      "main"
+     ],
+     [
+      "xargs",
+      "git",
+      "push",
+      "origin"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "echo",
+      "main"
+     ],
+     [
+      "xargs",
+      "git",
+      "push",
+      "origin"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "echo",
+     "main",
+     "|",
+     "xargs",
+     "git",
+     "push",
+     "origin"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "main",
+     "|",
+     "xargs",
+     "git",
+     "push",
+     "origin"
+    ],
+    "unwrapped": [
+     "echo",
+     "main",
+     "|",
+     "xargs",
+     "git",
+     "push",
+     "origin"
+    ],
+    "tokens": [
+     "echo",
+     "main",
+     "|",
+     "xargs",
+     "git",
+     "push",
+     "origin"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "echo",
+      "main"
+     ],
+     [
+      "xargs",
+      "git",
+      "push",
+      "origin"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "bash -c \"git push\"",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "bash",
+      "-c",
+      "git push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "bash",
+      "-c",
+      "git push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "bash",
+     "-c",
+     "git push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "bash",
+     "-c",
+     "git push"
+    ],
+    "unwrapped": [
+     "bash",
+     "-c",
+     "git push"
+    ],
+    "tokens": [
+     "bash",
+     "-c",
+     "git push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "bash",
+      "-c",
+      "git push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "bash -lc \"git push\"",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "bash",
+      "-lc",
+      "git push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "bash",
+      "-lc",
+      "git push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "bash",
+     "-lc",
+     "git push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "bash",
+     "-lc",
+     "git push"
+    ],
+    "unwrapped": [
+     "bash",
+     "-lc",
+     "git push"
+    ],
+    "tokens": [
+     "bash",
+     "-lc",
+     "git push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "bash",
+      "-lc",
+      "git push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "sh -c 'echo hi; echo bye'",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "sh",
+      "-c",
+      "echo hi; echo bye"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "sh",
+      "-c",
+      "echo hi; echo bye"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "sh",
+     "-c",
+     "echo hi; echo bye"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "sh",
+     "-c",
+     "echo hi; echo bye"
+    ],
+    "unwrapped": [
+     "sh",
+     "-c",
+     "echo hi; echo bye"
+    ],
+    "tokens": [
+     "sh",
+     "-c",
+     "echo hi; echo bye"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "sh",
+      "-c",
+      "echo hi; echo bye"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "zsh -c 'git status && git push'",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "zsh",
+      "-c",
+      "git status && git push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "zsh",
+      "-c",
+      "git status && git push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "zsh",
+     "-c",
+     "git status && git push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "zsh",
+     "-c",
+     "git status && git push"
+    ],
+    "unwrapped": [
+     "zsh",
+     "-c",
+     "git status && git push"
+    ],
+    "tokens": [
+     "zsh",
+     "-c",
+     "git status && git push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "zsh",
+      "-c",
+      "git status && git push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "bash script.sh",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "bash",
+      "script.sh"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "bash",
+      "script.sh"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "bash",
+     "script.sh"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "bash",
+     "script.sh"
+    ],
+    "unwrapped": [
+     "bash",
+     "script.sh"
+    ],
+    "tokens": [
+     "bash",
+     "script.sh"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "bash",
+      "script.sh"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "bash --norc -c 'git push'",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "bash",
+      "--norc",
+      "-c",
+      "git push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "bash",
+      "--norc",
+      "-c",
+      "git push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "bash",
+     "--norc",
+     "-c",
+     "git push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "bash",
+     "--norc",
+     "-c",
+     "git push"
+    ],
+    "unwrapped": [
+     "bash",
+     "--norc",
+     "-c",
+     "git push"
+    ],
+    "tokens": [
+     "bash",
+     "--norc",
+     "-c",
+     "git push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "bash",
+      "--norc",
+      "-c",
+      "git push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "bash -o posix -c 'git push'",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "bash",
+      "-o",
+      "posix",
+      "-c",
+      "git push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "bash",
+      "-o",
+      "posix",
+      "-c",
+      "git push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "bash",
+     "-o",
+     "posix",
+     "-c",
+     "git push"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "bash",
+     "-o",
+     "posix",
+     "-c",
+     "git push"
+    ],
+    "unwrapped": [
+     "bash",
+     "-o",
+     "posix",
+     "-c",
+     "git push"
+    ],
+    "tokens": [
+     "bash",
+     "-o",
+     "posix",
+     "-c",
+     "git push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "bash",
+      "-o",
+      "posix",
+      "-c",
+      "git push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "bash -c",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "bash",
+      "-c"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "bash",
+      "-c"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "bash",
+     "-c"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "bash",
+     "-c"
+    ],
+    "unwrapped": [
+     "bash",
+     "-c"
+    ],
+    "tokens": [
+     "bash",
+     "-c"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "bash",
+      "-c"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "bash -- script.sh",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "bash",
+      "--",
+      "script.sh"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "bash",
+      "--",
+      "script.sh"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "bash",
+     "--",
+     "script.sh"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "bash",
+     "--",
+     "script.sh"
+    ],
+    "unwrapped": [
+     "bash",
+     "--",
+     "script.sh"
+    ],
+    "tokens": [
+     "bash",
+     "--",
+     "script.sh"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "bash",
+      "--",
+      "script.sh"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git push && echo done",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "push"
+     ],
+     [
+      "echo",
+      "done"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "push"
+     ],
+     [
+      "echo",
+      "done"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push",
+     "&&",
+     "echo",
+     "done"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "git",
+     "push",
+     "&&",
+     "echo",
+     "done"
+    ],
+    "unwrapped": [
+     "git",
+     "push",
+     "&&",
+     "echo",
+     "done"
+    ],
+    "tokens": [
+     "git",
+     "push",
+     "&&",
+     "echo",
+     "done"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "push"
+     ],
+     [
+      "echo",
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status; git log",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "log"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "log"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status;",
+     "git",
+     "log"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status;",
+     "git",
+     "log"
+    ],
+    "unwrapped": [
+     "git",
+     "status;",
+     "git",
+     "log"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     ";",
+     "git",
+     "log"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "log"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status || git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     "||",
+     "git",
+     "push"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     "||",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     "||",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     "||",
+     "git",
+     "push"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git log | head -5",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "log"
+     ],
+     [
+      "head",
+      "-5"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "log"
+     ],
+     [
+      "head",
+      "-5"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "log",
+     "|",
+     "head",
+     "-5"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "log",
+     "|",
+     "head",
+     "-5"
+    ],
+    "unwrapped": [
+     "git",
+     "log",
+     "|",
+     "head",
+     "-5"
+    ],
+    "tokens": [
+     "git",
+     "log",
+     "|",
+     "head",
+     "-5"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "git",
+      "log"
+     ],
+     [
+      "head",
+      "-5"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status > out.txt",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "out.txt"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     ">",
+     "out.txt"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     ">",
+     "out.txt"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     ">",
+     "out.txt"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     ">",
+     "out.txt"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "git push 2>&1 | tail -3",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "push"
+     ],
+     [
+      "tail",
+      "-3"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "push"
+     ],
+     [
+      "tail",
+      "-3"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "push",
+     "2>&1",
+     "|",
+     "tail",
+     "-3"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "git",
+     "push",
+     "2>&1",
+     "|",
+     "tail",
+     "-3"
+    ],
+    "unwrapped": [
+     "git",
+     "push",
+     "2>&1",
+     "|",
+     "tail",
+     "-3"
+    ],
+    "tokens": [
+     "git",
+     "push",
+     "2",
+     ">&",
+     "1",
+     "|",
+     "tail",
+     "-3"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "push",
+      "2",
+      ">&",
+      "1"
+     ],
+     [
+      "tail",
+      "-3"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status >/dev/null 2>&1",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "/dev/null"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     ">/dev/null",
+     "2>&1"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     ">/dev/null",
+     "2>&1"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     ">/dev/null",
+     "2>&1"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     ">",
+     "/dev/null",
+     "2",
+     ">&",
+     "1"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "git",
+      "status",
+      "2",
+      ">&",
+      "1"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "grep foo README.md 2>/dev/null",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "grep",
+      "foo",
+      "README.md",
+      "2"
+     ],
+     [
+      "/dev/null"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "grep",
+     "foo",
+     "README.md",
+     "2>/dev/null"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "grep",
+     "foo",
+     "README.md",
+     "2>/dev/null"
+    ],
+    "unwrapped": [
+     "grep",
+     "foo",
+     "README.md",
+     "2>/dev/null"
+    ],
+    "tokens": [
+     "grep",
+     "foo",
+     "README.md",
+     "2",
+     ">",
+     "/dev/null"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "grep",
+      "foo",
+      "README.md",
+      "2"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "cat < input.txt",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "cat"
+     ],
+     [
+      "input.txt"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "cat",
+     "<",
+     "input.txt"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "cat",
+     "<",
+     "input.txt"
+    ],
+    "unwrapped": [
+     "cat",
+     "<",
+     "input.txt"
+    ],
+    "tokens": [
+     "cat",
+     "<",
+     "input.txt"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "cat"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status 3>&1",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status",
+      "3"
+     ],
+     [
+      "1"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     "3>&1"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     "3>&1"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     "3>&1"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     "3",
+     ">&",
+     "1"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "git",
+      "status",
+      "3",
+      ">&",
+      "1"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status &> log.txt",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "log.txt"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     "&>",
+     "log.txt"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     "&>",
+     "log.txt"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     "&>",
+     "log.txt"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     "&>",
+     "log.txt"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "status",
+      "&>",
+      "log.txt"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status >| log.txt",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "log.txt"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     ">|",
+     "log.txt"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     ">|",
+     "log.txt"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     ">|",
+     "log.txt"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     ">|",
+     "log.txt"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "status",
+      ">|",
+      "log.txt"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git commit -m \"a; b && c\"",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "a; b && c"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "a; b && c"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "commit",
+     "-m",
+     "a; b && c"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "commit",
+     "-m",
+     "a; b && c"
+    ],
+    "unwrapped": [
+     "git",
+     "commit",
+     "-m",
+     "a; b && c"
+    ],
+    "tokens": [
+     "git",
+     "commit",
+     "-m",
+     "a; b && c"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "a; b && c"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git commit -m 'literal | pipe > file'",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "literal | pipe > file"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "literal | pipe > file"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "commit",
+     "-m",
+     "literal | pipe > file"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "commit",
+     "-m",
+     "literal | pipe > file"
+    ],
+    "unwrapped": [
+     "git",
+     "commit",
+     "-m",
+     "literal | pipe > file"
+    ],
+    "tokens": [
+     "git",
+     "commit",
+     "-m",
+     "literal | pipe > file"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "literal | pipe > file"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "echo 'a\nb' && git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "echo",
+      "a\nb"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "echo",
+      "a\nb"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "echo",
+     "a\nb",
+     "&&",
+     "git",
+     "push"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "a\nb",
+     "&&",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "echo",
+     "a\nb",
+     "&&",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "echo",
+     "a\nb",
+     "&&",
+     "git",
+     "push"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "echo",
+      "a\nb"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git commit -m \"line one\nline two\"",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "line one\nline two"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "line one\nline two"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "commit",
+     "-m",
+     "line one\nline two"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "commit",
+     "-m",
+     "line one\nline two"
+    ],
+    "unwrapped": [
+     "git",
+     "commit",
+     "-m",
+     "line one\nline two"
+    ],
+    "tokens": [
+     "git",
+     "commit",
+     "-m",
+     "line one\nline two"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "commit",
+      "-m",
+      "line one\nline two"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status\ngit push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     "git",
+     "push"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     ";",
+     "git",
+     "push"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "status"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git status \\\n  --short",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "status",
+      "--short"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "status",
+      "--short"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "status",
+     "\n",
+     "--short"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "status",
+     "\n",
+     "--short"
+    ],
+    "unwrapped": [
+     "git",
+     "status",
+     "\n",
+     "--short"
+    ],
+    "tokens": [
+     "git",
+     "status",
+     "--short"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "git",
+      "status",
+      "--short"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "echo ok # $(git push)",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "echo",
+      "ok"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "echo",
+      "ok"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "echo",
+     "ok",
+     "#",
+     "$(git",
+     "push)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "ok",
+     "#",
+     "$(git",
+     "push)"
+    ],
+    "unwrapped": [
+     "echo",
+     "ok",
+     "#",
+     "$(git",
+     "push)"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo ok;# git push",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "echo",
+      "ok"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "echo",
+      "ok"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "echo",
+     "ok;#",
+     "git",
+     "push"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "ok;#",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "echo",
+     "ok;#",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "echo",
+     "ok",
+     ";",
+     "#",
+     "git",
+     "push"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "echo",
+      "ok"
+     ],
+     [
+      "#",
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "echo 'unterminated",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": null,
+    "stripped": null,
+    "unwrapped": null,
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo trailing\\",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": null,
+    "before_finish": null,
+    "stripped": null,
+    "unwrapped": null,
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo $(git push)",
+   "expected": {
+    "hold": "publishes",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$(git",
+     "push)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$(git",
+     "push)"
+    ],
+    "unwrapped": [
+     "echo",
+     "$(git",
+     "push)"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo \"$(git push)\"",
+   "expected": {
+    "hold": "publishes",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$(git push)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$(git push)"
+    ],
+    "unwrapped": [
+     "echo",
+     "$(git push)"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo '$(git push)'",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "echo",
+      "$(git push)"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "echo",
+      "$(git push)"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "echo",
+     "$(git push)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$(git push)"
+    ],
+    "unwrapped": [
+     "echo",
+     "$(git push)"
+    ],
+    "tokens": [
+     "echo",
+     "$(git push)"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "echo",
+      "$(git push)"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "echo $(git status)",
+   "expected": {
+    "hold": "",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$(git",
+     "status)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$(git",
+     "status)"
+    ],
+    "unwrapped": [
+     "echo",
+     "$(git",
+     "status)"
+    ],
+    "tokens": [
+     "echo",
+     "__tao_substitution__"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "echo",
+      "__tao_substitution__"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "echo $(echo $(git push))",
+   "expected": {
+    "hold": "publishes",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$(echo",
+     "$(git",
+     "push))"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$(echo",
+     "$(git",
+     "push))"
+    ],
+    "unwrapped": [
+     "echo",
+     "$(echo",
+     "$(git",
+     "push))"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo $(echo $(echo $(echo hi)))",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$(echo",
+     "$(echo",
+     "$(echo",
+     "hi)))"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$(echo",
+     "$(echo",
+     "$(echo",
+     "hi)))"
+    ],
+    "unwrapped": [
+     "echo",
+     "$(echo",
+     "$(echo",
+     "$(echo",
+     "hi)))"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo $((1 + 2))",
+   "expected": {
+    "hold": "",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$((1",
+     "+",
+     "2))"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$((1",
+     "+",
+     "2))"
+    ],
+    "unwrapped": [
+     "echo",
+     "$((1",
+     "+",
+     "2))"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo $(( $(git push) ))",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$((",
+     "$(git",
+     "push)",
+     "))"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$((",
+     "$(git",
+     "push)",
+     "))"
+    ],
+    "unwrapped": [
+     "echo",
+     "$((",
+     "$(git",
+     "push)",
+     "))"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo `git push`",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "`git",
+     "push`"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "`git",
+     "push`"
+    ],
+    "unwrapped": [
+     "echo",
+     "`git",
+     "push`"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo \"`git status`\"",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "`git status`"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "`git status`"
+    ],
+    "unwrapped": [
+     "echo",
+     "`git status`"
+    ],
+    "tokens": [
+     "echo",
+     "__tao_substitution__"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "echo",
+      "__tao_substitution__"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "cat <(git push)",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "cat",
+     "<(git",
+     "push)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "cat",
+     "<(git",
+     "push)"
+    ],
+    "unwrapped": [
+     "cat",
+     "<(git",
+     "push)"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "diff <(git show a) <(git show b)",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "diff",
+     "<(git",
+     "show",
+     "a)",
+     "<(git",
+     "show",
+     "b)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "diff",
+     "<(git",
+     "show",
+     "a)",
+     "<(git",
+     "show",
+     "b)"
+    ],
+    "unwrapped": [
+     "diff",
+     "<(git",
+     "show",
+     "a)",
+     "<(git",
+     "show",
+     "b)"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "tee >(git push)",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "tee",
+     ">(git",
+     "push)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "tee",
+     ">(git",
+     "push)"
+    ],
+    "unwrapped": [
+     "tee",
+     ">(git",
+     "push)"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "$(echo git) push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "$(echo",
+     "git)",
+     "push"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "$(echo",
+     "git)",
+     "push"
+    ],
+    "unwrapped": [
+     "$(echo",
+     "git)",
+     "push"
+    ],
+    "tokens": [
+     "__tao_substitution__",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "__tao_substitution__",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "$cmd push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "$cmd",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "$cmd",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "$cmd",
+     "push"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "$cmd",
+     "push"
+    ],
+    "unwrapped": [
+     "$cmd",
+     "push"
+    ],
+    "tokens": [
+     "$cmd",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "$cmd",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git $sub",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "git",
+      "$sub"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "$sub"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "$sub"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "git",
+     "$sub"
+    ],
+    "unwrapped": [
+     "git",
+     "$sub"
+    ],
+    "tokens": [
+     "git",
+     "$sub"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "git",
+      "$sub"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "eval \"git push\"",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "eval",
+      "git push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "eval",
+      "git push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "eval",
+     "git push"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "eval",
+     "git push"
+    ],
+    "unwrapped": [
+     "eval",
+     "git push"
+    ],
+    "tokens": [
+     "eval",
+     "git push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "eval",
+      "git push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "s=$(curl -s https://example.com) && echo \"$s\"",
+   "expected": {
+    "hold": "",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "-s",
+     "https://example.com)",
+     "&&",
+     "echo",
+     "$s"
+    ],
+    "before_finish": "",
+    "stripped": null,
+    "unwrapped": [
+     "s=$(curl",
+     "-s",
+     "https://example.com)",
+     "&&",
+     "echo",
+     "$s"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "echo \"it's $(date)\"",
+   "expected": {
+    "hold": "",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "it's $(date)"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "it's $(date)"
+    ],
+    "unwrapped": [
+     "echo",
+     "it's $(date)"
+    ],
+    "tokens": [
+     "echo",
+     "it's __tao_substitution__"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "echo",
+      "it's __tao_substitution__"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "grep \"\\`x\\`\" file",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "grep",
+      "\\`x\\`",
+      "file"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "grep",
+      "\\`x\\`",
+      "file"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "grep",
+     "\\`x\\`",
+     "file"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "grep",
+     "\\`x\\`",
+     "file"
+    ],
+    "unwrapped": [
+     "grep",
+     "\\`x\\`",
+     "file"
+    ],
+    "tokens": [
+     "grep",
+     "\\`x\\`",
+     "file"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "grep",
+      "\\`x\\`",
+      "file"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "echo $(git push",
+   "expected": {
+    "hold": "unreadable",
+    "segments": null,
+    "segments_strict": null,
+    "substitution_runs": true,
+    "behind": [
+     "echo",
+     "$(git",
+     "push"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "echo",
+     "$(git",
+     "push"
+    ],
+    "unwrapped": [
+     "echo",
+     "$(git",
+     "push"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "for u in a b; do curl -s \"$u\"; done",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "for",
+      "u",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "curl",
+      "-s",
+      "$u"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "for",
+      "u",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "curl",
+      "-s",
+      "$u"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "curl",
+     "-s",
+     "$u;",
+     "done"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "curl",
+     "-s",
+     "$u;",
+     "done"
+    ],
+    "unwrapped": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "curl",
+     "-s",
+     "$u;",
+     "done"
+    ],
+    "tokens": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b",
+     ";",
+     "do",
+     "curl",
+     "-s",
+     "$u",
+     ";",
+     "done"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "for",
+      "u",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "curl",
+      "-s",
+      "$u"
+     ],
+     [
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "for u in a b; do git push \"$u\"; done",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "for",
+      "u",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "git",
+      "push",
+      "$u"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "for",
+      "u",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "git",
+      "push",
+      "$u"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "git",
+     "push",
+     "$u;",
+     "done"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "git",
+     "push",
+     "$u;",
+     "done"
+    ],
+    "unwrapped": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "git",
+     "push",
+     "$u;",
+     "done"
+    ],
+    "tokens": [
+     "for",
+     "u",
+     "in",
+     "a",
+     "b",
+     ";",
+     "do",
+     "git",
+     "push",
+     "$u",
+     ";",
+     "done"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "for",
+      "u",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "git",
+      "push",
+      "$u"
+     ],
+     [
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "for ((i=0; i<3; i++)); do echo $i; done",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "for",
+      "((i=0"
+     ],
+     [
+      "i"
+     ],
+     [
+      "3"
+     ],
+     [
+      "i++))"
+     ],
+     [
+      "do",
+      "echo",
+      "$i"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "for",
+     "((i=0;",
+     "i<3;",
+     "i++));",
+     "do",
+     "echo",
+     "$i;",
+     "done"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "for",
+     "((i=0;",
+     "i<3;",
+     "i++));",
+     "do",
+     "echo",
+     "$i;",
+     "done"
+    ],
+    "unwrapped": [
+     "for",
+     "((i=0;",
+     "i<3;",
+     "i++));",
+     "do",
+     "echo",
+     "$i;",
+     "done"
+    ],
+    "tokens": [
+     "for",
+     "((i=0",
+     ";",
+     "i",
+     "<",
+     "3",
+     ";",
+     "i++))",
+     ";",
+     "do",
+     "echo",
+     "$i",
+     ";",
+     "done"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "for",
+      "((i=0"
+     ],
+     [
+      "i"
+     ],
+     [
+      "i++))"
+     ],
+     [
+      "do",
+      "echo",
+      "$i"
+     ],
+     [
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "if true; then git push; fi",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "if",
+      "true"
+     ],
+     [
+      "then",
+      "git",
+      "push"
+     ],
+     [
+      "fi"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "if",
+      "true"
+     ],
+     [
+      "then",
+      "git",
+      "push"
+     ],
+     [
+      "fi"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "if",
+     "true;",
+     "then",
+     "git",
+     "push;",
+     "fi"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "if",
+     "true;",
+     "then",
+     "git",
+     "push;",
+     "fi"
+    ],
+    "unwrapped": [
+     "if",
+     "true;",
+     "then",
+     "git",
+     "push;",
+     "fi"
+    ],
+    "tokens": [
+     "if",
+     "true",
+     ";",
+     "then",
+     "git",
+     "push",
+     ";",
+     "fi"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "if",
+      "true"
+     ],
+     [
+      "then",
+      "git",
+      "push"
+     ],
+     [
+      "fi"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "if git status; then echo ok; else git push; fi",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "if",
+      "git",
+      "status"
+     ],
+     [
+      "then",
+      "echo",
+      "ok"
+     ],
+     [
+      "else",
+      "git",
+      "push"
+     ],
+     [
+      "fi"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "if",
+      "git",
+      "status"
+     ],
+     [
+      "then",
+      "echo",
+      "ok"
+     ],
+     [
+      "else",
+      "git",
+      "push"
+     ],
+     [
+      "fi"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "if",
+     "git",
+     "status;",
+     "then",
+     "echo",
+     "ok;",
+     "else",
+     "git",
+     "push;",
+     "fi"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "if",
+     "git",
+     "status;",
+     "then",
+     "echo",
+     "ok;",
+     "else",
+     "git",
+     "push;",
+     "fi"
+    ],
+    "unwrapped": [
+     "if",
+     "git",
+     "status;",
+     "then",
+     "echo",
+     "ok;",
+     "else",
+     "git",
+     "push;",
+     "fi"
+    ],
+    "tokens": [
+     "if",
+     "git",
+     "status",
+     ";",
+     "then",
+     "echo",
+     "ok",
+     ";",
+     "else",
+     "git",
+     "push",
+     ";",
+     "fi"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "if",
+      "git",
+      "status"
+     ],
+     [
+      "then",
+      "echo",
+      "ok"
+     ],
+     [
+      "else",
+      "git",
+      "push"
+     ],
+     [
+      "fi"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "while read line; do echo $line; done < file",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "while",
+      "read",
+      "line"
+     ],
+     [
+      "do",
+      "echo",
+      "$line"
+     ],
+     [
+      "done"
+     ],
+     [
+      "file"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "while",
+     "read",
+     "line;",
+     "do",
+     "echo",
+     "$line;",
+     "done",
+     "<",
+     "file"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "while",
+     "read",
+     "line;",
+     "do",
+     "echo",
+     "$line;",
+     "done",
+     "<",
+     "file"
+    ],
+    "unwrapped": [
+     "while",
+     "read",
+     "line;",
+     "do",
+     "echo",
+     "$line;",
+     "done",
+     "<",
+     "file"
+    ],
+    "tokens": [
+     "while",
+     "read",
+     "line",
+     ";",
+     "do",
+     "echo",
+     "$line",
+     ";",
+     "done",
+     "<",
+     "file"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "while",
+      "read",
+      "line"
+     ],
+     [
+      "do",
+      "echo",
+      "$line"
+     ],
+     [
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "until false; do git push; done",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "until",
+      "false"
+     ],
+     [
+      "do",
+      "git",
+      "push"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "until",
+      "false"
+     ],
+     [
+      "do",
+      "git",
+      "push"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "until",
+     "false;",
+     "do",
+     "git",
+     "push;",
+     "done"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "until",
+     "false;",
+     "do",
+     "git",
+     "push;",
+     "done"
+    ],
+    "unwrapped": [
+     "until",
+     "false;",
+     "do",
+     "git",
+     "push;",
+     "done"
+    ],
+    "tokens": [
+     "until",
+     "false",
+     ";",
+     "do",
+     "git",
+     "push",
+     ";",
+     "done"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "until",
+      "false"
+     ],
+     [
+      "do",
+      "git",
+      "push"
+     ],
+     [
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "case x in x) git push;; esac",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "case",
+      "x",
+      "in",
+      "x)",
+      "git",
+      "push"
+     ],
+     [
+      "esac"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "case",
+      "x",
+      "in",
+      "x)",
+      "git",
+      "push"
+     ],
+     [
+      "esac"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "case",
+     "x",
+     "in",
+     "x)",
+     "git",
+     "push;;",
+     "esac"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "case",
+     "x",
+     "in",
+     "x)",
+     "git",
+     "push;;",
+     "esac"
+    ],
+    "unwrapped": [
+     "case",
+     "x",
+     "in",
+     "x)",
+     "git",
+     "push;;",
+     "esac"
+    ],
+    "tokens": [
+     "case",
+     "x",
+     "in",
+     "x)",
+     "git",
+     "push",
+     ";;",
+     "esac"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "case",
+      "x",
+      "in",
+      "x)",
+      "git",
+      "push",
+      ";;",
+      "esac"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "select x in a b; do echo $x; done",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "select",
+      "x",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "echo",
+      "$x"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "select",
+      "x",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "echo",
+      "$x"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "select",
+     "x",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "echo",
+     "$x;",
+     "done"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "select",
+     "x",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "echo",
+     "$x;",
+     "done"
+    ],
+    "unwrapped": [
+     "select",
+     "x",
+     "in",
+     "a",
+     "b;",
+     "do",
+     "echo",
+     "$x;",
+     "done"
+    ],
+    "tokens": [
+     "select",
+     "x",
+     "in",
+     "a",
+     "b",
+     ";",
+     "do",
+     "echo",
+     "$x",
+     ";",
+     "done"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "select",
+      "x",
+      "in",
+      "a",
+      "b"
+     ],
+     [
+      "do",
+      "echo",
+      "$x"
+     ],
+     [
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "{ git push; }",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "{",
+      "git",
+      "push"
+     ],
+     [
+      "}"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "{",
+      "git",
+      "push"
+     ],
+     [
+      "}"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "{",
+     "git",
+     "push;",
+     "}"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "{",
+     "git",
+     "push;",
+     "}"
+    ],
+    "unwrapped": [
+     "{",
+     "git",
+     "push;",
+     "}"
+    ],
+    "tokens": [
+     "{",
+     "git",
+     "push",
+     ";",
+     "}"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "{",
+      "git",
+      "push"
+     ],
+     [
+      "}"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "(git push)",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "(git",
+      "push)"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "(git",
+      "push)"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "(git",
+     "push)"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "(git",
+     "push)"
+    ],
+    "unwrapped": [
+     "(git",
+     "push)"
+    ],
+    "tokens": [
+     "(git",
+     "push)"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "(git",
+      "push)"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "function f { git push; }",
+   "expected": {
+    "hold": "unreadable",
+    "segments": [
+     [
+      "function",
+      "f",
+      "{",
+      "git",
+      "push"
+     ],
+     [
+      "}"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "function",
+      "f",
+      "{",
+      "git",
+      "push"
+     ],
+     [
+      "}"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "function",
+     "f",
+     "{",
+     "git",
+     "push;",
+     "}"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "function",
+     "f",
+     "{",
+     "git",
+     "push;",
+     "}"
+    ],
+    "unwrapped": [
+     "function",
+     "f",
+     "{",
+     "git",
+     "push;",
+     "}"
+    ],
+    "tokens": [
+     "function",
+     "f",
+     "{",
+     "git",
+     "push",
+     ";",
+     "}"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "function",
+      "f",
+      "{",
+      "git",
+      "push"
+     ],
+     [
+      "}"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "[[ -f x ]] && git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "[[",
+      "-f",
+      "x",
+      "]]"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "[[",
+      "-f",
+      "x",
+      "]]"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "[[",
+     "-f",
+     "x",
+     "]]",
+     "&&",
+     "git",
+     "push"
+    ],
+    "before_finish": "unreadable",
+    "stripped": [
+     "[[",
+     "-f",
+     "x",
+     "]]",
+     "&&",
+     "git",
+     "push"
+    ],
+    "unwrapped": [
+     "[[",
+     "-f",
+     "x",
+     "]]",
+     "&&",
+     "git",
+     "push"
+    ],
+    "tokens": [
+     "[[",
+     "-f",
+     "x",
+     "]]",
+     "&&",
+     "git",
+     "push"
+    ],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "[[",
+      "-f",
+      "x",
+      "]]"
+     ],
+     [
+      "git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "for f in *.py; do head -1 \"$f\"; done",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "for",
+      "f",
+      "in",
+      "*.py"
+     ],
+     [
+      "do",
+      "head",
+      "-1",
+      "$f"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "for",
+      "f",
+      "in",
+      "*.py"
+     ],
+     [
+      "do",
+      "head",
+      "-1",
+      "$f"
+     ],
+     [
+      "done"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "for",
+     "f",
+     "in",
+     "*.py;",
+     "do",
+     "head",
+     "-1",
+     "$f;",
+     "done"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "for",
+     "f",
+     "in",
+     "*.py;",
+     "do",
+     "head",
+     "-1",
+     "$f;",
+     "done"
+    ],
+    "unwrapped": [
+     "for",
+     "f",
+     "in",
+     "*.py;",
+     "do",
+     "head",
+     "-1",
+     "$f;",
+     "done"
+    ],
+    "tokens": [
+     "for",
+     "f",
+     "in",
+     "*.py",
+     ";",
+     "do",
+     "head",
+     "-1",
+     "$f",
+     ";",
+     "done"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "for",
+      "f",
+      "in",
+      "*.py"
+     ],
+     [
+      "do",
+      "head",
+      "-1",
+      "$f"
+     ],
+     [
+      "done"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "cat <<EOF\ngit push\nEOF",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "cat"
+     ],
+     [
+      "EOF"
+     ],
+     [
+      "git",
+      "push"
+     ],
+     [
+      "EOF"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "cat",
+     "<<EOF",
+     "git",
+     "push",
+     "EOF"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "cat",
+     "<<EOF",
+     "git",
+     "push",
+     "EOF"
+    ],
+    "unwrapped": [
+     "cat",
+     "<<EOF",
+     "git",
+     "push",
+     "EOF"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "git commit -F - <<'EOF'\nmessage\nEOF",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "commit",
+      "-F",
+      "-"
+     ],
+     [
+      "EOF"
+     ],
+     [
+      "message"
+     ],
+     [
+      "EOF"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "commit",
+     "-F",
+     "-",
+     "<<EOF",
+     "message",
+     "EOF"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "commit",
+     "-F",
+     "-",
+     "<<EOF",
+     "message",
+     "EOF"
+    ],
+    "unwrapped": [
+     "git",
+     "commit",
+     "-F",
+     "-",
+     "<<EOF",
+     "message",
+     "EOF"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "cat <<EOF > file.txt\nhello\nEOF",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "cat"
+     ],
+     [
+      "EOF"
+     ],
+     [
+      "file.txt"
+     ],
+     [
+      "hello"
+     ],
+     [
+      "EOF"
+     ]
+    ],
+    "segments_strict": null,
+    "substitution_runs": false,
+    "behind": [
+     "cat",
+     "<<EOF",
+     ">",
+     "file.txt",
+     "hello",
+     "EOF"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "cat",
+     "<<EOF",
+     ">",
+     "file.txt",
+     "hello",
+     "EOF"
+    ],
+    "unwrapped": [
+     "cat",
+     "<<EOF",
+     ">",
+     "file.txt",
+     "hello",
+     "EOF"
+    ],
+    "tokens": [],
+    "simple": false,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": null
+   }
+  },
+  {
+   "command": "gh pr create --title t --body b",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "gh",
+      "pr",
+      "create",
+      "--title",
+      "t",
+      "--body",
+      "b"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "gh",
+      "pr",
+      "create",
+      "--title",
+      "t",
+      "--body",
+      "b"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "gh",
+     "pr",
+     "create",
+     "--title",
+     "t",
+     "--body",
+     "b"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "gh",
+     "pr",
+     "create",
+     "--title",
+     "t",
+     "--body",
+     "b"
+    ],
+    "unwrapped": [
+     "gh",
+     "pr",
+     "create",
+     "--title",
+     "t",
+     "--body",
+     "b"
+    ],
+    "tokens": [
+     "gh",
+     "pr",
+     "create",
+     "--title",
+     "t",
+     "--body",
+     "b"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "gh",
+      "pr",
+      "create",
+      "--title",
+      "t",
+      "--body",
+      "b"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "gh pr merge 12 --squash",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "gh",
+      "pr",
+      "merge",
+      "12",
+      "--squash"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "gh",
+      "pr",
+      "merge",
+      "12",
+      "--squash"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "gh",
+     "pr",
+     "merge",
+     "12",
+     "--squash"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "gh",
+     "pr",
+     "merge",
+     "12",
+     "--squash"
+    ],
+    "unwrapped": [
+     "gh",
+     "pr",
+     "merge",
+     "12",
+     "--squash"
+    ],
+    "tokens": [
+     "gh",
+     "pr",
+     "merge",
+     "12",
+     "--squash"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "gh",
+      "pr",
+      "merge",
+      "12",
+      "--squash"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "gh pr view 12",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "gh",
+      "pr",
+      "view",
+      "12"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "gh",
+      "pr",
+      "view",
+      "12"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "gh",
+     "pr",
+     "view",
+     "12"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "gh",
+     "pr",
+     "view",
+     "12"
+    ],
+    "unwrapped": [
+     "gh",
+     "pr",
+     "view",
+     "12"
+    ],
+    "tokens": [
+     "gh",
+     "pr",
+     "view",
+     "12"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "gh",
+      "pr",
+      "view",
+      "12"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "gh api repos/x/y/pulls -X POST",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "gh",
+      "api",
+      "repos/x/y/pulls",
+      "-X",
+      "POST"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "gh",
+      "api",
+      "repos/x/y/pulls",
+      "-X",
+      "POST"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "gh",
+     "api",
+     "repos/x/y/pulls",
+     "-X",
+     "POST"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "gh",
+     "api",
+     "repos/x/y/pulls",
+     "-X",
+     "POST"
+    ],
+    "unwrapped": [
+     "gh",
+     "api",
+     "repos/x/y/pulls",
+     "-X",
+     "POST"
+    ],
+    "tokens": [
+     "gh",
+     "api",
+     "repos/x/y/pulls",
+     "-X",
+     "POST"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "gh",
+      "api",
+      "repos/x/y/pulls",
+      "-X",
+      "POST"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git tag v1",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "tag",
+      "v1"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "tag",
+      "v1"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "tag",
+     "v1"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "git",
+     "tag",
+     "v1"
+    ],
+    "unwrapped": [
+     "git",
+     "tag",
+     "v1"
+    ],
+    "tokens": [
+     "git",
+     "tag",
+     "v1"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "unknown",
+    "syntax_segments": [
+     [
+      "git",
+      "tag",
+      "v1"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git -C /tmp/repo push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "-C",
+      "/tmp/repo",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "-C",
+      "/tmp/repo",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "-C",
+     "/tmp/repo",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "git",
+     "-C",
+     "/tmp/repo",
+     "push"
+    ],
+    "unwrapped": [
+     "git",
+     "-C",
+     "/tmp/repo",
+     "push"
+    ],
+    "tokens": [
+     "git",
+     "-C",
+     "/tmp/repo",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "-C",
+      "/tmp/repo",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git -c core.pager=less push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "git",
+      "-c",
+      "core.pager=less",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "-c",
+      "core.pager=less",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "-c",
+     "core.pager=less",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "git",
+     "-c",
+     "core.pager=less",
+     "push"
+    ],
+    "unwrapped": [
+     "git",
+     "-c",
+     "core.pager=less",
+     "push"
+    ],
+    "tokens": [
+     "git",
+     "-c",
+     "core.pager=less",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "-c",
+      "core.pager=less",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git merge --ff-only abc123",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "merge",
+      "--ff-only",
+      "abc123"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "merge",
+      "--ff-only",
+      "abc123"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "merge",
+     "--ff-only",
+     "abc123"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "merge",
+     "--ff-only",
+     "abc123"
+    ],
+    "unwrapped": [
+     "git",
+     "merge",
+     "--ff-only",
+     "abc123"
+    ],
+    "tokens": [
+     "git",
+     "merge",
+     "--ff-only",
+     "abc123"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "merge",
+      "--ff-only",
+      "abc123"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "git rebase main",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "git",
+      "rebase",
+      "main"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "git",
+      "rebase",
+      "main"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "git",
+     "rebase",
+     "main"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "git",
+     "rebase",
+     "main"
+    ],
+    "unwrapped": [
+     "git",
+     "rebase",
+     "main"
+    ],
+    "tokens": [
+     "git",
+     "rebase",
+     "main"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "rebase",
+      "main"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "/usr/bin/git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "/usr/bin/git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "/usr/bin/git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "/usr/bin/git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "/usr/bin/git",
+     "push"
+    ],
+    "unwrapped": [
+     "/usr/bin/git",
+     "push"
+    ],
+    "tokens": [
+     "/usr/bin/git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "/usr/bin/git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "./git push",
+   "expected": {
+    "hold": "publishes",
+    "segments": [
+     [
+      "./git",
+      "push"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "./git",
+      "push"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "./git",
+     "push"
+    ],
+    "before_finish": "publishes",
+    "stripped": [
+     "./git",
+     "push"
+    ],
+    "unwrapped": [
+     "./git",
+     "push"
+    ],
+    "tokens": [
+     "./git",
+     "push"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "./git",
+      "push"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "rm -rf build",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "rm",
+      "-rf",
+      "build"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "rm",
+      "-rf",
+      "build"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "rm",
+     "-rf",
+     "build"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "rm",
+     "-rf",
+     "build"
+    ],
+    "unwrapped": [
+     "rm",
+     "-rf",
+     "build"
+    ],
+    "tokens": [
+     "rm",
+     "-rf",
+     "build"
+    ],
+    "simple": true,
+    "kind": "mutating",
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "rm",
+      "-rf",
+      "build"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "ls -la && pwd",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "ls",
+      "-la"
+     ],
+     [
+      "pwd"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "ls",
+      "-la"
+     ],
+     [
+      "pwd"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "ls",
+     "-la",
+     "&&",
+     "pwd"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "ls",
+     "-la",
+     "&&",
+     "pwd"
+    ],
+    "unwrapped": [
+     "ls",
+     "-la",
+     "&&",
+     "pwd"
+    ],
+    "tokens": [
+     "ls",
+     "-la",
+     "&&",
+     "pwd"
+    ],
+    "simple": false,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "ls",
+      "-la"
+     ],
+     [
+      "pwd"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "sed -n 1,5p file",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "sed",
+      "-n",
+      "1,5p",
+      "file"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "sed",
+      "-n",
+      "1,5p",
+      "file"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "sed",
+     "-n",
+     "1,5p",
+     "file"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "sed",
+     "-n",
+     "1,5p",
+     "file"
+    ],
+    "unwrapped": [
+     "sed",
+     "-n",
+     "1,5p",
+     "file"
+    ],
+    "tokens": [
+     "sed",
+     "-n",
+     "1,5p",
+     "file"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "sed",
+      "-n",
+      "1,5p",
+      "file"
+     ]
+    ]
+   }
+  },
+  {
+   "command": "curl -q -s https://example.com",
+   "expected": {
+    "hold": "",
+    "segments": [
+     [
+      "curl",
+      "-q",
+      "-s",
+      "https://example.com"
+     ]
+    ],
+    "segments_strict": [
+     [
+      "curl",
+      "-q",
+      "-s",
+      "https://example.com"
+     ]
+    ],
+    "substitution_runs": false,
+    "behind": [
+     "curl",
+     "-q",
+     "-s",
+     "https://example.com"
+    ],
+    "before_finish": "",
+    "stripped": [
+     "curl",
+     "-q",
+     "-s",
+     "https://example.com"
+    ],
+    "unwrapped": [
+     "curl",
+     "-q",
+     "-s",
+     "https://example.com"
+    ],
+    "tokens": [
+     "curl",
+     "-q",
+     "-s",
+     "https://example.com"
+    ],
+    "simple": true,
+    "kind": "read_only",
+    "effect": "read_only",
+    "syntax_segments": [
+     [
+      "curl",
+      "-q",
+      "-s",
+      "https://example.com"
+     ]
+    ]
+   }
+  }
+ ]
+}
