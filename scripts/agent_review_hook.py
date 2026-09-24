@@ -24,6 +24,7 @@ from agent_review_attestation import ReviewAttestation
 from agent_review_reuse import ReviewReuse
 from agent_review_commit_range import create_commit_snapshot, resolve_commit_range_subject
 from agent_review_doc_references import doc_reference_failures
+from agent_review_removals import removal_notice
 from agent_review_structure import REVIEW_ADDED_LINE_LIMIT, structure_review
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_review_subjects import (  # noqa: F401
@@ -1191,6 +1192,7 @@ def review_input_invocation_failure_details(
         f"checked development source/style files: {format_checked_paths(structure.get('checked_paths', []))}",
     ]
     details.extend(f"invocation detail: {failure}" for failure in failures)
+    details.extend(net_deletion_details(structure))
     if any(is_stale_base_invocation_failure(failure) for failure in failures):
         details.append(
             "invocation request: integrate the current base according to repository policy and "
@@ -1273,24 +1275,12 @@ def documentation_reference_failures(
 def net_deletion_details(structure: dict[str, Any]) -> list[str]:
     """Report Git-measured removals without treating prose as proof of safety.
 
-    Counts cannot distinguish accidental loss from an intended deletion or
-    extraction. Keep them in the machine report and visible review output;
-    semantic correctness belongs to review_outcome and the relevant checks.
+    Every review outcome builder calls this, so a failure or a correctable
+    invocation never hides a removal. Each path says whether the same diff
+    re-added its lines elsewhere (moved) or not (removed, with what vanished).
     """
 
-    findings = structure.get("net_deletions") or []
-    if not findings:
-        return []
-    measured = "; ".join(
-        f"{item['path']} (-{item['deletions']} +{item['additions']}, net -{item['net']})"
-        for item in findings[:5]
-    )
-    if len(findings) > 5:
-        measured += f"; ... (+{len(findings) - 5} more; all paths in structure_review.net_deletions)"
-    return [
-        f"measured net removals (review context, not a failure): {measured}. "
-        "Line counts do not establish content loss or preservation; review the diff and affected checks."
-    ]
+    return removal_notice(structure.get("net_deletions") or [])
 
 
 def raised_addition_limit_failures(

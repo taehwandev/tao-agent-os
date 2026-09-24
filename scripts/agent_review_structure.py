@@ -11,6 +11,7 @@ from typing import Any
 from agent_review_boundary import boundary_note_requirements
 from agent_android_action_boundary import AndroidActionBoundary
 from agent_review_purpose import purpose_failures
+from agent_review_removals import classify_net_deletions
 from agent_structure_rules import structure_rule_review
 from agent_workspace_policy import is_non_git_workspace, is_writing_workspace
 
@@ -165,6 +166,14 @@ def structure_review(
         max_file_lines=max_file_lines,
         max_block_lines=max_block_lines,
         max_added_lines=max_added_lines,
+    )
+    classify_net_deletions(
+        result["net_deletions"],
+        project=project,
+        run_command=run_command,
+        review_paths=review_paths,
+        review_commits=review_commits,
+        path_metadata=discovery["path_metadata"],
     )
 
     for relative in paths:
