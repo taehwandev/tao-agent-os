@@ -13,13 +13,13 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
+import re
 from typing import Any
 
 CommandRunner = Callable[[list[str], Path], dict[str, Any]]
 
 PER_FILE_BYTE_LIMIT = 200_000
 TOTAL_BYTE_LIMIT = 1_000_000
-MOVED_RATIO = 0.8
 NOTICE_BYTE_LIMIT = 1_500
 SAMPLE_CHARS = 100
 HEADING_SAMPLE_LIMIT = 5
@@ -28,6 +28,12 @@ FALLBACK_SAMPLE_LIMIT = 3
 # prove a move nor disprove one.
 MEANINGFUL_LINE_CHARS = 4
 SIGNATURE_PREFIXES = ("def ", "async def ", "class ", "function ")
+SENSITIVE_SAMPLE = re.compile(
+    r"(?i)(?:password|passphrase|secret|token|credential|authorization|bearer|"
+    r"api[_-]?key|private[_-]?key|database[_-]?url|connection[_-]?string|"
+    r"-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]+|sk-[A-Za-z0-9]+|"
+    r"://[^/@\s]+:[^/@\s]+@|[A-Za-z0-9+/=_-]{24,})"
+)
 
 
 def classify_net_deletions(
@@ -58,12 +64,14 @@ def classify_net_deletions(
     removed, added = parse_diff_lines(str(diff.get("stdout") or ""), budget)
     if review_commits is None:
         _add_untracked_lines(added, project, path_metadata, budget)
-    index: dict[str, set[str]] = {}
+    if budget.truncated:
+        for item in findings:
+            item["classification"] = "unavailable"
+        return
+    index: dict[str, Counter[str]] = {}
     for path, lines in added.items():
         for line in lines:
-            stripped = line.strip()
-            if len(stripped) >= MEANINGFUL_LINE_CHARS:
-                index.setdefault(stripped, set()).add(path)
+            index.setdefault(line, Counter())[path] += 1
     for item in findings:
         item.update(classify_removal(item["path"], removed.get(item["path"]), index))
 
@@ -72,9 +80,11 @@ class _Budget:
     def __init__(self) -> None:
         self.total = 0
         self.per_file: Counter[str] = Counter()
+        self.truncated = False
 
     def take(self, path: str, size: int) -> bool:
         if self.total + size > TOTAL_BYTE_LIMIT or self.per_file[path] + size > PER_FILE_BYTE_LIMIT:
+            self.truncated = True
             return False
         self.total += size
         self.per_file[path] += size
@@ -132,10 +142,18 @@ def _add_untracked_lines(
     for name in sorted(path_metadata):
         if (path_metadata[name] or {}).get("untracked") is not True:
             continue
+        candidate = project / name
+        if candidate.is_symlink():
+            budget.truncated = True
+            continue
         try:
-            with (project / name).open("rb") as handle:
-                data = handle.read(PER_FILE_BYTE_LIMIT)
+            with candidate.open("rb") as handle:
+                data = handle.read(PER_FILE_BYTE_LIMIT + 1)
         except OSError:
+            budget.truncated = True
+            continue
+        if len(data) > PER_FILE_BYTE_LIMIT:
+            budget.truncated = True
             continue
         if not budget.take(name, len(data)):
             continue
@@ -143,21 +161,27 @@ def _add_untracked_lines(
 
 
 def classify_removal(
-    path: str, removed_lines: list[str] | None, index: dict[str, set[str]]
+    path: str, removed_lines: list[str] | None, index: dict[str, Counter[str]]
 ) -> dict[str, Any]:
     if not removed_lines:
         return {"classification": "unavailable"}
-    meaningful = [line.strip() for line in removed_lines if len(line.strip()) >= MEANINGFUL_LINE_CHARS]
+    meaningful = [line for line in removed_lines if len(line.strip()) >= MEANINGFUL_LINE_CHARS]
     destinations: Counter[str] = Counter()
     unmatched: list[str] = []
-    for line in meaningful:
-        others = index.get(line, set()) - {path}
-        if others:
-            destinations.update(others)
-        else:
+    for line in removed_lines:
+        available = index.get(line, Counter())
+        destination = next(
+            (name for name in sorted(available) if name != path and available[name] > 0),
+            None,
+        )
+        if destination is None:
             unmatched.append(line)
-    ratio = (len(meaningful) - len(unmatched)) / len(meaningful) if meaningful else 0.0
-    if meaningful and ratio >= MOVED_RATIO:
+            continue
+        available[destination] -= 1
+        destinations[destination] += 1
+    matched = len(removed_lines) - len(unmatched)
+    ratio = matched / len(removed_lines)
+    if meaningful and not unmatched:
         return {
             "classification": "moved",
             "moved_ratio": round(ratio, 2),
@@ -166,6 +190,8 @@ def classify_removal(
     return {
         "classification": "removed",
         "moved_ratio": round(ratio, 2),
+        "unmatched_lines": len(unmatched),
+        "moved_to": [name for name, _count in destinations.most_common(3)],
         "sample_lines": removal_samples(unmatched or [line for line in removed_lines if line.strip()]),
     }
 
@@ -176,7 +202,11 @@ def removal_samples(lines: list[str]) -> list[str]:
     stripped = [line.strip() for line in lines if line.strip()]
     headings = [line for line in stripped if _heading_like(line)]
     chosen = headings[:HEADING_SAMPLE_LIMIT] if headings else stripped[:FALLBACK_SAMPLE_LIMIT]
-    return [line[:SAMPLE_CHARS] for line in chosen]
+    return [
+        "[sensitive-looking content omitted]" if SENSITIVE_SAMPLE.search(line)
+        else line[:SAMPLE_CHARS]
+        for line in chosen
+    ]
 
 
 def _heading_like(line: str) -> bool:
@@ -212,8 +242,13 @@ def _notice_entry(item: dict[str, Any]) -> list[str]:
     if classification == "moved":
         return [f"{head}, moved to {', '.join(item.get('moved_to') or [])}"]
     if classification == "removed":
+        destinations = item.get("moved_to") or []
+        explanation = (
+            f"{item.get('unmatched_lines', 0)} unmatched lines; other lines match at {', '.join(destinations)}"
+            if destinations else "not found elsewhere in this diff"
+        )
         return [
-            f"{head}, content removed (not found elsewhere in this diff)",
+            f"{head}, content removed ({explanation})",
             *(f"    removed: {line}" for line in item.get("sample_lines") or []),
         ]
     return [f"{head} (-{item['deletions']} +{item['additions']}); review the diff for what was removed"]

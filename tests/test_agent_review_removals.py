@@ -157,12 +157,73 @@ class MovedOrRemovedTests(unittest.TestCase):
         self.assertIn("removed: # Deploy procedure", notice)
         self.assertEqual([], structure["failures"])
 
+    def test_partial_move_keeps_unmatched_recovery_steps_visible(self):
+        from agent_review_hook import net_deletion_details
+
+        body = "".join(f"Recovery step {i}: restore checkpoint {i}\n" for i in range(100))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _repository(root, {"guide.md": body})
+            (root / "guide.md").write_text("# Short guide\n", encoding="utf-8")
+            (root / "details.md").write_text("".join(body.splitlines(keepends=True)[:80]))
+            structure = _structure_for(root)
+
+        finding = structure["net_deletions"][0]
+        self.assertEqual("removed", finding["classification"])
+        self.assertEqual(20, finding["unmatched_lines"])
+        notice = "\n".join(net_deletion_details(structure))
+        self.assertIn("20 unmatched lines", notice)
+        self.assertIn("Recovery step 80", notice)
+
+    def test_one_new_copy_does_not_account_for_repeated_removed_lines(self):
+        body = "Execute the production rollback command\n" * 100
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _repository(root, {"guide.md": body})
+            (root / "guide.md").write_text("# Short guide\n", encoding="utf-8")
+            (root / "details.md").write_text("Execute the production rollback command\n")
+            structure = _structure_for(root)
+
+        finding = structure["net_deletions"][0]
+        self.assertEqual("removed", finding["classification"])
+        self.assertEqual(99, finding["unmatched_lines"])
+
+    def test_truncated_diff_is_unavailable_instead_of_claiming_move(self):
+        from unittest.mock import patch
+        from agent_review_hook import net_deletion_details
+        import agent_review_removals as removals
+
+        body = "".join(f"Recovery step {i}: restore checkpoint {i}\n" for i in range(100))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _repository(root, {"guide.md": body})
+            (root / "guide.md").write_text("# Short guide\n", encoding="utf-8")
+            (root / "details.md").write_text(body)
+            with patch.object(removals, "PER_FILE_BYTE_LIMIT", 200):
+                structure = _structure_for(root)
+
+        self.assertEqual("unavailable", structure["net_deletions"][0]["classification"])
+        self.assertIn("review the diff", "\n".join(net_deletion_details(structure)))
+
     def test_samples_fall_back_to_the_first_removed_lines(self):
         from agent_review_removals import removal_samples
 
         lines = ["", "plain one", "plain two", "plain three", "plain four"]
         self.assertEqual(["plain one", "plain two", "plain three"], removal_samples(lines))
-        self.assertEqual(100, len(removal_samples(["x" * 300])[0]))
+        self.assertEqual("[sensitive-looking content omitted]", removal_samples(["x" * 300])[0])
+
+    def test_removed_value_samples_are_redacted_before_output_and_recording(self):
+        from agent_review_removals import removal_samples
+
+        samples = removal_samples([
+            "API_TOKEN=dummy_value_for_test_only",
+            "# Deploy procedure",
+            "Step 1: restore checkpoint",
+        ])
+        self.assertEqual(["# Deploy procedure"], samples)
+        fallback = removal_samples(["API_TOKEN=dummy_value_for_test_only"])
+        self.assertEqual(["[sensitive-looking content omitted]"], fallback)
+        self.assertNotIn("dummy_value_for_test_only", " ".join(fallback))
 
     def test_ordinary_edits_run_no_extra_diff_and_have_no_notice(self):
         from agent_review_hook import net_deletion_details
@@ -181,6 +242,24 @@ class MovedOrRemovedTests(unittest.TestCase):
 
 
 class NoticeBoundsTests(unittest.TestCase):
+    def test_untracked_symlink_is_not_read_as_a_moved_destination(self):
+        import agent_review_removals as removals
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "outside.md"
+            outside.write_text("private local reference\n")
+            project = root / "project"
+            project.mkdir()
+            (project / "details.md").symlink_to(outside)
+            budget = removals._Budget()
+            added = {}
+            removals._add_untracked_lines(
+                added, project, {"details.md": {"untracked": True}}, budget
+            )
+        self.assertTrue(budget.truncated)
+        self.assertEqual({}, added)
+
     def test_notice_is_capped_and_points_at_the_machine_report(self):
         from agent_review_removals import NOTICE_BYTE_LIMIT, removal_notice
 
