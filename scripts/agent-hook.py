@@ -83,6 +83,13 @@ from agent_skill_hooks import (
 )
 from agent_skill_catalog import FEEDBACK_SIGNALS
 from agent_task_affinity import task_affinity_denial
+from agent_start_guidance import (
+    REVIEW_RANGE_SCOPE,
+    REVIEW_SCOPE_CHOICES,
+    REVIEW_SCOPES_NEEDING_PATH,
+    collapse_repeated_guidance,
+    review_shape_line,
+)
 from agent_review_structure import (
     REVIEW_ADDED_LINE_LIMIT,
     REVIEW_FUNCTION_LINE_LIMIT,
@@ -316,6 +323,8 @@ def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_in
                 details.append(release_error)
     if not success:
         _learn_start_block("start_preflight_failed")
+    else:
+        details = collapse_repeated_guidance(args.project, runtime_session(), details)
     return finish_with_result(
         "start",
         success,
@@ -521,15 +530,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     if "review" in required or "review hook" in gates:
         flags = required_review_evidence_flags(gates)
         lines.extend(_review_prerequisite_lines(gates))
-        lines.append("Review hook requires --review-outcome pass or findings, matching the actual review result.")
-        lines.append(
-            "Review hook requires the evidence itself, not a file path holding it: "
-            + " ".join(flags)
-        )
-        lines.append(
-            "Review hook conditionally requires --structure-review-evidence when changed "
-            "development files exceed review-pressure or source-size limits."
-        )
+        lines.append(review_shape_line(flags))
         lines.extend(_closeout_reuse_lines())
     elif "review" in conditional:
         lines.append(
@@ -1511,7 +1512,7 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
     )
     review.add_argument(
         "--review-scope",
-        choices=("working-tree", "pathspec", "repo-hygiene", "local-config", "commit-range"),
+        choices=REVIEW_SCOPE_CHOICES,
         default="working-tree",
         help=(
             "declare whether review covers the whole working tree, explicit --review-path "
@@ -2234,11 +2235,11 @@ def _validate_hook_arguments_before_repair(
         args.review_path = [path.strip() for path in args.review_path if path.strip()]
         if args.review_path and args.review_scope == "working-tree":
             args.review_scope = "pathspec"
-        if args.review_scope in {"pathspec", "local-config"} and not args.review_path:
+        if args.review_scope in REVIEW_SCOPES_NEEDING_PATH and not args.review_path:
             parser.error(
                 f"review --review-scope {args.review_scope} requires at least one --review-path"
             )
-        if args.review_scope == "commit-range":
+        if args.review_scope == REVIEW_RANGE_SCOPE:
             if args.review_path:
                 parser.error("review --review-scope commit-range does not accept --review-path")
             if not str(getattr(args, "review_base", "") or "").strip() or not str(

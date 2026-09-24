@@ -103,15 +103,11 @@ class StructureReviewEvidenceAdvisory(unittest.TestCase):
             preflight.write_text(json.dumps(payload), encoding="utf-8")
             lines = module._hook_summary_from_preflight(preflight)
 
-        self.assertIn(
-            "Review hook requires --review-outcome pass or findings, matching the actual review result.",
-            lines,
-        )
-        self.assertIn(
-            "Review hook conditionally requires --structure-review-evidence when changed "
-            "development files exceed review-pressure or source-size limits.",
-            lines,
-        )
+        shape = [line for line in lines if line.startswith("Review shape: ")]
+        self.assertEqual(len(shape), 1)
+        self.assertIn("--review-outcome pass|findings", shape[0])
+        self.assertIn("[--structure-review-evidence ", shape[0])
+        self.assertIn("size limits", shape[0])
 
 
 class AdvertisementMatchesEnforcement(unittest.TestCase):
