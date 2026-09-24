@@ -31,6 +31,14 @@ class HookCliErrorsTests(unittest.TestCase):
         for scope in ("working-tree", "pathspec", "repo-hygiene", "local-config", "commit-range"):
             self.assertIn(scope, output.getvalue())
 
+    def test_docs_review_evidence_is_an_alias_for_docs_freshness_evidence(self):
+        args = hook.build_parser().parse_args(["review", "--docs-review-evidence", "docs unchanged"])
+        self.assertEqual("docs unchanged", args.docs_freshness_evidence)
+
+    def test_side_effect_review_evidence_is_an_alias_for_side_effect_audit_evidence(self):
+        args = hook.build_parser().parse_args(["review", "--side-effect-review-evidence", "diff checked"])
+        self.assertEqual("diff checked", args.side_effect_audit_evidence)
+
     def test_explicit_help_still_displays_all_options(self):
         with contextlib.redirect_stdout(io.StringIO()) as output, self.assertRaises(SystemExit) as result:
             hook.build_parser().parse_args(["--help"])

@@ -1491,6 +1491,7 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
     )
     review.add_argument(
         "--docs-freshness-evidence",
+        "--docs-review-evidence",
         help="short evidence that affected docs were updated or intentionally unchanged",
     )
     review.add_argument(
@@ -1508,6 +1509,7 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
     )
     review.add_argument(
         "--side-effect-audit-evidence",
+        "--side-effect-review-evidence",
         help="short evidence that the final diff and side-effect surfaces were checked",
     )
     review.add_argument(
