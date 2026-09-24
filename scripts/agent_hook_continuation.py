@@ -46,10 +46,9 @@ UNBINDABLE_RUN_DIRECTORY = (
 
 
 WORK_CHECKPOINT_LEAD = (
-    "continuation work state: record a bounded checkpoint only when interruption, "
-    "a material scope or decision change, or worker handoff makes resume useful. "
-    "Routine phase transitions need none; reuse unchanged work state. "
-    "When needed, preserve accepted decisions, successful verification and remaining work:"
+    "continuation work state: checkpoint only when interruption, a material scope or "
+    "decision change, or worker handoff makes resume useful. Routine phase transitions "
+    "need none. Record accepted decisions, passed verification and remaining work:"
 )
 WORK_CHECKPOINT_COMMAND_LEAD = "copyable checkpoint command:"
 WORK_CHECKPOINT_CLOSING = (
@@ -135,8 +134,7 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
         return [
             WORK_CHECKPOINT_LEAD,
             f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command} < work.json",
-            "  the work object's fields, their limits and their enums: "
-            "`checkpoint --work-shape`",
+            "  work fields, limits and enums: `checkpoint --work-shape`",
         ]
     return [
         WORK_CHECKPOINT_LEAD,

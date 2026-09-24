@@ -113,7 +113,9 @@ detail behind its steps, not a second contract.
 - Size a read to the tool's output limit, including the outer result limit
   when batching calls. Keep large documents in separate results or consecutive
   bounded ranges through EOF. A truncated result is incomplete: recover only
-  its missing ranges, not the same whole batch.
+  its missing ranges, not the same whole batch. Discover uncertain paths with
+  `rg --files` or quoted `rg -g` filters, not speculative shell globs; a
+  no-match result is not a retry cue.
 
 ## Applying Hook Guidance At The Decision Point
 

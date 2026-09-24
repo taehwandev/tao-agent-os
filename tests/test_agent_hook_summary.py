@@ -345,7 +345,7 @@ class AgentHookSummaryTests(unittest.TestCase):
             }}), encoding="utf-8")
             summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
         self.assertIn("Required knowledge (2 required docs;", summary)
-        self.assertIn("does not require another read or a separate reuse check", summary)
+        self.assertIn("missing history proof does not require another read", summary)
         self.assertIn("required/one.md", summary)
         self.assertIn("required/two.md", summary)
         self.assertNotIn("unrelated/three.md", summary)

@@ -424,12 +424,11 @@ def _release_reuse_lines(command: str) -> list[str]:
 
 def _publication_continuity_guidance() -> str:
     return (
-        "Publication continuity: declare authority for the full currently authorized "
-        "outcome at entry. After finish, continue only its authorized commit/push/PR "
-        "steps without another start, review or finish while scope and evidence "
-        "remain valid. A program change is not a scope change. Report completion "
-        "once the requested external results are confirmed. Do not infer authority "
-        "from request keywords or from finish itself."
+        "Publication continuity: declare authority for the full authorized outcome at entry. "
+        "After finish, continue its authorized commit/push/PR steps without another start, "
+        "review or finish while scope and evidence stay valid (a program change is not a "
+        "scope change); report completion once external results are confirmed. Request "
+        "keywords and finish itself grant no authority."
     )
 
 
@@ -451,11 +450,9 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
     scope_change_policy = route.get("scope_change_policy") or {}
     if scope_change_policy.get("mode") == "on_material_change":
         lines.append(
-            "Scope-change lifecycle: No intermediate gate or checkpoint while the "
-            "start scope A is unchanged. If A expands to A+B, record one semantic "
-            "checkpoint. Start a new route only when the project, authority, effect "
-            "ceiling, or external target changes. Finish with the route's final tests "
-            "and review."
+            "Scope-change lifecycle: No intermediate gate or checkpoint while start scope A "
+            "is unchanged; if A expands to A+B, record one semantic checkpoint. Start a new "
+            "route only for a changed project, authority, effect ceiling or external target."
         )
     docs = route.get("required_docs") or []
     if docs:
@@ -475,22 +472,19 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
                          "no matching history proof, not proof of unread context):")
             lines.extend(f"  {doc}" for doc in reuse["unread"])
         lines.append(
-            "Reading boundary: reference docs are on demand, not a recursive reading "
-            "queue. Reuse a complete reading only while unchanged and available in "
-            "current context; otherwise read it. Missing history proof does not require "
-            "another read or a separate reuse check when guidance is retained. Expand only for an unresolved "
-            "in-scope question. Keep read results within both per-call and batch "
-            "output limits; recover only missing ranges after truncation, never "
-            "repeat a whole truncated batch. Discover uncertain paths with rg --files or quoted "
-            "rg -g filters, not speculative shell globs; no-match is not a retry cue."
+            "Reading boundary: reference docs are on demand, not a recursive reading queue; "
+            "expand only for an unresolved in-scope question. Reuse a complete reading while "
+            "unchanged and available in context, else read it; missing history proof does not "
+            "require another read. Size reads to output limits, recover only truncated ranges, "
+            "and find uncertain paths with rg --files."
         )
-        lines.append(f"Checkpoint input: objective is limited to {MAX_TEXT} Unicode characters; "
-                     "checkpoint --work-template prints minimal JSON; --work-shape describes optional fields.")
+        lines.append(f"Checkpoint input: objective max {MAX_TEXT} Unicode characters; "
+                     "checkpoint --work-template prints minimal JSON.")
     if route.get("command") == "analysis":
         lines.append(
             "Analysis transition: finish this read-only run before starting a writing route "
-            "when the user expands the task. A later finish does not close this run. "
-            "A failed gate still requires the bound failure-repair lifecycle; do not silently cancel it."
+            "when the task expands; a later finish does not close it. A failed gate still "
+            "needs the bound failure-repair lifecycle, not a silent cancel."
         )
     if route.get("command") in {"commit", "git_commit"}:
         candidate = (
@@ -510,12 +504,10 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
                 "current staged scope and drift. Any mismatch falls back to full review."
             )
         lines.append(
-            "Commit reuse: distinguish already-known context from fresh checks in "
-            "the existing checkpoint; no separate inventory call. Reuse unchanged "
-            "rules and verification for the exact covered diff. Fresh checks: staged "
-            "scope, review binding, branch/remote and PR state. Changed bytes or "
-            "missing context require the relevant read/check; prior approval does "
-            "not authorize new external writes."
+            "Commit reuse: reuse unchanged rules and verification for the exact covered diff, "
+            "with no separate inventory call; freshly check staged scope, review binding, "
+            "branch/remote and PR state. Changed bytes or missing context need their read/check; "
+            "prior approval does not authorize new external writes."
         )
         lines.extend(_publication_scope_lines(route))
     lines.extend(_continuation_summary_lines(route.get("command", "")))
@@ -531,8 +523,8 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         lines.extend(_closeout_reuse_lines())
     elif "review" in conditional:
         lines.append(
-            "Conditional review: review only if a diff is created or a commit is requested; "
-            "then use review --help for evidence fields. No review for no-diff cleanup."
+            "Conditional review: review only if a diff is created or a commit is requested "
+            "(fields: review --help); none for no-diff cleanup."
         )
     lines.extend(_closeout_gate_lines(gates) + _gate_batch_guidance_lines(gates))
     lines.extend(_structured_gate_field_lines(gates))
@@ -561,10 +553,9 @@ def _publication_scope_lines(route: dict[str, Any]) -> list[str]:
     envelope = (route.get("request_classification") or {}).get("intent_envelope") or {}
     if envelope.get("effective_effect") == "git_write":
         lines.append(
-            "Publication effect: this run admits git_write, which covers commit but not "
-            "push or pull-request creation. If the current request authorizes those, "
-            "rerun this start now with --approved-effect external_write; a git_write "
-            "finish cannot admit them afterwards."
+            "Publication effect: this run admits git_write (commit, not push or PR creation). "
+            "If the request authorizes those, rerun this start now with --approved-effect "
+            "external_write; finish cannot add them later."
         )
     return lines
 
@@ -572,17 +563,14 @@ def _publication_scope_lines(route: dict[str, Any]) -> list[str]:
 def _continuation_summary_lines(command: str) -> list[str]:
     publication = [_publication_continuity_guidance()] if command in {"commit", "git_commit"} else []
     return _release_reuse_lines(command) + publication + [
-        "Work continuity: a goal iteration is not a new intake. Within approved scope, "
-        "keep the active action; retain guidance, decisions and verification plan. Read "
-        "only changed, newly applicable or lost context; a new run does not erase retained "
-        "readings. Keep changed-unit tests and required pre-commit review/finish. A "
-        "completed run is not writable: when another action needs admission, use "
-        "start --continue-from <previous run id>; add --reuse-inputs "
-        "with observed matching scope, toolchain, artifacts and external inputs to carry valid "
-        "local gates automatically. Use the returned remaining gates, not a rewritten checklist. "
-        "Work identity does not grant authority or carry remote results/review. Unrelated work "
-        "omits --continue-from; paused goals require explicit resume. Request wording "
-        "never establishes this relationship."
+        "Work continuity: a goal iteration is not a new intake; keep the active action, "
+        "retain guidance, decisions and verification plan across runs, and read "
+        "only changed, newly applicable or lost context. Keep changed-unit tests and "
+        "required pre-commit review/finish. A completed run is not writable: admit another "
+        "action with start --continue-from <previous run id> (+ --reuse-inputs when scope, "
+        "toolchain, artifacts and external inputs match) and follow its remaining gates. "
+        "Work identity does not grant authority or carry remote results/review; unrelated "
+        "work omits --continue-from; paused goals require explicit resume."
     ]
 
 
@@ -591,9 +579,8 @@ def _review_prerequisite_lines(gates: list[str]) -> list[str]:
         return []
     prerequisites = gates[:gates.index("review hook")]
     return [
-        f"Before review, record successful evidence for: {prerequisites}. "
-        "Passing a test command alone does not record its gate. Use the "
-        "gate-batch remaining list; do not call review to discover missing records."
+        f"Before review, record successful evidence for: {prerequisites}. A passing "
+        "command alone records nothing; review is not for discovering missing records."
     ]
 
 
@@ -602,12 +589,11 @@ def _closeout_reuse_lines() -> list[str]:
 
     return [
         "Closeout reuse: unchanged HEAD, worktree bytes, target, and external freshness reuse "
-        "completed reads and test/build/device evidence; review the final diff once. Edit a "
-        "review finding only when reproducer, impact, current-diff causality, owner, and the "
-        "nearest falsifying check prove a blocking regression. Otherwise record a follow-up. "
-        "Allow one repair, then rerun only the affected check and incremental review. Use the "
-        "advertised review shape, its VibeGuard result, and gate-batch remaining gates; do not "
-        "repeat an audit, use --help, dump the ledger, or retry another design during closeout."
+        "completed reads and checks; review the final diff once. Fix a finding only when "
+        "reproducer, impact, current-diff causality, owner and nearest falsifying check prove "
+        "a blocking regression, else record a follow-up. Allow one repair, then rerun only the "
+        "affected check and incremental review. Rely on review's shape, its VibeGuard result and "
+        "remaining gates; do not re-audit, use --help, dump the ledger, or retry another design."
     ]
 
 
@@ -636,11 +622,9 @@ def _gate_batch_guidance_lines(gates: list[str]) -> list[str]:
     if len(agent_owned) < 2:
         return []
     return [
-        "Performance: record two or more simultaneously-ready agent-owned gates in one "
-        "gate-batch; its remaining-gates snapshot avoids a separate ledger query. "
-        "One invocation writes one strong continuation checkpoint. Keep "
-        "gates separate when they become ready in different phases or after a repeated "
-        "batch validation failure."
+        "Performance: record simultaneously-ready agent-owned gates in one gate-batch "
+        "(one strong continuation checkpoint; its remaining-gates snapshot replaces a ledger "
+        "query); keep them separate across different phases or after a repeated batch failure."
     ]
 
 
@@ -665,12 +649,14 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
         "Gates requiring named fields (--field name=value). "
         'gate-batch --gate-record shape: [{"gate":"<active gate>",'
         '"status":"<SUCCESS or FAIL>","fields":{"<listed field>":"<observed evidence>"}}]. '
-        "Replace placeholders using the fields and enum values below; reuse observed "
-        "results rather than rerunning checks to fill a record.",
+        "Fill it from the fields and enums below with observed results; do not rerun checks "
+        "to fill a record.",
     ]
     from agent_gate_reuse import GateEvidenceReuse
     if any(GateEvidenceReuse.supports(gate) for gate in gates):
-        lines[0] += ' Local evidence: record input_paths: [] in gate-batch for revision-independent checks (all project files), or a complete dependency list. Omit for revision-sensitive/uncertain inputs. Never copy old records as fresh evidence.'
+        lines[0] += (" Local evidence: input_paths: [] (all project files) for revision-independent "
+                     "checks or a complete dependency list; omit for revision-sensitive/uncertain inputs. "
+                     "Never copy old records as fresh evidence.")
     for gate, fields in required:
         lines.append(f"  {gate}: {_rendered_fields(gate, fields)}")
         if gate in {"documentation", "documentation impact"}:
@@ -1088,9 +1074,8 @@ def _register_started_run(
         details.append(f"run id: {claimed_run_id}")
         details.append(f"evidence: {evidence_path}")
         details.append(
-            "later hooks in this runtime session find this run on their own; "
-            "pass --evidence only for a worker's issued evidence path or from "
-            "another session, and only ever this exact preflight.json"
+            "later hooks in this runtime session find this run on their own; pass --evidence only for "
+            "a worker's issued path or from another session, and then only this preflight.json"
         )
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         details.append("agent run registry: unavailable; start refused")
