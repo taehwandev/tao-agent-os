@@ -15,6 +15,17 @@ from claude_bash_git import git_subcommand
 from claude_bash_syntax import command_segments, shell_keyword_command
 
 INTERPRETER_REASON = "interpreter or script effects are not declared by a supported command contract"
+# Programs whose effect is whatever project code they are handed: an
+# interpreter, a package-manager script runner, or a script run by path.
+INTERPRETERS = frozenset({"python", "python3", "node", "bash", "sh", "zsh", "ruby", "perl", "deno", "bun"})
+PACKAGE_RUNNERS = frozenset({"npm", "npx", "pnpm", "yarn"})
+PROJECT_CODE_REMEDY = (
+    " This command runs project code (an interpreter, a package script or a project script), "
+    "and Tao cannot verify its effect from the command text, so every variant of it gets "
+    "this same answer: do not retry reworded or split variants. Either run the workflow start "
+    "hook once for this project and then run it unchanged, or inspect with a read-only form "
+    "such as rg, sed -n, cat, git show, node --check or python3 -m json.tool."
+)
 
 
 def github_publication(tokens: list[str]) -> bool:
@@ -97,17 +108,22 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
     executable = Path(tokens[0]).name
     if github_publication(tokens):
         return "mutating", "GitHub publication command"
-    if executable in {"rm", "mv", "cp", "touch", "mkdir", "rmdir", "tee", "install", "chmod", "chown"}:
+    if executable in {"rm", "mv", "cp", "touch", "mkdir", "rmdir", "tee", "install", "chmod", "chown",
+                      "ln", "mktemp", "tar"}:
         return "mutating", "filesystem-changing command"
+    if executable in {"kill", "pkill", "killall"}:
+        return "mutating", "process-signalling command"
     if executable == "curl":
         return curl_effect(tokens[1:])
     if executable == "git":
         subcommand, _ = git_subcommand(tokens)
         # Listing forms already returned above. Recognizing a mutation only
         # selects the existing authority checks; it does not approve execution.
-        if subcommand in {"add", "commit", "push", "merge", "rebase", "reset", "restore", "cherry-pick", "revert", "rm", "mv", "clean", "switch", "checkout", "branch"}:
+        if subcommand in {"add", "commit", "push", "merge", "rebase", "reset", "restore", "cherry-pick", "revert", "rm", "mv", "clean", "switch", "checkout", "branch", "stash", "reflog"}:
             return "mutating", "Git state-changing command"
-    if executable in {"python", "python3", "python3.14", "node", "bash", "sh", "zsh"}:
+    if (executable in INTERPRETERS or re.fullmatch(r"python\d+(?:\.\d+)*", executable)
+            or executable in PACKAGE_RUNNERS
+            or ("/" in tokens[0] and not tokens[0].startswith(("/", "~")))):
         return "unknown", INTERPRETER_REASON
     return "unknown", "command or options have no verified effect contract"
 
@@ -122,7 +138,8 @@ def unknown_recovery(reason: str, *, after_finish: bool = False) -> str:
     # A project script that publishes (a pull-request helper, say) is exactly
     # this case, and its fix is a declaration, not another workflow run.
     declaration = (
-        " If this is a project script that publishes, such as one that creates a pull "
+        ("" if after_finish else PROJECT_CODE_REMEDY)
+        + " If this is a project script that publishes, such as one that creates a pull "
         "request, the project can declare its argv prefix under publication_commands in "
         ".agents/shared/worktree-policy.json so a finished run admits it."
         if reason == INTERPRETER_REASON else ""

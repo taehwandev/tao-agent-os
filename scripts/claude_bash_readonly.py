@@ -13,6 +13,7 @@ from pathlib import Path
 
 from claude_bash_git import git_command_kind
 from claude_bash_http import curl_read_only
+from claude_bash_inspection import inspection_command_kind
 from claude_local_context_commands import local_context_kind
 from claude_bash_syntax import (
     ENV_ASSIGNMENT_RE,
@@ -597,10 +598,19 @@ def test_runner_kind(tokens: list[str]) -> str | None:
         return None
     # `-m <module>` has to be the first thing the interpreter is given, so a
     # line that first runs a script, or opens an interactive shell, or takes
-    # `-c`, never reaches this.
-    if len(tokens) < 3 or tokens[1] != "-m":
+    # `-c`, never reaches this. Only `-B` (no bytecode) and `-W <filter>`
+    # (warning display) may precede it: neither selects what runs.
+    index = 1
+    while index < len(tokens) and tokens[index] != "-m":
+        if tokens[index] == "-B" or (tokens[index].startswith("-W") and len(tokens[index]) > 2):
+            index += 1
+        elif tokens[index] == "-W" and index + 1 < len(tokens):
+            index += 2
+        else:
+            return None
+    if len(tokens) < index + 2:
         return None
-    return "read_only" if tokens[2] in TEST_RUNNER_MODULES else None
+    return "read_only" if tokens[index + 1] in TEST_RUNNER_MODULES else None
 
 
 def _names_a_python(token: str) -> bool:
@@ -1063,6 +1073,9 @@ def simple_command_kind(tokens: list[str]) -> str:
     runner_kind = test_runner_kind(command)
     if runner_kind is not None:
         return runner_kind
+    inspection_kind = inspection_command_kind(command)
+    if inspection_kind is not None:
+        return inspection_kind
     executable = Path(command[0]).name
     if executable == "curl":
         return "read_only" if curl_read_only(command[1:]) else "mutating"

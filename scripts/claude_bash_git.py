@@ -301,6 +301,10 @@ def git_command_kind(tokens: list[str]) -> str:
         return "read_only" if listing or not words else "mutating"
     if command == "stash":
         return "read_only" if args and args[0] in {"list", "show"} else "mutating"
+    if command == "reflog":
+        # Bare, `show`, `exists`, or show options (`-5`, `--oneline`) only read;
+        # `expire`, `delete` and any other word stay mutations.
+        return "read_only" if not args or args[0] in {"show", "exists"} or args[0].startswith("-") else "mutating"
     if command == "submodule":
         return "read_only" if args and args[0] in {"status", "summary"} else "mutating"
     if command == "symbolic-ref":
