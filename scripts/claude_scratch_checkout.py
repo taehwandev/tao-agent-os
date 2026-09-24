@@ -5,19 +5,25 @@ project it came from: deleting a probe file in it, and removing the worktree
 from its parent, each asked for a full workflow lifecycle in a checkout that
 existed only to be thrown away. Its files land in no project anyone keeps.
 Publishing from it, and writing the repository refs it shares, still reach the
-real project, so only file writes and the worktree's own removal are released.
-A file write is released only when it is proven to land in temp: a program
-that runs code -- `python3 script.py`, `npm run`, `make`, `./tool` -- can write
-into the real project (through TAO_HOME, say), so it stays governed.
+real project, so those keep the checkout governed.
+
+Code run there -- `python3 script.py`, `npm test`, `make`, `./tool` -- is
+released too: that it *could* write anywhere is no risk the command shows. What
+the command shows is judged instead. A word, an option value, an assignment's
+value or a redirect target that resolves into a governed project outside temp,
+or into the repository the checkout shares, keeps the checkout governed, so
+`TAO_HOME=<project> python3 x.py` gets the verdict it had before the exemption.
+Keeping it governed is the only effect: nothing here denies anything.
 
 Owner: whether a governed root is a throwaway checkout -- it resolves strictly
 inside the OS temp directory while its repository is anchored outside it --
-and whether a command line only writes files inside temp or removes that
-worktree.
+and whether a command line run there visibly reaches a real project or the
+shared repository.
 Allowed imports: the standard library, claude_bash_syntax, claude_bash_git,
 claude_bash_raw_lines, claude_bash_readonly and claude_pretool_publication.
 Forbidden imports: claude_pretool_gate and run evidence; this is decided from
-the filesystem and the command text alone.
+the filesystem and the command text alone, and the gate hands in how it finds
+the project owning a path.
 Callers/tests: claude_pretool_gate._call_scope;
 tests/test_claude_temp_checkout_scratch.py.
 Verification: that module and the full gate suite.
@@ -25,17 +31,17 @@ Verification: that module and the full gate suite.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from pathlib import Path
+from typing import Callable, Iterator
 
 import claude_bash_syntax as syntax
 from claude_bash_git import git_subcommand
 from claude_bash_raw_lines import raw_command_segments
 from claude_bash_readonly import simple_command_kind
 from claude_bash_syntax import (
-    DIRECTORY_CHANGERS,
-    ENV_ASSIGNMENT_PREFIX_RE,
     SHELL_PROGRAMS,
     SHELL_STRUCTURE_WORDS,
     command_behind_wrappers,
@@ -47,17 +53,20 @@ from claude_pretool_publication import publication_hold
 WORKTREE_DISPOSAL = frozenset({"remove", "prune"})
 # Programs that write shared repository state or publish when named anywhere.
 REPOSITORY_PROGRAMS = frozenset({"git", "gh"})
-# File utilities that write only the paths they are given. Each is released
-# only when every one of those paths resolves inside temp; any other program
-# may write anywhere and keeps the checkout governed.
-TEMP_FILE_UTILITIES = frozenset(
-    {"rm", "rmdir", "mv", "cp", "mkdir", "touch", "ln", "chmod"}
-)
 _SEPARATORS = frozenset({";", "&", "&&", "|", "||"})
 _OUTPUT_REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
 _INPUT_REDIRECTS = frozenset({"<", "<<<"})
 _REMOTE_URL_RE = re.compile(r"^\s*url\s*=\s*(\S.*?)\s*$")
 _SCP_LIKE_RE = re.compile(r"^[^/:]+:")
+# The home directory spelled the ways the shell expands before running.
+_HOME_PREFIX_RE = re.compile(r"^(?:~|\$\{HOME\}|\$HOME)(?=/|$)")
+_HOME_VARIABLE_RE = re.compile(r"(?:\$\{HOME\}|\$HOME)(?=/|:|$)")
+# An absolute or home-rooted path inside a longer word, as in inline code.
+_EMBEDDED_PATH_RE = re.compile(r"(?:~|\$\{HOME\}|\$HOME)?/[^\s'\"`:;,()<>|&=$]*")
+# One unnested brace alternation, which the shell expands into several words.
+_BRACE_RE = re.compile(r"^(.*?)\{([^{}]*,[^{}]*)\}(.*)$")
+
+ProjectOf = Callable[[Path], "Path | None"]
 
 
 def _inside_temp(path: Path) -> bool:
@@ -84,7 +93,7 @@ def throwaway_checkout(root: Path) -> bool:
 def _anchored_outside_temp(root: Path) -> bool:
     marker = root / ".git"
     if marker.is_file():
-        return _linked_common_dir_outside_temp(root, marker)
+        return _linked_common_dir(root, marker) is not None
     if marker.is_dir():
         return any(
             not _inside_temp(location)
@@ -93,22 +102,33 @@ def _anchored_outside_temp(root: Path) -> bool:
     return False
 
 
-def _linked_common_dir_outside_temp(root: Path, marker: Path) -> bool:
+def _linked_common_dir(root: Path, marker: Path) -> "Path | None":
+    """The repository directory a linked worktree shares, when outside temp."""
+
     text = marker.read_text(encoding="utf-8", errors="ignore").strip()
     if not text.startswith("gitdir:"):
-        return False
+        return None
     gitdir = Path(text.split(":", 1)[1].strip())
     gitdir = gitdir if gitdir.is_absolute() else root / gitdir
     if not gitdir.is_dir():
         # A link to metadata that is not there anchors nothing.
-        return False
+        return None
     common = gitdir
     pointer = gitdir / "commondir"
     if pointer.is_file():
         named = Path(pointer.read_text(encoding="utf-8", errors="ignore").strip())
         common = named if named.is_absolute() else gitdir / named
     common = common.resolve()
-    return common.is_dir() and not _inside_temp(common)
+    return common if common.is_dir() and not _inside_temp(common) else None
+
+
+def _shared_repository(root: Path) -> "Path | None":
+    try:
+        resolved = root.resolve()
+        marker = resolved / ".git"
+        return _linked_common_dir(resolved, marker) if marker.is_file() else None
+    except (OSError, ValueError):
+        return None
 
 
 def _remote_locations(root: Path, config: Path) -> list[Path]:
@@ -136,41 +156,127 @@ def _remote_locations(root: Path, config: Path) -> list[Path]:
     return locations
 
 
-def writes_only_scratch_files(command: str, root: Path, cwd: Path) -> bool:
-    """Whether every write on the line provably lands in temp.
+def scratch_command(command: str, root: Path, cwd: Path, project_of: ProjectOf) -> bool:
+    """Whether the line leaves real projects alone, so the checkout is scratch.
 
-    Only a listed file utility whose every path operand resolves inside an OS
-    temp directory, a command the read-only classifier already calls a read,
-    a redirect into temp, and `git worktree remove|prune` qualify. Any other
-    program -- an interpreter, a package manager, a build tool, a `./tool`,
-    anything behind an assignment or a wrapper -- can write wherever it likes,
-    so it keeps the checkout governed, as does whatever could reach the
-    repository the checkout shares.
+    Any program may run -- an interpreter, a package manager, a build tool, a
+    `./tool`, an assignment-prefixed or wrapped program. The line is not
+    scratch only when it visibly reaches out: a word, option value,
+    assignment value or redirect target resolving (`..` and symlinks
+    followed, relative to the effective cwd, `~` and `$HOME` expanded) into a
+    project `project_of` names outside temp or into the shared repository;
+    a Git command other than a read or `worktree remove|prune`; `gh`; a
+    publication; or a line that cannot be read.
     """
 
     if publication_hold(command, root=root, cwd=cwd):
         return False
     if raw_command_segments(command) is None:
         return False
-    segments = _segments_with_redirects_in_temp(command, cwd)
+    reach = _Reach(project_of, _shared_repository(root))
+    segments = _segments(command, cwd, reach)
     if segments is None:
         return False
     for words in segments:
-        if words and words[0] in DIRECTORY_CHANGERS:
-            cwd = _changed_directory(words)
-            if cwd is None:
+        if words[0] in syntax.DIRECTORY_CHANGERS:
+            cwd = _changed_directory(words, cwd)
+            if cwd is None or reach.touches(str(cwd), cwd):
                 return False
             continue
-        if not _segment_only_touches_temp(words, cwd):
+        if not _segment_is_scratch(words, cwd, reach):
             return False
     return True
 
 
-def _segments_with_redirects_in_temp(command: str, cwd: Path) -> "list[list[str]] | None":
-    """The words of each simple command, once every redirect is proven harmless.
+class _Reach:
+    """Whether a spelled path lands in a real project or the shared repository."""
 
-    An output redirect must land in temp or the discard sink; an input redirect
-    only reads. Any operator not modelled here leaves the line unread.
+    def __init__(self, project_of: ProjectOf, shared: "Path | None") -> None:
+        self._project_of = project_of
+        self._shared = shared
+
+    def touches(self, raw: str, cwd: Path) -> bool:
+        spelled = _expand_home(raw)
+        if spelled is None:
+            return False
+        path = Path(spelled)
+        if not path.is_absolute():
+            path = cwd / path
+        try:
+            resolved = path.resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            return False
+        if _inside_temp(resolved):
+            return False
+        if self._shared is not None and resolved.is_relative_to(self._shared):
+            return True
+        try:
+            owner = self._project_of(resolved)
+        except (OSError, ValueError):
+            return False
+        return owner is not None and not _inside_temp(owner.resolve())
+
+    def in_word(self, word: str, cwd: Path) -> bool:
+        return any(self.touches(candidate, cwd) for candidate in _candidates(word, cwd))
+
+
+def _expand_home(raw: str) -> "str | None":
+    match = _HOME_PREFIX_RE.match(raw)
+    if not match:
+        return raw
+    home = os.environ.get("HOME") or str(Path.home())
+    return home + raw[match.end():] if home else None
+
+
+def _candidates(word: str, cwd: Path) -> Iterator[str]:
+    """Every spelling of a path a word may carry.
+
+    The word itself, an option's or assignment's value, a short option's
+    attached value, each `:`-separated part of those, each alternative of a
+    brace expansion, and any absolute or home-rooted path inside it (inline
+    code, a URL-ish value). A relative spelling with no `/` counts only when
+    it names something that exists, so a bare argument such as `test` in
+    `npm test` run from a project is not read as that project's file.
+    """
+
+    values = [word]
+    brace = _BRACE_RE.match(word)
+    if brace:
+        values.extend(
+            brace.group(1) + choice + brace.group(3)
+            for choice in brace.group(2).split(",")
+        )
+    for value in list(values):
+        if "=" in value:
+            values.append(value.split("=", 1)[1])
+        if value.startswith("-") and not value.startswith("--") and len(value) > 2:
+            values.append(value[2:])
+    for value in values:
+        for part in {value, *value.split(":")}:
+            if not part:
+                continue
+            if part.startswith("/") or _HOME_PREFIX_RE.match(part):
+                yield part
+            elif "/" in part or part in {".", ".."} or _exists(cwd / part):
+                yield part
+        yield from _EMBEDDED_PATH_RE.findall(value)
+
+
+def _exists(path: Path) -> bool:
+    try:
+        return path.exists() or path.is_symlink()
+    except (OSError, ValueError):
+        return False
+
+
+def _segments(command: str, cwd: Path, reach: _Reach) -> "list[list[str]] | None":
+    """The words of each simple command, once every redirect is judged.
+
+    An output redirect may land anywhere but a real project; an input
+    redirect only reads. Any operator not modelled here leaves the line
+    unread. Redirect targets are read against the line's starting cwd, which
+    only a relative target after a `cd` could mistake, and such a target is
+    judged again from its segment's words when it names a real place.
     """
 
     lines = syntax._shell_lines(command)
@@ -193,7 +299,9 @@ def _segments_with_redirects_in_temp(command: str, cwd: Path) -> "list[list[str]
             index += 1
             continue
         if token in _OUTPUT_REDIRECTS:
-            if following not in syntax.DISCARD_TARGETS and not _path_in_temp(following, cwd):
+            if following not in syntax.DISCARD_TARGETS and not _plain_target(
+                following, cwd, reach
+            ):
                 return None
             index += 2
             continue
@@ -214,34 +322,72 @@ def _segments_with_redirects_in_temp(command: str, cwd: Path) -> "list[list[str]
     return [segment for segment in segments if segment]
 
 
-def _changed_directory(words: list[str]) -> "Path | None":
-    """Where a `cd` moves the rest of the line, when it names an absolute place."""
-
-    if words[0] != "cd" or len(words) != 2 or not Path(words[1]).is_absolute():
-        return None
-    if set(words[1]) & syntax.UNRESOLVED_PATH_CHARS:
-        return None
-    return Path(words[1])
-
-
-def _segment_only_touches_temp(words: list[str], cwd: Path) -> bool:
-    program = command_behind_wrappers(words)
-    if program and Path(program[0]).name == "git":
-        return _disposes_of_worktree(program)
-    head = words[0]
-    if (
-        head != Path(head).name
-        or ENV_ASSIGNMENT_PREFIX_RE.match(head)
-        or head in SHELL_PROGRAMS
-        or head in SHELL_STRUCTURE_WORDS
-        or head == "eval"
-        or any(computed_word(word) for word in words)
-        or any(Path(word).name in REPOSITORY_PROGRAMS for word in words)
-    ):
+def _plain_target(raw: str, cwd: Path, reach: _Reach) -> bool:
+    if not raw or _unreadable(raw):
         return False
-    if head in TEMP_FILE_UTILITIES:
-        return _operands_in_temp(head, words[1:], cwd)
-    return simple_command_kind(words, cwd) == "read_only"
+    return not reach.touches(raw, cwd)
+
+
+def _unreadable(word: str) -> bool:
+    """Text the shell would still compute, beyond the home directory."""
+
+    if word.startswith("~") and not _HOME_PREFIX_RE.match(word):
+        return True
+    return computed_word(_HOME_VARIABLE_RE.sub("", word))
+
+
+def _changed_directory(words: list[str], cwd: Path) -> "Path | None":
+    """Where a `cd` moves the rest of the line, when the line says where."""
+
+    if words[0] != "cd" or len(words) > 2:
+        return None
+    if len(words) == 1:
+        target = os.environ.get("HOME") or str(Path.home())
+    else:
+        target = words[1]
+        if target == "-" or _unreadable(target):
+            return None
+        target = _expand_home(target) or ""
+    if not target:
+        return None
+    path = Path(target)
+    return path if path.is_absolute() else cwd / path
+
+
+def _segment_is_scratch(words: list[str], cwd: Path, reach: _Reach) -> bool:
+    if any(_unreadable(word) for word in words):
+        return False
+    program = command_behind_wrappers(words)
+    if program is None:
+        return False
+    if program and Path(program[0]).name == "git":
+        return _disposes_of_worktree(program) or simple_command_kind(words, cwd) == "read_only"
+    if any(Path(word).name in REPOSITORY_PROGRAMS for word in words):
+        return False
+    if program:
+        name = Path(program[0]).name
+        if name == "eval" or name in SHELL_STRUCTURE_WORDS:
+            return False
+        if name in SHELL_PROGRAMS and not _runs_a_script_file(program[1:]):
+            return False
+    if simple_command_kind(words, cwd) == "read_only":
+        # Reading a real project changes nothing in it.
+        return True
+    return not any(reach.in_word(word, cwd) for word in words)
+
+
+def _runs_a_script_file(arguments: list[str]) -> bool:
+    """Whether a shell is handed a script file rather than inline or piped text."""
+
+    for argument in arguments:
+        if argument == "--":
+            continue
+        if argument.startswith("-") and argument != "-":
+            if not argument.startswith("--") and set(argument[1:]) & {"c", "s", "i"}:
+                return False
+            continue
+        return argument != "-"
+    return False
 
 
 def _disposes_of_worktree(program: list[str]) -> bool:
@@ -255,55 +401,3 @@ def _disposes_of_worktree(program: list[str]) -> bool:
         and bool(arguments)
         and arguments[0] in WORKTREE_DISPOSAL
     )
-
-
-def _operands_in_temp(utility: str, arguments: list[str], cwd: Path) -> bool:
-    """Whether every path a listed file utility names resolves inside temp.
-
-    Options are stepped over; one carrying `=` may hide a path (as in
-    `--target-directory=`), so it is refused. A value an option takes is read
-    as an operand, which can only refuse more. `chmod`'s mode is not a path.
-    """
-
-    operands: list[str] = []
-    options_done = False
-    for argument in arguments:
-        if not options_done and argument == "--":
-            options_done = True
-            continue
-        if not options_done and argument.startswith("-") and argument != "-":
-            if "=" in argument:
-                return False
-            continue
-        operands.append(argument)
-    if utility == "chmod":
-        if not operands:
-            return True
-        operands = operands[1:]
-    if not all(_path_in_temp(operand, cwd) for operand in operands):
-        return False
-    if utility == "ln":
-        # A relative link target is read from the link's own directory.
-        places = [cwd, *(_absolute(operand, cwd).parent for operand in operands)]
-        return all(
-            _path_in_temp(operand, place)
-            for operand in operands
-            for place in places
-        )
-    return True
-
-
-def _absolute(raw: str, cwd: Path) -> Path:
-    path = Path(raw)
-    return path if path.is_absolute() else cwd / path
-
-
-def _path_in_temp(raw: str, cwd: Path) -> bool:
-    """Whether `raw` resolves, `..` and symlinks followed, strictly inside temp."""
-
-    if not raw or set(raw) & syntax.UNRESOLVED_PATH_CHARS:
-        return False
-    try:
-        return _inside_temp(_absolute(raw, cwd).resolve(strict=False))
-    except (OSError, RuntimeError, ValueError):
-        return False

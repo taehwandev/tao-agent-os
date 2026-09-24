@@ -27,6 +27,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import claude_bash_syntax as syntax
 import claude_pretool_gate as pretool
+from claude_scratch_checkout import scratch_command
 
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false"]
 
@@ -70,6 +71,7 @@ class _Fixture(unittest.TestCase):
         root.mkdir(parents=True)
         (root / "AGENTS.md").write_text("Uses tao-hook.\n")
         (root / "notes.txt").write_text("n\n")
+        (root / ".gitignore").write_text(".tao/\n")
         shared = root / ".agents" / "shared"
         shared.mkdir(parents=True)
         (shared / "worktree-policy.json").write_text(
@@ -173,61 +175,46 @@ class PublicationStaysGovernedTests(_Fixture):
         )
 
 
-class OnlyProvenTempWritesAreScratchTests(_Fixture):
-    """Observed: a Python command run in the temp worktree rewrote a file of
-    the original project through TAO_HOME, and the gate allowed it.
+class CodeRunsInTheTempCheckoutTests(_Fixture):
+    """Code run in the throwaway checkout needs no workflow start.
 
-    Only a file utility whose every operand lands in temp is scratch; any other
-    program can write anywhere, so its verdict is the one the checkout had
-    before it was exempted.
+    That a program *could* write anywhere is not a risk the command shows, so
+    interpreters, package managers, build tools, `./tool` and assignment-
+    prefixed programs are scratch there like file utilities are.
     """
 
-    def _governed_verdict(self, command: str, cwd: Path) -> str:
-        with patch.object(pretool, "throwaway_checkout", lambda root: False):
-            return self._bash(command, cwd=cwd)
-
-    def _assert_governed(self, command: str, cwd: "Path | None" = None) -> None:
-        cwd = cwd or self.bench
-        with self.subTest(command=command):
-            verdict = self._bash(command, cwd=cwd)
-            self.assertNotEqual(verdict, "allow")
-            self.assertEqual(verdict, self._governed_verdict(command, cwd))
-
-    def test_programs_that_can_write_anywhere_stay_governed(self) -> None:
+    def test_ordinary_code_execution_needs_no_run(self) -> None:
         (self.bench / "script.py").write_text("print(1)\n")
         (self.bench / "tool").write_text("#!/bin/sh\n")
-        real = self.project / "notes.txt"
+        (self.bench / "build").mkdir()
+        (self.bench / "a").write_text("a\n")
         for command in (
-            f"python3 -c \"open('{real}','w').write('x')\"",
-            "python3 -c \"import os; open(os.environ['TAO_HOME'] + '/notes.txt', 'w')\"",
             "python3 script.py",
-            "node x.js",
-            "npm run x",
-            "npx something",
+            "python3 -m unittest discover -s tests",
+            "npm test",
+            "npm run build",
+            "npx tsc --noEmit",
             "make",
+            "make -C build",
             "./tool",
             f"{self.bench / 'tool'}",
+            "node x.js",
+            "FOO=1 npm test",
+            "env FOO=1 python3 script.py",
+            "bash ./tool",
+            "rm -rf build",
+            "cp a b",
             "FOO=1 rm docs/probe.txt",
-            f"find {self.project} -delete",
-            f"echo x | tee {real}",
-            "echo docs/probe.txt | xargs rm",
+            "python3 script.py > out.log 2>&1",
+            "npm test && python3 script.py",
+            f"cd {self.bench} && make",
+            "python3 -c \"import os; print(os.environ['TAO_HOME'])\"",
+            "git status",
         ):
-            self._assert_governed(command)
+            with self.subTest(command=command):
+                self.assertEqual(self._bash(command, cwd=self.bench), "allow")
 
-    def test_a_file_utility_with_an_operand_outside_temp_stays_governed(self) -> None:
-        inside = self.bench / "docs" / "probe.txt"
-        real = self.project / "notes.txt"
-        for command in (
-            f"cp {inside} {real}",
-            f"mv {inside} {real}",
-            f"mv {real} {inside}",
-            f"ln -s {inside} {real}",
-            f"touch {real}",
-            f"echo x > {real}",
-        ):
-            self._assert_governed(command)
-
-    def test_file_writes_proven_inside_temp_need_no_run(self) -> None:
+    def test_file_writes_inside_temp_need_no_run(self) -> None:
         probe = self.bench / "docs" / "probe.txt"
         other = self.temp / "elsewhere"
         for command in (
@@ -244,6 +231,135 @@ class OnlyProvenTempWritesAreScratchTests(_Fixture):
             self._bash(f"git -C {self.project} worktree remove --force {self.bench}"),
             "deny",
         )
+
+
+class CommandsNamingARealProjectKeepTheirVerdictTests(_Fixture):
+    """Observed: `TAO_HOME=<project> python3 ...` run in the temp worktree
+    rewrote a file of the original project, and the gate allowed it.
+
+    A line that visibly reaches a real project -- a word, an option value, an
+    assignment value or a redirect resolving into it, or into the repository
+    the checkout shares -- is not scratch. The exemption then simply does not
+    apply: the verdict is exactly the one the gate gives with the exemption
+    disabled, never an extra denial, and a run in that project admits it.
+    """
+
+    def _governed_verdict(self, command: str, cwd: Path) -> str:
+        with patch.object(pretool, "throwaway_checkout", lambda root: False):
+            return self._bash(command, cwd=cwd)
+
+    def _assert_unexempted(self, command: str, cwd: "Path | None" = None) -> None:
+        cwd = cwd or self.bench
+        with self.subTest(command=command):
+            self.assertFalse(
+                scratch_command(command, self.bench, cwd, pretool.find_project_root)
+            )
+            self.assertEqual(
+                self._bash(command, cwd=cwd), self._governed_verdict(command, cwd)
+            )
+
+    def _real_project_commands(self) -> "list[str]":
+        real = self.project / "notes.txt"
+        inside = self.bench / "docs" / "probe.txt"
+        escape = "../" * 5 + "home/proj"
+        common = self.project / ".git"
+        return [
+            f"TAO_HOME={self.project} python3 x.py",
+            f"TAO_STATE_HOME={self.project}/.tao python3 x.py",
+            f"PWD={self.project} npm test",
+            f"env GIT_DIR={common} python3 x.py",
+            f"export TAO_HOME={self.project} && python3 x.py",
+            f"python3 tool.py --project {self.project}",
+            f"python3 tool.py --output={real}",
+            f"python3 tool.py -o{real}",
+            f"make -C {self.project}",
+            f"python3 tool.py {escape}",
+            f"python3 -c \"open('{real}','w').write('x')\"",
+            f"cd {self.project} && make",
+            f"cp a {real}",
+            f"cp {inside} {real}",
+            f"mv {real} {inside}",
+            f"ln -s {inside} {real}",
+            f"touch {real}",
+            f"find {self.project} -delete",
+            f"echo x | tee {real}",
+            f"echo x > {real}",
+            f"npm test > {real}",
+        ]
+
+    def test_a_command_naming_a_real_project_is_not_scratch(self) -> None:
+        for command in self._real_project_commands():
+            self._assert_unexempted(command)
+
+    def test_a_home_rooted_path_into_a_real_project_is_not_scratch(self) -> None:
+        home = self.base / "home"
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            for command in (
+                "python3 x.py --project ~/proj",
+                "TAO_HOME=$HOME/proj python3 x.py",
+                "python3 x.py ${HOME}/proj/notes.txt",
+            ):
+                self._assert_unexempted(command)
+            self.assertEqual(self._bash("python3 x.py ~/elsewhere", cwd=self.bench), "allow")
+
+    def test_a_temp_symlink_into_a_real_project_is_not_scratch(self) -> None:
+        (self.bench / "real").symlink_to(self.project, target_is_directory=True)
+        self._assert_unexempted("python3 x.py real/notes.txt")
+        self._assert_unexempted("python3 x.py --out=real")
+
+    def test_the_observed_tao_home_write_stays_denied(self) -> None:
+        command = (
+            f"TAO_HOME={self.project} python3 -c \"import os; "
+            "open(os.environ['TAO_HOME'] + '/notes.txt', 'w')\""
+        )
+        self._assert_unexempted(command)
+        self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+
+    def test_open_runs_admit_it_as_they_would_without_the_exemption(self) -> None:
+        """Not being scratch adds no denial: the gate's ordinary rules decide.
+
+        `other` is a governed project on an unprotected branch, so a workflow
+        start is all that stands between these commands and running. At every
+        step -- no run, a run in the named project, a run where the command
+        runs too -- the verdict is the one the exemption-free gate gives, and
+        once those runs are open the commands run.
+        """
+
+        from test_claude_pretool_gate import _write_preflight
+
+        other = self.base / "home" / "other"
+        other.mkdir(parents=True)
+        (other / "AGENTS.md").write_text("Uses tao-hook.\n")
+        (other / ".gitignore").write_text(".tao/\n")
+        _git("init", "-q", "-b", "work", cwd=other)
+        _git("add", ".", cwd=other)
+        _git("commit", "-q", "-m", "init", cwd=other)
+        commands = [
+            f"TAO_HOME={other} python3 x.py",
+            f"python3 tool.py --project {other}",
+            f"cp a {other / 'b'}",
+        ]
+        for command in commands:
+            self._assert_unexempted(command)
+            self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+        _write_preflight(other, "temp-checkout-scratch")
+        for command in commands:
+            self._assert_unexempted(command)
+        _write_preflight(self.bench, "temp-checkout-scratch")
+        for command in commands:
+            self._assert_unexempted(command)
+            self.assertEqual(self._bash(command, cwd=self.bench), "allow")
+
+    def test_unreadable_lines_and_publication_stay_governed(self) -> None:
+        for command in (
+            f"git -C {self.bench} commit -m probe",
+            "gh pr create --fill",
+            'eval "$x"',
+            'bash -c "$x"',
+            "$TOOL build",
+            "python3 x.py $TARGET",
+        ):
+            self._assert_unexempted(command)
 
 
 class OnlyRealTempIsScratchTests(_Fixture):

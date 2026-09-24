@@ -66,7 +66,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         protected_checkout_verdict,
     )
     from claude_command_effect import command_effect, unknown_recovery
-    from claude_scratch_checkout import throwaway_checkout, writes_only_scratch_files
+    from claude_scratch_checkout import scratch_command, throwaway_checkout
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -214,7 +214,7 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
     def throwaway_checkout(root: Path) -> bool:
         return False
 
-    def writes_only_scratch_files(command: str, root: Path, cwd: Path) -> bool:
+    def scratch_command(command: str, root: Path, cwd: Path, project_of=None) -> bool:
         return False
 
 
@@ -1974,9 +1974,10 @@ def _governed_only(
     A worktree parked under the OS temp directory for a measurement is
     scratch: editing, deleting or removing it lands in no project anyone
     keeps, and demanding a lifecycle there is friction with nothing to
-    protect. A Bash command keeps the checkout governed unless every segment
-    only touches files or disposes of that worktree -- a commit, a ref write
-    or a publication reaches the repository it shares.
+    protect. Any program may run there; a Bash command keeps the checkout
+    governed only when it visibly reaches a real project (a path, option
+    value, assignment value or redirect into one) or the repository it shares
+    (a commit, a ref write, a publication), or cannot be read.
     """
 
     return [
@@ -1986,7 +1987,7 @@ def _governed_only(
             throwaway_checkout(root)
             and (
                 command is None
-                or writes_only_scratch_files(command, root, cwd or root)
+                or scratch_command(command, root, cwd or root, find_project_root)
             )
         )
     ]
