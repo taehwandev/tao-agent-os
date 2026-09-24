@@ -24,7 +24,7 @@ PROJECT_CODE_REMEDY = (
     "and Tao cannot verify its effect from the command text, so every variant of it gets "
     "this same answer: do not retry reworded or split variants. Either run the workflow start "
     "hook once for this project and then run it unchanged, or inspect with a read-only form "
-    "such as rg, sed -n, cat, git show, node --check or python3 -m json.tool."
+    "such as rg, sed -n, cat, git show, node --check or python3 -I -m json.tool."
 )
 
 

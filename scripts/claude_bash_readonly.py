@@ -1058,6 +1058,27 @@ def strip_env_wrapper(tokens: list[str]) -> list[str] | None:
     return None
 
 
+INSTALLED_EXECUTABLE_ROOTS = (Path("/bin"), Path("/usr/bin"),
+                              Path("/usr/local"), Path("/opt/homebrew"))
+
+
+def _trusted_installed_executable(
+    token: str, roots: tuple[Path, ...] = INSTALLED_EXECUTABLE_ROOTS,
+) -> bool:
+    """Allow installed absolute tools, never a project executable by path or symlink."""
+    path = Path(token)
+    if not path.is_absolute():
+        return False
+    try:
+        target = path.resolve(strict=True)
+        installed_roots = tuple(root.resolve(strict=True) for root in roots if root.exists())
+    except (OSError, RuntimeError):
+        return False
+    return (path.is_file() and os.access(path, os.X_OK)
+            and any(path.is_relative_to(root) for root in roots)
+            and any(target.is_relative_to(root) for root in installed_roots))
+
+
 def simple_command_kind(tokens: list[str]) -> str:
     command = strip_env_assignments(tokens)
     if command:
@@ -1070,10 +1091,13 @@ def simple_command_kind(tokens: list[str]) -> str:
     script_kind = read_only_script_kind(command)
     if script_kind is not None:
         return script_kind
-    # A project executable may borrow the name of a trusted utility.
-    # Only the exact runtime hook and digest-bound scripts above use paths.
+    # A project executable may borrow the name of a trusted utility. Resolve
+    # absolute installed tools before applying their usual argument contract;
+    # relative paths and links into a project retain the mutating verdict.
     if command[0] != Path(command[0]).name:
-        return "mutating"
+        if not _trusted_installed_executable(command[0]):
+            return "mutating"
+        command = [Path(command[0]).name, *command[1:]]
     runner_kind = test_runner_kind(command)
     if runner_kind is not None:
         return runner_kind

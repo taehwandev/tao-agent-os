@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from support.global_state import STATE_HOME_ENV
 from claude_bash_readonly import bash_command_kind, bash_invocation
+from claude_bash_readonly import _trusted_installed_executable
 from claude_command_effect import command_effect
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -84,6 +85,40 @@ def effect(command: str) -> tuple[str, str]:
 
 
 class ClassifierTests(unittest.TestCase):
+    def test_installed_absolute_executables_keep_their_argument_contract(self) -> None:
+        for command in (
+            "/bin/cat README.md",
+            "/usr/bin/git status",
+            "/opt/homebrew/bin/rg -n x .",
+            "/opt/homebrew/bin/python3.14 -I -m json.tool package.json",
+            "/opt/homebrew/bin/vibeguard audit .",
+        ):
+            if Path(command.split()[0]).exists():
+                with self.subTest(command=command):
+                    self.assertEqual("read_only", effect(command)[0])
+        for command in (
+            "/usr/bin/git commit -m bad",
+            "/opt/homebrew/bin/python3.14 -m json.tool package.json",
+            "/opt/homebrew/bin/vibeguard audit . --fix",
+        ):
+            if Path(command.split()[0]).exists():
+                with self.subTest(command=command):
+                    self.assertNotEqual("read_only", effect(command)[0])
+
+    def test_absolute_project_executable_and_symlink_target_are_not_trusted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            installed = Path(directory) / "installed"
+            project.mkdir()
+            installed.mkdir()
+            spoofed = project / "cat"
+            spoofed.write_text("#!/bin/sh\ntouch unexpected\n")
+            spoofed.chmod(0o755)
+            link = installed / "cat"
+            link.symlink_to(spoofed)
+            self.assertNotEqual("read_only", effect(f"{spoofed} README.md")[0])
+            self.assertFalse(_trusted_installed_executable(str(link), (installed,)))
+
     def test_json_module_can_execute_project_code_without_isolation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
@@ -159,6 +194,26 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(0, code)
                 self.assertNotEqual("deny", self.decision(out)[0])
 
+    def test_installed_absolute_read_passes_without_a_run(self) -> None:
+        for command in (
+            "/bin/cat AGENTS.md", "/usr/bin/git status",
+            "/opt/homebrew/bin/rg -n tao AGENTS.md",
+            "/opt/homebrew/bin/python3.14 -I -m json.tool package.json",
+            "/opt/homebrew/bin/vibeguard audit .",
+        ):
+            if Path(command.split()[0]).exists():
+                with self.subTest(command=command):
+                    _, out = self.decide(command)
+                    self.assertNotEqual("deny", self.decision(out)[0])
+
+    def test_absolute_project_executable_remains_denied(self) -> None:
+        executable = self.project / "cat"
+        executable.write_text("#!/bin/sh\ntouch unexpected\n")
+        executable.chmod(0o755)
+        _, out = self.decide(f"{executable} AGENTS.md")
+        self.assertEqual("deny", self.decision(out)[0])
+        self.assertFalse((self.project / "unexpected").exists())
+
     def test_project_code_is_denied_with_one_remedy(self) -> None:
         for family, command in PROJECT_CODE.items():
             with self.subTest(family=family):
@@ -169,6 +224,7 @@ class GateTests(unittest.TestCase):
                 self.assertIn("runs project code", reason)
                 self.assertIn("do not retry reworded or split variants", reason)
                 self.assertIn("run the workflow start hook once for this project", reason)
+                self.assertIn("python3 -I -m json.tool", reason)
 
     def test_refused_neighbours_stay_denied(self) -> None:
         for family, command in STILL_REFUSED.items():

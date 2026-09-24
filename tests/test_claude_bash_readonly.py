@@ -997,10 +997,14 @@ class AskingGitHubIsInspectionTests(unittest.TestCase):
                 self.assertEqual("mutating", gh_command_kind(command.split()))
 
     def test_it_is_reached_through_the_command_classifier(self) -> None:
-        # An arbitrary executable path cannot inherit the gh read allowance.
+        # An installed absolute gh keeps the same argument contract; a path
+        # unavailable on another machine cannot inherit the allowance.
         self.assertEqual("read_only", bash_readonly.bash_command_kind(
             ["gh", "pr", "view", "75"], True))
-        self.assertEqual("mutating", bash_readonly.bash_command_kind(
+        installed_gh = Path("/opt/homebrew/bin/gh")
+        expected = ("read_only" if bash_readonly._trusted_installed_executable(str(installed_gh))
+                    else "mutating")
+        self.assertEqual(expected, bash_readonly.bash_command_kind(
             ["/opt/homebrew/bin/gh", "run", "list"], True))
         self.assertEqual("mutating", bash_readonly.bash_command_kind(
             ["gh", "pr", "merge", "75", "--squash"], True))

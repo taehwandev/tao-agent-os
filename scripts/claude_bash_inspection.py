@@ -37,7 +37,7 @@ def _operands_only(arguments: list[str]) -> bool:
 
 
 def interpreter_probe_kind(command: list[str]) -> str | None:
-    """Read-only for a version probe, `node --check`, or `python -m json.tool`."""
+    """Read-only for a version probe, `node --check`, or `python -I -m json.tool`."""
 
     if command[0] != Path(command[0]).name:
         return None
