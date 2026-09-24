@@ -11,7 +11,7 @@ import stat
 import sys
 from pathlib import Path
 
-from claude_bash_git import git_command_kind
+from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
 from claude_local_context_commands import local_context_kind, spill_label_kind
@@ -871,6 +871,19 @@ INSTALLER_READ_ONLY_VALUE_OPTIONS = frozenset({"--target"})
 # one whose stated remedy could not be followed, because every spelling of the
 # command has to say where the rules live.
 RULES_READ_ONLY_VALUE_OPTIONS = frozenset({"--rules"})
+# Prose a lifecycle hook records, never a place it writes. A `--request` quoting
+# the user, or review evidence naming the checkout it read, put that checkout
+# in the verdict for a run bound to a different `--project`. `--evidence` is a
+# path and is not prose, so the evidence pattern requires a prefix word.
+LIFECYCLE_PROSE_OPTIONS = frozenset(
+    {"--request", "--target-summary", "--continuation-scope", "--intent"}
+)
+PROSE_EVIDENCE_OPTION_RE = re.compile(r"--[a-z][a-z-]*-evidence")
+# A commit or tag message is text Git stores; it names no file. Reading
+# `\$TAO_HOME` in a keyflow-cli commit message as a path put the Tao checkout
+# in the refusal of a commit into keyflow-cli.
+MESSAGE_SUBCOMMANDS = frozenset({"commit", "tag"})
+MESSAGE_OPTIONS = frozenset({"-m", "--message"})
 
 
 def read_only_path_token_indices(tokens: list[str]) -> frozenset[int]:
@@ -920,8 +933,34 @@ def _declared_read_indices(tokens: list[str], offset: int) -> list[int]:
     if _is_installer_without_writes(tokens):
         return _option_value_indices(tokens, offset, INSTALLER_READ_ONLY_VALUE_OPTIONS)
     if _is_lifecycle_hook_invocation(tokens):
-        return _option_value_indices(tokens, offset, RULES_READ_ONLY_VALUE_OPTIONS)
+        return _option_value_indices(
+            tokens,
+            offset,
+            RULES_READ_ONLY_VALUE_OPTIONS | LIFECYCLE_PROSE_OPTIONS
+            | {token.partition("=")[0] for token in tokens
+               if PROSE_EVIDENCE_OPTION_RE.fullmatch(token.partition("=")[0])},
+        )
+    if Path(tokens[0]).name == "git" and git_subcommand(tokens)[0] in MESSAGE_SUBCOMMANDS:
+        return _message_value_indices(tokens, offset)
     return []
+
+
+def _message_value_indices(tokens: list[str], offset: int) -> list[int]:
+    """Where a commit or tag message is written, in any of its spellings.
+
+    Unlike `_option_value_indices`, a message may begin with `-`, so the word
+    after `-m` is claimed whatever it looks like: Git takes it as the message.
+    """
+
+    found: list[int] = []
+    for index, token in enumerate(tokens):
+        if token in MESSAGE_OPTIONS and index + 1 < len(tokens):
+            found.append(offset + index + 1)
+        elif token.startswith("--message=") or (
+            token.startswith("-m") and len(token) > 2 and not token.startswith("--")
+        ):
+            found.append(offset + index)
+    return found
 
 
 def _option_value_indices(

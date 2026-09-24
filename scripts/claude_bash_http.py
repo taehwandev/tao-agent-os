@@ -22,9 +22,9 @@ def curl_effect(args: list[str]) -> tuple[str, str]:
              "--no-progress-meter", "--globoff", "--get"}
     values = {"--header", "--user", "--connect-timeout", "--max-time",
               "--retry", "--retry-delay", "--retry-max-time", "--user-agent",
-              "--cacert", "--capath", "--proxy", "--noproxy"}
+              "--cacert", "--capath", "--proxy", "--noproxy", "--write-out"}
     short_flags = set("sSfLIgG46")
-    short_values = {"H", "u", "A", "m", "x"}
+    short_values = {"H", "u", "A", "m", "x", "w"}
     writes = {"--upload-file", "--form", "--form-string", "--remote-name",
               "--remote-name-all", "--dump-header", "--trace", "--trace-ascii",
               "--cookie-jar", "--alt-svc", "--hsts", "--libcurl"}
@@ -70,7 +70,9 @@ def curl_effect(args: list[str]) -> tuple[str, str]:
                         return "unknown", "curl option is missing its value"
                     value = args[index]
                     index += 1
-                option = {"X": "--request", "o": "--output"}.get(flag, "--value")
+                option = {"X": "--request", "o": "--output", "w": "--write-out"}.get(
+                    flag, "--value"
+                )
                 effect = _value_effect(option, value, urls)
                 if effect != "read_only":
                     return effect, "curl method or output destination is not a verified read"
@@ -90,7 +92,12 @@ def _value_effect(option: str, value: str, urls: list[str]) -> str:
             return "read_only"
         return "mutating" if value in {"POST", "PUT", "PATCH", "DELETE"} else "unknown"
     if option == "--output":
-        return "read_only" if value == "-" else "mutating"
+        # stdout, or the discard sink a probe sends the body to while it prints
+        # only a status line. A scratch target reaches here as the sink too.
+        return "read_only" if value in {"-", "/dev/null"} else "mutating"
+    if option == "--write-out":
+        # The format prints to stdout, except `%output{file}`, which writes.
+        return "mutating" if "%output{" in value else "read_only"
     if option == "--url":
         urls.append(value)
     return "read_only"

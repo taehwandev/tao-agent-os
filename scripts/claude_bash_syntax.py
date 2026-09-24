@@ -10,8 +10,10 @@ splitter together is what lets that vocabulary be audited on its own.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
+import tempfile
 from pathlib import Path
 
 
@@ -152,7 +154,13 @@ def single_quote_masked(command: str) -> str:
         char = command[index]
         if quote != "'" and char == "\\" and index + 1 < len(command):
             # The escaped character is literal, so it can neither open nor
-            # close a quoted region. Both characters are left as they are.
+            # close a quoted region, and an escaped backquote or `$` starts no
+            # substitution: `grep "\`x\`"` searches for backquotes. Reading it
+            # as one made a chained start unreadable, and the raw-text fallback
+            # then named the `--rules` checkout as its write target. The
+            # escaped character is masked; a newline keeps its line break.
+            if command[index + 1] != "\n":
+                masked[index + 1] = "x"
             index += 2
             continue
         if quote == "'":
@@ -205,6 +213,129 @@ def mask_substitutions(command: str) -> str:
     """Replace each substitution with a placeholder that names no path."""
 
     return SUBSTITUTION_RE.sub(SUBSTITUTION_PLACEHOLDER, command)
+
+
+# Where a session parks its own output: the OS temp directory, which holds the
+# Claude session scratchpad. A write there lands in no governed project, so
+# reading `grep ... > <scratch>/x` as a project write asked for a workflow start
+# that governs nothing the command touches.
+SCRATCH_ROOTS = ("/tmp", "/private/tmp", "/var/folders", "/private/var/folders")
+# A directory holding any of these is a project, wherever it lives. Test
+# fixtures and throwaway clones sit under the temp directory too, and a write
+# into one of them is a project write like any other.
+PROJECT_MARKERS = (".git", "AGENTS.md", "CLAUDE.md", ".agents")
+# Text the shell would still expand; its target cannot be claimed.
+UNRESOLVED_PATH_CHARS = frozenset("$`*?[{~")
+# `cd` changes what a relative target means partway through a line.
+DIRECTORY_CHANGERS = frozenset({"cd", "pushd", "popd"})
+# Output-file options of curl, whose value is where it writes the body.
+CURL_OUTPUT_OPTIONS = frozenset({"-o", "--output"})
+CURL_OUTPUT_CLUSTER_RE = re.compile(r"-[sSfLIgG46]*o")
+DISCARD_TARGET = "/dev/null"
+
+
+def _scratch_roots() -> list[Path]:
+    roots = [*SCRATCH_ROOTS, os.environ.get("TMPDIR", ""), tempfile.gettempdir()]
+    resolved: list[Path] = []
+    for raw in roots:
+        if not raw:
+            continue
+        try:
+            root = Path(raw).resolve()
+        except (OSError, RuntimeError):
+            continue
+        if root != Path(root.anchor) and root not in resolved:
+            resolved.append(root)
+    return resolved
+
+
+def scratch_write_target(raw: str, cwd: "Path | None") -> bool:
+    """Whether a write to `raw` provably lands outside every project.
+
+    The target is resolved the way the kernel will open it -- `..` collapsed and
+    every existing symlink followed -- so an escape or a link back into a
+    project resolves to that project and stays a write. Only a location strictly
+    inside the temp directory, with no project marker between it and that
+    directory, qualifies. A relative target needs the directory it is relative
+    to; without one it is not claimed.
+    """
+
+    if not raw or set(raw) & UNRESOLVED_PATH_CHARS:
+        return False
+    path = Path(raw)
+    if not path.is_absolute():
+        if cwd is None:
+            return False
+        path = cwd / path
+    try:
+        resolved = path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return False
+    for root in _scratch_roots():
+        if resolved == root or not resolved.is_relative_to(root):
+            continue
+        ancestors = [resolved, *resolved.parents]
+        inside = ancestors[: ancestors.index(root)]
+        return not any(
+            (directory / marker).exists()
+            for directory in inside
+            for marker in PROJECT_MARKERS
+        )
+    return False
+
+
+def discard_scratch_writes(tokens: list[str], cwd: "Path | None") -> list[str]:
+    """Read each output that provably lands in scratch as the discard sink.
+
+    The discard sink is already modelled everywhere a write is: a redirect to
+    it drops out of the segment, and it names no project. A command whose
+    output goes to scratch is therefore judged by what it does itself -- `npm
+    test > <scratch>/log` stays `npm test`, and `grep > <scratch>/x` becomes the
+    read it is. Nothing else is rewritten, and a target that is not proven to
+    be scratch is left exactly as written.
+    """
+
+    if cwd is not None and DIRECTORY_CHANGERS & set(tokens):
+        cwd = None
+    output: list[str] = []
+    program = ""
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if token in {">", ">>"} and scratch_write_target(following, cwd):
+            output.extend((token, DISCARD_TARGET))
+            index += 2
+            continue
+        if token in {"&>", "&>>"} and scratch_write_target(following, cwd):
+            output.extend((">", DISCARD_TARGET, "2", ">&", "1"))
+            index += 2
+            continue
+        if token in SHELL_PUNCTUATION:
+            program = ""
+            output.append(token)
+            index += 1
+            continue
+        if not program:
+            program = Path(token).name
+        elif program == "curl":
+            name, equals, value = token.partition("=")
+            if name == "--output" and equals and scratch_write_target(value, cwd):
+                output.append(f"--output={DISCARD_TARGET}")
+                index += 1
+                continue
+            if (
+                token in CURL_OUTPUT_OPTIONS
+                # A cluster of value-less flags ending in `-o`, as in `-so`;
+                # `-Xo` is `-X o` and is left alone.
+                or CURL_OUTPUT_CLUSTER_RE.fullmatch(token)
+            ) and scratch_write_target(following, cwd):
+                output.extend((token, DISCARD_TARGET))
+                index += 2
+                continue
+        output.append(token)
+        index += 1
+    return output
 
 
 def bash_command(payload: dict) -> str:
@@ -273,6 +404,14 @@ def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
         tokens = list(lexer)
     except ValueError:
         return cwd, [], False
+    # A relative target is claimed only against a directory the line itself
+    # names with a leading `cd <dir> &&`. The hook's reported cwd is not used
+    # for it: an unmarked directory there is weaker evidence than a named one.
+    prefixed = len(tokens) > 3 and tokens[0] == "cd" and tokens[2] == "&&"
+    if prefixed:
+        tokens = tokens[:3] + discard_scratch_writes(tokens[3:], _cd_target(tokens[1], cwd))
+    else:
+        tokens = discard_scratch_writes(tokens, None)
     punctuation = [index for index, token in enumerate(tokens) if token in SHELL_PUNCTUATION]
     if not punctuation:
         return cwd, tokens, True
@@ -281,17 +420,22 @@ def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
     # to be punctuation-free here meant a session working inside a linked
     # worktree still had every compound command judged against the session cwd,
     # which is the checkout the session was launched from.
-    if punctuation[0] == 2 and len(tokens) > 3 and tokens[0] == "cd" and tokens[2] == "&&":
-        target = Path(tokens[1]).expanduser()
-        if not target.is_absolute():
-            target = cwd / target
-        try:
-            effective_cwd = target.resolve()
-        except OSError:
-            effective_cwd = target
+    if punctuation[0] == 2 and prefixed:
         rest = tokens[3:]
-        return effective_cwd, rest, not any(token in SHELL_PUNCTUATION for token in rest)
+        return _cd_target(tokens[1], cwd), rest, not any(
+            token in SHELL_PUNCTUATION for token in rest
+        )
     return cwd, tokens, False
+
+
+def _cd_target(raw: str, cwd: Path) -> Path:
+    target = Path(raw).expanduser()
+    if not target.is_absolute():
+        target = cwd / target
+    try:
+        return target.resolve()
+    except OSError:
+        return target
 
 
 def command_segments(tokens: list[str]) -> list[list[str]] | None:
