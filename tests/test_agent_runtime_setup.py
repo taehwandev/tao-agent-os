@@ -442,8 +442,8 @@ class RuntimeSetupTests(unittest.TestCase):
 
         for required in ("--intent", "--target-summary", "--approved-effect", "--continuation-scope"):
             self.assertIn(required, RUNTIME_START_BRIDGE_PHRASE)
-        self.assertIn("Do not run fingerprint first", RUNTIME_START_BRIDGE_PHRASE)
-        self.assertIn("compatibility path for integrations", RUNTIME_START_BRIDGE_PHRASE)
+        self.assertIn("do not repeat fingerprint/route/preflight", RUNTIME_START_BRIDGE_PHRASE)
+        self.assertIn("compatibility path for integrations", (ROOT / "common/skills/agent-operating-skill/references/runtime-lifecycle.md").read_text())
         self.assertNotIn("Compute that fingerprint", RUNTIME_START_BRIDGE_PHRASE)
         self.assertNotIn("build the envelope from the full conversation", RUNTIME_START_BRIDGE_PHRASE)
         self.assertNotIn("let the classifier decide", RUNTIME_START_BRIDGE_PHRASE)
@@ -462,12 +462,14 @@ class RuntimeSetupTests(unittest.TestCase):
         for surface in surfaces:
             self.assertIn(LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE, surface)
         self.assertIn("Do not ask for room or task ids", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
-        self.assertIn("only this runtime's messages in the repository", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
-        self.assertIn("no start, task worktree or handoff is needed", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
-        self.assertIn("consumed once", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
-        self.assertIn("never invokes a provider CLI or API", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
-        self.assertIn("never creates a daemon, watcher, polling loop", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
-        self.assertIn("next normal prompt", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        detail = (ROOT / "common/skills/agent-operating-skill/references/runtime-collaboration.md").read_text()
+        self.assertIn("runtime-collaboration.md", LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE)
+        self.assertIn("only this runtime's messages in the repository", detail)
+        self.assertIn("no start, task worktree or handoff is needed", detail)
+        self.assertIn("consumed once", detail)
+        self.assertIn("never invokes a provider CLI or API", detail)
+        self.assertIn("never creates a daemon, watcher, polling loop", detail)
+        self.assertIn("next normal prompt", detail)
 
     def test_setup_hook_runtime_selection_is_scoped(self) -> None:
         from support.setup_agent_hooks_impl import _runtime_selected

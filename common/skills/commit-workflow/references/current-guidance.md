@@ -101,6 +101,12 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   or independently read-only. Never replace a blocked Git push with a provider
   REST write; preserve the local commit identity and repair the failed contract;
   and
+- for an already authorized rebase of finished work in a clean task worktree,
+  run `git rebase --no-update-refs --no-autostash --no-autosquash <upstream>`
+  alone. This reuses current Git authority, not verification of new inputs.
+  Unchanged resulting inputs preserve the finish receipt; changed inputs or
+  conflicts require continuation with affected checks and current review.
+  Do not chain rebase with commit/push or enable updates to other branches;
 - if a check blocks publication, distinguish a task-caused defect from
   pre-existing debt or an execution/access failure before choosing recovery.
   A failed check and a work route are not source-change authority. Do not

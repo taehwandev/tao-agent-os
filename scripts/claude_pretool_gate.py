@@ -301,8 +301,8 @@ ORDINARY_GIT_SUBCOMMANDS = frozenset(
 )
 # The steps the lifecycle names after finish: "before final report, commit,
 # release, or handoff". Deliberately not the ordinary-Git set, which also holds
-# `clean`, `reset`, `rm` and `rebase` -- a settled run may publish the diff it
-# attested, never rewrite or destroy the tree it attested.
+# `clean`, `reset`, `rm` and unrestricted `rebase`. The separate bounded rebase
+# path admits local Git work, then checks resulting inputs before publication.
 PUBLICATION_GIT_SUBCOMMANDS = frozenset({"add", "commit", "push", "tag"})
 # The only options a fast-forward integration of an attested worktree may
 # carry. `--ff-only` is what makes it a reference move rather than a merge;
@@ -1299,6 +1299,18 @@ def publishes_finished_work(
     # and the reached-into-project check -- inherits one answer.
     if Path(command[0]).name == "git" and git_subcommand(command)[0] == "merge":
         return integrates_finished_worktree(root, session_id, command, cwd)
+    if Path(command[0]).name == "git" and git_subcommand(command)[0] == "rebase":
+        from agent_rebase_admission import rebase_continuation_shape
+
+        # Only the ordinary invocation: no -c, alternate worktree or git-dir.
+        if command != tokens or command[:2] != ["git", "rebase"] or not rebase_continuation_shape(
+            root, command[2:], set(protected_branch_names(root) or {"main", "master", "develop"}),
+        ):
+            return False
+        evidence = finished_session_evidence(root, session_id)
+        from agent_publication_admission import PublicationAdmission
+
+        return finished_evidence_is_fresh(evidence) and PublicationAdmission.allows(root, evidence, "git_write")
     effect = _publication_effect(root, command, cwd or root)
     if not effect:
         return False
@@ -1387,6 +1399,10 @@ def publishes_finished_command(
     # A completed run does not grant new filesystem writes via shell redirects.
     segments = _command_segments(command, reject_redirections=True)
     if not segments:
+        return False
+    # A rebase may change the attested bytes. Never pre-authorize a following
+    # push/commit using the receipt captured before that rebase executes.
+    if len(segments) != 1 and any(git_subcommand(segment)[0] == "rebase" for segment in segments):
         return False
     published = False
     for segment in segments:

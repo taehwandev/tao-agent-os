@@ -625,6 +625,21 @@ class SupersededSessionRunTests(unittest.TestCase):
             self.assertEqual([], settled)
             self.assertEqual("running", self._states(fixture.project)[fixture.run_id])
 
+    def test_interleaved_sessions_resolve_their_own_run_after_peer_finishes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="first")
+            second = self._extra_run(fixture, session_id="second")
+            paths = {
+                "first": fixture.evidence,
+                "second": fixture.project / ".tao" / "runs" / second / "preflight.json",
+            }
+            for name in ("first", "second", "first", "second"):
+                self.assertEqual(paths[name].resolve(), resolve_runtime_evidence(
+                    fixture.project, {"runtime": "claude", "session_id": name}))
+            agent_run_registry.transition_run(fixture.project, paths["second"], "completed")
+            self.assertEqual(paths["first"].resolve(), resolve_runtime_evidence(
+                fixture.project, {"runtime": "claude", "session_id": "first"}))
+
     def test_run_completed_after_selection_is_not_overwritten_or_reported(self) -> None:
         """A concurrent finish wins over the later supersession attempt."""
 

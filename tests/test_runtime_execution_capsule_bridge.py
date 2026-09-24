@@ -50,7 +50,22 @@ def _surface_text(path: Path) -> str:
         for sibling in sorted(path.parent.glob("*.md"))
     )
 
+def _runtime_detail(topic: str) -> str:
+    return (ROOT / f"common/skills/agent-operating-skill/references/runtime-{topic}.md").read_text()
+
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
+    def test_compact_bridge_routes_details_without_a_blanket_read(self):
+        for runtime, entry in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
+            block = runtime_bridge_block(Path("/tao"), runtime, entry)
+            self.assertLess(len(block.encode()), 6000)
+            self.assertIn("For unresolved lifecycle arguments", block)
+            self.assertIn("When delegation is applicable", block)
+            for relative in set(re.findall(r"common/skills/[\w/.-]+\.md", block)):
+                self.assertTrue((ROOT / relative).is_file(), relative)
+            self.assertNotIn("fallback worker evidence path and opaque reservation token", block)
+            self.assertIn("fallback worker evidence path and opaque reservation token", _runtime_detail("collaboration"))
+        self.assertIn("Before interruption/retry", runtime_bridge_block(Path("/tao"), "Codex", "AGENTS.md"))
+
     def test_codex_bridge_refresh_teaches_explicit_worktree_target_without_permission_bypass(self):
         current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
         lines = [line for line in current.splitlines() if "exec_command.workdir" in line]
@@ -82,7 +97,7 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
                               RUNTIME_LOOKUP_BRIDGE_PHRASE)
                 self.assertIn("does not authorize edits", RUNTIME_LOOKUP_BRIDGE_PHRASE)
                 self.assertIn("neither outcome is completion or commit readiness",
-                              RUNTIME_LOOKUP_BRIDGE_PHRASE)
+                              _runtime_detail("lifecycle"))
 
     def test_codex_bridge_requires_observed_permission_evidence(self) -> None:
         phrase = CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE
@@ -193,7 +208,7 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
             ("Antigravity", "AGENTS.md"),
         ):
             with self.subTest(runtime=runtime_name):
-                block = runtime_bridge_block(ROOT, runtime_name, instruction_file)
+                block = runtime_bridge_block(ROOT, runtime_name, instruction_file) + _runtime_detail("lifecycle")
                 introducing = [
                     sentence
                     for sentence in re.split(r"(?<=[.;])\s+", block)
@@ -287,7 +302,7 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
             "never automatically retry a non-idempotent external write",
         ):
             with self.subTest(boundary=required_boundary):
-                self.assertIn(required_boundary, CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
+                self.assertIn(required_boundary, _runtime_detail("recovery"))
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, claude_block)
         self.assertNotIn(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE, agy_block)
 
@@ -302,7 +317,7 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
             "Local writes still require confirmed termination and effect reconciliation before retry",
         ):
             with self.subTest(clause=clause):
-                self.assertIn(clause, block)
+                self.assertIn(clause, _runtime_detail("recovery"))
         guidance = (ROOT / "common/skills/tool-failure-recovery/references/current-guidance.md").read_text()
         self.assertIn("not confirmed cancellation", guidance)
         self.assertIn("never automatically retry a non-idempotent external", guidance)

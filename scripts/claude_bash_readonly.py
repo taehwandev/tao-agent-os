@@ -14,7 +14,7 @@ from pathlib import Path
 from claude_bash_git import git_command_kind
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
-from claude_local_context_commands import local_context_kind
+from claude_local_context_commands import local_context_kind, spill_label_kind
 from claude_bash_syntax import (
     ENV_ASSIGNMENT_RE,
     ENV_IDENTITY_ONLY_FLAGS,
@@ -206,6 +206,12 @@ def strip_env_assignments(tokens: list[str]) -> list[str] | None:
 
 
 def runtime_control_kind(tokens: list[str]) -> str | None:
+    if tokens and (tokens[0] == "node" or (
+        Path(tokens[0]).name == "node" and _trusted_installed_executable(tokens[0])
+    )):
+        label_kind = spill_label_kind(tokens[1:])
+        if label_kind:
+            return label_kind
     # -B only disables bytecode writes; never strip -c, -m or arbitrary options.
     if tokens and _python_interpreter(tokens[0]):
         while len(tokens) > 1 and tokens[1] == "-B":

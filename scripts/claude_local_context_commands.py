@@ -2,6 +2,41 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import re
+
+
+def spill_label_kind(arguments: list[str]) -> str | None:
+    """The installed helper's label-only mode writes local context, not a project."""
+    expected = Path.home() / "Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
+    if not arguments:
+        return None
+    try:
+        if not expected.is_file() or Path(arguments[0]).expanduser().resolve() != expected.resolve():
+            return None
+    except (OSError, RuntimeError):
+        return None
+    values: dict[str, str] = {}
+    index = 1
+    while index < len(arguments):
+        flag = arguments[index]
+        if flag in values:
+            return None
+        if flag == "--if-absent":
+            values[flag] = "true"
+        elif flag in {"--label", "--task-type", "--stage"} and index + 1 < len(arguments):
+            index += 1
+            values[flag] = arguments[index]
+        else:
+            return None
+        index += 1
+    if values.get("--label") not in {"codex", "claude", "antigravity", "agy", "openai"}:
+        return None
+    if not all(re.fullmatch(r"[a-z][a-z0-9_]{1,40}", values.get(key, ""))
+               for key in ("--task-type", "--stage")):
+        return None
+    return "runtime_control"
+
 
 def local_context_kind(alias: str, arguments: list[str]) -> str | None:
     """Called only after the executable's canonical identity has been checked.

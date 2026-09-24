@@ -85,6 +85,32 @@ class WorkContinuityTests(unittest.TestCase):
         self.assertIn("Local gate not carried: tests; missing, stale or incompatible evidence; revalidate this gate.", details)
         self.assertFalse(any("not carried: config" in line for line in details))
 
+    def test_rebase_reuses_only_unchanged_inputs_and_preserves_work_identity(self):
+        self.git(self.project, "branch", "upstream")
+        self.git(self.project, "switch", "-qc", "task")
+        (self.project / "task.txt").write_text("tested task")
+        self.git(self.project, "add", "task.txt")
+        self.git(self.project, "commit", "-qm", "task")
+        self.scoped_test([])
+        self.git(self.project, "switch", "upstream")
+        self.git(self.project, "commit", "--allow-empty", "-qm", "metadata only")
+        self.git(self.project, "switch", "task")
+        self.git(self.project, "rebase", "upstream")
+        self.continuation().apply(self.target.evidence)
+        self.assertIn("tests", self.passed())
+        self.assertEqual(self.source_id, json.loads(self.target.evidence.read_text())["work"]["id"])
+        self.assertNotIn("review hook", self.passed())
+
+        gate_evidence_path_for_preflight(self.target.evidence).unlink()
+        self.git(self.project, "switch", "upstream")
+        (self.project / "README.md").write_text("new upstream contract")
+        self.git(self.project, "add", "README.md")
+        self.git(self.project, "commit", "-qm", "changed dependency")
+        self.git(self.project, "switch", "task")
+        self.git(self.project, "rebase", "upstream")
+        self.continuation().apply(self.target.evidence)
+        self.assertNotIn("tests", self.passed())
+
     def test_inheritance_io_failure_is_visible_without_exception_payload(self):
         self.record_source()
         with patch("agent_work_continuity._nearest_record", side_effect=OSError("private payload")):
