@@ -137,6 +137,42 @@ class WorkflowStartDenialTests(unittest.TestCase):
     def test_a_start_bound_to_a_linked_worktree_is_allowed(self) -> None:
         self.assertEqual("", self._verdict(self._start(self.worktree)))
 
+    def _main_start(self, route: str, *extra: str) -> str:
+        return (
+            f"{self.launcher} start --project {self.main} --rules {self.main} "
+            f"--command {route} --request 'REQUEST' --intent review_only "
+            f"--target-summary 'TARGET' {' '.join(extra)}"
+        ).strip()
+
+    def test_a_read_only_review_lifecycle_runs_in_the_protected_checkout(self) -> None:
+        """A read-only review writes only its own run evidence, so sending it
+        to a throwaway worktree was procedure without a boundary."""
+
+        for command in (
+            self._main_start("review"),
+            self._main_start("analysis"),
+            self._main_start("review", "--read-only"),
+            self._main_start("docs", "--read-only"),
+            self._main_start("review", "--requested-effect", "read"),
+            f"{self.launcher} review --project {self.main} --rules {self.main} "
+            "--review-outcome findings",
+            f"{self.launcher} finish --project {self.main} --rules {self.main}",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("", self._verdict(command))
+
+    def test_a_writable_start_in_the_protected_checkout_stays_refused(self) -> None:
+        for command in (
+            self._main_start("bugfix"),
+            self._main_start("review", "--approved-effect", "git_write"),
+            self._main_start("review", "--requested-effect", "local_write"),
+            self._main_start("review", "--command", "bugfix"),
+        ):
+            with self.subTest(command=command):
+                self.assertIn(
+                    "would bind its run to the protected checkout", self._verdict(command)
+                )
+
     def test_a_chained_start_is_told_to_unchain_it(self) -> None:
         """Observed as the worktree remedy, which is advice about a different
         problem than the semicolon that caused the refusal."""

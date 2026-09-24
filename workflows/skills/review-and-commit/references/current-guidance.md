@@ -145,8 +145,10 @@ context; do not rediscover development guidance just because a diff exists.
    deletion threshold applies. This also applies to the lightweight `commit`
    route after an implementation lifecycle has already finished.
    The `review hook` gate is hook-owned. Generic `gate` and `gate-batch`
-   commands must reject it even when the caller supplies `source=review`,
-   because a caller-provided source label is not execution provenance. A
+   commands accept and drop it, never writing it, even when the caller supplies
+   `source=review`, because a caller-provided source label is not execution
+   provenance. On a route with `commit readiness`, finish derives that gate
+   from a current review attestation; changed bytes leave it missing. A
    successful `tao-hook review` writes a run-local review attestation and binds
    the ledger entry to that attestation's current run, preflight hash, route
    fingerprint, full worktree fingerprint, exact review pathspec or commit
@@ -259,7 +261,9 @@ context; do not rediscover development guidance just because a diff exists.
    explicitly scoped task; the attestation preserves that exact scope rather
    than silently upgrading it to a working-tree review.
    Use `--review-outcome findings` only when unresolved findings intentionally
-   keep the checkpoint failed. When the hook reports structure pressure, record
+   keep the checkpoint failed. On a read-only run (read-floor route or
+   `--read-only`) findings are the result: review records them and finish
+   closes and reports them, with no repair cycle. When the hook reports structure pressure, record
    whether the diff increased the unit size or added a responsibility; do not
    omit `--structure-review-evidence` merely because the pressure was
    pre-existing.

@@ -96,11 +96,17 @@ def gate_hook(args: argparse.Namespace) -> int:
     return finish_with_result(
         "gate",
         True,
-        [f"gate evidence recorded: {entry['gate']}"],
+        [f"gate evidence recorded: {entry['gate']}" if entry else _IGNORED_HOOK_OWNED],
         args.output,
         {"gate_evidence": entry},
         args.repair_cycle,
     )
+
+
+_IGNORED_HOOK_OWNED = (
+    "review hook record ignored: the review hook records its own gate; "
+    "no separate record is needed"
+)
 
 
 def gate_batch_hook(args: argparse.Namespace) -> int:
@@ -123,6 +129,8 @@ def gate_batch_hook(args: argparse.Namespace) -> int:
     except OSError as error:
         return _gate_failure(args, "gate-batch", error, invocation_error=False)
     details = [f"{len(entries)} gate evidence entries recorded"]
+    if getattr(args, "ignored_hook_owned_gates", 0):
+        details.append(_IGNORED_HOOK_OWNED)
     details.extend(f"recorded gate: {entry['gate']}" for entry in entries[:8])
     if len(entries) > 8:
         details.append(f"recorded gates truncated: {len(entries) - 8} more")
@@ -197,7 +205,8 @@ def record_hook_gate(
         "status": status,
         "source": source,
     }
-    return record_hook_gate_batch(args, [record])[0]
+    entries = record_hook_gate_batch(args, [record])
+    return entries[0] if entries else {}
 
 
 def record_hook_gate_batch(
@@ -206,7 +215,13 @@ def record_hook_gate_batch(
 ) -> list[dict[str, Any]]:
     evidence_path = preflight_evidence_path(args)
     preflight = json.loads(evidence_path.read_text(encoding="utf-8"))
-    records = GateEvidenceReuse(preflight).prepare(records)
+    # The review hook records its own gate. A manual copy is accepted and
+    # dropped, so it can neither fail the call nor override the attestation.
+    kept = [record for record in records if str(record.get("gate") or "").strip() not in HOOK_OWNED_GATES]
+    args.ignored_hook_owned_gates = len(records) - len(kept)
+    if not kept:
+        return []
+    records = GateEvidenceReuse(preflight).prepare(kept)
     _validate_records_before_write(args, preflight, records)
     return record_many_gate_evidence(
         evidence_path=evidence_path,
@@ -378,12 +393,6 @@ def _validate_records_before_write(
 
     for record in records:
         gate = str(record.get("gate") or "").strip()
-        if gate in HOOK_OWNED_GATES:
-            failures.append(
-                f"{gate} is hook-owned; run tao-hook review instead of "
-                "recording it through gate or gate-batch"
-            )
-            continue
         if str(record.get("status") or "SUCCESS") != "SUCCESS":
             continue
         evidence = str(record.get("evidence") or "")

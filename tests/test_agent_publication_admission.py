@@ -280,6 +280,42 @@ class PublicationAdmissionTests(unittest.TestCase):
             (self.root / 'source').write_text('unreviewed')
             self.assertFalse(gate.publishes_finished_work(self.root, 'session', ['git', 'push']))
 
+    def test_admission_freshness_keys_on_the_finish_not_the_start(self):
+        """Observed in DTP: a run started days earlier and finished just now had
+        its commit refused as stale, forcing a second commit lifecycle."""
+        import os
+        import time
+
+        self.finish('git_write')
+        two_days_ago = time.time() - 2 * 86400
+        os.utime(self.evidence, (two_days_ago, two_days_ago))
+        commit = ['git', 'commit', '-m', 'done']
+        with patch.object(gate, 'finished_session_evidence', return_value=self.evidence):
+            self.assertTrue(gate.publishes_finished_work(self.root, 'session', commit))
+            receipt = self.evidence.with_name('publication.json')
+            os.utime(receipt, (two_days_ago, two_days_ago))
+            self.assertFalse(gate.publishes_finished_work(self.root, 'session', commit))
+
+    def test_registry_completion_time_is_the_finish_time_without_a_receipt(self):
+        import os
+        import time
+        from datetime import datetime, timedelta, timezone
+
+        evidence = self.root / '.tao/runs/finished/preflight.json'
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text('{}')
+        two_days_ago = time.time() - 2 * 86400
+        os.utime(evidence, (two_days_ago, two_days_ago))
+        registry = self.root / '.tao/run-registry.json'
+        for finished, fresh in ((datetime.now(timezone.utc), True),
+                                (datetime.now(timezone.utc) - timedelta(days=2), False)):
+            registry.write_text(json.dumps({'runs': [{
+                'run_id': 'finished', 'state': 'completed',
+                'updated_at': finished.isoformat(),
+            }]}))
+            with self.subTest(fresh=fresh):
+                self.assertEqual(fresh, gate.finished_evidence_is_fresh(evidence))
+
     def test_release_after_commit_needs_no_new_lifecycle(self):
         (self.root / 'source').write_text('reviewed change')
         self.finish()

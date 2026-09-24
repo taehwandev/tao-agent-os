@@ -44,6 +44,7 @@ import re
 import shlex
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 from types import ModuleType
@@ -518,6 +519,32 @@ def evidence_is_fresh(evidence: Path | None) -> bool:
     if mtime is None:
         return False
     return (time.time() - mtime) <= max_age_seconds()
+
+
+def finished_evidence_is_fresh(evidence: Path | None) -> bool:
+    """Post-finish admission is as fresh as its finish, never its start.
+
+    Preflight mtime is the start time, so a long run finished just now read as
+    stale and its commit needed a second lifecycle. The finish time is the
+    publication receipt's write, else the registry's completion time.
+    """
+    if evidence is None:
+        return False
+    finished = evidence_mtime(evidence.with_name("publication.json"))
+    if finished is None:
+        finished = _registry_completion_time(evidence)
+    return finished is not None and (time.time() - finished) <= max_age_seconds()
+
+
+def _registry_completion_time(evidence: Path) -> float | None:
+    try:
+        registry = json.loads((evidence.parents[2] / "run-registry.json").read_text(encoding="utf-8"))
+        for run in registry.get("runs") or []:
+            if run.get("run_id") == evidence.parent.name and run.get("state") == "completed":
+                return datetime.fromisoformat(str(run.get("updated_at"))).timestamp()
+    except (OSError, ValueError, AttributeError, TypeError, IndexError):
+        return None
+    return None
 
 
 def safe_session_id(session_id: str) -> str:
@@ -1172,7 +1199,7 @@ def _holds_exactly_the_finished_commit(
     """
 
     evidence = finished_session_evidence(worktree, session_id)
-    if not evidence_is_fresh(evidence):
+    if not finished_evidence_is_fresh(evidence):
         return False
     from agent_publication_admission import PublicationAdmission
 
@@ -1276,7 +1303,7 @@ def publishes_finished_work(
     if not effect:
         return False
     evidence = finished_session_evidence(root, session_id)
-    if not evidence_is_fresh(evidence):
+    if not finished_evidence_is_fresh(evidence):
         return False
     from agent_publication_admission import PublicationAdmission
 
@@ -1730,13 +1757,13 @@ def _isolated_checkout_verdict(
             and publication_hold(
                 bash_command(payload), root=governed, cwd=effective_cwd or cwd
             )
-            and evidence_is_fresh(finished_session_evidence(governed, session_id))
+            and finished_evidence_is_fresh(finished_session_evidence(governed, session_id))
         ):
             return deny(finished_publication_denial(
                 governed, session_id, bash_command(payload), effective_cwd or cwd),
                 "publication_after_finish_mismatch")
         if unknown_reason:
-            after_finish = evidence_is_fresh(finished_session_evidence(governed, session_id))
+            after_finish = finished_evidence_is_fresh(finished_session_evidence(governed, session_id))
             return deny(unknown_recovery(unknown_reason, after_finish=after_finish)
                         + governed_because(governed, cwd_roots),
                         "unreadable_command_effect")
@@ -2824,21 +2851,44 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     )
 
 
+def _start_option_values(tokens: list[str], option: str) -> list[str]:
+    values = []
+    for index, token in enumerate(tokens):
+        if token == option:
+            values.append(tokens[index + 1] if index + 1 < len(tokens) else "")
+        elif token.startswith(option + "="):
+            values.append(token.partition("=")[2])
+    return values
+
+
 def _administrative_workflow_start(tokens: list[str]) -> bool:
     """Admit lifecycle metadata for Git administration, never a source edit.
 
     The caller already classified the complete command as a workflow start.
     Ambiguous/duplicate route options do not receive this narrow exception.
     """
-    routes = []
-    for index, token in enumerate(tokens):
-        if token == "--command":
-            routes.append(tokens[index + 1] if index + 1 < len(tokens) else "")
-        elif token.startswith("--command="):
-            routes.append(token.partition("=")[2])
+    routes = _start_option_values(tokens, "--command")
     return len(routes) == 1 and routes[0] in {
         "cleanup", "commit", "git_commit", "pr", "pull-request"
     }
+
+
+def _read_only_workflow_start(tokens: list[str]) -> bool:
+    """Admit a whole-run read-only claim: it writes only its own run evidence.
+
+    A read-floor route or an explicit `--read-only` claim, with no declared or
+    approved effect above `read`. The run's own read contract then refuses any
+    project write, so the protected checkout gains no writer.
+    """
+    from workflow_effect_policy import route_minimum_effect
+
+    routes = _start_option_values(tokens, "--command")
+    if len(routes) != 1:
+        return False
+    for option in ("--requested-effect", "--approved-effect"):
+        if any(value != "read" for value in _start_option_values(tokens, option)):
+            return False
+    return "--read-only" in tokens or route_minimum_effect(routes[0]) == "read"
 
 
 def _workflow_start_verdict(
@@ -2862,7 +2912,7 @@ def _workflow_start_verdict(
     target_root = workflow_start_target_root(tokens, effective_cwd)
     if target_root is None:
         return deny(worktree_reason, "workflow_start_worktree") if worktree_reason else allow()
-    if _administrative_workflow_start(tokens):
+    if _administrative_workflow_start(tokens) or _read_only_workflow_start(tokens):
         # Cleanup/publication needs a run in the checkout it administers. The
         # route still validates user authority, and later commands still pass
         # ordinary isolation, effect, and publication-before-finish checks.

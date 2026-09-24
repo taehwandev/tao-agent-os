@@ -172,7 +172,10 @@ def _validate_record_inputs(
     run_id = str(preflight.get("agent_run_id") or "").strip()
     if not run_id:
         raise ValueError("review attestation requires a bound agent run id")
-    if str(checks.get("review_outcome") or "").strip() != "pass":
+    outcome = str(checks.get("review_outcome") or "").strip().lower()
+    # A read-only review's reported findings are its result; the attested
+    # hook checks below still had to pass. Such a run admits no publication.
+    if outcome != "pass" and not (outcome == "findings" and checks.get("reported_findings") is True):
         raise ValueError("review attestation requires review outcome pass")
     if (checks.get("workflow_validate") or {}).get("returncode") != 0:
         raise ValueError("review attestation requires successful workflow validation")

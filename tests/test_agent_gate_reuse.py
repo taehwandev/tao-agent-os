@@ -124,9 +124,11 @@ class GateEvidenceReuseTests(unittest.TestCase):
             record_hook_gate_batch(self.target, [self.reuse()])
 
     def test_authority_review_and_external_gates_are_not_reusable(self):
-        for gate in ("review hook", "config", "request intake", "rollback"):
+        for gate in ("config", "request intake", "rollback"):
             with self.subTest(gate=gate), self.assertRaisesRegex(ValueError, "not allowed"):
                 record_hook_gate_batch(self.target, [self.reuse(gate)])
+        # The hook-owned review gate is dropped before reuse is considered.
+        self.assertEqual([], record_hook_gate_batch(self.target, [self.reuse("review hook")]))
 
     def test_legacy_snapshot_or_stale_ledger_refused(self):
         self.record_source()

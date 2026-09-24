@@ -616,19 +616,24 @@ def _closeout_reuse_lines() -> list[str]:
 def _closeout_gate_lines(gates: list[str]) -> list[str]:
     """Advertise closeout gates that otherwise look like post-finish work."""
 
-    if "handoff" not in gates:
-        return []
-    return [
-        "Closeout gate reminder: record the user-facing handoff gate with gate or "
-        "gate-batch before finish; the worker handoff hook does not satisfy it."
-    ]
+    lines = []
+    if "commit readiness" in gates and "review hook" in gates:
+        lines.append("Commit readiness: finish derives commit readiness from the current "
+                     "review when reviewed bytes are unchanged; record no separate gate.")
+    if "handoff" in gates:
+        lines.append(
+            "Closeout gate reminder: record the user-facing handoff gate with gate or "
+            "gate-batch before finish; the worker handoff hook does not satisfy it."
+        )
+    return lines
 
 
 def _gate_batch_guidance_lines(gates: list[str]) -> list[str]:
     """Keep strong checkpointing while avoiding one process per ready gate."""
 
     agent_owned = [
-        gate for gate in gates if gate not in {"request intake", "review hook"}
+        gate for gate in gates
+        if gate not in {"request intake", "review hook", "commit readiness"}
     ]
     if len(agent_owned) < 2:
         return []
@@ -752,10 +757,14 @@ def finish_hook(args: argparse.Namespace) -> int:
     if args.allow_vibeguard_review:
         command.extend(["--allow-vibeguard-review", args.allow_vibeguard_review])
 
+    from agent_commit_ready import derive_commit_readiness
+
+    derived = derive_commit_readiness(args.project, args.rules, preflight_evidence_path(args))
     with stage("finish_check"):
         result = run_script_main(ROOT / "scripts" / "agent-finish-check.py", command, args.project)
     success = result["returncode"] == 0
     details = ["finish check completed" if success else "finish check failed"]
+    details.extend(filter(None, [derived]))
     details.extend(_summary_lines(result))
     if success:
         from agent_publication_admission import PublicationAdmission
@@ -772,6 +781,13 @@ def finish_hook(args: argparse.Namespace) -> int:
         # writes, the run is already terminal and cannot be resumed from a
         # packet that still displays the pre-finish checkpoint.
         _transition_finished_run(args, True)
+        from agent_review_hook import reported_review_findings
+
+        if reported_review_findings(preflight_evidence_path(args)):
+            details.append(
+                "review findings: this read-only review completed with findings; "
+                "report them as its result (no repair cycle is owed)"
+            )
         details.append(
             "This run is closed; finish attests verification, not execution of pending "
             "actions. Continue already-authorized steps within the same verified scope "
@@ -1466,7 +1482,7 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
         "--review-outcome",
         choices=("pass", "findings"),
         default="",
-        help="structural review decision; findings keeps the review checkpoint failed",
+        help="structural review decision; findings keeps a writable review checkpoint failed and closes a read-only review with them",
     )
     review.add_argument(
         "--code-review-evidence",

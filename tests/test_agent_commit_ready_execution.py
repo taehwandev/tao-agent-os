@@ -13,6 +13,61 @@ class CommitReadyExecutionTests(unittest.TestCase):
     def test_external_scope_reuses_review_and_falls_back_on_changed_bytes(self):
         self._exercise_preparation("external_write")
 
+    def test_commit_route_finishes_after_review_without_a_readiness_gate_call(self):
+        """66 of 66 observed commit runs spent a fifth hook call on this gate."""
+        fixture, invoke, source = self._commit_route_fixture()
+        started = invoke("start", "--command", "commit", "--request", "Commit the fixture",
+                         "--intent", "commit_fixture", "--target-summary", "Disposable fixture",
+                         "--approved-effect", "git_write")
+        self.assertIn("finish derives commit readiness", started)
+        self._review(invoke)
+        # A manual review-hook record is accepted and ignored, never an error.
+        ignored = invoke("gate-batch", "--gate-record", json.dumps({
+            "gate": "review hook", "evidence": "review passed"}))
+        self.assertIn("ignored", ignored)
+        finished = invoke("finish")
+        self.assertIn("commit readiness: derived", finished)
+
+    def test_bytes_changed_after_review_still_require_commit_readiness(self):
+        fixture, invoke, source = self._commit_route_fixture()
+        invoke("start", "--command", "commit", "--request", "Commit the fixture",
+               "--intent", "commit_fixture", "--target-summary", "Disposable fixture",
+               "--approved-effect", "git_write")
+        self._review(invoke)
+        source.write_text("changed after review\n")
+        fixture.run_command(["git", "add", "answer.txt"], check=True)
+        finished = invoke("finish", expect=1)
+        self.assertNotIn("commit readiness: derived", finished)
+        self.assertIn("commit readiness", finished)
+
+    def _commit_route_fixture(self):
+        fixture = fixture_module.PretoolExecutionTests("runTest")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        (fixture.project / ".gitignore").write_text((fixture_module.ROOT / ".gitignore").read_text())
+        (fixture.project / "VIBEGUARD.md").write_text((fixture_module.ROOT / "VIBEGUARD.md").read_text())
+        fixture.run_command(["git", "add", ".gitignore", "VIBEGUARD.md"], check=True)
+        fixture.run_command(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                             "commit", "-qm", "fixture policy"], check=True)
+        source = fixture.project / "answer.txt"
+        source.write_text("verified fixture\n")
+        fixture.run_command(["git", "add", "answer.txt"], check=True)
+        base = [sys.executable, str(fixture_module.ROOT / "scripts/agent-hook.py")]
+        common = ["--project", str(fixture.project), "--rules", str(fixture_module.ROOT)]
+
+        def invoke(hook, *arguments, expect=0):
+            result = fixture.run_command(base + [hook] + common + list(arguments))
+            self.assertEqual(expect, result.returncode, result.stdout + result.stderr)
+            return result.stdout
+
+        return fixture, invoke, source
+
+    def _review(self, invoke):
+        invoke("review", "--review-outcome", "pass",
+               "--code-review-evidence", "Reviewed the staged disposable answer file",
+               "--docs-freshness-evidence", "Fixture has no documentation contract",
+               "--structure-review-evidence", "One text fixture; no runtime owner added")
+
     def _exercise_preparation(self, effect):
         fixture = fixture_module.PretoolExecutionTests("runTest")
         fixture.setUp()

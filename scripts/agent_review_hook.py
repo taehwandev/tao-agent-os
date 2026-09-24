@@ -459,7 +459,8 @@ def _review_verdict(
                     review_scope,
                 )
                 record_review_gate(args, checks, git_states)
-                if reuse is not None:
+                if reuse is not None and not checks.get("reported_findings"):
+                    # Findings never become reusable proof for a later commit.
                     reuse.publish(checks)
         except OSError as error:
             failures.append(f"review attestation failed: {error}")
@@ -485,6 +486,11 @@ def _review_verdict(
             str(getattr(args, "allow_vibeguard_review", "") or "").strip(),
         )
     )
+    if not failures and checks.get("reported_findings"):
+        details.append(
+            "review outcome: findings recorded as this read-only review's result; "
+            "finish closes it and reports them, with no repair cycle"
+        )
     if not failures and (checks.get("review_checks") or {}).get("source_attestation"):
         details.append("structure and workflow checks reused from a matching review attestation; current diff, base, VibeGuard, and stability checked")
     return finish_with_result(
@@ -655,7 +661,12 @@ def record_review_input_evidence(
         side_effect_audit_evidence=side_effect_evidence,
         route_gates=route_gates,
     )
-    failures.extend(review_outcome_failures(review_outcome))
+    if review_outcome.lower() == "findings" and read_only_review_run(args.project, args.evidence):
+        # The findings are this read-only review's product, not a defect in
+        # work it owns: record them and close, with no repair cycle.
+        checks["reported_findings"] = True
+    else:
+        failures.extend(review_outcome_failures(review_outcome))
     failures.extend(
         _evidence_path_failures(
             Path(args.project),
@@ -972,11 +983,16 @@ def record_review_gate(
         evidence_path=evidence_path,
         preflight=preflight,
         gate="review hook",
-        evidence="review hook completed successfully and left worktree unchanged",
+        evidence=(
+            "read-only review hook completed with reported findings and left worktree unchanged"
+            if checks.get("reported_findings")
+            else "review hook completed successfully and left worktree unchanged"
+        ),
         fields={
             **ReviewAttestation.ledger_fields(attestation),
             "workflow_validate": str((checks.get("workflow_validate") or {}).get("returncode", "")),
             "vibeguard": str((checks.get("vibeguard") or {}).get("overall", "")),
+            **({"review_outcome": "findings"} if checks.get("reported_findings") else {}),
         },
         status="SUCCESS",
         source="review",
@@ -1342,6 +1358,31 @@ def review_outcome_failures(outcome: str) -> list[str]:
     if normalized == "findings":
         return ["review outcome reports unresolved findings"]
     return ["review outcome is required and must be pass or findings"]
+
+
+def read_only_review_run(project: Path, evidence_path: Path | None) -> bool:
+    """Whether this run claims no project write: a read-floor route or `--read-only`."""
+    from workflow_effect_policy import route_minimum_effect
+
+    path = evidence_path if evidence_path else project / ".tao" / "preflight.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        command = str((payload.get("route") or {}).get("command") or "")
+        explicit = bool((payload.get("execution_mode") or {}).get("read_only"))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+    return explicit or route_minimum_effect(command) == "read"
+
+
+def reported_review_findings(evidence_path: Path) -> bool:
+    """Whether the current review hook record closed a read-only review with findings."""
+    try:
+        route = json.loads(evidence_path.read_text(encoding="utf-8")).get("route") or {}
+        _evidence, diagnostics = merge_gate_evidence_from_ledger(route=route, evidence_path=evidence_path)
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+    fields = (diagnostics.get("entry_fields") or {}).get("review hook") or {}
+    return fields.get("review_outcome") == "findings"
 
 
 def review_route_gates(project: Path, evidence_path: Path | None) -> list[str]:
