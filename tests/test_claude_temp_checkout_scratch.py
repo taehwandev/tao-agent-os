@@ -173,6 +173,79 @@ class PublicationStaysGovernedTests(_Fixture):
         )
 
 
+class OnlyProvenTempWritesAreScratchTests(_Fixture):
+    """Observed: a Python command run in the temp worktree rewrote a file of
+    the original project through TAO_HOME, and the gate allowed it.
+
+    Only a file utility whose every operand lands in temp is scratch; any other
+    program can write anywhere, so its verdict is the one the checkout had
+    before it was exempted.
+    """
+
+    def _governed_verdict(self, command: str, cwd: Path) -> str:
+        with patch.object(pretool, "throwaway_checkout", lambda root: False):
+            return self._bash(command, cwd=cwd)
+
+    def _assert_governed(self, command: str, cwd: "Path | None" = None) -> None:
+        cwd = cwd or self.bench
+        with self.subTest(command=command):
+            verdict = self._bash(command, cwd=cwd)
+            self.assertNotEqual(verdict, "allow")
+            self.assertEqual(verdict, self._governed_verdict(command, cwd))
+
+    def test_programs_that_can_write_anywhere_stay_governed(self) -> None:
+        (self.bench / "script.py").write_text("print(1)\n")
+        (self.bench / "tool").write_text("#!/bin/sh\n")
+        real = self.project / "notes.txt"
+        for command in (
+            f"python3 -c \"open('{real}','w').write('x')\"",
+            "python3 -c \"import os; open(os.environ['TAO_HOME'] + '/notes.txt', 'w')\"",
+            "python3 script.py",
+            "node x.js",
+            "npm run x",
+            "npx something",
+            "make",
+            "./tool",
+            f"{self.bench / 'tool'}",
+            "FOO=1 rm docs/probe.txt",
+            f"find {self.project} -delete",
+            f"echo x | tee {real}",
+            "echo docs/probe.txt | xargs rm",
+        ):
+            self._assert_governed(command)
+
+    def test_a_file_utility_with_an_operand_outside_temp_stays_governed(self) -> None:
+        inside = self.bench / "docs" / "probe.txt"
+        real = self.project / "notes.txt"
+        for command in (
+            f"cp {inside} {real}",
+            f"mv {inside} {real}",
+            f"mv {real} {inside}",
+            f"ln -s {inside} {real}",
+            f"touch {real}",
+            f"echo x > {real}",
+        ):
+            self._assert_governed(command)
+
+    def test_file_writes_proven_inside_temp_need_no_run(self) -> None:
+        probe = self.bench / "docs" / "probe.txt"
+        other = self.temp / "elsewhere"
+        for command in (
+            f"rm {self.bench / 'x'}",
+            f"rm -rf {self.bench / 'docs'}",
+            f"cp {probe} {other}",
+            f"mkdir -p {self.bench / 'out'} && touch {self.bench / 'out' / 'a'}",
+            f"chmod 644 {probe}",
+            f"cat {probe} > {other}",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self._bash(command, cwd=self.bench), "allow")
+        self.assertNotEqual(
+            self._bash(f"git -C {self.project} worktree remove --force {self.bench}"),
+            "deny",
+        )
+
+
 class OnlyRealTempIsScratchTests(_Fixture):
     def test_a_temp_path_that_links_into_a_project_stays_governed(self) -> None:
         link = self.temp / "link"
