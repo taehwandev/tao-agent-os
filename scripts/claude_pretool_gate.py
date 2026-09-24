@@ -94,7 +94,14 @@ try:  # The gate must never fail to load; the import is only used for a message.
         WORKFLOW_START_REMEDY,
         WORKFLOW_START_TARGET,
     )
-except ImportError:  # pragma: no cover - exercised only on a broken install
+    # Empty on a sound install. On a broken one it holds the failure's type
+    # name, and every gated call warns and records it: the stubs below keep
+    # work moving, but they also switch worktree policy off, which nobody
+    # would otherwise notice.
+    _BROKEN_INSTALL = ""
+except ImportError as _import_failure:  # pragma: no cover - exercised only on a broken install
+    _BROKEN_INSTALL = type(_import_failure).__name__
+
     def stable_launcher_path() -> Path:
         return Path.home() / ".tao" / "bin" / "tao-hook"
 
@@ -346,8 +353,64 @@ def gate_enabled() -> bool:
 
 
 def allow() -> int:
-    """Defer to Claude's normal permission flow without changing it."""
+    """Defer to Claude's normal permission flow without changing it.
+
+    Silent unless an internal error left a warning for this call, which then
+    travels alone: a warning never turns the deferral into an approval.
+    """
+    return _emit(None)
+
+
+# Warnings this call owes the agent, emitted with whatever verdict it reaches.
+_PENDING_WARNINGS: list[str] = []
+_EXCEPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+
+
+def _emit(decision: "dict | None") -> int:
+    """Print one hook answer: an optional decision plus any pending warning.
+
+    Every verdict goes through here so that a warning can never become a
+    second JSON document on stdout. Claude shows ``systemMessage`` to the user
+    and ``additionalContext`` to the model; Codex rejects Claude-only output,
+    so there the warning goes to stderr and the verdict keeps its Codex shape.
+    """
+
+    warning = " ".join(dict.fromkeys(_PENDING_WARNINGS))
+    _PENDING_WARNINGS.clear()
+    codex = runtime_name() == "codex"
+    if warning and codex:
+        print(warning, file=sys.stderr, flush=True)
+    output: dict = {}
+    if decision is not None:
+        output["hookSpecificOutput"] = {"hookEventName": "PreToolUse", **decision}
+    if warning and not codex:
+        output.setdefault("hookSpecificOutput", {"hookEventName": "PreToolUse"})[
+            "additionalContext"
+        ] = warning
+        output["systemMessage"] = warning
+    if output:
+        print(json.dumps(output), flush=True)
     return 0
+
+
+def _gate_internal_error(error: "BaseException | str", outcome: str) -> None:
+    """Record a failure of the gate itself, and owe the agent a warning.
+
+    The gate still fails open -- its own bugs must not stop work -- but no
+    longer silently: the warning names the exception type and nothing else,
+    and the lesson carries only the fixed reason code, never the message, a
+    path or the command. The recorder's per-session window keeps a repeating
+    crash to one record.
+    """
+
+    name = error if isinstance(error, str) else type(error).__name__
+    if not _EXCEPTION_NAME.fullmatch(name):
+        name = "Exception"
+    _PENDING_WARNINGS.append(
+        f"Tao gate hit an internal error ({name}); {outcome}; "
+        "this was recorded for repair."
+    )
+    _learn_block("gate_internal_error")
 
 
 def _approve(reason: str) -> int:
@@ -369,19 +432,7 @@ def _approve(reason: str) -> int:
 
     if runtime_name() == "codex":
         return allow()
-
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "permissionDecisionReason": reason,
-                }
-            }
-        )
-    )
-    return 0
+    return _emit({"permissionDecision": "allow", "permissionDecisionReason": reason})
 
 
 _BLOCK_SESSION: dict[str, str] = {"session_id": ""}
@@ -417,18 +468,7 @@ def deny(reason: str, code: str = "workflow_entry_missing") -> int:
     store; it never alters the decision printed here.
     """
 
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": reason,
-                }
-            }
-        ),
-        flush=True,
-    )
+    _emit({"permissionDecision": "deny", "permissionDecisionReason": reason})
     _learn_block(code)
     return 0
 
@@ -446,19 +486,7 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
     # leaves sandbox/approval decisions with the runtime; it grants no permission.
     if runtime_name() == "codex" or (tokens and _is_git_deletion(tokens)):
         return allow()
-
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "ask",
-                    "permissionDecisionReason": reason,
-                }
-            }
-        )
-    )
-    return 0
+    return _emit({"permissionDecision": "ask", "permissionDecisionReason": reason})
 
 
 def max_age_seconds() -> int:
@@ -1822,7 +1850,8 @@ def sprawl_deny(tool: str, payload: dict, root: Path, cwd: Path, session_id: str
             return sprawl_deny_reason(len(recorded), budget, sprawl_ack_file(root, session_id), target, root)
         record_new_file(state, key)
         return None
-    except Exception:
+    except Exception as error:  # noqa: BLE001 - the count never blocks on its own bug
+        _gate_internal_error(error, "the new-file count was skipped")
         return None
 
 
@@ -3141,17 +3170,34 @@ def _workflow_start_verdict(
 
 
 def decide(payload: dict) -> int:
+    """Answer one tool call; the gate's own failure allows, visibly.
+
+    A bug in the gate is not a policy violation, so it never blocks work. It
+    used to allow silently, which hid every crash; now the agent is told, the
+    user sees it, and one content-free lesson is recorded for repair.
+    """
+
+    _PENDING_WARNINGS.clear()
+    try:
+        return _decide(payload)
+    except Exception as error:  # noqa: BLE001 - the gate fails open, never silently
+        _gate_internal_error(error, "the command was allowed")
+        return allow()
+
+
+def _decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
     _BLOCK_SESSION["session_id"] = str(payload.get("session_id") or "")
     tool = payload.get("tool_name")
     if tool not in GATED_TOOLS:
         return allow()
-    cwd_raw = payload.get("cwd") or os.getcwd()
-    try:
-        cwd = Path(cwd_raw).resolve()
-    except OSError:
-        return allow()
+    if _BROKEN_INSTALL:
+        _gate_internal_error(
+            _BROKEN_INSTALL, "worktree policy is off until the install is repaired"
+        )
+    # An unresolvable cwd raises into `decide`, which allows it visibly.
+    cwd = Path(payload.get("cwd") or os.getcwd()).resolve()
     scope = _call_scope(payload, tool, cwd)
     bash_kind = scope.bash_kind
     tokens = scope.tokens
@@ -3265,10 +3311,10 @@ def main() -> int:
         payload = json.loads(raw)
         if not isinstance(payload, dict):
             return allow()
-        return decide(payload)
-    except Exception:
-        # Any unexpected failure must fail open.
+    except Exception as error:  # noqa: BLE001 - an unreadable payload fails open, visibly
+        _gate_internal_error(error, "the command was allowed")
         return allow()
+    return decide(payload)
 
 
 if __name__ == "__main__":

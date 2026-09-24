@@ -48,6 +48,9 @@ NEXT_ACTIONS: dict[str, dict[str, str]] = {
         "worktree_isolation": "work_in_a_linked_worktree",
         "workflow_start_worktree": "start_in_a_linked_worktree",
         "read_only_run_mutation": "start_a_writable_route_first",
+        # Not a block: the gate failed open on its own bug. Recorded so the
+        # crash is repaired rather than silently repeated.
+        "gate_internal_error": "report_gate_internal_error",
     },
     "agent_hook_start": {
         "start_arguments_invalid": "fix_all_start_arguments_in_one_call",
