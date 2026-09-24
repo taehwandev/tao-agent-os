@@ -15,7 +15,7 @@ from typing import Any
 from agent_gate_evidence import gate_evidence_path_for_preflight, resync_gate_evidence_ledger
 from agent_gate_reuse import GateEvidenceReuse
 from agent_hook_runtime import write_json
-from agent_runtime_session import runtime_session
+from agent_runtime_session import runtime_session, same_runtime_session
 
 
 class WorkContinuity:
@@ -41,9 +41,12 @@ class WorkContinuity:
         records = [run for run in registry.get("runs", []) if run.get("run_id") == self.source_id]
         if len(records) != 1 or records[0].get("state") not in {"completed", "running", "blocked", "interrupted"}:
             raise ValueError("continuation requires one retained, non-cancelled work record")
+        # A resumed source records its resume generation beside the session;
+        # it is still this session's work, so compare the session, not the dict.
         session = runtime_session()
-        if (not session.get("session_id") or not session.get("runtime")
-                or self.prior.get("runtime_session") != session
+        if (not same_runtime_session(
+                    self.prior.get("runtime_session"), session,
+                    resume_generation=int(records[0].get("resume_generation") or 0))
                 or self.prior.get("project") != str(args.project.resolve())
                 or self.prior.get("rules") != str(args.rules.resolve())
                 or self.prior.get("agent_run_id") != self.source_id

@@ -50,6 +50,36 @@ def runtime_session() -> dict[str, str]:
     return {}
 
 
+def same_runtime_session(
+    bound: object,
+    identity: object,
+    *,
+    resume_generation: int | None = None,
+) -> bool:
+    """Whether a recorded binding names ``identity``'s runtime session.
+
+    A resume claim re-stamps the binding with its ``resume_generation``, so the
+    recorded dict stops being equal to the bare ``runtime_session()`` identity
+    even though it still names the same session. Comparing whole dicts made a
+    run the session had just resumed read as "a different session" to every
+    later check -- a start with ``--continue-from`` from that run was refused.
+    Generation freshness is a separate question; a caller holding the registry
+    record passes its generation so a stale stamp still fails.
+    """
+
+    if not isinstance(bound, dict) or not isinstance(identity, dict):
+        return False
+    runtime = identity.get("runtime")
+    session_id = identity.get("session_id")
+    if not runtime or not session_id:
+        return False
+    if bound.get("runtime") != runtime or bound.get("session_id") != session_id:
+        return False
+    if resume_generation is None:
+        return True
+    return bound.get("resume_generation", 0) == resume_generation
+
+
 def recorded_session_id(payload: object) -> str:
     """Read back a session id stamped by `runtime_session()`."""
     if not isinstance(payload, dict):
@@ -476,11 +506,19 @@ def _runtime_evidence_candidates(
         if not _within_worker_root(error.filename, worker_root):
             complete = False
 
+    # A linked worktree nested under `.tao` (the usual `.tao/worktrees/<name>`)
+    # is a separate project with its own registry: no file inside it can carry
+    # one of this project's evidence keys. Walking it anyway scanned every
+    # parallel worker's whole checkout on each lookup, and a directory a
+    # worker created or removed mid-walk marked the scan incomplete, which
+    # denied this project's own binding.
     for root, directories, filenames in os.walk(
         project_state, topdown=True, onerror=note_error, followlinks=False
     ):
         current = Path(root)
-        directories[:] = sorted(directories)
+        directories[:] = sorted(
+            name for name in directories if not _is_nested_checkout(current / name)
+        )
         inside_worker_root = current == worker_root or worker_root in current.parents
         for filename in sorted(filenames):
             if filename not in evidence_names:
@@ -500,6 +538,15 @@ def _runtime_evidence_candidates(
     return tuple(candidates), tuple(worker_scoped), complete
 
 
+def _is_nested_checkout(directory: Path) -> bool:
+    """Whether a directory under `.tao` is another Git checkout's root."""
+
+    try:
+        return os.path.lexists(directory / ".git")
+    except OSError:
+        return False
+
+
 def _session_binding_matches(
     candidate: Path,
     run: dict[str, Any],
@@ -508,14 +555,10 @@ def _session_binding_matches(
     session_id: str,
 ) -> bool:
     payload = _read_object(candidate)
-    bound = payload.get("runtime_session")
-    if not isinstance(bound, dict):
-        return False
-    return (
-        bound.get("runtime") == runtime
-        and bound.get("session_id") == session_id
-        and bound.get("resume_generation", 0)
-        == int(run.get("resume_generation") or 0)
+    return same_runtime_session(
+        payload.get("runtime_session"),
+        {"runtime": runtime, "session_id": session_id},
+        resume_generation=int(run.get("resume_generation") or 0),
     )
 
 

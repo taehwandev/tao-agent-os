@@ -152,6 +152,31 @@ class WorkContinuityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-cancelled"):
             self.continuation()
 
+    def test_resumed_source_is_still_this_sessions_work(self):
+        # A resume re-stamps the source binding with its generation. The same
+        # session continuing from it was refused as "a different session".
+        prior = json.loads(self.source.evidence.read_text())
+        session = dict(prior["runtime_session"])
+        prior["runtime_session"] = {**session, "resume_generation": 1}
+        self.source.evidence.write_text(json.dumps(prior))
+        path = self.project / ".tao" / "run-registry.json"
+        registry = json.loads(path.read_text())
+        for run in registry["runs"]:
+            if run["run_id"] == self.source_id:
+                run["resume_generation"] = 1
+        path.write_text(json.dumps(registry))
+        self.target.continue_from = self.source_id
+        self.target.reuse_inputs = ""
+        with patch("agent_work_continuity.runtime_session", return_value=session):
+            WorkContinuity(self.target)
+        for run in registry["runs"]:
+            if run["run_id"] == self.source_id:
+                run["resume_generation"] = 2
+        path.write_text(json.dumps(registry))
+        with patch("agent_work_continuity.runtime_session", return_value=session):
+            with self.assertRaisesRegex(ValueError, "differs"):
+                WorkContinuity(self.target)
+
     def test_admission_race_does_not_copy_or_overwrite_source(self):
         self.record_source()
         continuation = self.continuation()

@@ -14,7 +14,7 @@ from agent_continuation_store import continuation_path, read_continuation_packet
 from agent_execution_capsule_state import atomic_write_json, git_states_for_paths, read_json_object
 from agent_run_owner import process_owner
 from agent_route_state import route_fingerprint
-from agent_runtime_session import runtime_session
+from agent_runtime_session import runtime_session, same_runtime_session
 from agent_run_registry import read_registry_state, registry_path, resume_holder_state
 from agent_state_lock import project_state_lock, state_lock
 FREE_HOLDER_STATES = ("dead_proven", "unproven_expired", "same_session_stopped")
@@ -406,8 +406,11 @@ def stopped_session_matches(run: dict[str, Any], binding: dict[str, Any]) -> boo
     session = runtime_session()
     return (
         run.get("state") in {"blocked", "interrupted"}
-        and bool(session.get("session_id"))
-        and binding.get("runtime_session") == session
+        and same_runtime_session(
+            binding.get("runtime_session"),
+            session,
+            resume_generation=int(run.get("resume_generation") or 0),
+        )
         and type((binding.get("route") or {}).get("lifecycle_version")) is int
         and (binding.get("route") or {}).get("lifecycle_version") == 2
     )
