@@ -6,6 +6,7 @@ import hashlib
 import stat
 from pathlib import Path
 
+from agent_execution_capsule_state import git_repository_root, observed_git_state
 from agent_worktree_fingerprint import git_output, worktree_signature
 
 
@@ -26,14 +27,17 @@ and non-Git roots retain their exact-state check. Failure to inspect is not
 permission to reuse. Paths, modes, additions, deletions and content all bind.
 """
     try:
-        project_root = git_output(project, "rev-parse", "--show-toplevel").strip()
-        rules_root = git_output(rules, "rev-parse", "--show-toplevel").strip()
-        if Path(project_root).resolve() == Path(rules_root).resolve():
+        if git_repository_root(project) == git_repository_root(rules):
             return None
-        if Path(rules_root).resolve() != rules.resolve():
+        if git_repository_root(rules) != rules.resolve():
             return None  # Subdirectory rule roots retain the conservative path.
-        before = git_output(rules, "rev-parse", "HEAD").strip()
-        signature = worktree_signature(rules)
+        # The opening state may be the one this hook already observed; the
+        # closing check below always reads afresh, so a tree that moved since
+        # that observation fails the comparison and nothing is reused.
+        before, signature = observed_git_state(rules) or (
+            git_output(rules, "rev-parse", "HEAD").strip(),
+            worktree_signature(rules),
+        )
         paths = sorted(set(git_output(
             rules, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
         ).split("\0")) - {""})

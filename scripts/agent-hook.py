@@ -135,6 +135,7 @@ from agent_context_store import (
     validate_context_snapshot,
 )
 from support.global_state import ensure_local_only_state_dir
+from support.git_read_scope import git_read_scope
 from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
 from support.stage_timing import append_recorded_stages, set_timing_sink, stage
 ROOT = Path(__file__).resolve().parents[1]
@@ -2343,6 +2344,14 @@ def _dispatch_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
             from agent_commit_ready import prepare_commit
             return prepare_commit(args, start_hook, lambda step: _dispatch_hook(parser, step))
         return start_hook(args)
+    # Review and finish re-read the same worktree state many times; one scope
+    # per invocation lets those reads share answers. Each hook drops worktree
+    # answers after the checks it runs, so its post-check reads stay fresh.
+    with git_read_scope(enabled=args.hook in ("review", "finish")):
+        return _dispatch_lifecycle_hook(args)
+
+
+def _dispatch_lifecycle_hook(args: argparse.Namespace) -> int:
     checkpointed = _checkpointed_hook(args)
     if checkpointed is not None:
         return checkpointed

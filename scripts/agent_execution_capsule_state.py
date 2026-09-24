@@ -17,6 +17,7 @@ from agent_worktree_fingerprint import (
     worktree_signature,
 )
 from agent_workspace_policy import is_non_git_workspace
+from support.git_read_scope import stable_read, worktree_entry
 
 
 SCHEMA_VERSION = 4
@@ -74,7 +75,52 @@ def git_state(
     path: Path,
     recorded: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Capture Git state, reusing a strong fingerprint only while safely current."""
+    """Capture Git state, reusing a strong fingerprint only while safely current.
+
+    Inside a hook's Git read scope the answer observed earlier in the same
+    worktree epoch stands in for a repeated read: a recorded state is returned
+    when it matches the HEAD and signature already observed, and a strong
+    capture from this epoch answers every other caller. Only a strong capture
+    is ever handed to a caller that offered no record, so a caller refusing
+    signature-based reuse still receives content-derived identity.
+    """
+
+    memo = worktree_entry(("git_state", str(path.resolve())))
+    if memo is None:
+        return _capture_git_state(path, recorded)[0]
+    strong = memo.get("strong")
+    observed = (
+        (strong["head"], strong["worktree_signature"]) if strong else memo.get("observed")
+    )
+    if observed is not None and _is_reusable_git_state(recorded) and (
+        recorded["head"], recorded["worktree_signature"]
+    ) == observed:
+        return dict(recorded)
+    if strong is not None:
+        return dict(strong)
+    state, reused = _capture_git_state(path, recorded)
+    if reused:
+        memo["observed"] = (state["head"], state["worktree_signature"])
+    else:
+        memo["strong"] = dict(state)
+    return state
+
+
+def observed_git_state(path: Path) -> tuple[str, str] | None:
+    """HEAD and worktree signature already observed in this epoch, if any."""
+
+    memo = worktree_entry(("git_state", str(path.resolve())))
+    if not memo:
+        return None
+    strong = memo.get("strong")
+    return (strong["head"], strong["worktree_signature"]) if strong else memo.get("observed")
+
+
+def _capture_git_state(
+    path: Path,
+    recorded: dict[str, str] | None,
+) -> tuple[dict[str, str], bool]:
+    """Read Git state; the flag says whether the recorded state was reused."""
 
     for _attempt in range(MAX_GIT_STATE_ATTEMPTS):
         head = git_output(path, "rev-parse", "--verify", "HEAD").strip()
@@ -84,7 +130,7 @@ def git_state(
             and recorded["worktree_signature"] == worktree_signature(path)
         ):
             if git_output(path, "rev-parse", "--verify", "HEAD").strip() == head:
-                return dict(recorded)
+                return dict(recorded), True
             continue
 
         snapshot = capture_worktree_state(path)
@@ -93,7 +139,7 @@ def git_state(
                 "head": head,
                 "worktree_fingerprint": snapshot.fingerprint,
                 "worktree_signature": snapshot.signature,
-            }
+            }, False
     raise RuntimeError("git HEAD changed during execution-capsule state capture")
 
 
@@ -103,9 +149,14 @@ def git_repository_root(path: Path) -> Path:
     Capsule callers frequently receive a project root and a rules root that
     are different directories inside the same checkout.  They still describe
     one mutable worktree, so callers must not stream its fingerprint twice.
+    A checkout's top level cannot move while one hook runs, so a Git read
+    scope answers it once per path.
     """
 
-    return Path(git_output(path, "rev-parse", "--show-toplevel").strip()).resolve()
+    return stable_read(
+        ("show-toplevel", str(path.absolute())),
+        lambda: Path(git_output(path, "rev-parse", "--show-toplevel").strip()).resolve(),
+    )
 
 
 def git_states_for_paths(

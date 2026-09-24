@@ -27,6 +27,7 @@ from agent_continuation_packet import (
 )
 from agent_workspace_policy import is_non_git_workspace
 from support.bounded_git import run_git
+from support.git_read_scope import stable_read
 
 
 STATE_DIR = ".tao"
@@ -311,13 +312,28 @@ def _git_ignores(project: Path, path: Path) -> bool:
     if is_non_git_workspace(project):
         return True
     try:
-        completed = run_git(
-            ["git", "check-ignore", "-q", str(path)],
-            cwd=project,
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError:
+        # Ignore rules do not move while one hook runs; a checkpoint asks
+        # about the same packet path on every read and write it makes.
+        # Only a definite answer (0 ignored, 1 not ignored) is kept.
+        root = project.absolute()
+        key = ("check-ignore", str(root), str(root / path))
+        return stable_read(key, lambda: _check_ignore(project, path))
+    except (OSError, _IndefiniteIgnore):
         return False
+
+
+class _IndefiniteIgnore(Exception):
+    """Git could not say either way; the caller refuses, and nothing is kept."""
+
+
+def _check_ignore(project: Path, path: Path) -> bool:
+    completed = run_git(
+        ["git", "check-ignore", "-q", str(path)],
+        cwd=project,
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if completed.returncode not in (0, 1):
+        raise _IndefiniteIgnore()
     return completed.returncode == 0

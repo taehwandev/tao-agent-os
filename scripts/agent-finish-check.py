@@ -45,6 +45,7 @@ from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_review_attestation import REVIEW_HOOK_GATE
 from agent_skill_backlog import format_skill_backlog, skill_backlog_summary
 from agent_skill_followup import skill_followup_failures
+from support.git_read_scope import invalidate_worktree_reads
 from workflow_effect_policy import route_minimum_effect
 
 
@@ -531,6 +532,11 @@ def main() -> int:
         read_only=read_only,
         intrinsically_read_only=route.get("command") == "analysis",
     )
+    # The final checks ran validators and VibeGuard after the first
+    # attestation read. Everything from here on -- the revalidation below and
+    # the closing checkpoint -- must see what they left, so no worktree answer
+    # from before them may stand in.
+    invalidate_worktree_reads()
     _revalidate_review_attestation_after_final_checks(
         route, project, rules, evidence_path, gate_evidence,
         gate_evidence_ledger, missed_gates, gate_signals, failures,

@@ -43,6 +43,7 @@ from agent_review_subjects import (  # noqa: F401
 )
 from agent_vibeguard_cache import cached_vibeguard
 from agent_workspace_policy import is_git_status_review_only, is_writing_workspace, non_git_writing_workspace_note
+from support.git_read_scope import invalidate_worktree_reads
 from support.stage_timing import stage
 
 
@@ -601,6 +602,9 @@ def review_hook(
         local_config_scope=local_config_scope,
         reused_checks=reused_checks,
     )
+    # Validators and VibeGuard just ran; every later state read must see what
+    # they left, not an answer from before them.
+    invalidate_worktree_reads()
     reuse.complete(checks, failures)
 
     return _review_verdict(
