@@ -1330,86 +1330,61 @@ class EvidenceArgumentHoldsTheAccountTests(unittest.TestCase):
 
 
 class ContentLossIsReviewableTests(unittest.TestCase):
-    """A large removal must be accounted for whatever file type it happened in.
+    """Measured removals stay visible; prose cannot grant or deny a pass."""
 
-    Structural review reads development sources only, so a doc rewrite that
-    dropped a documented deploy procedure produced no signal from any check in
-    the review hook: whitespace was clean, the remaining markdown still
-    validated, and VibeGuard scanned what the change added.
-    """
+    def test_real_diff_deletion_is_reported_independently_of_prose(self):
+        from agent_review_hook import _run_review_checks, review_success_details
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def run(command, cwd):
+                result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+                return {"returncode": result.returncode, "stdout": result.stdout,
+                        "stderr": result.stderr, "command": command, "cwd": str(cwd)}
+            run(["git", "init", "-q"], root)
+            body = "".join(f"Procedure line {i}\n" for i in range(100))
+            (root / "guide.md").write_text(body)
+            run(["git", "add", "."], root)
+            result = run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                          "commit", "-qm", "baseline"], root)
+            self.assertEqual(0, result["returncode"], result["stderr"])
+            (root / "guide.md").write_text("# Short guide\n")
+            for moved in (False, True):
+                if moved:
+                    (root / "details.md").write_text(body)
+                    run(["git", "add", "details.md"], root)
+                for prose in ("", "검토 완료", "guide.md", "Moved documentation into its owner"):
+                    with self.subTest(moved=moved, prose=prose):
+                        args = SimpleNamespace(project=root, rules=root, max_source_file_lines=500,
+                            max_function_lines=120, structure_review_evidence="",
+                            side_effect_audit_evidence=prose, boundary_plan_evidence="")
+                        failures, checks = [], {}
+                        with patch("agent_review_hook.record_review_workflow_validation"), \
+                             patch("agent_review_hook.record_review_vibeguard"), \
+                             patch("agent_review_hook.record_review_worktree_stability"):
+                            structure = _run_review_checks(args, checks, failures, run, lambda _: ({}, []),
+                                lambda *_: [], lambda _: "Ready", review_paths=[],
+                                review_subject={"kind": "working-tree"}, review_scope="working-tree",
+                                status_before={}, status_before_lines=[], full_status_before_lines=[],
+                                local_config_scope=False)
+                        self.assertEqual([], failures)
+                        notes = "\n".join(review_success_details(structure, "working-tree"))
+                        self.assertIn("guide.md", notes)
+                        self.assertIn("net -99", notes)
+                        self.assertNotIn("side-effect-audit-evidence", notes)
+                        self.assertEqual(99, checks["structure_review"]["net_deletions"][0]["net"])
 
-    def _structure(self, metadata: dict[str, dict[str, object]]) -> dict[str, object]:
-        from agent_review_structure import REVIEW_NET_DELETION_LIMIT, net_deletion_findings
+    def test_observed_reference_error_cannot_be_cleared_by_naming_a_path(self):
+        from agent_review_hook import documentation_reference_failures
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "guide.md").write_text("[Missing](gone.md)\n")
+            structure = {"discovery": {"path_metadata": {"guide.md": {"status": "M"}}}}
+            failures = documentation_reference_failures(root, structure, lambda *_: {})
+            self.assertTrue(any("gone.md" in item for item in failures))
 
-        return {
-            "net_deletion_limit": REVIEW_NET_DELETION_LIMIT,
-            "net_deletions": net_deletion_findings(metadata),
-        }
-
-    def test_a_markdown_rewrite_that_loses_content_fails_review(self) -> None:
-        from agent_review_hook import net_deletion_failures
-
-        structure = self._structure(
-            {"docs/deploy.md": {"additions": 98, "deletions": 171}}
-        )
-        failures = net_deletion_failures(structure, "final diff checked; no unexpected files")
-
-        self.assertTrue(failures)
-        # The measured counts belong in the message: the agent that overwrote a
-        # stale copy did not know anything had disappeared.
-        self.assertIn("docs/deploy.md", failures[0])
-        self.assertIn("net -73", failures[0])
-
-    def test_naming_the_path_in_the_side_effect_audit_clears_it(self) -> None:
-        from agent_review_hook import net_deletion_failures
-
-        structure = self._structure(
-            {"docs/deploy.md": {"additions": 98, "deletions": 171}}
-        )
-
-        self.assertEqual(
-            [],
-            net_deletion_failures(
-                structure,
-                "docs/deploy.md loses the local-gradle fallback section; "
-                "superseded by the pipeline trigger documented above",
-            ),
-        )
-
-    def test_missing_net_deletion_evidence_is_a_correctable_invocation(self) -> None:
-        from agent_review_hook import (
-            net_deletion_failures,
-            review_input_invocation_failure,
-            review_input_invocation_failure_details,
-        )
-
-        structure = self._structure(
-            {"docs/deploy.md": {"additions": 98, "deletions": 171}}
-        )
-        failures = net_deletion_failures(structure, "final diff checked")
-
-        self.assertTrue(review_input_invocation_failure(failures))
-        details = review_input_invocation_failure_details(
-            failures,
-            {"scope": "changed-files", "checked_paths": ["docs/deploy.md"]},
-            "full worktree",
-        )
-        self.assertIn("--side-effect-audit-evidence", details[-1])
-        self.assertIn("no lifecycle checkpoint failed", details[-1])
-        self.assertNotIn("repair-verify", " ".join(details))
-
-    def test_an_ordinary_edit_and_a_growing_file_stay_silent(self) -> None:
-        from agent_review_hook import net_deletion_failures
-
-        quiet = self._structure(
-            {
-                "scripts/thing.py": {"additions": 120, "deletions": 4},
-                "docs/notes.md": {"additions": 10, "deletions": 30},
-                "docs/binary.png": {"additions": None, "deletions": None},
-            }
-        )
-
-        self.assertEqual([], net_deletion_failures(quiet, ""))
+    def test_ordinary_edits_have_no_removal_notice(self):
+        from agent_review_hook import net_deletion_details
+        self.assertEqual([], net_deletion_details({"net_deletions": []}))
 
 
 class StaleBaseBlocksReviewTests(unittest.TestCase):

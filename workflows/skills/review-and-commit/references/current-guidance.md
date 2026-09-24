@@ -275,10 +275,11 @@ context; do not rediscover development guidance just because a diff exists.
 5. Confirm side-effect audit evidence names the final diff and unexpected
    generated, lockfile, public-contract, external-state, formatting, or
    unrelated behavior.
-   When any reviewed path has a net deletion of 50 lines or more, name that
-   exact path in `--side-effect-audit-evidence`, identify what content was
-   removed, and state why it is no longer needed. A generic final-diff summary
-   does not account for a large deletion.
+   Review reports net removals of 50 or more lines from the actual Git diff.
+   Treat these counts as context, not proof of loss or preservation. Inspect
+   the removed content, any destination and affected checks; record unresolved
+   defects with `--review-outcome findings`. No filename or stock sentence in
+   side-effect prose clears a defect or is required to pass this measurement.
    When recovery changes a document that the active route already lists in
    `required_docs`, record its `documentation` SUCCESS artifact receipt before
    rerunning review or finish. A repair receipt alone does not bind required-doc

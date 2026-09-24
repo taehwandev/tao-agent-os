@@ -894,7 +894,7 @@ def record_path(
 
 
 def net_deletion_findings(path_metadata: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return changed paths whose net line loss needs an explicit account.
+    """Return changed paths whose measured net line loss needs review attention.
 
     ``path_metadata`` carries the numstat counts for every changed path, not just
     the development sources the structural checks read, so this is the one place

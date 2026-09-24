@@ -361,9 +361,6 @@ def _run_review_checks(
     failures.extend(
         structure_evidence_failures(structure, (args.structure_review_evidence or "").strip())
     )
-    failures.extend(
-        net_deletion_failures(structure, (args.side_effect_audit_evidence or "").strip())
-    )
     failures.extend(documentation_reference_failures(source_project, structure, run_command))
 
     if local_config_scope:
@@ -1161,7 +1158,6 @@ def review_input_invocation_failure(failures: list[str]) -> bool:
         "structure review evidence is required: ",
         "structure boundary note evidence is required for ",
         "per-file addition limit was raised to ",
-        "net deletion of ",
     )
     return bool(failures) and all(
         failure.startswith(invocation_failure_prefixes)
@@ -1206,12 +1202,6 @@ def review_input_invocation_failure_details(
         details.append(
             "invocation request: correct --structure-review-evidence with every required boundary "
             "field and rerun the same review hook; no lifecycle checkpoint failed"
-        )
-    if any(failure.startswith("net deletion of ") for failure in failures):
-        details.append(
-            "invocation request: correct --side-effect-audit-evidence by naming every reported "
-            "path, removed content, and reason, then rerun the same review hook; no lifecycle "
-            "checkpoint failed"
         )
     if any(is_vibeguard_allow_reason_invocation_failure(failure) for failure in failures):
         details.append(
@@ -1280,37 +1270,26 @@ def documentation_reference_failures(
     )
 
 
-def net_deletion_failures(structure: dict[str, Any], side_effect_evidence: str) -> list[str]:
-    """Require the side-effect audit to name every large net removal in the diff.
+def net_deletion_details(structure: dict[str, Any]) -> list[str]:
+    """Report Git-measured removals without treating prose as proof of safety.
 
-    A removal is the one diff outcome no other check in this hook can see:
-    ``git diff --check`` reads whitespace, workflow validation reads the files
-    that remain, VibeGuard reads what the change added, and structural review
-    reads development sources only. The measured counts are put in the failure
-    text so the agent learns what disappeared instead of being asked to assert
-    that nothing did.
+    Counts cannot distinguish accidental loss from an intended deletion or
+    extraction. Keep them in the machine report and visible review output;
+    semantic correctness belongs to review_outcome and the relevant checks.
     """
 
     findings = structure.get("net_deletions") or []
     if not findings:
         return []
-    normalized = side_effect_evidence.replace("\\", "/")
-    unnamed = [item for item in findings if str(item["path"]) not in normalized]
-    if not unnamed:
-        return []
     measured = "; ".join(
         f"{item['path']} (-{item['deletions']} +{item['additions']}, net -{item['net']})"
-        for item in unnamed[:5]
+        for item in findings[:5]
     )
-    if len(unnamed) > 5:
-        measured += f"; ... (+{len(unnamed) - 5} more)"
-    limit = structure.get("net_deletion_limit")
+    if len(findings) > 5:
+        measured += f"; ... (+{len(findings) - 5} more; all paths in structure_review.net_deletions)"
     return [
-        f"net deletion of {limit}+ lines is unaccounted for: {measured}. "
-        "side-effect-audit-evidence must name each path above and state what the "
-        "removed content was and why it is no longer needed. If the removal was "
-        "not intended, re-read each file at the revision being overwritten before "
-        "rerunning review"
+        f"measured net removals (review context, not a failure): {measured}. "
+        "Line counts do not establish content loss or preservation; review the diff and affected checks."
     ]
 
 
@@ -1580,6 +1559,7 @@ def review_success_details(
             "finish judges the same VibeGuard state and does not read this "
             "review's reason: pass --allow-vibeguard-review to finish as well"
         )
+    details.extend(net_deletion_details(structure))
     return details
 
 
@@ -1603,6 +1583,7 @@ def review_failure_details(
         f"checked development source/style files: {format_checked_paths(structure.get('checked_paths', []))}",
     ]
     details.extend(f"failure detail: {failure}" for failure in failures)
+    details.extend(net_deletion_details(structure))
     if any(failure.startswith(STRUCTURE_EVIDENCE_FAILURES) for failure in failures):
         details.append(structure_evidence_template(structure))
     details.append(
