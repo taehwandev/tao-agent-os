@@ -3,15 +3,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scripts'))
+from _tao_test_support import TemplateRepository
 
 from agent_gate_evidence import gate_evidence_path_for_preflight, reset_gate_evidence_ledger
 from agent_review_attestation import ReviewAttestation, _record_shape_failures
@@ -19,19 +17,35 @@ from agent_review_hook import _run_review_checks, record_review_gate
 from agent_review_reuse import ReviewReuse
 
 
+def _build_initial_commit(project: Path) -> None:
+    def git(*args):
+        subprocess.run(['git', *args], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    git('init', '-q')
+    git('config', 'user.email', 'review@example.invalid')
+    git('config', 'user.name', 'Review Test')
+    (project / '.gitignore').write_text('.tao/\n')
+    (project / 'source.py').write_text('value = 1\n')
+    (project / 'rule.md').write_text('review rules\n')
+    git('add', '.')
+    git('commit', '-qm', 'initial')
+
+
+# Module-level rather than per class: other modules borrow this fixture by
+# calling `ReviewReuseTests.setUp` on an instance that never ran setUpClass.
+_INITIAL_COMMIT = TemplateRepository(_build_initial_commit)
+
+
+def tearDownModule():
+    _INITIAL_COMMIT.cleanup()
+
+
 class ReviewReuseTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.project = Path(self.directory.name)
-        self.git('init', '-q')
-        self.git('config', 'user.email', 'review@example.invalid')
-        self.git('config', 'user.name', 'Review Test')
-        (self.project / '.gitignore').write_text('.tao/\n')
-        (self.project / 'source.py').write_text('value = 1\n')
-        (self.project / 'rule.md').write_text('review rules\n')
-        self.git('add', '.')
-        self.git('commit', '-qm', 'initial')
+        _INITIAL_COMMIT.copy_to(self.project)
         (self.project / 'source.py').write_text('value = 2\n')
         (self.project / 'extra.py').write_text('extra = 1\n')
         self.source = self.args('review', 'a' * 32)

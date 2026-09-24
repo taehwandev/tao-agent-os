@@ -4,6 +4,18 @@ import sys
 import unittest
 
 import test_claude_pretool_execution as fixture_module
+from _tao_test_support import fake_vibeguard_environment
+
+# These tests exercise commit readiness, not audit findings.
+_FAKE_VIBEGUARD = fake_vibeguard_environment()
+
+
+def setUpModule():
+    _FAKE_VIBEGUARD.start()
+
+
+def tearDownModule():
+    _FAKE_VIBEGUARD.stop()
 
 
 class CommitReadyExecutionTests(unittest.TestCase):

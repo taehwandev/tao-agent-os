@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests import test_agent_gate_reuse as fixture
+import test_agent_gate_reuse as fixture
 from agent_verification_command import resolve_verification_target, verification_target_is_changed
 
 

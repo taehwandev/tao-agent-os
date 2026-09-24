@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tests import test_agent_gate_reuse as fixture
+import test_agent_gate_reuse as fixture
 from agent_evidence_inputs import EvidenceInputs
 
 

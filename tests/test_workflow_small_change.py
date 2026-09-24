@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import _tao_test_support  # noqa: F401  (puts scripts/ on sys.path when run alone)
 from agent_hook_continuation import work_checkpoint_advice
 from agent_review_hook import record_review_prerequisite_readiness
 from workflow_effect_policy import effect_decision

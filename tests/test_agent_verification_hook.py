@@ -13,10 +13,24 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+from _tao_test_support import ROOT, TemplateRepository
 import agent_verification_hook as verify
 from agent_gate_evidence import gate_evidence_path_for_preflight
+
+
+def _build_fixture(project):
+    subprocess.run(["git", "init", "-q", str(project)], check=True)
+    (project / ".gitignore").write_text(".tao/\n__pycache__/\n")
+    subprocess.run(["git", "-C", str(project), "add", ".gitignore"], check=True)
+    subprocess.run(["git", "-C", str(project), "-c", "user.name=Test", "-c",
+                    "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
+
+
+_FIXTURE = TemplateRepository(_build_fixture)
+
+
+def tearDownModule():
+    _FIXTURE.cleanup()
 
 
 class VerificationHookTests(unittest.TestCase):
@@ -24,11 +38,7 @@ class VerificationHookTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name).resolve()
-        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
-        (self.project / ".gitignore").write_text(".tao/\n__pycache__/\n")
-        subprocess.run(["git", "-C", str(self.project), "add", ".gitignore"], check=True)
-        subprocess.run(["git", "-C", str(self.project), "-c", "user.name=Test", "-c",
-                        "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
+        _FIXTURE.copy_to(self.project)
         (self.project / "tests").mkdir()
         self.path = self.project / ".tao" / "preflight.json"
         self.path.parent.mkdir()

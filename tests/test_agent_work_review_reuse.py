@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from tests import test_agent_review_reuse as fixture
+import test_agent_review_reuse as fixture
 from agent_gate_evidence import resync_gate_evidence_ledger
 
 

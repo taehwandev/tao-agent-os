@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from tests import test_agent_gate_reuse as fixture
+import test_agent_gate_reuse as fixture
 from agent_gate_evidence import gate_evidence_path_for_preflight, merge_gate_evidence_from_ledger
 from agent_hook_gate_records import _normalize_gate_record, record_hook_gate_batch
 from agent_work_continuity import WorkContinuity

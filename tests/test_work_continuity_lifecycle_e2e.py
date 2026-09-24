@@ -23,10 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
+from _tao_test_support import ROOT, SCRIPTS, TemplateRepository, fake_vibeguard_environment
 
 from agent_run_registry import transition_run
 
@@ -53,14 +50,20 @@ def setUpModule() -> None:
     directory = tempfile.TemporaryDirectory(prefix="tao-state-home-")
     patch = mock.patch.dict(os.environ, {"TAO_STATE_HOME": directory.name})
     patch.start()
-    _STATE_HOME.extend((patch, directory))
+    # These scenarios test continuity, not audit findings: every hook process
+    # sees a Ready VibeGuard stand-in instead of paying for the real audit.
+    vibeguard = fake_vibeguard_environment()
+    vibeguard.start()
+    _STATE_HOME.extend((patch, directory, vibeguard))
 
 
 def tearDownModule() -> None:
-    patch, directory = _STATE_HOME
+    patch, directory, vibeguard = _STATE_HOME
+    vibeguard.stop()
     patch.stop()
     directory.cleanup()
     _STATE_HOME.clear()
+    _PLAIN_CHECKOUT.cleanup()
 
 
 def git(root: Path, *arguments: str) -> str:
@@ -148,20 +151,27 @@ def record_gate(
     )
 
 
+def _build_plain_checkout(project: Path) -> None:
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "module.py").write_text("value = 1\n", encoding="utf-8")
+    (project / ".gitignore").write_text(".tao/\n", encoding="utf-8")
+    (project / "README.md").write_text("Baseline contract.\n", encoding="utf-8")
+    git(project, "init", "-q")
+    git(project, "config", "user.email", "continuity@example.invalid")
+    git(project, "config", "user.name", "Continuity")
+    git(project, "add", ".")
+    git(project, "commit", "-qm", "fixture")
+
+
+_PLAIN_CHECKOUT = TemplateRepository(_build_plain_checkout)
+
+
 class PlainCheckout:
     """A small project whose rules root is this repository, read-only."""
 
     def __init__(self, directory: str) -> None:
         self.project = Path(directory).resolve() / "project"
-        (self.project / "src").mkdir(parents=True)
-        (self.project / "src" / "module.py").write_text("value = 1\n", encoding="utf-8")
-        (self.project / ".gitignore").write_text(".tao/\n", encoding="utf-8")
-        (self.project / "README.md").write_text("Baseline contract.\n", encoding="utf-8")
-        git(self.project, "init", "-q")
-        git(self.project, "config", "user.email", "continuity@example.invalid")
-        git(self.project, "config", "user.name", "Continuity")
-        git(self.project, "add", ".")
-        git(self.project, "commit", "-qm", "fixture")
+        _PLAIN_CHECKOUT.copy_to(self.project)
 
 
 class WorkContinuityTests(unittest.TestCase):

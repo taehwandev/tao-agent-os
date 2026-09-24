@@ -27,8 +27,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+from _tao_test_support import ROOT, TemplateRepository, fake_vibeguard_environment
 
 import claude_pretool_gate as gate
 from agent_route_state import request_fingerprint
@@ -43,6 +42,22 @@ SESSION_ID = "lockout-session"
 # file there had grown past 280 KB of directories that no longer exist.
 _STATE_HOME: "tempfile.TemporaryDirectory | None" = None
 _OUTER_STATE_HOME: "str | None" = None
+# The lockout cases test the edit gate, not audit findings.
+_FAKE_VIBEGUARD = fake_vibeguard_environment()
+
+
+def _build_fresh_repository(project: Path) -> None:
+    (project / "module.py").write_text("value = 1\n", encoding="utf-8")
+    for command in (
+        ["git", "init", "-q"],
+        ["git", "add", "-A"],
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t",
+         "commit", "-q", "-m", "init"],
+    ):
+        subprocess.run(command, cwd=project, check=True)
+
+
+_FRESH_REPOSITORY = TemplateRepository(_build_fresh_repository)
 
 
 def setUpModule() -> None:
@@ -50,9 +65,12 @@ def setUpModule() -> None:
     _OUTER_STATE_HOME = os.environ.get(STATE_HOME_ENV)
     _STATE_HOME = tempfile.TemporaryDirectory()
     os.environ[STATE_HOME_ENV] = _STATE_HOME.name
+    _FAKE_VIBEGUARD.start()
 
 
 def tearDownModule() -> None:
+    _FAKE_VIBEGUARD.stop()
+    _FRESH_REPOSITORY.cleanup()
     if _OUTER_STATE_HOME is None:
         os.environ.pop(STATE_HOME_ENV, None)
     else:
@@ -83,14 +101,7 @@ class ContinuationLockoutTests(unittest.TestCase):
         self.addCleanup(self._temp.cleanup)
         self.project = Path(self._temp.name).resolve()
         self.target = self.project / "module.py"
-        self.target.write_text("value = 1\n", encoding="utf-8")
-        for command in (
-            ["git", "init", "-q"],
-            ["git", "add", "-A"],
-            ["git", "-c", "user.email=t@example.com", "-c", "user.name=t",
-             "commit", "-q", "-m", "init"],
-        ):
-            subprocess.run(command, cwd=self.project, check=True)
+        _FRESH_REPOSITORY.copy_to(self.project)
 
         environment = dict(os.environ)
         for _, variable in SESSION_ENV_VARS:

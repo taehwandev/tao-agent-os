@@ -2,17 +2,36 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from _tao_test_support import TemplateRepository
 
 from agent_gate_evidence import gate_evidence_path_for_preflight, merge_gate_evidence_from_ledger
 from agent_hook_gate_records import _normalize_gate_record, record_hook_gate_batch
+
+
+def _build_baselines(template: Path) -> None:
+    for root in (template / "project", template / "rules"):
+        root.mkdir()
+        GateEvidenceReuseTests.git(root, "init", "-q")
+        GateEvidenceReuseTests.git(root, "config", "user.email", "test@example.invalid")
+        GateEvidenceReuseTests.git(root, "config", "user.name", "Test")
+        (root / ".gitignore").write_text(".tao/\n")
+        (root / "README.md").write_text("Existing release contract.\n")
+        GateEvidenceReuseTests.git(root, "add", ".")
+        GateEvidenceReuseTests.git(root, "commit", "-qm", "baseline")
+
+
+# Module-level: test_agent_work_continuity borrows this setUp without setUpClass.
+_BASELINES = TemplateRepository(_build_baselines, repositories=("project", "rules"))
+
+
+def tearDownModule():
+    _BASELINES.cleanup()
 
 
 class GateEvidenceReuseTests(unittest.TestCase):
@@ -22,15 +41,7 @@ class GateEvidenceReuseTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.project = self.root / "project"
         self.rules = self.root / "rules"
-        for root in (self.project, self.rules):
-            root.mkdir()
-            self.git(root, "init", "-q")
-            self.git(root, "config", "user.email", "test@example.invalid")
-            self.git(root, "config", "user.name", "Test")
-            (root / ".gitignore").write_text(".tao/\n")
-            (root / "README.md").write_text("Existing release contract.\n")
-            self.git(root, "add", ".")
-            self.git(root, "commit", "-qm", "baseline")
+        _BASELINES.copy_to(self.root)
         self.source_id, self.target_id = "a" * 32, "b" * 32
         self.source = self.make_run(self.source_id, "배포")
         self.target = self.make_run(self.target_id, "아니 바로 배포는 알아서 다시해야하는거 아니니? 왜 자꾸 멈춰")

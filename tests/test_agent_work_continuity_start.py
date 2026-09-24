@@ -2,8 +2,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-from tests import test_agent_gate_reuse as fixture
-from tests import test_agent_hook_start_run_binding as start_fixture
+import test_agent_gate_reuse as fixture
+import test_agent_hook_start_run_binding as start_fixture
 from agent_hook_gate_records import reset_and_record_preflight_gate
 
 

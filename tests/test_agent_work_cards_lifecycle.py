@@ -12,9 +12,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-sys.path.insert(0, str(ROOT / "tests"))
+from _tao_test_support import ROOT, fake_vibeguard_environment
 
 import agent_work_cards as cards  # noqa: E402
 from test_work_continuity_lifecycle_e2e import (  # noqa: E402
@@ -25,6 +23,17 @@ from test_work_continuity_lifecycle_e2e import (  # noqa: E402
     start,
     turn_boundary,
 )
+
+# Work cards are the subject here, not audit findings.
+_FAKE_VIBEGUARD = fake_vibeguard_environment()
+
+
+def setUpModule() -> None:
+    _FAKE_VIBEGUARD.start()
+
+
+def tearDownModule() -> None:
+    _FAKE_VIBEGUARD.stop()
 
 
 def _agent_hook():

@@ -9,8 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+from _tao_test_support import ROOT, TemplateRepository
 
 from agent_execution_capsule import (
     REUSE_POLICY,
@@ -56,13 +55,26 @@ from agent_worker_evidence import reserve_isolated_worker_evidence
 
 
 class ExecutionCapsuleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Both checkouts are identical for every test; build them once and
+        # hand each test its own copy.
+        def build(template: Path) -> None:
+            cls._init_repository(template / "project", {"app.txt": "app\n"})
+            cls._init_repository(template / "rules", {"guide.md": "# Guide\n"})
+
+        cls.template = TemplateRepository(build, repositories=("project", "rules"))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.template.cleanup()
+
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name)
         self.project = self.root / "project"
         self.rules = self.root / "rules"
-        self._init_repository(self.project, {"app.txt": "app\n"})
-        self._init_repository(self.rules, {"guide.md": "# Guide\n"})
+        self.template.copy_to(self.root)
         self.route = {
             "command": "task",
             "platform": None,
@@ -1675,18 +1687,19 @@ class ExecutionCapsuleTests(unittest.TestCase):
             ],
         }
 
-    def _init_repository(self, path: Path, files: dict[str, str]) -> None:
+    @classmethod
+    def _init_repository(cls, path: Path, files: dict[str, str]) -> None:
         path.mkdir(parents=True)
         (path / ".gitignore").write_text(".tao/\n", encoding="utf-8")
         for relative, content in files.items():
             destination = path / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(content, encoding="utf-8")
-        self._git(path, "init", "-q")
-        self._git(path, "config", "user.email", "tests@example.invalid")
-        self._git(path, "config", "user.name", "Tao Agent OS Tests")
-        self._git(path, "add", "-A")
-        self._git(path, "commit", "-qm", "initial")
+        cls._git(path, "init", "-q")
+        cls._git(path, "config", "user.email", "tests@example.invalid")
+        cls._git(path, "config", "user.name", "Tao Agent OS Tests")
+        cls._git(path, "add", "-A")
+        cls._git(path, "commit", "-qm", "initial")
 
     def _commit_change(self, path: Path, relative: str, content: str) -> None:
         destination = path / relative
@@ -1694,7 +1707,8 @@ class ExecutionCapsuleTests(unittest.TestCase):
         self._git(path, "add", relative)
         self._git(path, "commit", "-qm", "change")
 
-    def _git(self, path: Path, *args: str) -> None:
+    @staticmethod
+    def _git(path: Path, *args: str) -> None:
         subprocess.run(["git", *args], cwd=path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def _sha256(self, path: Path) -> str:
