@@ -87,7 +87,6 @@ from agent_start_guidance import (
     REVIEW_RANGE_SCOPE,
     REVIEW_SCOPE_CHOICES,
     REVIEW_SCOPES_NEEDING_PATH,
-    collapse_repeated_guidance,
     review_shape_line,
 )
 from agent_review_structure import (
@@ -323,8 +322,6 @@ def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_in
                 details.append(release_error)
     if not success:
         _learn_start_block("start_preflight_failed")
-    else:
-        details = collapse_repeated_guidance(args.project, runtime_session(), details)
     return finish_with_result(
         "start",
         success,

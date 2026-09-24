@@ -997,10 +997,10 @@ class AskingGitHubIsInspectionTests(unittest.TestCase):
                 self.assertEqual("mutating", gh_command_kind(command.split()))
 
     def test_it_is_reached_through_the_command_classifier(self) -> None:
-        # Named by the executable, so an absolute path is still gh.
+        # An arbitrary executable path cannot inherit the gh read allowance.
         self.assertEqual("read_only", bash_readonly.bash_command_kind(
             ["gh", "pr", "view", "75"], True))
-        self.assertEqual("read_only", bash_readonly.bash_command_kind(
+        self.assertEqual("mutating", bash_readonly.bash_command_kind(
             ["/opt/homebrew/bin/gh", "run", "list"], True))
         self.assertEqual("mutating", bash_readonly.bash_command_kind(
             ["gh", "pr", "merge", "75", "--squash"], True))

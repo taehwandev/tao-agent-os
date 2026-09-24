@@ -1070,6 +1070,10 @@ def simple_command_kind(tokens: list[str]) -> str:
     script_kind = read_only_script_kind(command)
     if script_kind is not None:
         return script_kind
+    # A project executable may borrow the name of a trusted utility.
+    # Only the exact runtime hook and digest-bound scripts above use paths.
+    if command[0] != Path(command[0]).name:
+        return "mutating"
     runner_kind = test_runner_kind(command)
     if runner_kind is not None:
         return runner_kind

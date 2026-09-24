@@ -10,7 +10,8 @@ Each rule names one program and the exact argument shape under which that
 program cannot write. Anything else returns None, and the caller keeps its
 fail-closed default. An interpreter is admitted only for a mode that does not
 run the program it is given -- a syntax check, a version probe, or the standard
-library's JSON pretty-printer reading one file to stdout -- never for a script.
+library's JSON pretty-printer in isolated mode reading one file to stdout --
+never for a script or a module shadowed by project files.
 """
 
 from __future__ import annotations
@@ -38,7 +39,9 @@ def _operands_only(arguments: list[str]) -> bool:
 def interpreter_probe_kind(command: list[str]) -> str | None:
     """Read-only for a version probe, `node --check`, or `python -m json.tool`."""
 
-    name = Path(command[0]).name
+    if command[0] != Path(command[0]).name:
+        return None
+    name = command[0]
     is_python = PYTHON_NAME_RE.fullmatch(name) is not None
     if name != "node" and not is_python:
         return None
@@ -51,10 +54,11 @@ def interpreter_probe_kind(command: list[str]) -> str | None:
         if len(arguments) >= 2 and arguments[0] in {"--check", "-c"} and _operands_only(arguments[1:]):
             return "read_only"
         return None
-    if arguments[:2] != ["-m", "json.tool"]:
+    # -I excludes the project directory and PYTHONPATH from module lookup.
+    if arguments[:3] != ["-I", "-m", "json.tool"]:
         return None
     operands = 0
-    index = 2
+    index = 3
     while index < len(arguments):
         argument = arguments[index]
         flag, equal, value = argument.partition("=")
@@ -79,7 +83,9 @@ def inspection_command_kind(command: list[str]) -> str | None:
 
     if not command:
         return None
-    name = Path(command[0]).name
+    if command[0] != Path(command[0]).name:
+        return None
+    name = command[0]
     if name in INSPECTION_COMMANDS:
         return "read_only"
     if name == "tar":

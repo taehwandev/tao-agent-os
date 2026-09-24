@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -31,7 +32,7 @@ ADMITTED = {
     "node short syntax check": "node -c a.js b.js",
     "interpreter version": "python3 --version",
     "node version": "node --version",
-    "json pretty-print": "python3 -m json.tool --sort-keys package.json",
+    "isolated json pretty-print": "python3 -I -m json.tool --sort-keys package.json",
     "unittest with warning filter": "python3 -W ignore -m unittest discover -q -s tests -t tests -p test_x.py",
     "unittest with attached warning filter": "python3 -B -Wignore -m unittest tests.test_x",
     "process listing": "pgrep -fl vite",
@@ -52,6 +53,11 @@ PROJECT_CODE = {
     "path-invoked script": "./scripts/check.sh src",
     "node script": "node tools/label.mjs --label codex",
     "json.tool with an output file": "python3 -m json.tool in.json out.json",
+    "json.tool without import isolation": "python3 -m json.tool package.json",
+    "project node posing as node": "./node --check web/src/app.js",
+    "project cat posing as cat": "./cat package.json",
+    "path-invoked checksum tool": "bin/shasum -a 256 package.json",
+    "path-invoked test runner": "./pytest -q",
     "unittest behind a script flag": "python3 -W ignore script.py",
 }
 
@@ -60,6 +66,7 @@ STILL_REFUSED = {
     "node evaluation": "node -e 'require(\"fs\").writeFileSync(\"x\",\"\")'",
     "node check plus option": "node --check --require ./hook.js a.js",
     "json.tool unknown option": "python3 -m json.tool --output x a.json",
+    "isolated json.tool output file": "python3 -I -m json.tool in.json out.json",
     "tar extract": "tar -xzf backup.tgz",
     "tar create": "tar -czf backup.tgz .tao",
     "tar list with program": "tar -tzf backup.tgz --to-command=sh",
@@ -77,6 +84,20 @@ def effect(command: str) -> tuple[str, str]:
 
 
 class ClassifierTests(unittest.TestCase):
+    def test_json_module_can_execute_project_code_without_isolation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "json.py").write_text("from pathlib import Path\nPath('executed').touch()\n")
+            (project / "input.json").write_text("{}\n")
+            subprocess.run([sys.executable, "-m", "json.tool", "input.json"], cwd=project,
+                           capture_output=True, check=False)
+            self.assertTrue((project / "executed").exists())
+            (project / "executed").unlink()
+            isolated = subprocess.run([sys.executable, "-I", "-m", "json.tool", "input.json"],
+                                      cwd=project, capture_output=True, check=False)
+            self.assertEqual(0, isolated.returncode, isolated.stderr)
+            self.assertFalse((project / "executed").exists())
+
     def test_admitted_grammars_are_read_only(self) -> None:
         for family, command in ADMITTED.items():
             with self.subTest(family=family):
