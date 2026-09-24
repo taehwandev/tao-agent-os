@@ -208,6 +208,12 @@ def _branch_arguments_are_read_only(arguments: list[str]) -> bool:
     if not arguments:
         return True
     value_options = {"--contains", "--merged", "--no-merged"}
+    explicit_listing = any(
+        word.split("=", 1)[0] in value_options | {"--list"}
+        or (word.startswith("-") and set(word[1:]) <= set("arv")
+            and bool(set(word[1:]) & set("ar")))
+        for word in arguments
+    )
     listing_mode = False
     index = 0
     while index < len(arguments):
@@ -224,11 +230,14 @@ def _branch_arguments_are_read_only(arguments: list[str]) -> bool:
                 if not arguments[index].startswith("-"):
                     index += 1
             continue
-        if argument in BRANCH_READ_ONLY_OPTIONS:
+        if argument in BRANCH_READ_ONLY_OPTIONS or (
+            len(argument) > 1 and argument.startswith("-")
+            and set(argument[1:]) <= set("arv")
+        ):
             listing_mode = True
             index += 1
             continue
-        if listing_mode and not argument.startswith("-"):
+        if explicit_listing and not argument.startswith("-"):
             index += 1
             continue
         return False

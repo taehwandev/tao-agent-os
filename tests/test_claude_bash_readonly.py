@@ -35,6 +35,33 @@ class CompoundShellCommandTests(unittest.TestCase):
         _, tokens, simple = worktree_gate.bash_invocation(payload, base)
         return worktree_gate.bash_command_kind(tokens, simple)
 
+    def test_branch_inspection_clusters_keep_bundled_reads_read_only(self):
+        for flag in ("-avv", "-rvv", "-va", "-vvv"):
+            command = f"git -C /tmp/project worktree list && git -C /tmp/project branch {flag} && git -C /tmp/project status --short --branch"
+            with self.subTest(flag=flag):
+                self.assertEqual("read_only", self._kind(command))
+
+    def test_branch_clusters_do_not_hide_writes(self):
+        for command in (
+            "git branch -avvD topic", "git branch -avvf topic",
+            "git branch -vvv topic", "git branch -avv && touch extra",
+            "git branch -avv > branches.txt",
+        ):
+            with self.subTest(command=command):
+                self.assertNotEqual("read_only", self._kind(command))
+
+    def test_bundled_git_lookup_needs_no_run_in_protected_checkout(self):
+        from tests.test_claude_pretool_gate import _decide, _opt_in_project, _require_linked_worktree
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _opt_in_project(Path(tmp))
+            _require_linked_worktree(root)
+            command = f'git -C "{root}" worktree list && git -C "{root}" branch -avv && git -C "{root}" status --short --branch'
+            code, output = _decide({
+                "tool_name": "Bash", "cwd": str(root),
+                "session_id": "bundled-inspection", "tool_input": {"command": command},
+            })
+            self.assertEqual((0, ""), (code, output))
+
     def test_read_only_pipeline_is_read_only(self) -> None:
         self.assertEqual(self._kind("grep -rn needle . | head -20"), "read_only")
         self.assertEqual(self._kind("ls -la | wc -l"), "read_only")

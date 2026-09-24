@@ -113,7 +113,9 @@ class CommitReadyExecutionTests(unittest.TestCase):
         output = invoke("start", "--command", "commit", "--request", "Commit the verified fixture",
                         "--intent", "prepare_commit", "--target-summary", "Disposable fixture",
                         "--approved-effect", effect, "--commit-ready", explicit=False)
-        for step in ("start", "review", "gate-batch", "finish"):
+        self.assertNotIn("SUCCESS gate-batch", output)
+        self.assertIn("commit readiness: derived from the current review attestation", output)
+        for step in ("start", "review", "finish"):
             self.assertIn("SUCCESS " + step, output)
         self.assertEqual(head, fixture.run_command(["git", "rev-parse", "HEAD"], check=True).stdout)
         self.assertEqual(staged, fixture.run_command(["git", "diff", "--cached"], check=True).stdout)

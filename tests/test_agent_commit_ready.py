@@ -42,7 +42,7 @@ class CommitReadyTests(unittest.TestCase):
         self.docs_patch = patch("agent_commit_ready.required_doc_reuse", return_value={"unread": []})
         self.docs_patch.start()
         self.addCleanup(self.docs_patch.stop)
-        self.progress_patch = patch("agent_commit_ready._gate_progress", return_value={"remaining_gates": []})
+        self.progress_patch = patch("agent_commit_ready._gate_progress", return_value={"remaining_gates": ["commit readiness"]})
         self.progress_patch.start()
         self.addCleanup(self.progress_patch.stop)
         self.output = contextlib.redirect_stdout(io.StringIO())
@@ -69,7 +69,7 @@ class CommitReadyTests(unittest.TestCase):
         index = self.fixture.git("diff", "--cached")
         self.assertEqual(0, prepare_commit(self.args, self.start, dispatch))
         self.start.assert_called_once()
-        self.assertEqual(["review", "gate-batch", "finish"], calls)
+        self.assertEqual(["review", "finish"], calls)
         self.assertEqual(before, self.fixture.git("rev-parse", "HEAD"))
         self.assertEqual(index, self.fixture.git("diff", "--cached"))
 
@@ -175,7 +175,7 @@ class CommitReadyTests(unittest.TestCase):
         calls = []
         with patch("agent_commit_ready._gate_progress", return_value={"remaining_gates": ["review hook"]}):
             self.assertEqual(2, prepare_commit(self.args, self.start, lambda args: calls.append(args.hook) or 0))
-        self.assertEqual(["review", "gate-batch"], calls)
+        self.assertEqual(["review"], calls)
 
 
 if __name__ == "__main__":

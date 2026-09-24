@@ -79,17 +79,9 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
             return code
         if reuse.capture() != reuse.before:
             raise ValueError("staged scope or rules changed during review")
-        current.hook = "gate-batch"
-        current.gate_json = None
-        current.gate_record = [json.dumps({
-            "gate": "commit readiness",
-            "evidence": "Exact staged bytes match completed same-session review; current commit authority and fresh review passed. No commit or external write executed.",
-            "fields": {},
-        })]
-        code = dispatch(current)
-        if code:
-            return code
-        if _gate_progress(current)["remaining_gates"] != []:
+        # Finish derives readiness from the current review; all other gates
+        # must already be satisfied before invoking it.
+        if set(_gate_progress(current)["remaining_gates"]) - {COMMIT_READINESS_GATE}:
             raise ValueError("commit route gates are incomplete; finish was not attempted")
         current.hook = "finish"
         return dispatch(current)
