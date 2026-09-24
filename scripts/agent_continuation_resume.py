@@ -30,7 +30,11 @@ from agent_continuation_store import (
     list_continuation_run_ids,
     read_continuation_packet,
 )
-from agent_execution_capsule_state import git_states_for_paths, read_json_object
+from agent_execution_capsule_state import (
+    RootUnavailableError,
+    git_states_for_paths,
+    read_json_object,
+)
 from agent_run_registry import read_registry_state, registry_path, resume_holder_state
 
 
@@ -40,7 +44,8 @@ DRIFT_LABELS = (
     ("rules_worktree", "worktree_drift"),
     ("required_docs", "required_doc_drift"),
 )
-UNRESUMABLE_STATUSES = ("invalid_packet", "local_boundary_failed")
+ROOT_UNAVAILABLE = "rules_root_unavailable"
+UNRESUMABLE_STATUSES = ("invalid_packet", "local_boundary_failed", ROOT_UNAVAILABLE)
 RERUN_CONDITIONS = (
     "state_changed",
     "external_freshness_required",
@@ -412,12 +417,28 @@ def _packet_entry(
         entry["holder_state"] = "same_session_stopped"
         entry["holder"] = "free"
     rules_root = _rules_root(binding, rules, project)
+    try:
+        git_states = states.for_rules(rules_root)
+    except RootUnavailableError:
+        # The rules root this run was bound to is gone (a removed worktree).
+        # That run cannot be verified or resumed, but the rest of the listing
+        # must still be reported.
+        entry.update(
+            {
+                "status": ROOT_UNAVAILABLE,
+                "objective": packet["work"]["objective"],
+                "drift": ROOT_UNAVAILABLE,
+                "changed_signals": ["rules_root"],
+                "phase": packet["phase"],
+            }
+        )
+        return entry
     drift = verify_drift(
         project,
         rules_root,
         packet,
         required_doc_records=binding_required_docs(binding),
-        git_states=states.for_rules(rules_root),
+        git_states=git_states,
     )
     entry.update(
         {

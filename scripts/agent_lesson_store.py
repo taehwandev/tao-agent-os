@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from agent_state_lock import state_lock
 
 
 OCCURRENCE_KEY_HISTORY_LIMIT = 20
+RECENT_OCCURRENCE_DAYS = 14
 
 
 def promote_repaired_candidates(
@@ -164,6 +166,13 @@ def upsert_retrospective_candidate(
                     "last_seen_at": lesson["created_at"],
                     "occurrence_count": occurrence_count,
                     "occurrence_keys": _merged_occurrence_keys(prior, occurrence_key),
+                    # Only open inbox records carry recency: a verified repair
+                    # (promotion) restarts the recurring window, not the count.
+                    "recent_occurrences": merged_recent_occurrences(
+                        inbox_prior,
+                        today=_occurrence_day(lesson["created_at"]),
+                        increment=not repeated_occurrence,
+                    ),
                     "promotion_status": lesson["promotion_status"],
                 }
             )
@@ -222,6 +231,52 @@ def _merged_occurrence_keys(prior: list[dict[str, Any]], new_key: str = "") -> l
     if new_key and new_key not in keys:
         keys.append(new_key)
     return keys[-OCCURRENCE_KEY_HISTORY_LIMIT:]
+
+
+def merged_recent_occurrences(
+    records: list[dict[str, Any]], *, today: str = "", increment: bool = False
+) -> dict[str, int]:
+    """Sum per-day occurrence buckets, optionally add one for `today`, keep 14 days.
+
+    `occurrence_count` is lifetime, so a "recurring in 7 days" notice needs its
+    own recency: `{YYYY-MM-DD: n}`, bounded to the newest days.
+    """
+
+    buckets: dict[str, int] = {}
+    for item in records:
+        raw = item.get("recent_occurrences")
+        if not isinstance(raw, dict):
+            continue
+        for day, count in raw.items():
+            if _is_day(day) and isinstance(count, int) and not isinstance(count, bool) and count > 0:
+                buckets[day] = buckets.get(day, 0) + count
+    if increment and _is_day(today):
+        buckets[today] = buckets.get(today, 0) + 1
+    anchor = today if _is_day(today) else max(buckets, default="")
+    if not anchor:
+        return {}
+    cutoff = (date.fromisoformat(anchor) - timedelta(days=RECENT_OCCURRENCE_DAYS - 1)).isoformat()
+    return {day: buckets[day] for day in sorted(buckets) if day >= cutoff}
+
+
+def _is_day(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 10:
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _occurrence_day(created_at: object) -> str:
+    try:
+        moment = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        moment = datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).date().isoformat()
 
 
 def _opaque_occurrence_key(occurrence_id: str) -> str:

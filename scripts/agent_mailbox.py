@@ -58,7 +58,7 @@ class AgentMailbox:
     def status(self, runtime: str) -> dict[str, int | str]:
         result = MailboxStore(self.project).status(runtime)
         reference = ReferenceMailboxStore(self.project).status(runtime)
-        for key in ("pending", "expired", "acked"):
+        for key in ("pending", "expired", "acked", "rejected"):
             result[key] += reference[key]
         return result
 

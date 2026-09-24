@@ -272,6 +272,28 @@ class CompactionTests(unittest.TestCase):
 
         self.assertEqual({"abc.json"}, self._files())
 
+    def test_the_apply_never_deletes_lock_files(self) -> None:
+        """Unlinking a lock lets an old-inode holder and a new-file holder both hold it."""
+
+        import io
+        import os
+        from contextlib import redirect_stdout
+
+        self._write("20260101-abc.json", _candidate("abc", "2026-01-01T00:00:00Z"))
+        old_lock = self.inbox / "old.json.lock"
+        old_lock.write_text("", encoding="utf-8")
+        os.utime(old_lock, (0, 0))
+        with state_lock(self.inbox / "abc.json"):
+            pass
+        locks_before = {path.name for path in self.inbox.glob("*.lock")}
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            compact.main_with_arguments(["--state-home", str(self.state), "--apply"])
+
+        self.assertEqual(locks_before, {path.name for path in self.inbox.glob("*.lock")})
+        self.assertNotIn("lock files", output.getvalue())
+
     def test_a_record_that_is_not_an_object_is_left_alone(self) -> None:
         """Valid JSON is not the same as a lesson."""
 

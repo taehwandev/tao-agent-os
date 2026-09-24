@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
+import uuid
 from pathlib import Path
 
 
@@ -105,19 +108,70 @@ def _first_of_each(entries) -> list:
     return kept
 
 
+class SetupConfigError(RuntimeError):
+    """A runtime config file exists but cannot be merged without losing its content."""
+
+
+BACKUP_SUFFIX = ".tao-backup"
+_backed_up: set[Path] = set()
+
+
 def read_json(path: Path) -> dict:
-    if not path.exists():
-        return {}
+    """Return a config object; only a missing file means an empty config.
+
+    A malformed or unreadable file is the user's data, not an empty config:
+    merging into {} and writing back would wipe it, so setup stops instead.
+    """
     try:
-        data = json.loads(path.read_text())
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return {}
+    except (OSError, UnicodeError) as error:
+        raise SetupConfigError(f"cannot read {path}: {error}; setup left it unchanged") from error
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise SetupConfigError(
+            f"{path} is not valid JSON ({error}); fix or move it, then rerun setup. "
+            "Setup left it unchanged."
+        ) from error
+    if not isinstance(data, dict):
+        raise SetupConfigError(
+            f"{path} does not contain a JSON object; fix or move it, then rerun setup. "
+            "Setup left it unchanged."
+        )
+    return data
 
 
 def write_json(path: Path, data: dict) -> None:
+    """Replace a config atomically, keeping the pre-run content as one backup."""
+    # A dotfile manager may link the config; replace the file it points at,
+    # never the link itself.
+    path = path.resolve() if path.is_symlink() else path
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    encoded = (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    key = path.absolute()
+    if key not in _backed_up and path.is_file():
+        _atomic_write_bytes(path.with_name(path.name + BACKUP_SUFFIX), path.read_bytes(), path)
+    _backed_up.add(key)
+    _atomic_write_bytes(path, encoded, path)
+
+
+def _atomic_write_bytes(path: Path, payload: bytes, mode_source: Path) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_bytes(payload)
+        try:
+            os.chmod(temporary, stat.S_IMODE(mode_source.stat().st_mode))
+        except OSError:
+            pass
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def quote(value: str) -> str:

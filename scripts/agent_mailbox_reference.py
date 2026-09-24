@@ -11,7 +11,7 @@ from agent_execution_capsule_state import atomic_write_json
 from agent_mailbox_store import (
     _MAX_ACKS, _MAX_BODY_BYTES, _MAX_PENDING, _MAX_TTL_SECONDS, _MESSAGE_ID,
     _aware, _expired, _json_files, _parse_time, _require_local_path, _runtime,
-    _validate_content,
+    _validate_content, quarantine_packet,
 )
 from agent_project_memory import repository_key
 from agent_state_lock import state_lock
@@ -60,7 +60,8 @@ class ReferenceMailboxStore:
         with state_lock(self.root / ".mailbox"):
             paths = _json_files(inbox)
             for path in paths:
-                if _expired(self._read(path, recipient), now):
+                pending = self._readable(path, recipient)
+                if pending is not None and _expired(pending, now):
                     path.unlink()
             if len(_json_files(inbox)) >= _MAX_PENDING:
                 raise RuntimeError(f"local agent mailbox pending limit is {_MAX_PENDING}")
@@ -77,13 +78,22 @@ class ReferenceMailboxStore:
         self._writable()
         consumed = []
         with state_lock(self.root / ".mailbox"):
+            # Validate the whole selection before acknowledging any packet, so
+            # an unreadable packet can never discard already-deleted messages.
+            ready = []
             for path in self._paths("inbox", recipient):
-                packet = self._read(path, recipient)
+                packet = self._readable(path, recipient)
+                if packet is None:
+                    continue
                 receipt = self.root / "acked" / recipient / path.name
                 self._check_path(receipt)
                 if _expired(packet, self._clock()) or receipt.exists():
                     path.unlink()
                     continue
+                ready.append((path, receipt, packet))
+                if len(ready) == limit:
+                    break
+            for path, receipt, packet in ready:
                 atomic_write_json(receipt, {
                     "schema_version": 2, "message_id": packet["message_id"],
                     "repository_id": self.repository_id, "recipient": recipient,
@@ -93,17 +103,29 @@ class ReferenceMailboxStore:
                 for stale in self._paths("acked", recipient)[:-_MAX_ACKS]:
                     stale.unlink()
                 consumed.append(packet)
-                if len(consumed) == limit:
-                    break
         return consumed
 
     def status(self, recipient: str) -> dict[str, int | str]:
         recipient = _runtime(recipient)
         self._check_path(self.root)
-        packets = [self._read(path, recipient) for path in self._paths("inbox", recipient)]
+        packets, rejected = [], 0
+        for path in self._paths("inbox", recipient):
+            try:
+                packets.append(self._read(path, recipient))
+            except ValueError:
+                rejected += 1
         expired = sum(_expired(packet, self._clock()) for packet in packets)
         return {"runtime": recipient, "pending": len(packets) - expired,
-                "expired": expired, "acked": len(self._paths("acked", recipient))}
+                "expired": expired, "acked": len(self._paths("acked", recipient)),
+                "rejected": rejected}
+
+    def _readable(self, path: Path, recipient: str) -> dict[str, object] | None:
+        """Return a valid packet, or quarantine an unreadable one and return None."""
+        try:
+            return self._read(path, recipient)
+        except ValueError:
+            quarantine_packet(self.state_home, path, self.root / "rejected" / recipient)
+            return None
 
     def _paths(self, category: str, recipient: str) -> list[Path]:
         directory = self.root / category / recipient
@@ -112,25 +134,30 @@ class ReferenceMailboxStore:
 
     def _read(self, path: Path, recipient: str) -> dict[str, object]:
         self._check_path(path)
-        if path.stat().st_size > _MAX_BODY_BYTES + 4096:
-            raise ValueError("local agent mailbox packet exceeds its size limit")
-        try:
-            packet = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
-            raise ValueError("local agent mailbox packet is malformed") from error
-        fields = {"schema_version", "message_id", "repository_id", "sender", "recipient",
-                  "kind", "body", "created_at", "expires_at"}
-        if not isinstance(packet, dict) or set(packet) != fields or packet["schema_version"] != 2:
-            raise ValueError("local agent mailbox packet uses an unsupported schema")
-        if packet["repository_id"] != self.repository_id or packet["recipient"] != recipient:
-            raise ValueError("local agent mailbox packet has an invalid repository/runtime binding")
-        if packet["message_id"] != path.stem or not _MESSAGE_ID.fullmatch(path.stem):
-            raise ValueError("local agent mailbox packet has an invalid message id")
-        _runtime(str(packet["sender"]))
-        if not isinstance(packet["body"], str):
-            raise ValueError("mailbox body must be text")
-        _validate_content(str(packet["kind"]), packet["body"], 1)
-        lifetime = (_parse_time(packet["expires_at"]) - _parse_time(packet["created_at"])).total_seconds()
-        if lifetime <= 0 or lifetime > _MAX_TTL_SECONDS:
-            raise ValueError("local agent mailbox packet has an invalid TTL")
-        return packet
+        return _read_reference_packet(path, self.repository_id, recipient)
+
+
+def _read_reference_packet(path: Path, repository_id: str, recipient: str) -> dict[str, object]:
+    """Read one packet; any unreadable or foreign packet raises ValueError."""
+    if path.stat().st_size > _MAX_BODY_BYTES + 4096:
+        raise ValueError("local agent mailbox packet exceeds its size limit")
+    try:
+        packet = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("local agent mailbox packet is malformed") from error
+    fields = {"schema_version", "message_id", "repository_id", "sender", "recipient",
+              "kind", "body", "created_at", "expires_at"}
+    if not isinstance(packet, dict) or set(packet) != fields or packet["schema_version"] != 2:
+        raise ValueError("local agent mailbox packet uses an unsupported schema")
+    if packet["repository_id"] != repository_id or packet["recipient"] != recipient:
+        raise ValueError("local agent mailbox packet has an invalid repository/runtime binding")
+    if packet["message_id"] != path.stem or not _MESSAGE_ID.fullmatch(path.stem):
+        raise ValueError("local agent mailbox packet has an invalid message id")
+    _runtime(str(packet["sender"]))
+    if not isinstance(packet["body"], str):
+        raise ValueError("mailbox body must be text")
+    _validate_content(str(packet["kind"]), packet["body"], 1)
+    lifetime = (_parse_time(packet["expires_at"]) - _parse_time(packet["created_at"])).total_seconds()
+    if lifetime <= 0 or lifetime > _MAX_TTL_SECONDS:
+        raise ValueError("local agent mailbox packet has an invalid TTL")
+    return packet

@@ -53,6 +53,10 @@ REFUSAL_GUIDANCE = {
     "local_boundary_failed": (
         "the targeted packet's project-local, Git-ignored boundary could not be proven"
     ),
+    "rules_root_unavailable": (
+        "the rules root the targeted run was started against no longer exists (for example a "
+        "removed worktree); it cannot be verified or resumed, so start a fresh run"
+    ),
     "claim_lost": "another session claimed this run between capture and commit",
     "runtime_binding_refused": (
         "the resume claim completed but could not bind the exact runtime session; "

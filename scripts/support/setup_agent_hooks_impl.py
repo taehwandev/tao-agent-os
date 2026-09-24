@@ -37,6 +37,7 @@ from support.runtime_bridge import (
 from support.setup_config_files import (
     merge_codex_prefix_rules,
     merge_permissions_allow,
+    SetupConfigError,
     print_results,
     quote,
 )
@@ -53,6 +54,14 @@ DEFAULT_SPILL_SETUP_HELPER = (
 DEFAULT_GITHUB_DIR = Path.home() / "GitHub"
 
 def main() -> None:
+    try:
+        _main()
+    except SetupConfigError as error:
+        print(f"Setup stopped: {error}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+def _main() -> None:
     parser = argparse.ArgumentParser(
         description="Configure AI runtime bridges, hooks, and permissions for Tao Agent OS."
     )

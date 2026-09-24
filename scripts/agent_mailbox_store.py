@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import uuid
 from collections.abc import Callable, Mapping
@@ -17,6 +18,7 @@ from agent_state_lock import state_lock
 _MAX_BODY_BYTES = 32 * 1024
 _MAX_ACKS = 64
 _MAX_PENDING = 32
+_MAX_REJECTED = 16
 _MAX_SCAN_FILES = 128
 _MAX_SCAN_RUNS = 64
 _MAX_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -97,8 +99,16 @@ class MailboxStore:
         _require_local_path(self.project, self.root)
         consumed: list[dict[str, object]] = []
         with state_lock(self.root / ".mailbox"):
+            # Validate every selected packet before acknowledging any, so an
+            # unreadable packet can never discard messages already deleted.
+            ready: list[tuple[Path, Path, dict[str, object]]] = []
             for path, run_id in _pending_paths(self.project, self.root, recipient):
-                packet = _read_packet(path, self.project, run_id, recipient)
+                try:
+                    packet = _read_packet(path, self.project, run_id, recipient)
+                except ValueError:
+                    rejected = self.root / "runs" / run_id / "rejected" / recipient
+                    quarantine_packet(self.project, path, rejected)
+                    continue
                 if _expired(packet, self._clock()):
                     path.unlink()
                     continue
@@ -107,23 +117,29 @@ class MailboxStore:
                 if receipt.exists():
                     path.unlink()
                     continue
+                ready.append((path, receipt, packet))
+                if len(ready) == limit:
+                    break
+            for path, receipt, packet in ready:
                 atomic_write_json(receipt, _acknowledgement(packet, self._clock()))
                 path.unlink()
                 for stale_receipt in _json_files(receipt.parent)[:-_MAX_ACKS]:
                     stale_receipt.unlink()
                 consumed.append(packet)
-                if len(consumed) == limit:
-                    break
         return consumed
 
     def status(self, recipient: str) -> dict[str, int | str]:
         recipient = _runtime(recipient)
         if not self.root.exists():
-            return {"runtime": recipient, "pending": 0, "expired": 0, "acked": 0}
+            return {"runtime": recipient, "pending": 0, "expired": 0, "acked": 0, "rejected": 0}
         _require_local_path(self.project, self.root)
-        pending = expired = 0
+        pending = expired = rejected = 0
         for path, run_id in _pending_paths(self.project, self.root, recipient):
-            packet = _read_packet(path, self.project, run_id, recipient)
+            try:
+                packet = _read_packet(path, self.project, run_id, recipient)
+            except ValueError:
+                rejected += 1
+                continue
             expired += int(_expired(packet, self._clock()))
             pending += int(not _expired(packet, self._clock()))
         return {
@@ -131,6 +147,7 @@ class MailboxStore:
             "pending": pending,
             "expired": expired,
             "acked": len(_ack_paths(self.project, self.root, recipient)),
+            "rejected": rejected,
         }
 
 
@@ -254,6 +271,19 @@ def _json_files(directory: Path) -> list[Path]:
     if any(path.is_symlink() for path in paths):
         raise OSError("local agent mailbox must not use symbolic links")
     return paths
+
+
+def quarantine_packet(base: Path, path: Path, rejected: Path) -> None:
+    """Move an unreadable packet aside so it neither blocks nor gets delivered.
+
+    Only the newest few rejected packets are kept for diagnosis.
+    """
+    _require_local_path(base, rejected)
+    rejected.mkdir(parents=True, exist_ok=True)
+    os.replace(path, rejected / path.name)
+    kept = sorted(_json_files(rejected), key=lambda item: (item.stat().st_mtime_ns, item.name))
+    for stale in kept[:-_MAX_REJECTED]:
+        stale.unlink()
 
 
 def _receipt_path(root: Path, run_id: str, recipient: str, message_id: str) -> Path:

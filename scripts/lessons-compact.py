@@ -24,8 +24,10 @@ merges by the store's own rules and then removes what it merged.
 
 The same pass triages what no longer matters: a lesson unseen for the stale
 window is marked `stale` (kept, with its count, so a return keeps counting and
-the writer reopens it), and lock files untouched for a day are removed when no
-writer holds them. Without `--apply` it only reports.
+the writer reopens it). Lock files are never removed: unlinking one that looks
+unheld lets a process still holding the old inode and one creating a new file
+both believe they hold the lock, and the files are tiny. Without `--apply` it
+only reports.
 """
 
 from __future__ import annotations
@@ -36,22 +38,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows hosts keep their lock files
-    fcntl = None
-
 SCRIPTS = Path(__file__).resolve().parent
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from agent_block_lessons import is_stale  # noqa: E402
 from agent_lesson_files import _read_lesson_records  # noqa: E402
-from agent_lesson_store import _merged_occurrence_keys  # noqa: E402
+from agent_lesson_store import _merged_occurrence_keys, merged_recent_occurrences  # noqa: E402
 from agent_state_lock import state_lock  # noqa: E402
 from support.global_state import global_state_dir  # noqa: E402
-
-LOCK_DEBRIS_AGE_SECONDS = 24 * 60 * 60
 
 
 def inbox_path(state_home: Path) -> Path:
@@ -91,6 +86,10 @@ def merge_group(records: list[dict]) -> dict:
 
     ordered = sorted(records, key=lambda item: str(item.get("created_at") or ""))
     newest = ordered[-1]
+    recency = {}
+    if any(isinstance(item.get("recent_occurrences"), dict) for item in ordered):
+        # Legacy records without buckets keep the last-seen fallback.
+        recency = {"recent_occurrences": merged_recent_occurrences(ordered)}
     return {
         **newest,
         "first_seen_at": min(
@@ -108,6 +107,7 @@ def merge_group(records: list[dict]) -> dict:
             and not isinstance(item.get("occurrence_count", 1), bool)
         ),
         "occurrence_keys": _merged_occurrence_keys(ordered),
+        **recency,
     }
 
 
@@ -135,39 +135,7 @@ def plan(inbox: Path, now: datetime | None = None) -> dict:
         "unreadable": unreadable,
         "folds": folds,
         "stale": stale,
-        "lock_debris": lock_debris(inbox, current),
     }
-
-
-def lock_debris(inbox: Path, now: datetime) -> list[Path]:
-    """Lock files the writer leaves behind, untouched for over a day."""
-
-    cutoff = now.timestamp() - LOCK_DEBRIS_AGE_SECONDS
-    debris = []
-    for path in sorted(inbox.glob("*.lock")):
-        try:
-            if path.stat().st_mtime < cutoff:
-                debris.append(path)
-        except OSError:
-            continue
-    return debris
-
-
-def remove_lock_debris(paths: list[Path]) -> int:
-    """Remove each old lock only when nobody holds it right now."""
-
-    removed = 0
-    if fcntl is None:
-        return removed
-    for path in paths:
-        try:
-            with path.open("a+b") as handle:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                path.unlink(missing_ok=True)
-                removed += 1
-        except OSError:
-            continue
-    return removed
 
 
 def mark_stale(inbox: Path, lesson_ids: list[str], now: datetime) -> int:
@@ -281,10 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"inbox: {inbox}")
     print(f"records: {report['records']}  lessons: {report['lessons']}")
     print(f"lessons to fold: {len(report['folds'])}  files to remove: {removed}")
-    print(
-        f"lessons to mark stale (unseen 14+ days): {len(report['stale'])}  "
-        f"lock files older than a day: {len(report['lock_debris'])}"
-    )
+    print(f"lessons to mark stale (unseen 14+ days): {len(report['stale'])}")
     if report["unreadable"]:
         print(f"unreadable, left untouched: {len(report['unreadable'])}")
         for path in report["unreadable"][:5]:
@@ -300,8 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     written = apply_plan(inbox, report["folds"])
     print(f"folded {written} lessons; {removed} files removed")
     marked = mark_stale(inbox, report["stale"], now)
-    cleared = remove_lock_debris(report["lock_debris"])
-    print(f"marked {marked} lessons stale; removed {cleared} lock files")
+    print(f"marked {marked} lessons stale")
     return 0
 
 

@@ -106,13 +106,44 @@ class ReferenceMailboxTests(unittest.TestCase):
         with self.assertRaises(OSError):
             self.send()
 
+    def _ordered_good_bad_good(self):
+        inbox = self.store.root / "inbox" / "claude"
+        good = []
+        for name, body in (("0" * 32, "first"), ("f" * 32, "second")):
+            packet = self.send(body=body)
+            (inbox / f"{packet['message_id']}.json").unlink()
+            packet["message_id"] = name
+            (inbox / f"{name}.json").write_text(json.dumps(packet))
+            good.append(packet)
+        bad = inbox / ("7" * 32 + ".json")
+        bad.write_bytes(b"\xff\xfe not utf-8")
+        return good, bad
+
+    def test_bad_packet_between_good_ones_is_quarantined_not_blocking(self):
+        good, bad = self._ordered_good_bad_good()
+        self.assertEqual(1, self.store.status("claude")["rejected"])
+        self.assertEqual(good, self.store.consume("claude"))
+        self.assertEqual([], self.store.consume("claude"))
+        self.assertTrue((self.store.root / "rejected" / "claude" / bad.name).is_file())
+        third = self.send(body="third")
+        self.assertEqual([third], self.store.consume("claude"))
+        self.assertEqual(0, self.store.status("claude")["rejected"])
+
+    def test_send_expiry_sweep_survives_a_bad_packet(self):
+        good, bad = self._ordered_good_bad_good()
+        sent = self.send(body="after bad")
+        self.assertFalse(bad.exists())
+        received = self.store.consume("claude")
+        self.assertEqual(sorted(p["message_id"] for p in good + [sent]),
+                         sorted(p["message_id"] for p in received))
+
     def test_tampered_repository_and_explicit_handoff_do_not_fall_back(self):
         packet = self.send()
         path = self.store.root / "inbox" / "claude" / (packet["message_id"] + ".json")
         packet["repository_id"] = "foreign"
         path.write_text(json.dumps(packet))
-        with self.assertRaisesRegex(ValueError, "binding"):
-            self.store.consume("claude")
+        self.assertEqual([], self.store.consume("claude"))
+        self.assertTrue((self.store.root / "rejected" / "claude" / path.name).is_file())
         with self.assertRaisesRegex(ValueError, "preflight evidence"):
             AgentMailbox(self.project, ROOT).send(sender="codex", recipient="claude", kind="review",
                 body="Invalid explicit handoff", evidence_path=self.project / "missing")

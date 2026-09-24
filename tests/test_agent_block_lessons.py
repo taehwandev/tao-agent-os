@@ -125,11 +125,15 @@ class RateLimitTests(_StateHome):
         self.assertEqual("store_not_writable_here", result["reason"])
 
 
-def _record(lesson_id: str, count: int, seen: datetime, **extra) -> dict:
+def _record(lesson_id: str, count: int, seen: datetime, *, in_window: bool = True, **extra) -> dict:
+    """A record whose `count` occurrences all fell on its last-seen day."""
+
     record = {
         "lesson_id": lesson_id,
         "occurrence_count": count,
         "last_seen_at": seen.isoformat(),
+        "recent_occurrences": {seen.astimezone(timezone.utc).date().isoformat(): count}
+        if in_window else {},
         "status": "candidate",
         "source": "pretool_gate",
         "block_signature": "pretool_gate/worktree_isolation",
@@ -184,6 +188,46 @@ class SurfacingTests(_StateHome):
             self._write(_record(f"{index:016x}", count, recent))
         counts = [item["occurrence_count"] for item in _inbox_summary(self.inbox)["recurring"]]
         self.assertEqual([9, 6, 4], counts)
+
+    def test_a_large_lifetime_count_with_one_recent_occurrence_is_not_recurring(self) -> None:
+        now = datetime.now(timezone.utc)
+        old_day = (now - timedelta(days=30)).date().isoformat()
+        today = now.date().isoformat()
+        self._write(_record("a" * 16, 50, now, recent_occurrences={old_day: 49, today: 1}))
+        self.assertEqual([], _inbox_summary(self.inbox)["recurring"])
+
+    def test_the_count_shown_is_the_seven_day_count(self) -> None:
+        now = datetime.now(timezone.utc)
+        eight_days_ago = (now - timedelta(days=8)).date().isoformat()
+        recent = {(now - timedelta(days=offset)).date().isoformat(): 1 for offset in (0, 2, 5)}
+        self._write(_record("a" * 16, 50, now, recent_occurrences={eight_days_ago: 40, **recent}))
+        summary = _inbox_summary(self.inbox)
+        self.assertEqual([3], [item["occurrence_count"] for item in summary["recurring"]])
+        self.assertIn(" x3 (7d) ", blocks.recurring_lines(summary["recurring"])[0])
+
+    def test_a_record_without_day_buckets_counts_at_most_one_in_window(self) -> None:
+        now = datetime.now(timezone.utc)
+        legacy = _record("a" * 16, 50, now)
+        del legacy["recent_occurrences"]
+        self.assertEqual(1, blocks.occurrences_in_window(legacy, now))
+        legacy["last_seen_at"] = (now - timedelta(days=8)).isoformat()
+        self.assertEqual(0, blocks.occurrences_in_window(legacy, now))
+        self._write(legacy)
+        self.assertEqual([], _inbox_summary(self.inbox)["recurring"])
+
+    def test_each_recorded_block_adds_to_todays_bucket_and_old_days_are_pruned(self) -> None:
+        old_day = (NOW - timedelta(days=20)).date().isoformat()
+        lesson_id = blocks.block_lesson_id("pretool_gate", "file_sprawl_budget")
+        seeded = _record(lesson_id, 10, NOW - timedelta(days=20),
+                         recent_occurrences={old_day: 10}, block_signature="pretool_gate/file_sprawl_budget",
+                         root_cause="file_sprawl_budget")
+        self._write(seeded)
+        for session in ("s1", "s2", "s3"):
+            blocks.record_block("pretool_gate", "file_sprawl_budget", session_id=session, now=NOW)
+        record = json.loads((self.inbox / f"{lesson_id}.json").read_text())
+        self.assertEqual(13, record["occurrence_count"])
+        self.assertEqual({NOW.date().isoformat(): 3}, record["recent_occurrences"])
+        self.assertEqual(3, blocks.occurrences_in_window(record, NOW))
 
 
 class ResolutionTests(_StateHome):
@@ -272,11 +316,11 @@ class CompactionTests(_StateHome):
         before = sorted(path.name for path in self.inbox.iterdir())
         report = self._run()
         self.assertIn("lessons to mark stale (unseen 14+ days): 1", report)
-        self.assertIn("lock files older than a day: 1", report)
+        self.assertNotIn("lock files", report)
         self.assertEqual(before, sorted(path.name for path in self.inbox.iterdir()))
         self.assertTrue(old_lock.exists())
 
-    def test_apply_merges_marks_stale_and_drops_old_locks(self) -> None:
+    def test_apply_merges_marks_stale_and_keeps_every_lock(self) -> None:
         old_lock, new_lock = self._seed()
         self._run("--apply")
 
@@ -286,7 +330,8 @@ class CompactionTests(_StateHome):
         self.assertEqual("candidate", merged["status"])
         self.assertEqual({f"{'a' * 16}.json", f"{'b' * 16}.json"}, {p.name for p in self.inbox.glob("*.json")})
         self.assertEqual("stale", json.loads((self.inbox / f"{'b' * 16}.json").read_text())["status"])
-        self.assertFalse(old_lock.exists())
+        # An unheld-looking old lock may still be held through its old inode.
+        self.assertTrue(old_lock.exists())
         self.assertTrue(new_lock.exists())
         self.assertEqual([], [item for item in _inbox_summary(self.inbox)["recurring"]
                               if item["lesson_id"] == "b" * 16])
@@ -305,6 +350,10 @@ class CompactionTests(_StateHome):
         reopened = json.loads(path.read_text())
         self.assertEqual("candidate", reopened["status"])
         self.assertEqual(5, reopened["occurrence_count"])
+        # One return is not a recurrence; three within the window are.
+        self.assertNotIn(stale_id, [item["lesson_id"] for item in _inbox_summary(self.inbox)["recurring"]])
+        for session in ("s10", "s11"):
+            blocks.record_block("pretool_gate", "worktree_isolation", session_id=session)
         self.assertIn(stale_id, [item["lesson_id"] for item in _inbox_summary(self.inbox)["recurring"]])
 
 

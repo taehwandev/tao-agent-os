@@ -168,19 +168,39 @@ def is_stale(record: dict[str, Any], now: datetime | None = None) -> bool:
     return seen is not None and _now(now) - seen > STALE_AFTER
 
 
+def occurrences_in_window(record: dict[str, Any], now: datetime | None = None) -> int:
+    """Occurrences on the last `RECURRING_WINDOW` days, never the lifetime count.
+
+    A record written before day buckets existed proves at most one occurrence:
+    its last sighting, when that falls inside the window.
+    """
+
+    current = _now(now)
+    buckets = record.get("recent_occurrences")
+    if isinstance(buckets, dict):
+        first_day = (current - RECURRING_WINDOW + timedelta(days=1)).date().isoformat()
+        last_day = current.date().isoformat()
+        return sum(
+            count for day, count in buckets.items()
+            if isinstance(day, str) and len(day) == 10 and first_day <= day <= last_day
+            and isinstance(count, int) and not isinstance(count, bool) and count > 0
+        )
+    seen = _seen_at(record)
+    return int(seen is not None and current - seen <= RECURRING_WINDOW)
+
+
 def recurring_signatures(
     records: list[dict[str, Any]], now: datetime | None = None, limit: int = SURFACE_LIMIT
 ) -> list[dict[str, Any]]:
-    """Top open candidates seen within the window and at the threshold."""
+    """Top open candidates at the threshold, counting only in-window occurrences."""
 
     current = _now(now)
     items = []
     for record in records:
-        count = record.get("occurrence_count")
+        count = occurrences_in_window(record, current)
         seen = _seen_at(record)
         if (
-            not isinstance(count, int) or isinstance(count, bool) or count < SURFACE_THRESHOLD
-            or seen is None or current - seen > RECURRING_WINDOW
+            count < SURFACE_THRESHOLD or seen is None
             or record.get("status") != "candidate"
             or not LESSON_ID_RE.fullmatch(str(record.get("lesson_id") or ""))
         ):

@@ -124,7 +124,8 @@ def _print_status(status: dict[str, int | str], as_json: bool) -> None:
     else:
         print(
             f"{status['runtime']}: pending={status['pending']} "
-            f"expired={status['expired']} acked={status['acked']}"
+            f"expired={status['expired']} acked={status['acked']} "
+            f"rejected={status.get('rejected', 0)}"
         )
 
 

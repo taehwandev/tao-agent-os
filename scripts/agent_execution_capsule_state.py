@@ -142,9 +142,22 @@ def git_states_for_paths(
     )
 
 
+class RootUnavailableError(FileNotFoundError):
+    """A project or rules root that no longer exists, e.g. a removed worktree."""
+
+
 def _git_repository_root_or_none(path: Path) -> Path | None:
+    # Git runs with the root as its working directory, so a deleted root
+    # surfaces as a bare FileNotFoundError from process creation. Name it, so
+    # a caller scanning many runs can mark this one instead of failing all.
+    if not path.is_dir():
+        raise RootUnavailableError(f"root directory is unavailable: {path}")
     try:
         return git_repository_root(path)
+    except OSError as error:
+        if path.is_dir():
+            raise
+        raise RootUnavailableError(f"root directory is unavailable: {path}") from error
     except RuntimeError:
         if is_non_git_workspace(path):
             return None

@@ -98,8 +98,48 @@ class MailboxStoreTests(unittest.TestCase):
         target.parent.mkdir(parents=True)
         shutil.copyfile(source, target)
 
-        with self.assertRaisesRegex(ValueError, "different project"):
-            self._store(project=other).consume("claude")
+        self.assertEqual([], self._store(project=other).consume("claude"))
+        self.assertFalse(target.exists())
+        rejected = other / ".tao" / "agent-mailbox" / "runs" / self.run_id / "rejected" / "claude"
+        self.assertTrue((rejected / source.name).is_file())
+
+    def _send(self, body: str) -> dict[str, object]:
+        return self._store(evidence=self.evidence).enqueue(
+            sender="codex", recipient="claude", kind="review", body=body, ttl_seconds=60,
+        )
+
+    def test_bad_packet_between_good_ones_neither_loses_nor_blocks_messages(self) -> None:
+        inbox = self.project / ".tao" / "agent-mailbox" / "runs" / self.run_id / "inbox" / "claude"
+        first = self._send("first")
+        bad_path = inbox / ("7" * 32 + ".json")
+        bad_path.write_text("{not json", encoding="utf-8")
+        second = self._send("second")
+        # Force the order good, bad, good regardless of the random ids.
+        (inbox / f"{first['message_id']}.json").rename(inbox / ("0" * 32 + ".json"))
+        (inbox / f"{second['message_id']}.json").rename(inbox / ("f" * 32 + ".json"))
+        for packet, name in ((first, "0" * 32), (second, "f" * 32)):
+            path = inbox / f"{name}.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["message_id"] = name
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            packet["message_id"] = name
+
+        self.assertEqual(1, self._store().status("claude")["rejected"])
+        self.assertEqual([first, second], self._store().consume("claude"))
+        self.assertEqual([], self._store().consume("claude"))
+        rejected = inbox.parents[1] / "rejected" / "claude"
+        self.assertEqual([bad_path.name], [path.name for path in rejected.iterdir()])
+        self.assertEqual(0, self._store().status("claude")["rejected"])
+        third = self._send("third")
+        self.assertEqual([third], self._store().consume("claude"))
+
+    def test_rejected_packets_are_bounded(self) -> None:
+        inbox = self.project / ".tao" / "agent-mailbox" / "runs" / self.run_id / "inbox" / "claude"
+        inbox.mkdir(parents=True)
+        for index in range(20):
+            (inbox / f"{index:032x}.json").write_text("[]", encoding="utf-8")
+        self.assertEqual([], self._store().consume("claude"))
+        self.assertEqual(16, len(list((inbox.parents[1] / "rejected" / "claude").iterdir())))
 
     def test_packet_moved_to_another_run_is_rejected(self) -> None:
         packet = self._store(evidence=self.evidence).enqueue(
@@ -114,8 +154,8 @@ class MailboxStoreTests(unittest.TestCase):
         target.parent.mkdir(parents=True)
         source.replace(target)
 
-        with self.assertRaisesRegex(ValueError, "different Tao run"):
-            self._store().consume("claude")
+        self.assertEqual([], self._store().consume("claude"))
+        self.assertTrue((source.parents[3] / ("b" * 32) / "rejected" / "claude" / source.name).is_file())
 
     def test_tampered_packet_cannot_extend_the_maximum_ttl(self) -> None:
         packet = self._store(evidence=self.evidence).enqueue(
@@ -130,8 +170,8 @@ class MailboxStoreTests(unittest.TestCase):
         payload["expires_at"] = (self.now + timedelta(days=8)).isoformat()
         path.write_text(json.dumps(payload), encoding="utf-8")
 
-        with self.assertRaisesRegex(ValueError, "invalid TTL"):
-            self._store().consume("claude")
+        self.assertEqual([], self._store().consume("claude"))
+        self.assertFalse(path.exists())
 
     def test_symlinked_mailbox_is_rejected_without_external_write(self) -> None:
         external = self.project.parent / "external"

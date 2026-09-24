@@ -92,6 +92,29 @@ class ListTests(unittest.TestCase):
             self.assertEqual("worktree_drift", entry["drift"])
             self.assertEqual(["project_worktree"], entry["changed_signals"])
 
+    def test_a_packet_bound_to_a_deleted_rules_root_does_not_break_the_listing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            healthy = free_fixture(directory, "still resumable")
+            orphan = free_fixture(
+                directory, "rules root was deleted", project=healthy.project, rules=healthy.rules
+            )
+            packet = json.loads(continuation_path(orphan.project, orphan.run_id).read_text(encoding="utf-8"))
+            binding_path = (
+                continuation_path(orphan.project, orphan.run_id).parent / packet["binding"]["filename"]
+            )
+            binding = json.loads(binding_path.read_text(encoding="utf-8"))
+            binding["rules"] = str(Path(directory) / "deleted-rules-root")
+            binding_path.write_text(json.dumps(binding), encoding="utf-8")
+
+            entries = resume_list(healthy.project)["entries"]
+
+            self.assertEqual("ok", entry_for(entries, healthy.run_id)["status"])
+            gone = entry_for(entries, orphan.run_id)
+            self.assertEqual("rules_root_unavailable", gone["status"])
+            self.assertEqual("rules_root_unavailable", gone["drift"])
+            refused = resume_last(healthy.project, run_id=orphan.run_id)
+            self.assertEqual("rules_root_unavailable", refused["result"])
+
     def test_a_run_without_a_packet_is_listed_as_legacy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)
