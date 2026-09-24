@@ -109,10 +109,9 @@ requires the worker's normal lifecycle; never reuse mismatched capsule state.
 The parent is the sole gate-ledger owner. Workers use worker-specific evidence
 paths, return scoped evidence, and never overwrite the parent ledger, including
 after an invalid handoff fallback. For a Codex leaf, use `dispatch --execute`
-only when the selected model, reasoning effort, sandbox, or required isolation
-differs from the parent. When the selected profile and sandbox match and
-isolation is unnecessary, stay in the current process or use a native worker
-instead of launching a fresh Codex process.
+only when isolation is explicitly required. A matching parent profile or
+unavailable parent profile information both stay in the current process or use
+a native worker; neither condition starts a fresh Codex process.
 If the direct question asks how to start app, product, or feature work, answer
 with the PRD -> ARD -> implementation path before lower-level coding steps. If
 the work then proceeds into code, use the `product` route unless an existing

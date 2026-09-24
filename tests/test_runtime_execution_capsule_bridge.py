@@ -482,6 +482,10 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
         self.assertIn("<TAO_LAUNCHER> finish", prompt_template)
         self.assertNotIn("read <TAO_ROOT>/AGENTS.md and <TAO_ROOT>/index.md", prompt_template)
         for template in (repo_template, prompt_template):
+            normalized = " ".join(template.split())
+            self.assertIn("only when isolation is explicitly required", normalized)
+            self.assertIn("unavailable parent profile information", normalized)
+            self.assertNotIn("only when the selected model", normalized)
             self.assertNotIn("docs-read", template.lower())
             self.assertNotIn("receipt", template.lower())
             self.assertRegex(template, r"worker-specific evidence\s+paths")

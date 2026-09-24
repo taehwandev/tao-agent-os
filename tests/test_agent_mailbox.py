@@ -19,6 +19,41 @@ from agent_mailbox import AgentMailbox
 
 
 class AgentMailboxTests(unittest.TestCase):
+    def test_cli_partial_delivery_keeps_json_stdout_and_separate_warning(self):
+        from contextlib import redirect_stderr, redirect_stdout
+        import io
+        import runpy
+        from agent_mailbox_store import MailboxStore
+        packet = MailboxStore(self.project, evidence_path=self.evidence).enqueue(
+            sender="codex", recipient="claude", kind="review", body="Legacy", ttl_seconds=60)
+        cli = runpy.run_path(str(ROOT / "scripts/agent-mailbox.py"))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        args = ["agent-mailbox", "receive", "--project", str(self.project), "--runtime", "claude", "--json"]
+        with patch.object(sys, "argv", args), patch("agent_mailbox.ReferenceMailboxStore", side_effect=OSError("unavailable")), redirect_stdout(stdout), redirect_stderr(stderr):
+            self.assertEqual(0, cli["main"]())
+        self.assertEqual([packet], json.loads(stdout.getvalue()))
+        self.assertIn("partial delivery", stderr.getvalue())
+        self.assertNotIn("Legacy", stderr.getvalue())
+
+    def test_reference_failure_preserves_delivered_legacy_packets(self):
+        from contextlib import redirect_stderr
+        import io
+        from agent_mailbox_store import MailboxStore
+        mailbox = AgentMailbox(self.project, self.rules)
+        packet = MailboxStore(self.project, evidence_path=self.evidence).enqueue(
+            sender="codex", recipient="claude", kind="review", body="Legacy", ttl_seconds=60)
+        warning = io.StringIO()
+        with patch("agent_mailbox.ReferenceMailboxStore", side_effect=OSError("unavailable")), redirect_stderr(warning):
+            self.assertEqual([packet], mailbox.receive("claude"))
+        self.assertIn("partial delivery", warning.getvalue())
+        self.assertEqual([], mailbox.receive("claude"))
+
+    def test_reference_failure_without_delivery_still_raises(self):
+        mailbox = AgentMailbox(self.project, self.rules)
+        with patch("agent_mailbox.ReferenceMailboxStore", side_effect=OSError("unavailable")):
+            with self.assertRaises(OSError):
+                mailbox.receive("claude")
+
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
         root = Path(self._temporary.name)

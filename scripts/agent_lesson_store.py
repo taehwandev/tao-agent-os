@@ -99,10 +99,19 @@ def _promote_one(
     }
     try:
         assert_no_continuation_outbound(payload, boundary="global_lesson")
-        with state_lock(destination):
-            atomic_write_json(destination, payload)
-            _update_index(root, relative_path, payload)
-        inbox_path.unlink(missing_ok=True)
+        # Upserts serialize on the canonical inbox path, including when a
+        # candidate was discovered under a legacy timestamp-prefixed name.
+        inbox_lock = root / "lessons" / "inbox" / f"{lesson['lesson_id']}.json"
+        with state_lock(inbox_lock):
+            # The repair observed this snapshot, not a recurrence arriving
+            # since. Leave a changed candidate open rather than losing it or
+            # claiming that the older repair also resolved the new failure.
+            if _read_lesson(inbox_path) != lesson:
+                return False
+            with state_lock(destination):
+                atomic_write_json(destination, payload)
+                _update_index(root, relative_path, payload)
+            inbox_path.unlink(missing_ok=True)
     except (OSError, ValueError):
         return False
     return True

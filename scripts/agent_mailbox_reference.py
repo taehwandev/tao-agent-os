@@ -11,7 +11,7 @@ from agent_execution_capsule_state import atomic_write_json
 from agent_mailbox_store import (
     _MAX_ACKS, _MAX_BODY_BYTES, _MAX_PENDING, _MAX_TTL_SECONDS, _MESSAGE_ID,
     _aware, _expired, _json_files, _parse_time, _require_local_path, _runtime,
-    _validate_content, quarantine_packet,
+    _validate_content, quarantine_packet, _preserve_delivery,
 )
 from agent_project_memory import repository_key
 from agent_state_lock import state_lock
@@ -77,7 +77,7 @@ class ReferenceMailboxStore:
             return []
         self._writable()
         consumed = []
-        with state_lock(self.root / ".mailbox"):
+        with _preserve_delivery(consumed), state_lock(self.root / ".mailbox"):
             # Validate the whole selection before acknowledging any packet, so
             # an unreadable packet can never discard already-deleted messages.
             ready = []
@@ -99,10 +99,10 @@ class ReferenceMailboxStore:
                     "repository_id": self.repository_id, "recipient": recipient,
                     "consumed_at": _aware(self._clock()).isoformat(),
                 })
+                consumed.append(packet)
                 path.unlink()
                 for stale in self._paths("acked", recipient)[:-_MAX_ACKS]:
                     stale.unlink()
-                consumed.append(packet)
         return consumed
 
     def status(self, recipient: str) -> dict[str, int | str]:
@@ -143,7 +143,7 @@ def _read_reference_packet(path: Path, repository_id: str, recipient: str) -> di
         raise ValueError("local agent mailbox packet exceeds its size limit")
     try:
         packet = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+    except (UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("local agent mailbox packet is malformed") from error
     fields = {"schema_version", "message_id", "repository_id", "sender", "recipient",
               "kind", "body", "created_at", "expires_at"}

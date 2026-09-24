@@ -61,9 +61,13 @@ def main() -> None:
         raise SystemExit(1) from None
 
 
-def _main() -> None:
+def _argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Configure AI runtime bridges, hooks, and permissions for Tao Agent OS."
+    )
+    parser.add_argument(
+        "--refresh-project-guidance", action="append", type=Path, default=[],
+        metavar="PATH", help="Refresh the known stale dispatch paragraph in an existing managed AGENTS.md; repeat per project.",
     )
     parser.add_argument(
         "--dry-run",
@@ -108,6 +112,11 @@ def _main() -> None:
         action="store_true",
         help="Reset Tao or missing profile selection to :workspace; preserve other settings.",
     )
+    return parser
+
+
+def _main() -> None:
+    parser = _argument_parser()
     args = parser.parse_args()
 
     if args.reset_codex_permission_default:
@@ -121,6 +130,10 @@ def _main() -> None:
     selected_runtimes = set(args.runtime)
     spill_available = _has_spill_setup_helper()
     results: list[dict] = []
+    from support.project_guidance import refresh_project_guidance
+
+    for project in args.refresh_project_guidance:
+        results.append(refresh_project_guidance(project, ROOT, dry_run=dry_run))
     configure_claude_runtime = _runtime_selected("claude", selected_runtimes) and _has_claude()
     configure_codex_runtime = _runtime_selected("codex", selected_runtimes) and _has_codex()
     configure_agy_runtime = _runtime_selected("agy", selected_runtimes) and _has_agy()

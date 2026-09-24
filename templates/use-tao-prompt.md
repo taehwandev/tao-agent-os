@@ -111,10 +111,9 @@ Rules:
    parent is the sole gate-ledger owner. Workers use worker-specific evidence
    paths, return scoped evidence, and never overwrite the parent ledger,
    including after an invalid handoff fallback. For a Codex leaf, use `dispatch
-   --execute` only when the selected model, reasoning effort, sandbox, or
-   required isolation differs from the parent. When the selected profile and
-   sandbox match and isolation is unnecessary, stay in the current process or
-   use a native worker instead of launching a fresh Codex process.
+   --execute` only when isolation is explicitly required. A matching parent
+   profile or unavailable parent profile information both stay in the current
+   process or use a native worker; neither condition starts a fresh Codex process.
    If the request is a direct question, answer it before routing or editing.
    If the direct question asks how to start app, product, or feature work,
    answer with PRD -> ARD -> implementation gates before lower-level coding

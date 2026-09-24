@@ -6,7 +6,9 @@ import hashlib
 import json
 import os
 import re
+import sys
 import uuid
+from contextlib import contextmanager
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -98,7 +100,7 @@ class MailboxStore:
             return []
         _require_local_path(self.project, self.root)
         consumed: list[dict[str, object]] = []
-        with state_lock(self.root / ".mailbox"):
+        with _preserve_delivery(consumed), state_lock(self.root / ".mailbox"):
             # Validate every selected packet before acknowledging any, so an
             # unreadable packet can never discard messages already deleted.
             ready: list[tuple[Path, Path, dict[str, object]]] = []
@@ -122,10 +124,11 @@ class MailboxStore:
                     break
             for path, receipt, packet in ready:
                 atomic_write_json(receipt, _acknowledgement(packet, self._clock()))
+                # A receipt commits delivery even if subsequent cleanup fails.
+                consumed.append(packet)
                 path.unlink()
                 for stale_receipt in _json_files(receipt.parent)[:-_MAX_ACKS]:
                     stale_receipt.unlink()
-                consumed.append(packet)
         return consumed
 
     def status(self, recipient: str) -> dict[str, int | str]:
@@ -149,6 +152,18 @@ class MailboxStore:
             "acked": len(_ack_paths(self.project, self.root, recipient)),
             "rejected": rejected,
         }
+
+
+@contextmanager
+def _preserve_delivery(packets: list[dict[str, object]]):
+    """Return committed deliveries on a later storage failure; never hide it."""
+    try:
+        yield
+    except (OSError, ValueError, RuntimeError) as error:
+        if not packets:
+            raise
+        print(f"Warning: mailbox partial delivery ({type(error).__name__}); "
+              "already acknowledged messages returned; remaining messages need retry.", file=sys.stderr)
 
 
 def _source_binding(project: Path, evidence_path: Path | None) -> tuple[str, str]:
@@ -221,7 +236,7 @@ def _read_packet(path: Path, project: Path, run_id: str, recipient: str) -> dict
         raise ValueError("local agent mailbox packet exceeds its size limit")
     try:
         packet = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("local agent mailbox packet is malformed") from error
     _validate_packet(packet, project, run_id, recipient, path.stem)
     return packet

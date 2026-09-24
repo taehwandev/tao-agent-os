@@ -10,7 +10,7 @@ from agent_execution_capsule import (
     read_execution_capsule,
     validate_execution_capsule,
 )
-from agent_mailbox_store import MailboxStore
+from agent_mailbox_store import MailboxStore, _preserve_delivery
 from agent_mailbox_reference import ReferenceMailboxStore
 from agent_runtime_session import runtime_session
 
@@ -51,8 +51,9 @@ class AgentMailbox:
 
     def receive(self, runtime: str, *, limit: int = 8) -> list[dict[str, object]]:
         packets = MailboxStore(self.project).consume(runtime, limit=limit)
-        if len(packets) < limit:
-            packets.extend(ReferenceMailboxStore(self.project).consume(runtime, limit=limit - len(packets)))
+        with _preserve_delivery(packets):
+            if len(packets) < limit:
+                packets.extend(ReferenceMailboxStore(self.project).consume(runtime, limit=limit - len(packets)))
         return packets
 
     def status(self, runtime: str) -> dict[str, int | str]:

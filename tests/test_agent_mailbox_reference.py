@@ -18,6 +18,90 @@ from agent_mailbox_reference import ReferenceMailboxStore
 
 
 class ReferenceMailboxTests(unittest.TestCase):
+    def test_receipt_cleanup_failure_returns_committed_packet(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stderr
+        import io
+        store = self.store
+        send = self.send
+        send(body="previous")
+        store.consume("claude")
+        packet = send(body="cleanup")
+        unlink = Path.unlink
+        def failing_cleanup(path, *args, **kwargs):
+            if "acked" in path.parts:
+                raise OSError("cleanup failed")
+            return unlink(path, *args, **kwargs)
+        with patch("agent_mailbox_reference._MAX_ACKS", 1), patch.object(Path, "unlink", failing_cleanup), redirect_stderr(io.StringIO()):
+            self.assertEqual([packet], store.consume("claude"))
+        self.assertEqual([], store.consume("claude"))
+
+    def test_io_failures_preserve_delivery_and_retry(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stderr
+        import io
+        from agent_mailbox_reference import atomic_write_json
+        store = self.store
+        send = self.send
+        packets = sorted([send(body="first"), send(body="second")],
+                         key=lambda packet: packet["message_id"])
+        calls = 0
+        def failing_write(path, payload):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated ack failure")
+            return atomic_write_json(path, payload)
+        warning = io.StringIO()
+        with patch("agent_mailbox_reference.atomic_write_json", side_effect=failing_write), redirect_stderr(warning):
+            self.assertEqual(packets[:1], store.consume("claude"))
+        self.assertIn("partial delivery", warning.getvalue())
+        self.assertEqual(packets[1:], store.consume("claude"))
+        self.assertEqual([], store.consume("claude"))
+
+    def test_unlink_failure_after_ack_delivers_once(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stderr
+        import io
+        store = self.store
+        send = self.send
+        packet = send(body="kept")
+        unlink = Path.unlink
+        def failing_unlink(path, *args, **kwargs):
+            if "inbox" in path.parts:
+                raise OSError("simulated unlink failure")
+            return unlink(path, *args, **kwargs)
+        warning = io.StringIO()
+        with patch.object(Path, "unlink", failing_unlink), redirect_stderr(warning):
+            self.assertEqual([packet], store.consume("claude"))
+        self.assertIn("partial delivery", warning.getvalue())
+        self.assertEqual([], store.consume("claude"))
+
+    def test_first_ack_failure_raises_and_preserves_message(self):
+        from unittest.mock import patch
+        store = self.store
+        send = self.send
+        packet = send(body="retry")
+        with patch("agent_mailbox_reference.atomic_write_json", side_effect=OSError("write failed")):
+            with self.assertRaises(OSError):
+                store.consume("claude")
+        self.assertEqual([packet], store.consume("claude"))
+
+    def test_read_io_failure_preserves_packet_for_retry(self):
+        from unittest.mock import patch
+        store = self.store
+        send = self.send
+        packet = send(body="retry read")
+        read_text = Path.read_text
+        def failing_read(path, *args, **kwargs):
+            if "inbox" in path.parts:
+                raise OSError("read failed")
+            return read_text(path, *args, **kwargs)
+        with patch.object(Path, "read_text", failing_read):
+            with self.assertRaises(OSError):
+                store.consume("claude")
+        self.assertEqual([packet], store.consume("claude"))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
