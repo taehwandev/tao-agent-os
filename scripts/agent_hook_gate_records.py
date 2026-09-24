@@ -25,11 +25,13 @@ from agent_gate_evidence import (
     reset_gate_evidence_ledger,
     synthesize_gate_evidence,
 )
+from agent_gate_record_template import GateRecordRejected, gate_record_template, gate_value_hints
 from agent_finish_gate_policy import MULTI_AGENT_GATE, validate_gate_evidence
 from agent_finish_check_steps import validate_recorded_grill_me_evidence
 from agent_finish_documentation import required_doc_target_failures
 from agent_hook_runtime import finish_with_result
-from agent_skill_catalog import canonical_skill_ids
+from agent_route_state import required_docs_for_route
+from agent_skill_catalog import canonical_skill_ids, skill_ids_from_doc_paths
 from agent_runtime_session import resolve_runtime_evidence, runtime_session
 from agent_gate_reuse import GateEvidenceReuse
 
@@ -182,7 +184,7 @@ def _gate_failure(
     return finish_with_result(
         name,
         False,
-        [f"gate evidence ledger update failed: {error}"],
+        [f"gate evidence ledger update failed: {error}", *getattr(error, "hints", [])],
         args.output,
         {},
         args.repair_cycle,
@@ -390,6 +392,8 @@ def _validate_records_before_write(
     gate_evidence: dict[str, str] = {}
     validates_delegation_plan = False
     failures: list[str] = []
+    hook = str(getattr(args, "hook", "") or "gate-batch")
+    hints: list[str] = []
 
     for record in records:
         gate = str(record.get("gate") or "").strip()
@@ -407,6 +411,7 @@ def _validate_records_before_write(
                 f"structured gate record for {gate} missing required fields: "
                 + ", ".join(missing)
             )
+            hints.append(gate_record_template(gate, hook=hook, extra_fields=missing))
             continue
 
         if gate == "documentation" and fields.get("decision", "").strip().lower() == "updated":
@@ -439,17 +444,19 @@ def _validate_records_before_write(
         if gate == MULTI_AGENT_GATE or gate in MULTI_AGENT_ROUTE_GATES:
             validates_delegation_plan = True
 
-    failures.extend(
-        validate_gate_evidence(
-            gate_evidence,
-            list(gate_evidence),
-            route=route,
-            allowed_skill_ids=canonical_skill_ids(
-                args.project,
-                getattr(args, "rules", Path(__file__).resolve().parents[1]),
-            ),
-        )
+    allowed_skill_ids = canonical_skill_ids(
+        args.project,
+        getattr(args, "rules", Path(__file__).resolve().parents[1]),
     )
+    content_failures = validate_gate_evidence(
+        gate_evidence,
+        list(gate_evidence),
+        route=route,
+        allowed_skill_ids=allowed_skill_ids,
+    )
+    failures.extend(content_failures)
+    if content_failures:
+        hints.extend(_content_rejection_hints(gate_evidence, route, allowed_skill_ids, hook))
     failures.extend(validate_recorded_grill_me_evidence(route, gate_evidence))
 
     if validates_delegation_plan:
@@ -461,4 +468,29 @@ def _validate_records_before_write(
             )
         )
     if failures:
-        raise ValueError("; ".join(dict.fromkeys(failures)))
+        raise GateRecordRejected("; ".join(dict.fromkeys(failures)), list(dict.fromkeys(hints)))
+
+
+def _content_rejection_hints(
+    gate_evidence: dict[str, str],
+    route: dict[str, Any],
+    allowed_skill_ids: set[str],
+    hook: str,
+) -> list[str]:
+    """Attribute each content rejection to its gate, for the message only.
+
+    The combined validation above already decided the outcome. Validating each
+    gate alone just names which record to fix, so its answer never changes what
+    is accepted.
+    """
+
+    loaded = skill_ids_from_doc_paths(required_docs_for_route(route) or [])
+    hints: list[str] = []
+    for gate, evidence in gate_evidence.items():
+        gate_failures = validate_gate_evidence(
+            {gate: evidence}, [gate], route=route, allowed_skill_ids=allowed_skill_ids
+        )
+        if gate_failures:
+            hints.extend(gate_value_hints(gate, gate_failures, loaded))
+            hints.append(gate_record_template(gate, hook=hook))
+    return hints

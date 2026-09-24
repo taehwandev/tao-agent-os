@@ -24,6 +24,13 @@ class HookCliErrorsTests(unittest.TestCase):
         self.assertNotIn("usage:", output.getvalue())
         self.assertLessEqual(len(output.getvalue().splitlines()), 2)
 
+    def test_invalid_review_scope_lists_every_valid_value(self):
+        with contextlib.redirect_stderr(io.StringIO()) as output, self.assertRaises(SystemExit) as error:
+            hook.build_parser().parse_args(["review", "--review-scope", "paths"])
+        self.assertEqual(2, error.exception.code)
+        for scope in ("working-tree", "pathspec", "repo-hygiene", "local-config", "commit-range"):
+            self.assertIn(scope, output.getvalue())
+
     def test_explicit_help_still_displays_all_options(self):
         with contextlib.redirect_stdout(io.StringIO()) as output, self.assertRaises(SystemExit) as result:
             hook.build_parser().parse_args(["--help"])

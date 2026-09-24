@@ -15,7 +15,11 @@ from agent_gate_evidence import (
 )
 from agent_finish_final_checks import record_successful_review_workflow_validation
 from agent_inprocess import run_workflow_validate
-from agent_review_boundary import format_boundary_note_requirements, missing_boundary_note_fields
+from agent_review_boundary import (
+    format_boundary_note_requirements,
+    missing_boundary_note_fields,
+    structure_evidence_template,
+)
 from agent_review_attestation import ReviewAttestation
 from agent_review_reuse import ReviewReuse
 from agent_review_commit_range import create_commit_snapshot, resolve_commit_range_subject
@@ -999,6 +1003,13 @@ def record_review_gate(
     )
 
 
+STRUCTURE_EVIDENCE_FAILURES = (
+    "structure review evidence is required: ",
+    "structure boundary note evidence is required for ",
+    "per-file addition limit was raised to ",
+)
+
+
 def structure_evidence_failures(structure: dict[str, Any], structure_evidence: str) -> list[str]:
     failures: list[str] = []
     if structure["warnings"] and not structure_evidence:
@@ -1190,16 +1201,8 @@ def review_input_invocation_failure_details(
             "user authority, resolve overlapping paths, rerun affected verification, and rerun "
             "the same review hook; no lifecycle checkpoint failed"
         )
-    if any(
-        failure.startswith(
-            (
-                "structure review evidence is required: ",
-                "structure boundary note evidence is required for ",
-                "per-file addition limit was raised to ",
-            )
-        )
-        for failure in failures
-    ):
+    if any(failure.startswith(STRUCTURE_EVIDENCE_FAILURES) for failure in failures):
+        details.append(structure_evidence_template(structure))
         details.append(
             "invocation request: correct --structure-review-evidence with every required boundary "
             "field and rerun the same review hook; no lifecycle checkpoint failed"
@@ -1600,6 +1603,8 @@ def review_failure_details(
         f"checked development source/style files: {format_checked_paths(structure.get('checked_paths', []))}",
     ]
     details.extend(f"failure detail: {failure}" for failure in failures)
+    if any(failure.startswith(STRUCTURE_EVIDENCE_FAILURES) for failure in failures):
+        details.append(structure_evidence_template(structure))
     details.append(
         "required recovery: run an actionable retrospective for this review failure, improve the "
         "owning Tao Agent OS doc, hook, validator, or test, and verify that repair outside the hook. "

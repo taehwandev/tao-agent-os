@@ -49,6 +49,35 @@ def format_boundary_note_requirements(requirements: list[dict[str, str]]) -> str
     return "; ".join(visible) + ("" if len(requirements) <= 5 else f"; ... (+{len(requirements) - 5} more)")
 
 
+BOUNDARY_NOTE_TEMPLATE = (
+    "owner: <owning module>; allowed imports: <modules>; forbidden imports: <modules>; "
+    "callers/tests: <callers and tests>; verification: <check run>"
+)
+
+
+def structure_evidence_template(structure: dict[str, Any]) -> str:
+    """Return a copyable --structure-review-evidence value naming each warned file.
+
+    Message only: the evidence checks are unchanged. The boundary labels appear
+    only when an added runtime file entered a multi-role package, because only
+    that case requires them.
+    """
+
+    warnings = [str(item) for item in structure.get("warnings") or []]
+    named = [
+        str(path)
+        for path in structure.get("checked_paths") or []
+        if any(str(path) in warning for warning in warnings)
+    ] or ["<file>"]
+    parts = [
+        f"{path}: expands public owner surface? <yes/no>; why the code stays here: <reason>"
+        for path in named
+    ]
+    if structure.get("boundary_note_requirements"):
+        parts.append(BOUNDARY_NOTE_TEMPLATE)
+    return 'fill-in template: --structure-review-evidence "' + " | ".join(parts) + '"'
+
+
 def added_runtime_source(
     project: Path,
     path: Path,
