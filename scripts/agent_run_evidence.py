@@ -30,6 +30,15 @@ the registry already applies to its own records, so the two halves of retention
 agree. And anything not named like a run id stays, and is reported: this
 directory also holds evidence under human-chosen names, which a person made on
 purpose and no automatic pass should remove.
+
+The registry is consulted when it can be read, so the two halves of retention
+agree about what a run is. A directory whose record is settled (completed or
+cancelled) is finished even when its packet never reached ``done``; one whose
+record still holds a claim is never removed; and one the registry no longer
+records at all -- an orphan, which nothing can claim or checkpoint -- is
+removed once it has been left alone for ``orphan_after_seconds``. A registry
+that is absent or unreadable is not evidence that every run is an orphan, so
+without one the registry-aware rules are simply not applied.
 """
 
 from __future__ import annotations
@@ -38,15 +47,47 @@ import json
 import shutil
 import time
 from pathlib import Path
+from typing import Iterable
 
 DEFAULT_KEEP = 10
 DEFAULT_ABANDONED_AFTER_SECONDS = 30 * 24 * 60 * 60
+DEFAULT_ORPHAN_AFTER_SECONDS = 14 * 24 * 60 * 60
 RUN_ID_LENGTH = 32
 FINISHED_PHASES = {"done"}
+# Mirrors agent_run_registry without importing it: a run in one of these
+# states is held by an owner and is never removed here.
+CLAIM_HOLDING_STATES = frozenset({"running", "paused", "resuming", "claiming"})
+SETTLED_STATES = frozenset({"completed", "cancelled"})
+REGISTRY_SCHEMA_VERSION = 1
 
 
 def runs_dir(project: Path) -> Path:
     return project / ".tao" / "runs"
+
+
+def read_registry_states(project: Path) -> dict[str, str] | None:
+    """Return run id -> state from the registry, or None when it cannot be read.
+
+    Read without the registry lock: it is replaced atomically, and a retention
+    report must not create lock files in a checkout it only inspects.
+    """
+
+    path = project / ".tao" / "run-registry.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != REGISTRY_SCHEMA_VERSION
+        or not isinstance(payload.get("runs"), list)
+    ):
+        return None
+    states: dict[str, str] = {}
+    for run in payload["runs"]:
+        if isinstance(run, dict) and run.get("run_id"):
+            states[str(run["run_id"])] = str(run.get("state") or "")
+    return states
 
 
 def is_run_directory(path: Path) -> bool:
@@ -88,24 +129,43 @@ def plan(
     *,
     keep: int = DEFAULT_KEEP,
     abandoned_after_seconds: int = DEFAULT_ABANDONED_AFTER_SECONDS,
+    orphan_after_seconds: int = DEFAULT_ORPHAN_AFTER_SECONDS,
+    registry_states: dict[str, str] | None = None,
+    use_registry: bool = True,
+    protected: Iterable[str] = (),
     now: float | None = None,
 ) -> dict:
+    """Classify every entry of the run directory.
+
+    ``registry_states`` overrides the registry read from disk; with
+    ``use_registry`` false the registry is ignored entirely. ``protected``
+    names runs a caller has established are still owned (a live owner that was
+    active moments ago) and that nothing here may remove.
+    """
+
     directory = runs_dir(project)
     if not directory.is_dir():
         return {
             "finished": [],
             "unfinished": [],
             "abandoned": [],
+            "orphaned": [],
             "unclassified": [],
             "kept": [],
             "removable": [],
         }
 
+    if registry_states is None and use_registry:
+        registry_states = read_registry_states(project)
+    held = set(protected)
     moment = time.time() if now is None else now
     cutoff = moment - max(0, int(abandoned_after_seconds))
+    orphan_cutoff = moment - max(0, int(orphan_after_seconds))
     finished: list[Path] = []
     unfinished: list[Path] = []
     abandoned: list[Path] = []
+    orphaned: list[Path] = []
+    removable_orphans: list[Path] = []
     # Named rather than skipped. This directory also holds run evidence under
     # human-chosen names, and a report that counts only the opaque ids reads as
     # a total when it is not one.
@@ -114,7 +174,15 @@ def plan(
         if not is_run_directory(path):
             unclassified.append(path)
             continue
-        if phase_of(path) in FINISHED_PHASES:
+        state = None if registry_states is None else registry_states.get(path.name)
+        if path.name in held or state in CLAIM_HOLDING_STATES:
+            unfinished.append(path)
+        elif registry_states is not None and state is None:
+            # Nothing can claim or checkpoint a packet whose record is gone.
+            orphaned.append(path)
+            if _touched_at(path) < orphan_cutoff:
+                removable_orphans.append(path)
+        elif phase_of(path) in FINISHED_PHASES or state in SETTLED_STATES:
             finished.append(path)
         elif _touched_at(path) < cutoff:
             abandoned.append(path)
@@ -127,9 +195,10 @@ def plan(
         "finished": finished,
         "unfinished": unfinished,
         "abandoned": abandoned,
+        "orphaned": orphaned,
         "unclassified": unclassified,
         "kept": finished[:keep],
-        "removable": [*finished[keep:], *abandoned],
+        "removable": [*finished[keep:], *abandoned, *removable_orphans],
     }
 
 
@@ -156,6 +225,9 @@ def prune_run_evidence(
     *,
     keep: int = DEFAULT_KEEP,
     abandoned_after_seconds: int = DEFAULT_ABANDONED_AFTER_SECONDS,
+    orphan_after_seconds: int = DEFAULT_ORPHAN_AFTER_SECONDS,
+    registry_states: dict[str, str] | None = None,
+    protected: Iterable[str] = (),
     apply: bool = True,
 ) -> dict[str, int]:
     """Remove what nothing can resume, and report what was left behind.
@@ -165,7 +237,14 @@ def prune_run_evidence(
     about and it was invisible until it was counted.
     """
 
-    report = plan(project, keep=keep, abandoned_after_seconds=abandoned_after_seconds)
+    report = plan(
+        project,
+        keep=keep,
+        abandoned_after_seconds=abandoned_after_seconds,
+        orphan_after_seconds=orphan_after_seconds,
+        registry_states=registry_states,
+        protected=protected,
+    )
     removable = report["removable"]
     freed = directory_bytes(removable) if removable else 0
     removed = apply_plan(removable) if apply and removable else 0
@@ -173,6 +252,8 @@ def prune_run_evidence(
         "finished": len(report["finished"]),
         "unfinished": len(report["unfinished"]),
         "abandoned": len(report["abandoned"]),
+        "orphaned": len(report["orphaned"]),
+        "removable": len(removable),
         "removed": removed,
         "freed_bytes": freed if removed else 0,
         "removable_bytes": freed,

@@ -845,6 +845,110 @@ def recover_stale_runs(
     return recovered
 
 
+# The unfinished states a run is left in once nothing holds it. Resume lists
+# every one of them, so without an end they accumulate as work nobody will take
+# up: a checkout that ran for a month showed two dozen of them.
+RETENTION_SETTLEABLE_RUN_STATES = RUN_STATES - CLAIM_HOLDING_RUN_STATES - SETTLED_RUN_STATES
+# Retention never settles or removes a run whose owner is alive and was active
+# this recently, whatever state its record is in.
+RETENTION_LIVE_OWNER_WINDOW_SECONDS = 30 * 60
+RETENTION_SETTLED_REASON = "retention_expired"
+
+
+def settle_expired_runs(
+    project: Path,
+    *,
+    retention_seconds: int,
+    apply: bool = True,
+    now: datetime | None = None,
+) -> list[str]:
+    """Settle unfinished runs left untouched for the retention window.
+
+    A settled record is ``cancelled`` with ``settled_reason`` naming retention.
+    Its ``updated_at`` is kept, so the same maintenance pass prunes it on the
+    same window as every other old record, and the directory it pointed at is
+    then an orphan the run-evidence policy removes. Active and claiming runs
+    are never settled here: the stale sweep fails them first, with its own
+    owner-liveness rules. With ``apply`` false nothing is written, and no lock
+    is taken, so a report creates nothing in the checkout it inspects.
+    """
+
+    if retention_seconds < 1:
+        raise ValueError("retention_seconds must be positive")
+    path = registry_path(project)
+    if not path.is_file():
+        return []
+    moment = now or datetime.now(timezone.utc)
+    cutoff = moment - timedelta(seconds=retention_seconds)
+    if not apply:
+        return _expired_run_ids(_read_registry(path), cutoff, moment)
+    with project_state_lock(project), state_lock(path):
+        payload = _read_registry(path)
+        settled = _expired_run_ids(payload, cutoff, moment)
+        if settled:
+            chosen = set(settled)
+            for run in payload["runs"]:
+                if isinstance(run, dict) and str(run.get("run_id") or "") in chosen:
+                    run["state"] = "cancelled"
+                    run["settled_reason"] = RETENTION_SETTLED_REASON
+                    run["settled_at"] = moment.isoformat()
+            _write_registry(path, payload)
+    for run_id in settled:
+        _safe_event(project, "run.settled", run_id=run_id, state="cancelled")
+    return settled
+
+
+def retention_protected_run_ids(
+    project: Path, *, now: datetime | None = None
+) -> set[str]:
+    """Run ids no retention pass may remove: held, or owned and recently active."""
+
+    path = registry_path(project)
+    if not path.is_file():
+        return set()
+    moment = now or datetime.now(timezone.utc)
+    protected: set[str] = set()
+    for run in _read_registry(path)["runs"]:
+        if not isinstance(run, dict) or not run.get("run_id"):
+            continue
+        if run.get("state") in CLAIM_HOLDING_RUN_STATES or _owner_recently_live(
+            run, moment
+        ):
+            protected.add(str(run["run_id"]))
+    return protected
+
+
+def _expired_run_ids(
+    payload: dict[str, Any], cutoff: datetime, moment: datetime
+) -> list[str]:
+    expired: list[str] = []
+    for run in payload["runs"]:
+        if not isinstance(run, dict) or not run.get("run_id"):
+            continue
+        if run.get("state") not in RETENTION_SETTLEABLE_RUN_STATES:
+            continue
+        age = _heartbeat_age_seconds(run, moment)
+        # An unreadable timestamp reads as infinitely old to the heartbeat, but
+        # retention fails towards keeping what it cannot date.
+        if age == float("inf") or moment - timedelta(seconds=age) >= cutoff:
+            continue
+        if _owner_recently_live(run, moment):
+            continue
+        expired.append(str(run["run_id"]))
+    return expired
+
+
+def _owner_recently_live(run: dict[str, Any], moment: datetime) -> bool:
+    if _heartbeat_age_seconds(run, moment) > RETENTION_LIVE_OWNER_WINDOW_SECONDS:
+        return False
+    owner = (
+        run.get("claim_owner")
+        if run.get("state") == CLAIMING_RUN_STATE
+        else run.get("owner")
+    )
+    return not owner_is_gone(owner)
+
+
 def resume_run(project: Path, run_id: str) -> dict[str, Any] | None:
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):

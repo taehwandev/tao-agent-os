@@ -92,10 +92,15 @@ merging or pulling the repository alone never rewrites user-level runtime
 settings.
 
 On macOS, the same setup also installs and loads one Tao-owned LaunchAgent for
-the selected Tao root. It runs the bounded `agent-os-maintenance.py` pass at
-login and every 24 hours, so completed run evidence is pruned by the existing
-retention policy without a daemon or per-agent polling loop. Active runs and
-unclassified directories remain fail-closed and are not deleted. `--check`
+the selected Tao root. It runs the bounded `agent-os-maintenance.py
+--all-projects` pass at login and every 24 hours over the Tao root, every
+project in `~/.tao/projects.json`, checkouts with Tao run state directly under
+the search roots (never Desktop, Documents or Downloads unless registered), and
+their `.tao/worktrees/*`, without a daemon or per-agent polling loop. Unfinished
+runs untouched for 30 days are settled, registry records and run directories
+share that window, and packets the registry no longer records are removed after
+14 days. Active or recently live-owned runs and unclassified directories remain
+fail-closed and are not deleted. `--dry-run` prints per-checkout counts only. `--check`
 reports the scheduler missing when either its plist or loaded service is absent.
 
 To repair only one runtime without touching other agent settings, pass its

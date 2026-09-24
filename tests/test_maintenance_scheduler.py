@@ -48,6 +48,7 @@ class MaintenanceSchedulerTests(unittest.TestCase):
             [
                 "/usr/bin/python3",
                 str(root.resolve() / "scripts/agent-os-maintenance.py"),
+                "--all-projects",
                 "--project",
                 str(root.resolve()),
                 "--max-records",

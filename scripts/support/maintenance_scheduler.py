@@ -64,6 +64,7 @@ def _launch_agent_plist(root: Path) -> bytes:
         "ProgramArguments": [
             sys.executable,
             str(root / "scripts" / "agent-os-maintenance.py"),
+            "--all-projects",
             "--project",
             str(root),
             "--max-records",

@@ -20,6 +20,7 @@ from pathlib import Path
 from agent_run_evidence import (
     DEFAULT_ABANDONED_AFTER_SECONDS,
     DEFAULT_KEEP,
+    DEFAULT_ORPHAN_AFTER_SECONDS,
     apply_plan,
     directory_bytes,
     phase_of,
@@ -42,6 +43,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--orphan-after-seconds",
+        type=int,
+        default=DEFAULT_ORPHAN_AFTER_SECONDS,
+        help=(
+            "a run the registry no longer records, untouched for this long, "
+            "becomes removable"
+        ),
+    )
+    parser.add_argument(
         "--apply",
         action="store_true",
         help="remove the runs listed as removable; without it, only report",
@@ -57,11 +67,13 @@ def main(argv: list[str] | None = None) -> int:
         args.project,
         keep=args.keep,
         abandoned_after_seconds=args.abandoned_after_seconds,
+        orphan_after_seconds=args.orphan_after_seconds,
     )
     print(f"runs: {directory}")
     print(
         f"finished: {len(report['finished'])}  unfinished: {len(report['unfinished'])}"
         f"  abandoned: {len(report['abandoned'])}"
+        f"  orphaned: {len(report['orphaned'])}"
     )
     if report["unclassified"]:
         print(
