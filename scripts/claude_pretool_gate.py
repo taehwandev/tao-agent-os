@@ -1526,6 +1526,34 @@ def write_target_path(payload: dict, cwd: Path) -> Path | None:
     return target
 
 
+def _patch_target_paths(payload: dict, cwd: Path) -> list[Path] | None:
+    """Read every patch source and move target; never infer targets from cwd."""
+    body = payload.get("tool_input")
+    if isinstance(body, dict):
+        candidates = [body[key] for key in ("patch", "input") if key in body]
+        if len(candidates) != 1:
+            return None
+        body = candidates[0]
+    if not isinstance(body, str):
+        return None
+    lines = body.strip().splitlines()
+    if not lines or lines[0] != "*** Begin Patch" or lines[-1] != "*** End Patch":
+        return None
+    targets = []
+    prefixes = ("*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: ")
+    for line in lines[1:-1]:
+        prefix = next((item for item in prefixes if line.startswith(item)), None)
+        if prefix:
+            name = line[len(prefix):]
+            if not name.strip() or "\x00" in name:
+                return None
+            target = Path(name)
+            targets.append(target if target.is_absolute() else cwd / target)
+        elif line.startswith("*** ") and line != "*** End of File":
+            return None
+    return targets or None
+
+
 def find_edit_project_root(payload: dict, cwd: Path) -> Path | None:
     """Resolve the project that owns the file being edited, not just the cwd.
 
@@ -2824,6 +2852,14 @@ class _CallScope(NamedTuple):
 def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     """Read the call once, so every verdict below reads the same answer."""
 
+    if tool == "ApplyPatch":
+        targets = _patch_target_paths(payload, cwd)
+        if targets is not None:
+            roots = list(dict.fromkeys(
+                root for target in targets
+                if (root := find_project_root(target.parent)) is not None
+            ))
+            return _CallScope("", [], True, cwd, cwd, roots, list(roots))
     if tool not in BASH_TOOLS:
         # An Edit or a Write names one path and is judged by where that path
         # is: it cannot run somewhere other than the shell's directory, and its
