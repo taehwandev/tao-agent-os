@@ -66,6 +66,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         protected_checkout_verdict,
     )
     from claude_command_effect import command_effect, unknown_recovery
+    from claude_scratch_checkout import throwaway_checkout, writes_only_scratch_files
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -208,6 +209,13 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
 
     def shared_repository_hazard(tokens: list[str], protected: "frozenset[str] | None" = None) -> str:
         return ""
+
+    # A broken install releases no checkout: every governed root stays one.
+    def throwaway_checkout(root: Path) -> bool:
+        return False
+
+    def writes_only_scratch_files(command: str, root: Path, cwd: Path) -> bool:
+        return False
 
 
 def __getattr__(name: str):
@@ -1919,22 +1927,25 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     if tool == "ApplyPatch":
         targets = _patch_target_paths(payload, cwd)
         if targets is not None:
-            roots = list(dict.fromkeys(
+            roots = _governed_only(list(dict.fromkeys(
                 root for target in targets
                 if (root := find_project_root(target.parent)) is not None
-            ))
+            )))
             return _CallScope("", [], True, cwd, cwd, roots, list(roots))
     if tool not in BASH_TOOLS:
         # An Edit or a Write names one path and is judged by where that path
         # is: it cannot run somewhere other than the shell's directory, and its
         # shape cannot be unreadable.
         root = find_edit_project_root(payload, cwd)
-        found = [root] if root is not None else []
+        found = _governed_only([root] if root is not None else [])
         return _CallScope("", [], True, cwd, cwd, found, list(found))
     effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
     command_cwd = _git_effective_cwd(tokens, effective_cwd)
     kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple, effective_cwd))
-    roots = bash_governed_roots(tokens, command_cwd, command=bash_command(payload))
+    command = bash_command(payload)
+    roots = _governed_only(
+        bash_governed_roots(tokens, command_cwd, command=command), command, effective_cwd
+    )
     return _CallScope(
         kind,
         tokens,
@@ -1942,13 +1953,43 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
         command_cwd,
         effective_cwd,
         roots,
-        [
-            found
-            for found in (find_project_root(command_cwd), find_project_root(cwd))
-            if found is not None
-        ],
+        _governed_only(
+            [
+                found
+                for found in (find_project_root(command_cwd), find_project_root(cwd))
+                if found is not None
+            ],
+            command,
+            effective_cwd,
+        ),
         detail if kind == "unknown" else "",
     )
+
+
+def _governed_only(
+    roots: "list[Path]", command: "str | None" = None, cwd: "Path | None" = None
+) -> "list[Path]":
+    """Drop throwaway temp checkouts the call only writes files in.
+
+    A worktree parked under the OS temp directory for a measurement is
+    scratch: editing, deleting or removing it lands in no project anyone
+    keeps, and demanding a lifecycle there is friction with nothing to
+    protect. A Bash command keeps the checkout governed unless every segment
+    only touches files or disposes of that worktree -- a commit, a ref write
+    or a publication reaches the repository it shares.
+    """
+
+    return [
+        root
+        for root in roots
+        if not (
+            throwaway_checkout(root)
+            and (
+                command is None
+                or writes_only_scratch_files(command, root, cwd or root)
+            )
+        )
+    ]
 
 
 def _start_option_values(tokens: list[str], option: str) -> list[str]:

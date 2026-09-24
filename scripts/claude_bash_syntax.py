@@ -234,7 +234,9 @@ CURL_OUTPUT_CLUSTER_RE = re.compile(r"-[sSfLIgG46]*o")
 DISCARD_TARGET = "/dev/null"
 
 
-def _scratch_roots() -> list[Path]:
+def scratch_roots() -> list[Path]:
+    """The OS temp directories, each resolved, never a filesystem root."""
+
     roots = [*SCRATCH_ROOTS, os.environ.get("TMPDIR", ""), tempfile.gettempdir()]
     resolved: list[Path] = []
     for raw in roots:
@@ -255,8 +257,9 @@ def scratch_write_target(raw: str, cwd: "Path | None") -> bool:
     The target is resolved the way the kernel will open it -- `..` collapsed and
     every existing symlink followed -- so an escape or a link back into a
     project resolves to that project and stays a write. Only a location strictly
-    inside a temp directory, with no project marker at it or any ancestor,
-    qualifies. Environment-selected temp roots do not erase project ownership.
+    inside a temp directory, with no project marker at it or any ancestor --
+    or only a throwaway checkout of a project kept elsewhere -- qualifies.
+    Environment-selected temp roots do not erase project ownership.
     A relative target needs the directory it is relative
     to; without one it is not claimed.
     """
@@ -273,16 +276,33 @@ def scratch_write_target(raw: str, cwd: "Path | None") -> bool:
     except (OSError, RuntimeError):
         return False
     if not any(resolved != root and resolved.is_relative_to(root)
-               for root in _scratch_roots()):
+               for root in scratch_roots()):
         return False
     try:
-        return not any(
-            (directory / marker).exists() or (directory / marker).is_symlink()
+        projects = [
+            directory
             for directory in (resolved, *resolved.parents)
-            for marker in PROJECT_MARKERS
-        )
+            if any(
+                (directory / marker).exists() or (directory / marker).is_symlink()
+                for marker in PROJECT_MARKERS
+            )
+        ]
+        return not projects or _within_throwaway_checkout(projects)
     except OSError:
         return False
+
+
+def _within_throwaway_checkout(projects: "list[Path]") -> bool:
+    """Whether the outermost project on the way is a disposable temp checkout.
+
+    A marker above the temp directory makes that project the outermost one,
+    so the temp root it holds never turns its files into scratch. Imported
+    here because the checkout reader builds on this module.
+    """
+
+    from claude_scratch_checkout import throwaway_checkout
+
+    return throwaway_checkout(projects[-1])
 
 
 def discard_scratch_writes(tokens: list[str], cwd: "Path | None") -> list[str]:
