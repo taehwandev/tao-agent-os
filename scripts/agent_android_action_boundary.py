@@ -51,13 +51,21 @@ class AndroidActionBoundary:
                 r"\b" + receivers + r"\s*\.\s*(?:effects|uiEffects|sideEffects)\s*"
                 r"\.\s*(?:collect|collectLatest)\s*\{"
             ))
-            matches = [(m, "effect construction") for m in cls._event.finditer(body)]
+            host_collectors = cls._regions(body, re.compile(
+                r"\bNoticeEffectLifecycleCollector\s*\(\s*effects\s*=\s*\w+\s*,\s*"
+                r"onEffect\s*=\s*\{"
+            ))
+            # A sealed effect type check consumes an effect; it does not create one.
+            matches = [(m, "effect construction") for m in cls._event.finditer(body)
+                       if not re.search(r"\b(?:is|as)\s*$", body[:m.start()])]
             matches += [(m, "data request") for m in cls._data.finditer(body)]
             for match in cls._effect.finditer(body):
                 if any(re.fullmatch(re.escape(name) + r"\s*\(", match[0])
                        for name in leaf_callbacks):
                     continue
                 if re.match(receivers + r"\s*\.", body[match.start():]):
+                    continue
+                if _is_lifecycle_notice_dispatch(match.start(), host_collectors, callbacks):
                     continue
                 in_callback = any(a <= match.start() < b for a, b in callbacks)
                 in_collector = any(a <= match.start() < b for a, b in collectors)
@@ -122,6 +130,20 @@ class AndroidActionBoundary:
             else:
                 following = re.search(r"\n(?:@|(?:private |internal )?fun\b)", code[start:])
                 yield signature, start, start + following.start() if following else len(code)
+
+
+def _is_lifecycle_notice_dispatch(
+    position: int,
+    host_collectors: list[tuple[int, int]],
+    callbacks: list[tuple[int, int]],
+) -> bool:
+    """Permit execution of a collected effect, but not nested user callbacks."""
+    host_region = next(((start, end) for start, end in host_collectors
+                        if start <= position < end), None)
+    return host_region is not None and not any(
+        start > host_region[0] and start <= position < end
+        for start, end in callbacks
+    )
 
 
 def _mask_kotlin_literals(source: str) -> str:

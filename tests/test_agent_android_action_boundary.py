@@ -87,6 +87,35 @@ class AndroidActionBoundaryTests(unittest.TestCase):
             }
         '''))
 
+    def test_lifecycle_notice_host_consumes_effects_without_redeciding_them(self):
+        source = '''
+            @Composable fun NoticeHost(effects: Flow<NoticeEffect>) {
+                NoticeEffectLifecycleCollector(effects = effects, onEffect = { effect ->
+                    when (effect) {
+                        is NoticeEffect.ShowNotice -> {
+                            Toast.makeText(context, effect.notice.message, 0).show()
+                            scope.launch { snackbar.showSnackbar(effect.notice.message) }
+                        }
+                        is NoticeEffect.NavigateDeepLink -> open(effect.deepLink)
+                    }
+                })
+            }
+        '''
+        self.assertEqual([], AndroidActionBoundary.failures(Path("core/notice/ui/NoticeHost.kt"), source))
+
+    def test_lifecycle_notice_host_still_rejects_new_decisions_and_click_routes(self):
+        source = '''
+            @Composable fun NoticeHost(effects: Flow<NoticeEffect>) {
+                NoticeEffectLifecycleCollector(effects = effects, onEffect = { effect ->
+                    emit(NoticeEffect.ShowNotice(request))
+                    Button(onClick = { router.navigate(route) })
+                })
+            }
+        '''
+        failures = AndroidActionBoundary.failures(Path("core/notice/ui/NoticeHost.kt"), source)
+        self.assertTrue(any("effect construction" in item for item in failures), failures)
+        self.assertTrue(any("effect dispatch" in item for item in failures), failures)
+
     def test_literal_text_comments_and_non_composable_owners_are_ignored(self):
         self.assertEqual([], self.check('''
             // router.navigate(route)
