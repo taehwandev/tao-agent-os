@@ -2944,6 +2944,31 @@ class SessionProjectIndexFollowsStateHomeTests(unittest.TestCase):
                 (Path.home() / ".tao" / "claude-session-projects" / "probe-session").exists()
             )
 
+    def test_a_subagent_edit_stays_out_of_the_parent_session_index(self) -> None:
+        """A worker's edit is not the parent's: the parent's Stop hook walks
+        this index, and a worker's worktree in it had its run marked
+        interrupted and a finish demanded of the parent."""
+
+        for agent_id, indexed in (("worker-1", False), (None, True)):
+            with self.subTest(agent_id=agent_id), tempfile.TemporaryDirectory() as state, \
+                    tempfile.TemporaryDirectory() as tmp:
+                project = _opt_in_project(Path(tmp))
+                _write_preflight(project, "parent-session")
+                payload = {
+                    "tool_name": "Write",
+                    "cwd": str(project),
+                    "session_id": "parent-session",
+                    "tool_input": {"file_path": str(project / "note.md")},
+                }
+                if agent_id:
+                    payload["agent_id"] = agent_id
+                    payload["agent_type"] = "general-purpose"
+                with patch.dict(os.environ, {STATE_HOME_ENV: state}):
+                    code, out = _decide(payload)
+                    index = gate.session_projects_index("parent-session")
+                    self.assertEqual((0, ""), (code, out))
+                    self.assertEqual(indexed, index.exists() and str(project) in index.read_text())
+
     def test_stop_gate_reads_the_same_index_the_pretool_gate_writes(self) -> None:
         import claude_stop_gate as stop_gate
 

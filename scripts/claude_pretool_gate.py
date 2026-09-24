@@ -1247,9 +1247,24 @@ def _isolated_checkout_verdict(
             )
             if continuation_reason:
                 return deny(continuation_reason, "continuation_pre_mutation")
-    record_edit_activity(root, session_id)
-    record_session_project(root, session_id)
+    if not _subagent_call(payload):
+        record_edit_activity(root, session_id)
+        record_session_project(root, session_id)
     return allow()
+
+
+def _subagent_call(payload: dict) -> bool:
+    """Whether a subagent, not the session's main thread, made this call.
+
+    Claude Code sends a subagent's tool calls with the parent's session id and
+    adds ``agent_id``. Indexing them under that session made the parent's Stop
+    hook treat each worker's worktree as its own edited project: it marked the
+    workers' runs interrupted and demanded a finish for them. A worker closes
+    its own run; the parent's index holds only what the parent edited.
+    """
+
+    agent_id = payload.get("agent_id")
+    return isinstance(agent_id, str) and bool(agent_id.strip())
 
 
 def _is_one_of(root: Path, others: "list[Path] | None") -> bool:
