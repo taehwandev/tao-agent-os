@@ -156,6 +156,27 @@ class ScratchWriteTests(_Fixture):
         self.assertFalse(scratch_write_target("/tmp", self.app))
         self.assertFalse(scratch_write_target("/private/tmp/../etc/hosts", self.app))
 
+    def test_custom_temp_root_cannot_hide_its_project_or_ancestor(self) -> None:
+        nested = self.app / "build" / "tmp"
+        nested.mkdir(parents=True)
+        for root in (self.app, nested):
+            target = root / "kept.txt"
+            target.write_text("project content\n")
+            with self.subTest(root=root), patch.dict(os.environ, {"TMPDIR": str(root)}), \
+                    patch("claude_bash_syntax.SCRATCH_ROOTS", ()), \
+                    patch("claude_bash_syntax.tempfile.gettempdir", return_value=str(root)):
+                self.assertFalse(scratch_write_target(str(target), None))
+                self.assertNotEqual("", self._verdict(f"cat /dev/null > {target}"))
+                self.assertEqual("project content\n", target.read_text())
+
+    def test_unmarked_custom_temp_root_still_allows_scratch(self) -> None:
+        with patch.dict(os.environ, {"TMPDIR": str(self.scratch)}), \
+                patch("claude_bash_syntax.SCRATCH_ROOTS", ()), \
+                patch("claude_bash_syntax.tempfile.gettempdir", return_value=str(self.scratch)):
+            target = self.scratch / "log.txt"
+            self.assertTrue(scratch_write_target(str(target), None))
+            self.assertEqual("", self._verdict(f"cat /dev/null > {target}"))
+
 
 class QuotedTextTests(_Fixture):
     def test_a_newline_inside_quotes_is_part_of_one_argument(self) -> None:

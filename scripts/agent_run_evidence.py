@@ -1,8 +1,8 @@
 """Decide which run evidence directories nothing can still resume.
 
 Owner: the run evidence directory's retention boundary.
-Allowed imports: the standard library only. Retention must keep working when
-the runtime it prunes for cannot load.
+Allowed imports: the standard library, shared state locks, and the registry
+retention query. No lifecycle mutation is performed by evidence retention.
 Forbidden imports: the workflow route and the agent lifecycle -- a maintenance
 pass must not be able to change what a run means.
 Callers/tests: ``runs-prune.py`` and ``agent_os_maintenance.run_maintenance``;
@@ -37,17 +37,21 @@ cancelled) is finished even when its packet never reached ``done``; one whose
 record still holds a claim is never removed; and one the registry no longer
 records at all -- an orphan, which nothing can claim or checkpoint -- is
 removed once it has been left alone for ``orphan_after_seconds``. A registry
-that is absent or unreadable is not evidence that every run is an orphan, so
-without one the registry-aware rules are simply not applied.
+that is absent is not evidence that every run is an orphan, so it falls back
+to evidence-only retention. An existing unreadable registry preserves evidence
+until its state can be established.
 """
 
 from __future__ import annotations
 
 import json
 import shutil
+import stat
 import time
 from pathlib import Path
 from typing import Iterable
+
+from agent_state_lock import project_state_lock, state_lock
 
 DEFAULT_KEEP = 10
 DEFAULT_ABANDONED_AFTER_SECONDS = 30 * 24 * 60 * 60
@@ -72,6 +76,8 @@ def read_registry_states(project: Path) -> dict[str, str] | None:
     report must not create lock files in a checkout it only inspects.
     """
 
+    from agent_run_registry import RUN_STATES
+
     path = project / ".tao" / "run-registry.json"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -85,8 +91,11 @@ def read_registry_states(project: Path) -> dict[str, str] | None:
         return None
     states: dict[str, str] = {}
     for run in payload["runs"]:
-        if isinstance(run, dict) and run.get("run_id"):
-            states[str(run["run_id"])] = str(run.get("state") or "")
+        if (not isinstance(run, dict) or not isinstance(run.get("run_id"), str)
+                or not run["run_id"] or not isinstance(run.get("state"), str)
+                or run["state"] not in RUN_STATES or run["run_id"] in states):
+            return None
+        states[run["run_id"]] = run["state"]
     return states
 
 
@@ -95,6 +104,7 @@ def is_run_directory(path: Path) -> bool:
 
     return (
         path.is_dir()
+        and not path.is_symlink()
         and len(path.name) == RUN_ID_LENGTH
         and all(character in "0123456789abcdef" for character in path.name)
     )
@@ -110,7 +120,7 @@ def phase_of(path: Path) -> str:
     packet = path / "continuation.json"
     try:
         payload = json.loads(packet.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return ""
     return str(payload.get("phase") or "") if isinstance(payload, dict) else ""
 
@@ -122,6 +132,31 @@ def _touched_at(path: Path) -> float:
         # Unreadable is not evidence of age, and retention fails towards
         # keeping what it cannot establish.
         return time.time()
+
+
+def _identity(path: Path) -> tuple | None:
+    """Detect replacement and in-place evidence writes, not just directory age."""
+
+    try:
+        return tuple(
+            (str(item.relative_to(path)), metadata.st_dev, metadata.st_ino,
+             metadata.st_mode, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+            for item in [path, *sorted(path.rglob("*"))]
+            for metadata in [item.lstat()]
+        )
+    except OSError:
+        return None
+
+
+class _RemovalCandidates(list):
+    """A list-compatible preview carrying the observations deletion must recheck."""
+
+    def __init__(self, paths: list[Path], project: Path, options: dict) -> None:
+        super().__init__(paths)
+        self.project = project
+        self.options = options
+        self.identities = {path: _identity(path) for path in paths}
+        self.removed_bytes = 0
 
 
 def plan(
@@ -158,6 +193,10 @@ def plan(
     if registry_states is None and use_registry:
         registry_states = read_registry_states(project)
     held = set(protected)
+    registry_uncertain = (
+        use_registry and registry_states is None
+        and (project / ".tao" / "run-registry.json").exists()
+    )
     moment = time.time() if now is None else now
     cutoff = moment - max(0, int(abandoned_after_seconds))
     orphan_cutoff = moment - max(0, int(orphan_after_seconds))
@@ -175,7 +214,7 @@ def plan(
             unclassified.append(path)
             continue
         state = None if registry_states is None else registry_states.get(path.name)
-        if path.name in held or state in CLAIM_HOLDING_STATES:
+        if registry_uncertain or path.name in held or state in CLAIM_HOLDING_STATES:
             unfinished.append(path)
         elif registry_states is not None and state is None:
             # Nothing can claim or checkpoint a packet whose record is gone.
@@ -184,7 +223,7 @@ def plan(
                 removable_orphans.append(path)
         elif phase_of(path) in FINISHED_PHASES or state in SETTLED_STATES:
             finished.append(path)
-        elif _touched_at(path) < cutoff:
+        elif phase_of(path) and _touched_at(path) < cutoff:
             abandoned.append(path)
         else:
             unfinished.append(path)
@@ -198,16 +237,44 @@ def plan(
         "orphaned": orphaned,
         "unclassified": unclassified,
         "kept": finished[:keep],
-        "removable": [*finished[keep:], *abandoned, *removable_orphans],
+        "removable": _RemovalCandidates(
+            [*finished[keep:], *abandoned, *removable_orphans], project,
+            {"keep": keep, "abandoned_after_seconds": abandoned_after_seconds,
+             "orphan_after_seconds": orphan_after_seconds, "protected": held},
+        ),
     }
 
 
 def apply_plan(removable: list[Path]) -> int:
+    """Revalidate a preview and delete inside the same locks as resume/reclaim.
+
+    Plain path lists have no observed identity or retention policy, so cannot
+    authorize deletion. Report-only planning never creates these lock files.
+    """
+
+    if not isinstance(removable, _RemovalCandidates) or not removable:
+        return 0
+    from agent_run_registry import retention_protected_run_ids
+
+    project = removable.project
+    registry = project / ".tao" / "run-registry.json"
     removed = 0
-    for path in removable:
-        shutil.rmtree(path, ignore_errors=True)
-        if not path.exists():
-            removed += 1
+    with project_state_lock(project), state_lock(registry):
+        options = dict(removable.options)
+        options["protected"] = set(options["protected"]) | retention_protected_run_ids(project)
+        current = set(plan(project, **options)["removable"])
+        for path in removable:
+            if path not in current or not is_run_directory(path):
+                continue
+            observed = removable.identities.get(path)
+            if observed is None or _identity(path) != observed:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+            if not path.exists():
+                removed += 1
+                removable.removed_bytes += sum(
+                    entry[4] for entry in observed if stat.S_ISREG(entry[3])
+                )
     return removed
 
 
@@ -255,7 +322,7 @@ def prune_run_evidence(
         "orphaned": len(report["orphaned"]),
         "removable": len(removable),
         "removed": removed,
-        "freed_bytes": freed if removed else 0,
+        "freed_bytes": removable.removed_bytes if removed else 0,
         "removable_bytes": freed,
         "unclassified": len(report["unclassified"]),
         "unclassified_bytes": directory_bytes(report["unclassified"]),

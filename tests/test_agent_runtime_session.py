@@ -608,6 +608,51 @@ class SupersededSessionRunTests(unittest.TestCase):
                 resolve_runtime_evidence(fixture.project, session),
             )
 
+    def test_same_session_peer_keeps_its_run_and_each_owner_resolves_its_own(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="shared")
+            kept = self._extra_run(fixture, session_id="shared")
+            peer = {"pid": 1, "start_token": "peer-process"}
+            path = registry_path(fixture.project)
+            payload = json.loads(path.read_text())
+            payload["runs"][0]["owner"] = peer
+            path.write_text(json.dumps(payload))
+            session = {"runtime": "claude", "session_id": "shared"}
+            with patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "shared"}, clear=True):
+                settled = agent_runtime_session.settle_superseded_session_runs(
+                    fixture.project, keep_run_id=kept)
+            self.assertEqual([], settled)
+            self.assertEqual("running", self._states(fixture.project)[fixture.run_id])
+            own_path = fixture.project / ".tao/runs" / kept / "preflight.json"
+            self.assertEqual(own_path.resolve(), resolve_runtime_evidence(fixture.project, session))
+            self.assertEqual(own_path.resolve(), resolve_runtime_evidence(
+                fixture.project, session, agent_run_registry.TRANSFER_CANCELLABLE_RUN_STATES))
+            with patch.object(agent_runtime_session, "process_owner", return_value=peer):
+                self.assertEqual(fixture.evidence.resolve(), resolve_runtime_evidence(fixture.project, session))
+
+    def test_owner_change_after_selection_prevents_supersession(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory, session_id="shared")
+            kept = self._extra_run(fixture, session_id="shared")
+            original = agent_run_registry.cancel_active_run_if_current
+
+            def take_over_then_cancel(*args, **kwargs):
+                path = registry_path(fixture.project)
+                payload = json.loads(path.read_text())
+                for run in payload["runs"]:
+                    if run["run_id"] == kwargs["run_id"]:
+                        run["owner"] = {"pid": 1, "start_token": "peer-process"}
+                path.write_text(json.dumps(payload))
+                return original(*args, **kwargs)
+
+            with patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "shared"}, clear=True):
+                with patch.object(agent_runtime_session, "cancel_active_run_if_current",
+                                  side_effect=take_over_then_cancel):
+                    settled = agent_runtime_session.settle_superseded_session_runs(
+                        fixture.project, keep_run_id=kept)
+            self.assertEqual([], settled)
+            self.assertEqual("running", self._states(fixture.project)[fixture.run_id])
+
     def test_another_runtime_session_keeps_its_active_run(self) -> None:
         """Settling is session-scoped; a concurrent runtime must survive it."""
 

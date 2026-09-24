@@ -21,6 +21,7 @@ from typing import Any
 
 from agent_run_owner import process_owner
 from agent_run_registry import (
+    TRANSFER_CANCELLABLE_RUN_STATES,
     active_run_bindings,
     active_runs,
     cancel_active_run_if_current,
@@ -164,14 +165,10 @@ def resolve_runtime_evidence(
     so a caller that needs a settled run's evidence gets the same exact binding
     rather than a looser scan.
 
-    ``latest_of_several`` returns the most recently written match instead of
-    refusing when more than one matches, and belongs only to a settled-state
-    question.  For an active claim the single-match rule is the point: "which
-    run am I under" must never be guessed, and a second live claim is exactly
-    what it exists to catch.  A settled state asks something different -- did
-    this session finish work in this project -- and there a second completed
-    run is more evidence, not an ambiguity.  Requiring uniqueness there made
-    the answer flip to "no" on a session's second finish of the day.
+    ``latest_of_several`` chooses the latest match only for settled-state
+    questions. Active claims are never chosen by age: multiple matches require
+    exactly one recorded owner matching this process. Multiple claims of that
+    owner remain ambiguous; live peers sharing a session retain their own runs.
     """
 
     project = project.resolve()
@@ -234,6 +231,15 @@ def resolve_runtime_evidence(
         return None
     if latest_of_several and matches:
         return max(matches, key=_evidence_mtime)
+    if len(matches) > 1 and (states is None or states <= TRANSFER_CANCELLABLE_RUN_STATES):
+        # A shared runtime session id is not process ownership. Only an exact
+        # current owner can disambiguate concurrent active peers; duplicate
+        # claims of that same owner remain ambiguous.
+        owner = process_owner()
+        owned = [candidate for candidate in matches
+                 if owner and bindings[evidence_binding_key(project, candidate)].get("owner") == owner]
+        if len(owned) == 1:
+            return owned[0]
     return matches[0] if len(matches) == 1 else None
 
 

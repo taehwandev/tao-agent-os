@@ -255,8 +255,9 @@ def scratch_write_target(raw: str, cwd: "Path | None") -> bool:
     The target is resolved the way the kernel will open it -- `..` collapsed and
     every existing symlink followed -- so an escape or a link back into a
     project resolves to that project and stays a write. Only a location strictly
-    inside the temp directory, with no project marker between it and that
-    directory, qualifies. A relative target needs the directory it is relative
+    inside a temp directory, with no project marker at it or any ancestor,
+    qualifies. Environment-selected temp roots do not erase project ownership.
+    A relative target needs the directory it is relative
     to; without one it is not claimed.
     """
 
@@ -271,17 +272,17 @@ def scratch_write_target(raw: str, cwd: "Path | None") -> bool:
         resolved = path.resolve(strict=False)
     except (OSError, RuntimeError):
         return False
-    for root in _scratch_roots():
-        if resolved == root or not resolved.is_relative_to(root):
-            continue
-        ancestors = [resolved, *resolved.parents]
-        inside = ancestors[: ancestors.index(root)]
+    if not any(resolved != root and resolved.is_relative_to(root)
+               for root in _scratch_roots()):
+        return False
+    try:
         return not any(
-            (directory / marker).exists()
-            for directory in inside
+            (directory / marker).exists() or (directory / marker).is_symlink()
+            for directory in (resolved, *resolved.parents)
             for marker in PROJECT_MARKERS
         )
-    return False
+    except OSError:
+        return False
 
 
 def discard_scratch_writes(tokens: list[str], cwd: "Path | None") -> list[str]:

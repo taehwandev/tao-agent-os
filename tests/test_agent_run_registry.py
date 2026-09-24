@@ -299,6 +299,39 @@ class AgentRunRegistryTests(unittest.TestCase):
             self.assertEqual("running", current["state"])
             self.assertEqual(second["started_at"], current["started_at"])
 
+    def test_pruned_canonical_evidence_cannot_be_resumed(self):
+        from agent_run_evidence import prune_run_evidence
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao/runs" / ("e" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text("{}")
+            run = register_run(project, evidence, {"command": "task"}, {})
+            transition_run(project, evidence, "failed")
+            (evidence.parent / "continuation.json").write_text(json.dumps({"phase": "acting"}))
+            age_runs(project, minutes=40 * 24 * 60)
+            # Exercise real retention first, then the resume operation.
+            import os
+            import time
+            old = time.time() - 40 * 86400
+            os.utime(evidence.parent, (old, old))
+            result = prune_run_evidence(project)
+            self.assertEqual(1, result["removed"])
+            self.assertFalse(evidence.exists())
+            self.assertIsNone(resume_run(project, run["run_id"]))
+            self.assertIsNone(resume_run_for_closeout(project, evidence, run_id=run["run_id"]))
+            self.assertEqual("failed", agent_run_registry.registered_run(project, evidence)["state"])
+
+    def test_retained_canonical_evidence_can_be_resumed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao/runs" / ("e" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text("{}")
+            run = register_run(project, evidence, {"command": "task"}, {})
+            transition_run(project, evidence, "failed")
+            self.assertEqual("running", resume_run(project, run["run_id"])["state"])
+
     def test_stale_run_is_recovered_and_can_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

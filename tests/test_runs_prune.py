@@ -15,6 +15,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -30,6 +31,9 @@ _spec.loader.exec_module(runs_prune)
 # hyphen in a filename is why nothing could.
 from agent_os_maintenance import run_maintenance  # noqa: E402
 from agent_run_evidence import prune_run_evidence  # noqa: E402
+import agent_run_evidence as retention  # noqa: E402
+from agent_run_registry import register_run, registered_run, resume_run, transition_run  # noqa: E402
+from agent_state_lock import fcntl  # noqa: E402
 
 
 def _run_id(index: int) -> str:
@@ -184,6 +188,117 @@ class RunsPruneTests(unittest.TestCase):
 
         self.assertEqual(0, code)
         self.assertEqual(3, len(list(self.runs.iterdir())))
+
+    def test_resume_after_preview_preserves_evidence_and_other_expired_runs_prune(self) -> None:
+        revived = self._run(1, "acting")
+        expired = self._run(2, "acting")
+        evidence = revived / "preflight.json"
+        run = register_run(self.project, evidence, {"command": "bugfix"}, {})
+        transition_run(self.project, evidence, "failed")
+        stale_states = {run["run_id"]: "failed"}
+        original = retention.directory_bytes
+        resumed = False
+
+        def resume_at_size_probe(paths):
+            nonlocal resumed
+            if not resumed and revived in paths:
+                resumed = True
+                self.assertEqual("running", resume_run(self.project, run["run_id"])["state"])
+            return original(paths)
+
+        with patch.object(retention, "directory_bytes", side_effect=resume_at_size_probe):
+            result = prune_run_evidence(self.project, registry_states=stale_states)
+
+        self.assertTrue(resumed)
+        self.assertEqual("running", registered_run(self.project, evidence)["state"])
+        self.assertTrue(evidence.exists())
+        self.assertFalse(expired.exists())
+        self.assertEqual(1, result["removed"])
+        self.assertLess(result["freed_bytes"], result["removable_bytes"])
+
+    def test_standalone_apply_rechecks_live_registry_despite_preview_override(self) -> None:
+        path = self._run(1, "acting")
+        evidence = path / "preflight.json"
+        run = register_run(self.project, evidence, {"command": "bugfix"}, {})
+        transition_run(self.project, evidence, "failed")
+        preview = retention.plan(self.project, registry_states={run["run_id"]: "failed"})
+        self.assertIn(path, preview["removable"])
+        resume_run(self.project, run["run_id"])
+
+        self.assertEqual(0, retention.apply_plan(preview["removable"]))
+        self.assertTrue(evidence.exists())
+
+    def test_changed_evidence_is_not_deleted_even_if_directory_age_stays_old(self) -> None:
+        changed = self._run(1, "done")
+        expired = self._run(2, "done")
+        preview = retention.plan(self.project, keep=0)
+        old_directory_time = changed.stat().st_mtime_ns
+        (changed / "preflight.json").write_text('{"updated":true}')
+        self.assertEqual(old_directory_time, changed.stat().st_mtime_ns)
+
+        self.assertEqual(1, retention.apply_plan(preview["removable"]))
+        self.assertTrue(changed.exists())
+        self.assertFalse(expired.exists())
+
+    def test_touched_and_replaced_directories_do_not_reuse_preview(self) -> None:
+        touched = self._run(1, "done")
+        replaced = self._run(2, "done")
+        preview = retention.plan(self.project, keep=0)
+        os.utime(touched, None)
+        replacement_backup = self.runs / "old-copy"
+        replaced.rename(replacement_backup)
+        self._run(2, "done")
+
+        self.assertEqual(0, retention.apply_plan(preview["removable"]))
+        self.assertTrue(touched.exists())
+        self.assertTrue(replaced.exists())
+
+    def test_unplanned_paths_and_old_unreadable_evidence_are_preserved(self) -> None:
+        malformed = self._run(1, None)
+        missing = self._run(2, None, packet=False)
+        finished = self._run(3, "done")
+        self.assertEqual(0, retention.apply_plan([finished]))
+        preview = retention.plan(self.project, keep=0)
+        self.assertNotIn(malformed, preview["removable"])
+        self.assertNotIn(missing, preview["removable"])
+        self.assertEqual(1, retention.apply_plan(preview["removable"]))
+
+    def test_registry_becoming_unreadable_preserves_previewed_evidence(self) -> None:
+        finished = self._run(1, "done")
+        preview = retention.plan(self.project, keep=0)
+        registry = self.project / ".tao" / "run-registry.json"
+        for invalid in (
+            '{', '{"schema_version":1,"runs":[{}]}',
+            json.dumps({"schema_version": 1, "runs": [{"run_id": finished.name, "state": "unknown"}]}),
+        ):
+            with self.subTest(registry=invalid):
+                registry.write_text(invalid)
+                self.assertEqual(0, retention.apply_plan(preview["removable"]))
+                self.assertTrue(finished.exists())
+
+    @unittest.skipUnless(fcntl is not None, "requires POSIX flock")
+    def test_evidence_deletion_holds_both_registry_mutation_locks(self) -> None:
+        finished = self._run(1, "done")
+        original = retention.shutil.rmtree
+
+        def check_locks_then_delete(path, **options):
+            for name in (".state.lock.lock", ".run-registry.json.lock"):
+                with (self.project / ".tao" / name).open("a+b") as lock_file:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return original(path, **options)
+
+        with patch.object(retention.shutil, "rmtree", side_effect=check_locks_then_delete):
+            result = prune_run_evidence(self.project, keep=0)
+        self.assertEqual(1, result["removed"])
+        self.assertFalse(finished.exists())
+
+    def test_dry_run_creates_no_locks(self) -> None:
+        self._run(1, "done")
+        before = set(self.project.rglob("*"))
+        result = prune_run_evidence(self.project, keep=0, apply=False)
+        self.assertEqual(1, result["removable"])
+        self.assertEqual(before, set(self.project.rglob("*")))
 
     def test_apply_removes_and_reports_success(self) -> None:
         for index in range(3):

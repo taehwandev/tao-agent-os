@@ -665,6 +665,58 @@ class NoChangeCancellationTests(unittest.TestCase):
         self.assertEqual(0, code, output)
         self.assertEqual("cancelled", source["state"])
 
+    def test_idle_cancel_rechecks_activity_and_generation_inside_transaction(self):
+        for change in ("heartbeat", "evidence", "generation", "owner", "scope"):
+            with self.subTest(change=change), TransferFixture(True, "same request") as fixture:
+                fixture.hold_source_by_another_live_process()
+                fixture.age_source_activity(31 * 60)
+                original = transfer_cancel.cancel_run
+
+                def change_then_cancel(*args, **kwargs):
+                    path = fixture.source / ".tao/run-registry.json"
+                    payload = json.loads(path.read_text())
+                    run = next(item for item in payload["runs"]
+                               if item["run_id"] == kwargs["run_id"])
+                    if change == "heartbeat":
+                        run["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    elif change == "generation":
+                        run["resume_generation"] = int(run.get("resume_generation") or 0) + 1
+                    elif change == "owner":
+                        run["owner"] = {"pid": 999999, "start_token": "different"}
+                    elif change == "evidence":
+                        fixture.source_evidence.touch()
+                    path.write_text(json.dumps(payload))
+                    if change == "scope":
+                        with patch.object(transfer_cancel, "recorded_changed_scope", return_value=1):
+                            return original(*args, **kwargs)
+                    return original(*args, **kwargs)
+
+                with patch.object(transfer_cancel, "cancel_run", side_effect=change_then_cancel):
+                    code, output = fixture.cancel_no_change()
+                self.assertEqual(1, code, output)
+                self.assertEqual("running", registered_run(
+                    fixture.source, fixture.source_evidence)["state"])
+                self.assertFalse((fixture.source_evidence.parent / CANCEL_RECEIPT_NAME).exists())
+
+    def test_evidence_activity_during_staged_cancel_restores_active_state(self):
+        import agent_run_registry
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process()
+            fixture.age_source_activity(31 * 60)
+            original = agent_run_registry._write_registry
+
+            def write_then_touch(path, payload):
+                original(path, payload)
+                if any(run["state"] == "reconcile_required" for run in payload["runs"]):
+                    fixture.source_evidence.touch()
+
+            with patch.object(agent_run_registry, "_write_registry", side_effect=write_then_touch):
+                code, output = fixture.cancel_no_change()
+            self.assertEqual(1, code, output)
+            run = registered_run(fixture.source, fixture.source_evidence)
+            self.assertEqual("running", run["state"])
+            self.assertNotIn("cancellation", run)
+
     def test_a_recently_active_run_of_another_live_process_is_refused(self) -> None:
         """Another session may have just started and recorded nothing yet."""
 

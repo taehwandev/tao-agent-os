@@ -322,6 +322,16 @@ def cancel_no_change_run(args: Any) -> int:
             args.repair_cycle,
             invocation_error=True,
         )
+    def unchanged_no_change_run(current: dict) -> str | None:
+        identity_fields = ("owner", "started_at", "resume_generation", "request_fingerprint")
+        if any(current.get(field) != run.get(field) for field in identity_fields):
+            return "source run was rebound after validation"
+        if recorded_changed_scope(args.project, str(current["run_id"])):
+            return "source run recorded changes after validation"
+        if idle is True and foreign_live_owner_is_idle(args.project, evidence, current) is not True:
+            return "source run is no longer idle"
+        return None
+
     receipt = {
         "schema_version": 1,
         "status": "cancelled",
@@ -341,6 +351,7 @@ def cancel_no_change_run(args: Any) -> int:
             "run settled as cancelled with no change; existing evidence was preserved",
         ],
         require_owner=not idle,
+        run_precondition=unchanged_no_change_run,
     )
 
 
@@ -425,6 +436,7 @@ def _record_settled_session(project: Path, evidence: Path) -> None:
 def _settle_cancellation(
     args: Any, evidence: Path, receipt: dict, details: list[str],
     require_owner: bool = True,
+    run_precondition=None,
 ) -> int:
     """Take the clean-checkout observation and the transition in one transaction."""
 
@@ -456,6 +468,7 @@ def _settle_cancellation(
         precondition=source_checkout_is_still_clean,
         cancellation=receipt,
         require_owner=require_owner,
+        **({"run_precondition": run_precondition} if run_precondition is not None else {}),
     )
     if transitioned is None:
         current = registered_run(args.project, evidence)

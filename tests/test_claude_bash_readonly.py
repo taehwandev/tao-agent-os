@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -32,8 +33,16 @@ class CompoundShellCommandTests(unittest.TestCase):
     def _kind(command: str, cwd: Path | None = None) -> str:
         payload = {"tool_input": {"command": command}}
         base = cwd or Path("/tmp")
-        _, tokens, simple = worktree_gate.bash_invocation(payload, base)
-        return worktree_gate.bash_command_kind(tokens, simple)
+        effective_cwd, tokens, simple = worktree_gate.bash_invocation(payload, base)
+        return worktree_gate.bash_command_kind(tokens, simple, effective_cwd)
+
+    def _configured_fetch_kind(self, command: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            for args in (("init",), ("config", "remote.origin.url", "https://example.test/repo"),
+                         ("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")):
+                subprocess.run(["git", *args], cwd=project, check=True, capture_output=True)
+            return self._kind(command, project)
 
     def test_branch_inspection_clusters_keep_bundled_reads_read_only(self):
         for flag in ("-avv", "-rvv", "-va", "-vvv"):
@@ -234,7 +243,7 @@ class CompoundShellCommandTests(unittest.TestCase):
         self.assertEqual(self._kind("git fetch --upload-pack=/bin/sh"), "mutating")
         self.assertEqual(self._kind("git fetch --receive-pack=/bin/sh"), "mutating")
         self.assertEqual(self._kind("git fetch --exec=/bin/sh"), "mutating")
-        self.assertEqual(self._kind("git fetch origin"), "bootstrap")
+        self.assertEqual(self._configured_fetch_kind("git fetch origin"), "bootstrap")
 
     def test_git_config_injection_is_not_a_read(self) -> None:
         """`-c` can hand a read-shaped Git command a program to run.
@@ -428,7 +437,7 @@ class CompoundShellCommandTests(unittest.TestCase):
         write's own `mutating` verdict.
         """
         self.assertEqual(
-            self._kind("git fetch -p origin develop && git worktree add ../task develop"),
+            self._configured_fetch_kind("git fetch -p origin develop && git worktree add ../task develop"),
             "bootstrap",
         )
         launcher = str(worktree_gate.stable_launcher_path())
@@ -441,7 +450,7 @@ class CompoundShellCommandTests(unittest.TestCase):
         launcher = str(worktree_gate.stable_launcher_path())
         self.assertEqual(self._kind(f"{launcher} start --project . | tail -5"), "workflow_start")
         self.assertEqual(
-            self._kind(f"git fetch origin && {launcher} start --project ."),
+            self._configured_fetch_kind(f"git fetch origin && {launcher} start --project ."),
             "bootstrap",
         )
 

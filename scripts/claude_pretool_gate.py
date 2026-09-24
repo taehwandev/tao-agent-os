@@ -155,7 +155,7 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
     def git_common_dir(root: Path) -> "Path | None":
         return None
 
-    def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
+    def bash_command_kind(tokens: list[str], syntax_is_simple: bool, cwd: Path | None = None) -> str:
         return "mutating"
 
     def command_effect(tokens, simple, kind):
@@ -1933,7 +1933,7 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
         return _CallScope("", [], True, cwd, cwd, found, list(found))
     effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
     command_cwd = _git_effective_cwd(tokens, effective_cwd)
-    kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple))
+    kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple, effective_cwd))
     roots = bash_governed_roots(tokens, command_cwd, command=bash_command(payload))
     return _CallScope(
         kind,

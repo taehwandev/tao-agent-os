@@ -255,12 +255,13 @@ def cancel_run(
     precondition: Callable[[], str | None] | None = None,
     cancellation: dict[str, Any] | None = None,
     require_owner: bool = True,
+    run_precondition: Callable[[dict[str, Any]], str | None] | None = None,
 ) -> dict[str, Any] | None:
     """Atomically settle one still-owned, non-terminal transferred run.
 
     ``require_owner=False`` is for a no-change close of a run whose live
-    foreign owner has gone idle; its proof is the in-lock clean checkout plus
-    an empty recorded scope, and the caller decides the idleness.
+    foreign owner has gone idle. Its run-aware precondition must revalidate
+    current activity, identity and empty recorded scope under these locks.
 
     ``precondition`` is evaluated inside the registry lock and immediately
     before the state write. A caller that checked the world first and then
@@ -289,9 +290,13 @@ def cancel_run(
         if (
             target.get("state") not in TRANSFER_CANCELLABLE_RUN_STATES
             or (require_owner and not _closeout_owner_matches(target))
+            or (not require_owner and run_precondition is None)
         ):
             return None
+        observed_run = dict(target)
         if precondition is not None and precondition() is not None:
+            return None
+        if run_precondition is not None and run_precondition(observed_run) is not None:
             return None
         # Staged first, settled second, and the staged state is deliberately
         # not terminal.
@@ -315,7 +320,9 @@ def cancel_run(
         _write_registry(path, payload)
         # The second reading is what the settlement rests on, and it is the one
         # the staged state is there to survive.
-        if precondition is not None and precondition() is not None:
+        if ((precondition is not None and precondition() is not None)
+                or (run_precondition is not None
+                    and run_precondition(observed_run) is not None)):
             target["state"] = previous_state
             target["updated_at"] = previous_updated
             target.pop("cancellation", None)
@@ -343,7 +350,8 @@ def cancel_active_run_if_current(
     Session-level supersession first discovers candidates from a registry
     snapshot, then reads their evidence files. The run can finish or be rebound
     before that caller asks to cancel it, or a new run can adopt the terminal
-    id. The run-instance, active-state, and generation checks therefore belong
+    id. Another process can also share a runtime session id. Ownership,
+    run-instance, active-state, and generation checks therefore belong
     in the same registry transaction as the write.
     """
 
@@ -368,6 +376,8 @@ def cancel_active_run_if_current(
         if int(target.get("resume_generation") or 0) != expected_resume_generation:
             return None
         if target.get("started_at") != expected_started_at:
+            return None
+        if not _closeout_owner_matches(target):
             return None
         target["state"] = "cancelled"
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -413,6 +423,8 @@ def resume_run_for_closeout(
             return None
         target = candidates[-1]
         if target.get("state") not in RESUMABLE_FOR_CLOSEOUT_RUN_STATES:
+            return None
+        if not _canonical_evidence_available(project, target):
             return None
         owner_matches = _closeout_owner_matches(target)
         if not owner_matches:
@@ -949,12 +961,20 @@ def _owner_recently_live(run: dict[str, Any], moment: datetime) -> bool:
     return not owner_is_gone(owner)
 
 
+def _canonical_evidence_available(project: Path, run: dict[str, Any]) -> bool:
+    """Retention can remove canonical evidence; legacy bindings stay compatible."""
+    evidence = project / ".tao" / "runs" / str(run["run_id"]) / str(run.get("evidence_name") or "")
+    return not _matches_evidence(run, project, evidence) or evidence.is_file()
+
+
 def resume_run(project: Path, run_id: str) -> dict[str, Any] | None:
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
         payload = _read_registry(path)
         for run in payload["runs"]:
             if run.get("run_id") == run_id and run.get("state") in {"failed", "paused"}:
+                if not _canonical_evidence_available(project, run):
+                    return None
                 run["state"] = "running"
                 run["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _write_registry(path, payload)

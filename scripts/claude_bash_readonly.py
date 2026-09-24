@@ -795,14 +795,14 @@ def sort_writes(args: list[str]) -> bool:
     return False
 
 
-def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
+def bash_command_kind(tokens: list[str], syntax_is_simple: bool, cwd: Path | None = None) -> str:
     # Checked before either path: a clustered operator such as `>|` or `&>`
     # carries no metacharacter the simple path would notice and no punctuation
     # the segment splitter would act on, so both paths read it as a word.
     if unmodelled_operator(tokens):
         return "mutating"
     if syntax_is_simple:
-        return simple_command_kind(tokens)
+        return simple_command_kind(tokens, cwd)
     # A compound command used to be mutating on sight, so plain inspection like
     # `grep ... | head` was blocked in a protected checkout and every diagnosis
     # had to be rewritten as single commands. Judge it by its parts instead and
@@ -820,7 +820,11 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool) -> str:
     # Every command a loop or branch actually runs still arrives as its own
     # segment and is classified below.
     commands = [shell_keyword_command(segment) for segment in segments]
-    kinds = {simple_command_kind(command) for command in commands if command}
+    # Leading `cd ... &&` was resolved by bash_invocation. A later directory
+    # change makes repository configuration unknown for context-sensitive calls.
+    if any(command and command[0] in {"cd", "pushd", "popd"} for command in commands):
+        cwd = None
+    kinds = {simple_command_kind(command, cwd) for command in commands if command}
     if not kinds:
         return "read_only"
     # Ordered strictest first, so the weakest allowance any part needs is the
@@ -1124,7 +1128,7 @@ def _trusted_installed_executable(
             and any(target.is_relative_to(root) for root in installed_roots))
 
 
-def simple_command_kind(tokens: list[str]) -> str:
+def simple_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
     command = strip_env_assignments(tokens)
     if command:
         command = strip_env_wrapper(command)
@@ -1170,7 +1174,7 @@ def simple_command_kind(tokens: list[str]) -> str:
     if executable == "sort":
         return "mutating" if sort_writes(command[1:]) else "read_only"
     if executable == "git":
-        return git_command_kind(command)
+        return git_command_kind(command, cwd)
     if executable == "gh":
         return gh_command_kind(command[1:])
     if executable == "vibeguard":

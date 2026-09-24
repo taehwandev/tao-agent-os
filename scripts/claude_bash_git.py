@@ -10,6 +10,9 @@ whenever an option turns out to be an execution path.
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 
 UNSAFE_GIT_OPTIONS = frozenset(
     {
@@ -247,8 +250,7 @@ def _branch_arguments_are_read_only(arguments: list[str]) -> bool:
 def _self_protecting_ref_cleanup(command: str, args: list[str]) -> bool:
     """Local ref cleanup that git itself refuses whenever it could lose work.
 
-    `branch -d` refuses an unmerged branch and `remote prune` drops only
-    remote-tracking refs whose upstream is gone. Classifying them as
+    `branch -d` refuses an unmerged branch. Classifying it as
     mutations sent a lone merged-branch deletion through a whole workflow
     lifecycle. Only these exact spellings qualify; `-D`, `--force`, `-f`,
     clustered short flags and anything unrecognised stay mutations.
@@ -258,15 +260,182 @@ def _self_protecting_ref_cleanup(command: str, args: list[str]) -> bool:
     names = [argument for argument in args if not argument.startswith("-")]
     if command == "branch":
         return bool(options) and set(options) <= {"-d", "--delete"} and bool(names)
-    if command == "remote":
-        return (
-            bool(args) and args[0] == "prune" and len(names) >= 2
-            and set(options) <= {"-n", "--dry-run"}
-        )
     return False
 
 
-def git_command_kind(tokens: list[str]) -> str:
+def _prune_config(prefix: list[str], cwd: Path | None) -> dict[str, list[str]] | None:
+    """Read effective ref cleanup configuration, including Git's include rules."""
+    if cwd is None:
+        return None
+    try:
+        result = subprocess.run(
+            [*prefix, "config", "--null", "--get-regexp",
+             r"^(remote\..*\.(fetch|prune|prunetags|tagopt)|fetch\.(all|prune|prunetags|recursesubmodules)|"
+             r"submodule\.(recurse|.*\.fetchrecursesubmodules)|branch\..*\.remote)$"],
+            cwd=cwd, capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return None
+    if result.returncode != 0:
+        return None
+    config: dict[str, list[str]] = {}
+    for record in result.stdout.split("\0"):
+        if not record:
+            continue
+        key, separator, value = record.partition("\n")
+        if not separator:
+            return None
+        config.setdefault(key, []).append(value)
+    return config
+
+
+def _tracking_prune_only(config: dict[str, list[str]], remotes: list[str],
+                         refspecs: list[str] | None = None) -> bool:
+    for remote in remotes:
+        prune_tags = config.get(f"remote.{remote}.prunetags", config.get("fetch.prunetags", ["false"]))[-1]
+        if prune_tags.lower() not in {"false", "no", "off", "0"}:
+            return False
+        specs = list(refspecs or config.get(f"remote.{remote}.fetch", []))
+        if refspecs and any(":" not in spec and not spec.startswith("^") for spec in refspecs):
+            specs = [spec for spec in refspecs if ":" in spec or spec.startswith("^")]
+            specs += config.get(f"remote.{remote}.fetch", [])
+        if not specs:
+            return False
+        for spec in specs:
+            if spec.startswith("^"):
+                continue
+            source, separator, destination = spec.lstrip("+").partition(":")
+            if not separator or not source or not destination.startswith("refs/remotes/"):
+                return False
+    return True
+
+
+def _remote_prune_kind(prefix: list[str], args: list[str], cwd: Path | None) -> str:
+    """Allow pruning only destinations proven to be remote-tracking refs."""
+    options = {arg for arg in args[1:] if arg.startswith("-")}
+    remotes = [arg for arg in args[1:] if not arg.startswith("-")]
+    if not remotes or options - {"-n", "--dry-run"}:
+        return "mutating"
+    if options:
+        return "read_only"
+    config = _prune_config(prefix, cwd)
+    return "bootstrap" if config is not None and _tracking_prune_only(config, remotes) else "mutating"
+
+
+def _fetch_kind(prefix: list[str], args: list[str], cwd: Path | None) -> str:
+    """A fetch may prune through flags or configuration, just like remote prune."""
+    switches = {"--prune", "-p", "--no-prune", "--prune-tags", "--no-prune-tags",
+                "--tags", "-t", "--no-tags", "-n", "--all", "--multiple", "--dry-run",
+                "--verbose", "-v", "--quiet", "-q", "--force", "-f", "--append", "-a",
+                "--atomic", "--no-write-fetch-head", "--write-fetch-head", "--unshallow",
+                "--update-shallow", "--no-recurse-submodules", "--recurse-submodules",
+                "--recurse-submodules=on-demand", "--recurse-submodules=yes", "--recurse-submodules=no",
+                "--recurse-submodules=true", "--recurse-submodules=false", "--no-auto-maintenance", "--no-auto-gc"}
+    value_options = {"--depth", "--deepen", "--shallow-since", "--shallow-exclude",
+                     "--negotiation-tip", "--jobs", "-j", "--refmap"}
+    flags, words, index = set(), [], 0
+    tags_override = None
+    recursion_options = []
+    while index < len(args):
+        name, equal, value = args[index].partition("=")
+        if name in value_options:
+            index += 1 if equal else 2
+            if index > len(args) or name == "--refmap":
+                return "mutating"
+            continue
+        if args[index] in switches:
+            flags.add(args[index])
+            if args[index] in {"--tags", "-t", "--no-tags", "-n"}:
+                tags_override = "--tags" if args[index] in {"--tags", "-t"} else "--no-tags"
+            if args[index].startswith(("--recurse-submodules", "--no-recurse-submodules")):
+                recursion_options.append(args[index])
+        elif args[index].startswith("-"):
+            return "mutating"
+        else:
+            words.append(args[index])
+        index += 1
+    if "--dry-run" in flags:
+        return "read_only"
+    if "--prune-tags" in flags:
+        return "mutating"
+    config = _prune_config(prefix, cwd)
+    if config is None:
+        return "mutating"
+    if not _fetch_recursion_safe(prefix, recursion_options, config, cwd):
+        return "mutating"
+    configured_all = config.get("fetch.all", ["false"])[-1].lower() not in {"false", "no", "off", "0"}
+    if "--all" in flags or (not words and configured_all):
+        remotes = [key[7:-6] for key in config if key.startswith("remote.") and key.endswith(".fetch")]
+        refspecs = []
+    elif "--multiple" in flags:
+        remotes, refspecs = words, []
+    else:
+        remotes, refspecs = words[:1], words[1:]
+    if "tag" in refspecs:
+        return "mutating"
+    if not remotes:
+        try:
+            branch = subprocess.run([*prefix, "symbolic-ref", "--quiet", "--short", "HEAD"],
+                                    cwd=cwd, capture_output=True, text=True, timeout=5, check=False)
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            return "mutating"
+        remotes = config.get(f"branch.{branch.stdout.strip()}.remote", ["origin"])[-1:]
+    for remote in remotes:
+        configured_specs = config.get(f"remote.{remote}.fetch", [])
+        # Unknown operands may name a remote group with its own prune settings.
+        if not configured_specs:
+            return "mutating"
+        # Explicit fetch operands do not replace configured refmaps: Git also
+        # updates matching configured destinations opportunistically.
+        for spec in [*configured_specs, *refspecs]:
+            if spec.startswith("^"):
+                continue
+            source, separator, destination = spec.lstrip("+").partition(":")
+            if (refspecs or spec.startswith("+") or flags & {"--force", "-f"}) and (
+                separator and not destination.startswith("refs/remotes/")
+            ):
+                return "mutating"
+        tags = config.get(f"remote.{remote}.tagopt", [""])[-1]
+        if tags not in {"", "--tags", "--no-tags"}:
+            return "mutating"
+        if tags_override is not None:
+            tags = tags_override
+        if flags & {"--force", "-f"} and tags == "--tags":
+            return "mutating"
+        prune = config.get(f"remote.{remote}.prune", config.get("fetch.prune", ["false"]))[-1]
+        if flags & {"--prune", "-p"} or prune.lower() not in {"false", "no", "off", "0"}:
+            if not _tracking_prune_only(config, [remote], refspecs):
+                return "mutating"
+    return "bootstrap"
+
+
+def _fetch_recursion_safe(prefix: list[str], args: list[str], config: dict[str, list[str]],
+                          cwd: Path | None) -> bool:
+    """Child repositories need their own effective ref checks if Git may fetch them."""
+    false_values = {"false", "no", "off", "0"}
+    mode = config.get("fetch.recursesubmodules", config.get("submodule.recurse", ["on-demand"]))[-1]
+    per_module = any(key.endswith(".fetchrecursesubmodules") and values[-1].lower() not in false_values
+                     for key, values in config.items() if key.startswith("submodule."))
+    for argument in args:
+        if argument == "--no-recurse-submodules":
+            mode, per_module = "false", False
+        elif argument == "--recurse-submodules":
+            mode = "true"
+        elif argument.startswith("--recurse-submodules="):
+            mode, per_module = argument.split("=", 1)[1], False
+    if mode.lower() in false_values and not per_module:
+        return True
+    try:
+        result = subprocess.run([*prefix, "ls-files", "--stage", "-z"], cwd=cwd,
+                                capture_output=True, text=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return False
+    return result.returncode == 0 and not any(
+        record.startswith("160000 ") for record in result.stdout.split("\0")
+    )
+
+
+def git_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
     index = 1
     while index < len(tokens) and tokens[index].startswith("-"):
         option = tokens[index]
@@ -326,6 +495,8 @@ def git_command_kind(tokens: list[str]) -> str:
     if command == "branch":
         return "read_only" if _branch_arguments_are_read_only(args) else "mutating"
     if command == "remote":
+        if args and args[0] == "prune":
+            return _remote_prune_kind(tokens[:index], args, cwd)
         return "read_only" if not args or args[0] in {"-v", "get-url"} else "mutating"
     if command == "config":
         getters = {"--get", "--get-all", "--get-regexp", "--list"}
@@ -351,4 +522,4 @@ def git_command_kind(tokens: list[str]) -> str:
             )
             return "mutating" if forcing else "bootstrap"
         return "mutating"
-    return "bootstrap" if command == "fetch" else "mutating"
+    return _fetch_kind(tokens[:index], args, cwd) if command == "fetch" else "mutating"
