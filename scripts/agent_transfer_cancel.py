@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json
 from agent_hook_runtime import finish_with_result
+from agent_run_owner import is_recorded_owner, owner_is_gone, process_owner
 from agent_run_registry import cancel_run, registered_run
 from agent_runtime_session import (
     SETTLED_SUFFIX,
@@ -25,6 +27,9 @@ SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 TRANSFERRED = "transferred_to_completed_linked_worktree"
 NO_CHANGE = "no_change_required"
+# How long a run held by another live process must be idle before a
+# no-change close may settle it without that process.
+FOREIGN_OWNER_IDLE_SECONDS = 30 * 60
 
 # A transfer names the run that finished the work instead. Nothing finished a
 # no-change run, so it names no replacement; what it names instead is the two
@@ -301,6 +306,22 @@ def cancel_no_change_run(args: Any) -> int:
             args.repair_cycle,
             invocation_error=True,
         )
+    idle = foreign_live_owner_is_idle(args.project, evidence, run)
+    if idle is False:
+        return finish_with_result(
+            "cancel",
+            False,
+            [
+                "source run is active in another session: a different live runtime "
+                "process holds it and it had activity within the last "
+                f"{FOREIGN_OWNER_IDLE_SECONDS // 60} minutes",
+                "let that session finish or cancel it, or retry once it has been idle",
+            ],
+            args.output,
+            {},
+            args.repair_cycle,
+            invocation_error=True,
+        )
     receipt = {
         "schema_version": 1,
         "status": "cancelled",
@@ -319,7 +340,41 @@ def cancel_no_change_run(args: Any) -> int:
             "the run's continuation packet records no changed scope",
             "run settled as cancelled with no change; existing evidence was preserved",
         ],
+        require_owner=not idle,
     )
+
+
+def foreign_live_owner_is_idle(project: Path, evidence: Path, run: dict) -> bool | None:
+    """None unless another live process holds the run; then whether it is idle.
+
+    A run owned by this session, unowned, or held by a provably dead owner
+    keeps the registry's ordinary owner handling. Only a live foreign owner
+    whose run shows no activity for the idle window may be settled around:
+    before that, it may simply not have recorded its changes yet.
+    """
+
+    owner = run.get("owner")
+    if not is_recorded_owner(owner) or owner == process_owner() or owner_is_gone(owner):
+        return None
+    stamps: list[float] = []
+    try:
+        stamps.append(datetime.fromisoformat(str(run.get("updated_at"))).timestamp())
+    except (TypeError, ValueError):
+        pass
+    from agent_continuation_store import continuation_path
+
+    paths = [continuation_path(project, str(run.get("run_id") or ""))]
+    try:
+        paths.extend(path for path in evidence.parent.iterdir() if path.is_file())
+    except OSError:
+        pass
+    for path in paths:
+        try:
+            stamps.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    # No readable signal is not proof of inactivity.
+    return bool(stamps) and time.time() - max(stamps) >= FOREIGN_OWNER_IDLE_SECONDS
 
 
 def recorded_changed_scope(project: Path, run_id: str) -> int:
@@ -368,7 +423,8 @@ def _record_settled_session(project: Path, evidence: Path) -> None:
 
 
 def _settle_cancellation(
-    args: Any, evidence: Path, receipt: dict, details: list[str]
+    args: Any, evidence: Path, receipt: dict, details: list[str],
+    require_owner: bool = True,
 ) -> int:
     """Take the clean-checkout observation and the transition in one transaction."""
 
@@ -390,16 +446,16 @@ def _settle_cancellation(
         ).hexdigest()
         return None
 
-    # A transfer names a replacement that must be this owner's; a no-change
-    # close is proven by the in-lock clean checkout and the empty recorded
-    # scope, so another live process holding the run must not strand it.
+    # Only a no-change close of a run whose live foreign owner has gone idle
+    # waives ownership; its proof is the in-lock clean checkout plus the empty
+    # recorded scope.
     transitioned = cancel_run(
         args.project,
         evidence,
         run_id=str(receipt["source_run_id"]),
         precondition=source_checkout_is_still_clean,
         cancellation=receipt,
-        require_owner=receipt["reason"] != NO_CHANGE,
+        require_owner=require_owner,
     )
     if transitioned is None:
         current = registered_run(args.project, evidence)

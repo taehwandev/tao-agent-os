@@ -258,9 +258,9 @@ def cancel_run(
 ) -> dict[str, Any] | None:
     """Atomically settle one still-owned, non-terminal transferred run.
 
-    ``require_owner=False`` is for a no-change close, whose proof is the
-    in-lock clean checkout plus an empty recorded scope; which process holds
-    the run changes neither.
+    ``require_owner=False`` is for a no-change close of a run whose live
+    foreign owner has gone idle; its proof is the in-lock clean checkout plus
+    an empty recorded scope, and the caller decides the idleness.
 
     ``precondition`` is evaluated inside the registry lock and immediately
     before the state write. A caller that checked the world first and then

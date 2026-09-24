@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from argparse import Namespace
+from datetime import datetime, timezone
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -644,24 +647,46 @@ class NoChangeCancellationTests(unittest.TestCase):
         self.assertIn("stopped being clean", output)
         self.assertEqual("running", source["state"])
 
-    def test_a_run_held_by_another_live_process_is_settled_when_nothing_changed(
-        self,
-    ) -> None:
+    def test_an_idle_run_held_by_another_live_process_is_settled(self) -> None:
         """Observed as a clean review run that no cancel could settle.
 
         The registry refused the transition because a different live process
         owned the run, and the refusal was reported as an unclean checkout.
-        A no-change close rests on the clean checkout and the empty recorded
-        scope, both checked inside the lock; process ownership adds nothing.
+        Once that run has been idle for 30 minutes, the in-lock clean checkout
+        and the empty recorded scope are enough to settle it.
         """
+
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process()
+            fixture.age_source_activity(31 * 60)
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(0, code, output)
+        self.assertEqual("cancelled", source["state"])
+
+    def test_a_recently_active_run_of_another_live_process_is_refused(self) -> None:
+        """Another session may have just started and recorded nothing yet."""
 
         with TransferFixture(True, "same request") as fixture:
             fixture.hold_source_by_another_live_process()
             code, output = fixture.cancel_no_change()
             source = registered_run(fixture.source, fixture.source_evidence)
 
-        self.assertEqual(0, code, output)
-        self.assertEqual("cancelled", source["state"])
+        self.assertEqual(1, code)
+        self.assertIn("active in another session", output)
+        self.assertEqual("running", source["state"])
+
+    def test_a_dead_foreign_owner_keeps_the_existing_refusal(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process(pid=999999)
+            fixture.age_source_activity(31 * 60)
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertNotIn("active in another session", output)
+        self.assertEqual("running", source["state"])
 
     def test_a_foreign_owned_transfer_is_still_refused(self) -> None:
         with TransferFixture(True, "same request") as fixture:
@@ -676,6 +701,7 @@ class NoChangeCancellationTests(unittest.TestCase):
     def test_a_foreign_owned_no_change_run_with_an_edit_is_still_refused(self) -> None:
         with TransferFixture(True, "same request") as fixture:
             fixture.hold_source_by_another_live_process()
+            fixture.age_source_activity(31 * 60)
             (fixture.source / "tracked.txt").write_text("edited\n", encoding="utf-8")
             code, output = fixture.cancel_no_change()
             source = registered_run(fixture.source, fixture.source_evidence)
@@ -937,14 +963,33 @@ class TransferFixture:
                 self.git("config", "user.name", "Test User", cwd=self.rules)
             self.git("commit", "--allow-empty", "-m", message, cwd=self.rules)
 
-    def hold_source_by_another_live_process(self) -> None:
-        """Record pid 1 -- alive, and never this test's launcher -- as owner."""
+    def hold_source_by_another_live_process(self, pid: int = 1) -> None:
+        """Record pid 1 -- alive, and never this test's launcher -- as owner.
 
+        Its real start token keeps it provably alive; any other pid given here
+        is expected not to exist, which makes the owner provably gone.
+        """
+
+        from agent_run_owner import _process_start_token
+
+        token = _process_start_token(pid) if pid == 1 else "gone"
         registry = self.source / ".tao" / "run-registry.json"
         payload = json.loads(registry.read_text(encoding="utf-8"))
         for run in payload["runs"]:
-            run["owner"] = {"pid": 1, "start_token": "another-runtime"}
+            run["owner"] = {"pid": pid, "start_token": token}
         registry.write_text(json.dumps(payload), encoding="utf-8")
+
+    def age_source_activity(self, seconds: int) -> None:
+        """Backdate every activity signal of the source run."""
+
+        stamp = time.time() - seconds
+        registry = self.source / ".tao" / "run-registry.json"
+        payload = json.loads(registry.read_text(encoding="utf-8"))
+        for run in payload["runs"]:
+            run["updated_at"] = datetime.fromtimestamp(stamp, timezone.utc).isoformat()
+        registry.write_text(json.dumps(payload), encoding="utf-8")
+        for path in self.source_evidence.parent.iterdir():
+            os.utime(path, (stamp, stamp))
 
     def replacement_project_in_preflight(self, project: Path) -> None:
         payload = json.loads(self.replacement_evidence.read_text(encoding="utf-8"))
