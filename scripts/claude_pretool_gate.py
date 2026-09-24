@@ -2982,6 +2982,16 @@ def decide(payload: dict) -> int:
             return _approve(
                 "This is an ordinary Git command inside the isolated linked worktree."
             )
+        if (
+            syntax_is_simple
+            and tokens
+            and git_subcommand(tokens)[0] in {"branch", "remote"}
+            and any(worktree_denial(found) for found in roots)
+            and protected_checkout_verdict(tokens, protected_branch_names(root)) == "allow"
+        ):
+            # Self-protecting ref cleanup: keep the protected checkout's
+            # existing outright approval rather than demoting it to a prompt.
+            return _approve("This is routine reference maintenance in the protected checkout.")
         return allow()
     # Every governed project, not just the first: a session inside a linked
     # worktree satisfies its own policy while naming the protected checkout it

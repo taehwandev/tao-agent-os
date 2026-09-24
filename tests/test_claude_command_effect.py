@@ -66,13 +66,15 @@ class CommandEffectTests(unittest.TestCase):
         for command in (
             "git switch -c owner/task", "git switch main",
             "git checkout -b owner/task", "git checkout -- file",
-            "git branch owner/task", "git branch -d owner/task",
+            "git branch owner/task", "git branch -d --force owner/task",
             "git branch -D main", "git branch -m old new",
             "git -C /tmp/project switch -c owner/task",
             "cd /tmp/project && git checkout -b owner/task",
         ):
             with self.subTest(command=command):
                 self.assertEqual("mutating", self.effect(command)[0])
+        # Git refuses an unmerged `branch -d` itself: admitted ref cleanup.
+        self.assertEqual("bootstrap", self.effect("git branch -d owner/task")[0])
 
     def test_branch_reads_and_unknown_git_commands_stay_distinct(self):
         for command in ("git branch", "git branch -vv", "git branch --list owner/task",

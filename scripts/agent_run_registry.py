@@ -254,8 +254,13 @@ def cancel_run(
     run_id: str,
     precondition: Callable[[], str | None] | None = None,
     cancellation: dict[str, Any] | None = None,
+    require_owner: bool = True,
 ) -> dict[str, Any] | None:
     """Atomically settle one still-owned, non-terminal transferred run.
+
+    ``require_owner=False`` is for a no-change close, whose proof is the
+    in-lock clean checkout plus an empty recorded scope; which process holds
+    the run changes neither.
 
     ``precondition`` is evaluated inside the registry lock and immediately
     before the state write. A caller that checked the world first and then
@@ -283,7 +288,7 @@ def cancel_run(
         target = candidates[-1]
         if (
             target.get("state") not in TRANSFER_CANCELLABLE_RUN_STATES
-            or not _closeout_owner_matches(target)
+            or (require_owner and not _closeout_owner_matches(target))
         ):
             return None
         if precondition is not None and precondition() is not None:

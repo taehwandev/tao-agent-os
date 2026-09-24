@@ -624,6 +624,66 @@ class NoChangeCancellationTests(unittest.TestCase):
         self.assertEqual("running", source["state"])
         self.assertFalse(receipt_path.exists())
 
+    def test_rules_head_drift_does_not_block_a_clean_no_change_run(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            fixture.advance_rules_head()
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(0, code, output)
+        self.assertEqual("cancelled", source["state"])
+
+    def test_rules_head_drift_still_refuses_an_edited_project(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            fixture.advance_rules_head()
+            (fixture.source / "tracked.txt").write_text("edited\n", encoding="utf-8")
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertIn("stopped being clean", output)
+        self.assertEqual("running", source["state"])
+
+    def test_a_run_held_by_another_live_process_is_settled_when_nothing_changed(
+        self,
+    ) -> None:
+        """Observed as a clean review run that no cancel could settle.
+
+        The registry refused the transition because a different live process
+        owned the run, and the refusal was reported as an unclean checkout.
+        A no-change close rests on the clean checkout and the empty recorded
+        scope, both checked inside the lock; process ownership adds nothing.
+        """
+
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process()
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(0, code, output)
+        self.assertEqual("cancelled", source["state"])
+
+    def test_a_foreign_owned_transfer_is_still_refused(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process()
+            code, output = fixture.cancel()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertIn("not owned by the current runtime session", output)
+        self.assertEqual("running", source["state"])
+
+    def test_a_foreign_owned_no_change_run_with_an_edit_is_still_refused(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process()
+            (fixture.source / "tracked.txt").write_text("edited\n", encoding="utf-8")
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertIn("stopped being clean", output)
+        self.assertEqual("running", source["state"])
+
     def test_the_changed_scope_reader_counts_what_the_packet_records(self) -> None:
         ok = {
             "status": "ok",
@@ -866,6 +926,25 @@ class TransferFixture:
             ),
             encoding="utf-8",
         )
+
+    def advance_rules_head(self) -> None:
+        """Move the rules checkout's HEAD after the run started."""
+
+        for message in ("rules at start", "rules moved on"):
+            if not (self.rules / ".git").exists():
+                self.git("init", str(self.rules), cwd=self.root)
+                self.git("config", "user.email", "test@example.com", cwd=self.rules)
+                self.git("config", "user.name", "Test User", cwd=self.rules)
+            self.git("commit", "--allow-empty", "-m", message, cwd=self.rules)
+
+    def hold_source_by_another_live_process(self) -> None:
+        """Record pid 1 -- alive, and never this test's launcher -- as owner."""
+
+        registry = self.source / ".tao" / "run-registry.json"
+        payload = json.loads(registry.read_text(encoding="utf-8"))
+        for run in payload["runs"]:
+            run["owner"] = {"pid": 1, "start_token": "another-runtime"}
+        registry.write_text(json.dumps(payload), encoding="utf-8")
 
     def replacement_project_in_preflight(self, project: Path) -> None:
         payload = json.loads(self.replacement_evidence.read_text(encoding="utf-8"))

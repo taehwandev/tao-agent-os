@@ -390,21 +390,30 @@ def _settle_cancellation(
         ).hexdigest()
         return None
 
+    # A transfer names a replacement that must be this owner's; a no-change
+    # close is proven by the in-lock clean checkout and the empty recorded
+    # scope, so another live process holding the run must not strand it.
     transitioned = cancel_run(
         args.project,
         evidence,
         run_id=str(receipt["source_run_id"]),
         precondition=source_checkout_is_still_clean,
         cancellation=receipt,
+        require_owner=receipt["reason"] != NO_CHANGE,
     )
     if transitioned is None:
+        current = registered_run(args.project, evidence)
+        state = str((current or {}).get("state") or "")
+        refusal = (
+            f"source run is {state}, which cannot be cancelled"
+            if state in {"completed", "cancelled"}
+            else "source run changed or the checkout stopped being clean before the "
+            "cancellation transition; rerun the cancellation"
+        )
         return finish_with_result(
             "cancel",
             False,
-            [
-                "source run changed or the checkout stopped being clean before the "
-                "cancellation transition; rerun the cancellation"
-            ],
+            [refusal],
             args.output,
             {},
             args.repair_cycle,

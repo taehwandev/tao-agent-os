@@ -235,6 +235,28 @@ def _branch_arguments_are_read_only(arguments: list[str]) -> bool:
     return listing_mode
 
 
+def _self_protecting_ref_cleanup(command: str, args: list[str]) -> bool:
+    """Local ref cleanup that git itself refuses whenever it could lose work.
+
+    `branch -d` refuses an unmerged branch and `remote prune` drops only
+    remote-tracking refs whose upstream is gone. Classifying them as
+    mutations sent a lone merged-branch deletion through a whole workflow
+    lifecycle. Only these exact spellings qualify; `-D`, `--force`, `-f`,
+    clustered short flags and anything unrecognised stay mutations.
+    """
+
+    options = [argument for argument in args if argument.startswith("-")]
+    names = [argument for argument in args if not argument.startswith("-")]
+    if command == "branch":
+        return bool(options) and set(options) <= {"-d", "--delete"} and bool(names)
+    if command == "remote":
+        return (
+            bool(args) and args[0] == "prune" and len(names) >= 2
+            and set(options) <= {"-n", "--dry-run"}
+        )
+    return False
+
+
 def git_command_kind(tokens: list[str]) -> str:
     index = 1
     while index < len(tokens) and tokens[index].startswith("-"):
@@ -286,6 +308,8 @@ def git_command_kind(tokens: list[str]) -> str:
         if names & {"-d", "--delete"}:
             return "mutating"
         return "read_only" if len(words) <= 1 else "mutating"
+    if _self_protecting_ref_cleanup(command, args):
+        return "bootstrap"
     if command == "branch":
         return "read_only" if _branch_arguments_are_read_only(args) else "mutating"
     if command == "remote":
