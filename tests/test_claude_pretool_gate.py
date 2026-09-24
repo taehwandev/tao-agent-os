@@ -3575,9 +3575,10 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
             (["bash", "-lc", "git push origin work"], "publishes"),
             (["sh", "-ec", "git tag v3"], "publishes"),
             (["bash", "-c", "env git push origin work"], "publishes"),
-            # A substitution runs a program the segment reader cannot see, so
-            # the line is held as unreadable rather than judged around it.
-            (["bash", "-c", "git push $(cat ref)"], "unreadable"),
+            # A substitution's body is judged too; the push around it still
+            # publishes, and a computed program stays unreadable.
+            (["bash", "-c", "git push $(cat ref)"], "publishes"),
+            (["bash", "-c", "$(cat prog) push"], "unreadable"),
             (["bash", "-c", "echo ok"], ""),
             (["sh", "-lc", "ls -la"], ""),
             (["bash", "-c", "git status"], ""),
@@ -3602,7 +3603,7 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
             ("git status | tee log", ""),
             ("git add -A && git commit -m x", ""),
             ("unbalanced 'quote", "unreadable"),
-            ("echo $(git push)", "unreadable"),
+            ("echo $(git push)", "publishes"),
         ):
             with self.subTest(command=command):
                 self.assertEqual(expected, publication_hold(command), command)
@@ -3697,9 +3698,12 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
             ("nohup git push origin work", "publishes"),
             ("(git push origin work)", "unreadable"),
             ("{ git push origin work; }", "unreadable"),
-            ("if true; then git push; fi", "unreadable"),
-            ("for x in 1; do git push; done", "unreadable"),
-            ("while true; do git tag v3; done", "unreadable"),
+            # Loop and conditional clauses are read: the body decides.
+            ("if true; then git push; fi", "publishes"),
+            ("for x in 1; do git push; done", "publishes"),
+            ("while true; do git tag v3; done", "publishes"),
+            ("for x in 1; do ls; done", ""),
+            ("case x in x) git push;; esac", "unreadable"),
             ("! git status", ""),
             ("time ls -la", ""),
         ):
@@ -3718,9 +3722,10 @@ class PublicationWaitsForFinishTests(unittest.TestCase):
         for command, expected in (
             ("echo '$(git push)'", ""),
             ("echo ok # $(git push)", ""),
-            ('echo "$(git push)"', "unreadable"),
+            ('echo "$(git push)"', "publishes"),
             ("echo `git push`", "unreadable"),
-            ("echo $(git push)", "unreadable"),
+            ("echo $(git push)", "publishes"),
+            ('echo "$(git status)"', ""),
             ("git log --pretty=format:%(refname) -1", ""),
         ):
             with self.subTest(command=command):
@@ -4184,18 +4189,20 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertNotEqual("", out)
         self.assertNotIn("a successful finish", _reason(out))
 
-    def test_finish_does_not_authorize_merging_deleting_or_unrelated_api_writes(self) -> None:
-        """Publication authority is not integration or arbitrary mutation.
+    def test_finish_does_not_authorize_deleting_or_unrelated_api_writes(self) -> None:
+        """Publication authority is not arbitrary mutation.
 
         Each of these is a separate authority the lifecycle names separately,
         and none of them is the publication of the diff a finish attested.
+        An admitted `gh pr merge` is (test_claude_pretool_merge_and_loops);
+        `--admin` is not.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))
 
             for command in (
-                "gh pr merge 166 --squash",
+                "gh pr merge 166 --squash --admin",
                 "gh release delete v26.09.1",
                 "gh api -X POST repos/x/y/issues",
                 "gh repo delete x/y",

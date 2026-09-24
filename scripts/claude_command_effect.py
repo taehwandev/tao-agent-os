@@ -28,17 +28,61 @@ PROJECT_CODE_REMEDY = (
 )
 
 
+GH_PR_MERGE_SWITCHES = frozenset({
+    "--merge", "-m", "--squash", "-s", "--rebase", "-r", "--delete-branch", "-d", "--auto",
+})
+GH_PR_MERGE_VALUED = frozenset({"--subject", "-t", "--body", "-b", "--repo", "-R"})
+GH_PR_MERGE_REASON = (
+    "gh pr merge option outside the admitted merge contract (one pull-request selector, "
+    "--merge/--squash/--rebase, --delete-branch, --auto, --subject, --body, --repo); "
+    "--admin and every other option stay unadmitted"
+)
+
+
+def github_pr_merge(tokens: list[str]) -> str:
+    """`admitted`, `unadmitted`, or "" when this is not `gh pr merge` at all.
+
+    Merging publishes the reviewed branch the same way the push and the pull
+    request did, so the admitted spelling shares their external_write contract.
+    `--admin` bypasses branch protection and an unmodelled option may change
+    what merges, so both are recognized as a merge but never admitted.
+    """
+    if len(tokens) < 3 or Path(tokens[0]).name != "gh" or tokens[1:3] != ["pr", "merge"]:
+        return ""
+    selectors = 0
+    index = 3
+    while index < len(tokens):
+        word = tokens[index]
+        flag, equal, _value = word.partition("=")
+        if word in GH_PR_MERGE_SWITCHES:
+            pass
+        elif flag in GH_PR_MERGE_VALUED:
+            if not equal:
+                index += 1
+                if index >= len(tokens):
+                    return "unadmitted"
+        elif word.startswith("-"):
+            return "unadmitted"
+        else:
+            selectors += 1
+        index += 1
+    return "admitted" if selectors <= 1 else "unadmitted"
+
+
 def github_publication(tokens: list[str]) -> bool:
     """One action contract for pre-finish holds and post-finish admission.
 
     This describes effects, never user intent or approval. Unknown API targets,
-    deletion, merging and credential operations are not publication continuations.
+    deletion, unadmitted merge options and credential operations are not
+    publication continuations.
     """
     if not tokens or Path(tokens[0]).name != "gh":
         return False
     if tuple(tokens[1:3]) in {("pr", "create"), ("release", "create"),
                               ("release", "upload")}:
         return True
+    if tokens[1:3] == ["pr", "merge"]:
+        return github_pr_merge(tokens) == "admitted"
     if tokens[1:2] != ["api"]:
         return False
     endpoint = None
@@ -108,6 +152,8 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
     executable = Path(tokens[0]).name
     if github_publication(tokens):
         return "mutating", "GitHub publication command"
+    if github_pr_merge(tokens):
+        return "unknown", GH_PR_MERGE_REASON
     if executable in {"rm", "mv", "cp", "touch", "mkdir", "rmdir", "tee", "install", "chmod", "chown",
                       "ln", "mktemp", "tar"}:
         return "mutating", "filesystem-changing command"

@@ -59,7 +59,13 @@ try:  # The gate must never fail to load; the import is only used for a message.
     )
     from claude_bash_git import git_subcommand, names_unsafe_git_option
     from claude_bash_syntax import past_env_options
-    from claude_command_effect import command_effect, unknown_recovery, github_publication
+    from claude_command_effect import (
+        GH_PR_MERGE_REASON,
+        command_effect,
+        github_pr_merge,
+        github_publication,
+        unknown_recovery,
+    )
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -166,6 +172,14 @@ except ImportError:  # pragma: no cover - exercised only on a broken install
 
     def project_publication_kind(root: Path, tokens: list[str], cwd: Path) -> str:
         return ""
+
+    def github_publication(tokens: list[str]) -> bool:
+        return False
+
+    def github_pr_merge(tokens: list[str]) -> str:
+        return ""
+
+    GH_PR_MERGE_REASON = "gh pr merge option outside the admitted merge contract"
 
     def ticketed_product_branch_denial(root: Path, target: Path) -> str | None:
         return None
@@ -904,6 +918,109 @@ SHELL_STRUCTURE_WORDS = frozenset(
         "{", "}", "(", ")", "[[", "]]",
     }
 )
+# Clause words that carry at most one ordinary command, and the words that
+# close them. `case`, `select`, functions and groups stay unread above.
+CLAUSE_WORDS = frozenset({"if", "elif", "then", "else", "while", "until", "do"})
+LOOP_CLOSING_WORDS = frozenset({"done", "fi"})
+ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# What a judged `$(...)` leaves behind: one word that names no program, so a
+# substitution in command position still reads as computed.
+SUBSTITUTED_WORD = "__tao_substituted__"
+
+
+def _computed_word(word: str) -> bool:
+    return "$" in word or "`" in word or SUBSTITUTED_WORD in word
+
+
+def _substitution_end(command: str, index: int) -> "int | None":
+    """Index of the `)` closing the `$(` whose body starts at `index`."""
+
+    depth = 1
+    quote = ""
+    while index < len(command):
+        character = command[index]
+        if character == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote:
+            if character == quote:
+                quote = ""
+        elif character in "'\"":
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _read_substitutions(
+    command: str, depth: int, root: "Path | None", cwd: "Path | None"
+) -> "tuple[str, str] | None":
+    """Judge each `$(...)` body and put one inert word in its place.
+
+    Refusing every substitution held `s=$(curl -s ...)` inside a read loop as
+    a hidden program. The body is an ordinary command line, so it is judged
+    like one; the word left behind is data unless it lands where a program
+    name goes, where `_segment_hold` still calls it computed. Backticks,
+    process substitution and a body nested past the depth limit stay unread.
+    None means unreadable.
+    """
+
+    pieces: list[str] = []
+    verdict = ""
+    quote = ""
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if quote == "'":
+            pieces.append(character)
+            if character == "'":
+                quote = ""
+            index += 1
+            continue
+        if character == "\\":
+            pieces.append(command[index:index + 2])
+            index += 2
+            continue
+        if not quote and character == "#" and (
+            index == 0
+            or command[index - 1].isspace()
+            or command[index - 1] in SHELL_PUNCTUATION_CHARS
+        ):
+            newline = command.find("\n", index)
+            end = len(command) if newline < 0 else newline
+            pieces.append(command[index:end])
+            index = end
+            continue
+        if command.startswith("$(", index):
+            end = _substitution_end(command, index + 2)
+            if end is None:
+                return None
+            body = command[index + 2:end]
+            if body.startswith("(") and body.endswith(")"):
+                # Arithmetic: nothing runs unless it nests a substitution.
+                if "$(" in body or "`" in body:
+                    return None
+                pieces.append("0")
+            else:
+                found = publication_hold(body, depth + 1, root, cwd)
+                if found == "publishes":
+                    return command, "publishes"
+                verdict = verdict or found
+                pieces.append(SUBSTITUTED_WORD)
+            index = end + 1
+            continue
+        if character == '"':
+            quote = "" if quote else '"'
+        elif character == "'" and not quote:
+            quote = "'"
+        pieces.append(character)
+        index += 1
+    return "".join(pieces), verdict
 
 
 def _substitution_runs(command: str) -> bool:
@@ -1047,10 +1164,15 @@ def publication_hold(
 
     if depth >= 3:
         return "unreadable"
+    read = _read_substitutions(command, depth, root, cwd)
+    if read is None:
+        return "unreadable"
+    command, verdict = read
+    if verdict == "publishes":
+        return "publishes"
     segments = _command_segments(command)
     if segments is None:
         return "unreadable"
-    verdict = ""
     for tokens in segments:
         found = _segment_hold(tokens, depth, root, cwd)
         if found == "publishes":
@@ -1073,9 +1195,29 @@ def _segment_hold(
         return "unreadable"
     if not command:
         return ""
+    head = command[0]
+    # A loop or conditional is read, not refused: each clause word carries at
+    # most one ordinary command, which is judged like any other segment, so
+    # `for u in a b; do curl ...; done` is the curl it runs and
+    # `if true; then git push; fi` is still the push.
+    if head in LOOP_CLOSING_WORDS:
+        return "" if len(command) == 1 else "unreadable"
+    if head in CLAUSE_WORDS:
+        return _segment_hold(command[1:], depth, root, cwd) if len(command) > 1 else ""
+    if head == "for":
+        # The word list is data. `$(...)` in it was already judged, and an
+        # arithmetic `for ((...))` header is not modelled.
+        plain = len(command) >= 2 and ENV_NAME.fullmatch(command[1]) and (
+            len(command) == 2 or command[2] == "in"
+        )
+        return "" if plain else "unreadable"
     # Checked on what the reader returned, so `! (git push)` is seen as the
     # construct it is rather than as a command called `!`.
-    if command[0] in SHELL_STRUCTURE_WORDS or command[0][0] in "({":
+    if head in SHELL_STRUCTURE_WORDS or head[0] in "({":
+        return "unreadable"
+    # A program the shell computes -- `$cmd push`, `bash -c "$cmd"`,
+    # `$(echo git) push`, `eval "$cmd"` -- names nothing this can read.
+    if _computed_word(head) or Path(head).name == "eval":
         return "unreadable"
     if Path(command[0]).name in SHELL_PROGRAMS:
         payload, readable = _shell_payload(command, 1)
@@ -1090,8 +1232,12 @@ def _segment_hold(
     program = Path(command[0]).name
     if program == "git":
         subcommand, _arguments = git_subcommand(command)
+        if subcommand and _computed_word(subcommand):
+            return "unreadable"
         return "publishes" if subcommand in PUBLICATION_LEAVES_THIS_MACHINE else ""
-    if github_publication(command):
+    # Every merge spelling is held before finish; only the admitted one is
+    # later let through by a finished run.
+    if github_publication(command) or github_pr_merge(command):
         return "publishes"
     if root is not None:
         return project_publication_kind(root, command, cwd or root)
@@ -1357,6 +1503,9 @@ def finished_publication_denial(root: Path, session_id: str, command: str, cwd: 
     for segment in _command_segments(command, reject_redirections=True) or []:
         tokens = _command_behind_environment(segment, 0)
         effect = _publication_effect(root, tokens, cwd) if tokens else ""
+        if not effect and tokens and github_pr_merge(tokens) == "unadmitted":
+            cause = GH_PR_MERGE_REASON
+            break
         if not effect or evidence is None:
             continue
         from agent_publication_admission import PublicationAdmission
@@ -1366,7 +1515,7 @@ def finished_publication_denial(root: Path, session_id: str, command: str, cwd: 
             granted, needed = refusal.removeprefix("effect:").split("<")
             cause = (
                 f"the run was admitted for {granted} and this publication needs {needed}. "
-                "When the user's request authorizes push or pull-request creation, start "
+                "When the user's request authorizes push, pull-request creation or merge, start "
                 "that run with --approved-effect external_write so its finish admits them"
             )
         elif refusal:
@@ -1811,7 +1960,14 @@ def _isolated_checkout_verdict(
             return deny(unknown_recovery(unknown_reason, after_finish=after_finish)
                         + governed_because(governed, cwd_roots),
                         "unreadable_command_effect")
-        return deny(deny_reason(governed, session_id, tool, cwd_roots))
+        publishes = tool in BASH_TOOLS and publication_hold(
+            bash_command(payload), root=governed, cwd=effective_cwd or cwd
+        ) == "publishes"
+        return deny(deny_reason(governed, session_id, tool, cwd_roots) + (
+            " This command publishes: when the user's request authorizes it, start "
+            "that run with --approved-effect external_write so its finish admits it."
+            if publishes else ""
+        ))
     if finish_authorized:
         return _approve(
             "This is a publication command that a successful finish "

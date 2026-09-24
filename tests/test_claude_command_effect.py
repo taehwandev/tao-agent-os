@@ -39,7 +39,8 @@ class CommandEffectTests(unittest.TestCase):
     def test_publication_contract_excludes_reads_and_unrelated_authority(self):
         import shlex
         for command in (
-            'gh release view v1', 'gh release delete v1', 'gh pr merge 1',
+            'gh release view v1', 'gh release delete v1', 'gh pr merge 1 --admin',
+            'gh pr merge 1 2', 'gh pr merge 1 --body-file notes.md', 'gh pr merge 1 --subject',
             'gh api repos/owner/repo/releases',
             'gh api -X DELETE repos/owner/repo/releases',
             'gh api -X POST repos/owner/repo/hooks',
