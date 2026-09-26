@@ -67,6 +67,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
     )
     from claude_command_effect import command_effect, unknown_recovery
     from claude_scratch_checkout import scratch_command, throwaway_checkout
+    from claude_bash_syntax import scratch_write_target
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -212,6 +213,9 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
 
     # A broken install releases no checkout: every governed root stays one.
     def throwaway_checkout(root: Path) -> bool:
+        return False
+
+    def scratch_write_target(raw: str, cwd: Path | None) -> bool:
         return False
 
     def scratch_command(command: str, root: Path, cwd: Path, project_of=None) -> bool:
@@ -948,8 +952,8 @@ def write_target_path(payload: dict, cwd: Path) -> Path | None:
     return target
 
 
-def _patch_target_paths(payload: dict, cwd: Path) -> list[Path] | None:
-    """Read every patch source and move target; never infer targets from cwd."""
+def _patch_target_paths(payload: dict, cwd: Path) -> list[tuple[Path, bool]] | None:
+    """Read patch targets and whether the operation follows the final symlink."""
     body = payload.get("tool_input")
     if isinstance(body, dict):
         candidates = [body[key] for key in ("patch", "input") if key in body]
@@ -970,7 +974,8 @@ def _patch_target_paths(payload: dict, cwd: Path) -> list[Path] | None:
             if not name.strip() or "\x00" in name:
                 return None
             target = Path(name)
-            targets.append(target if target.is_absolute() else cwd / target)
+            targets.append((target if target.is_absolute() else cwd / target,
+                            prefix != "*** Delete File: "))
         elif line.startswith("*** ") and line != "*** End of File":
             return None
     return targets or None
@@ -1927,17 +1932,16 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     if tool == "ApplyPatch":
         targets = _patch_target_paths(payload, cwd)
         if targets is not None:
-            roots = _governed_only(list(dict.fromkeys(
-                root for target in targets
-                if (root := find_project_root(target.parent)) is not None
-            )))
+            roots = _edit_target_roots(targets)
             return _CallScope("", [], True, cwd, cwd, roots, list(roots))
     if tool not in BASH_TOOLS:
-        # An Edit or a Write names one path and is judged by where that path
-        # is: it cannot run somewhere other than the shell's directory, and its
-        # shape cannot be unreadable.
-        root = find_edit_project_root(payload, cwd)
-        found = _governed_only([root] if root is not None else [])
+        target = write_target_path(payload, cwd) if tool != "ApplyPatch" else None
+        if target is not None:
+            found = _edit_target_roots([(target, True)])
+        else:
+            # Unreadable targets cannot prove a scratch-only effect.
+            root = find_project_root(cwd)
+            found = [root] if root is not None else []
         return _CallScope("", [], True, cwd, cwd, found, list(found))
     effective_cwd, tokens, syntax_is_simple = bash_invocation(payload, cwd)
     command_cwd = _git_effective_cwd(tokens, effective_cwd)
@@ -1966,6 +1970,27 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     )
 
 
+def _edit_target_roots(targets: list[tuple[Path, bool]]) -> list[Path]:
+    """Keep lexical and actual owners; an unlink only resolves its parent."""
+    roots = list(dict.fromkeys(
+        root for target, _follow in targets
+        if (root := find_project_root(target.parent)) is not None
+    ))
+    unresolved = False
+    for target, follow in targets:
+        try:
+            root = _owning_project(target if follow else target.parent)
+            if root is not None and root not in roots:
+                roots.append(root)
+        except (UnresolvableTarget, OSError, ValueError, RuntimeError):
+            unresolved = True
+    try:
+        roots = list(dict.fromkeys(root.resolve() for root in roots))
+    except (OSError, ValueError, RuntimeError):
+        unresolved = True
+    return roots if unresolved else _governed_only(roots)
+
+
 def _governed_only(
     roots: "list[Path]", command: "str | None" = None, cwd: "Path | None" = None
 ) -> "list[Path]":
@@ -1985,6 +2010,7 @@ def _governed_only(
         for root in roots
         if not (
             throwaway_checkout(root)
+            and scratch_write_target(str(root), root)
             and (
                 command is None
                 or scratch_command(command, root, cwd or root, find_project_root)
