@@ -175,15 +175,10 @@ class PublicationStaysGovernedTests(_Fixture):
         )
 
 
-class CodeRunsInTheTempCheckoutTests(_Fixture):
-    """Code run in the throwaway checkout needs no workflow start.
+class OpaqueCodeInTheTempCheckoutTests(_Fixture):
+    """A disposable checkout does not confine programs that run from it."""
 
-    That a program *could* write anywhere is not a risk the command shows, so
-    interpreters, package managers, build tools, `./tool` and assignment-
-    prefixed programs are scratch there like file utilities are.
-    """
-
-    def test_ordinary_code_execution_needs_no_run(self) -> None:
+    def test_program_execution_uses_the_ordinary_workflow(self) -> None:
         (self.bench / "script.py").write_text("print(1)\n")
         (self.bench / "tool").write_text("#!/bin/sh\n")
         (self.bench / "build").mkdir()
@@ -202,17 +197,54 @@ class CodeRunsInTheTempCheckoutTests(_Fixture):
             "FOO=1 npm test",
             "env FOO=1 python3 script.py",
             "bash ./tool",
-            "rm -rf build",
-            "cp a b",
-            "FOO=1 rm docs/probe.txt",
             "python3 script.py > out.log 2>&1",
             "npm test && python3 script.py",
             f"cd {self.bench} && make",
             "python3 -c \"import os; print(os.environ['TAO_HOME'])\"",
-            "git status",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+
+    def test_hidden_original_and_shared_git_writes_are_not_scratch(self) -> None:
+        (self.bench / "script.py").write_text(
+            "import os, subprocess\n"
+            "open(os.path.join(os.environ['TAO_HOME'], 'notes.txt'), 'w').write('changed')\n"
+            "subprocess.run(['git', 'tag', 'unexpected'], check=True)\n"
+        )
+        for command in ("python3 script.py", "python3 -m unittest discover -s tests"):
+            with self.subTest(command=command):
+                self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+        self.assertEqual((self.project / "notes.txt").read_text(), "n\n")
+
+    def test_bounded_scratch_work_and_git_status_need_no_run(self) -> None:
+        (self.bench / "build").mkdir()
+        (self.bench / "a").write_text("a\n")
+        for command in (
+            "rm -rf build", "cp a b", "rm docs/probe.txt",
+            "echo x > out.log", "cat a > copied.log", "git status",
         ):
             with self.subTest(command=command):
                 self.assertEqual(self._bash(command, cwd=self.bench), "allow")
+
+    def test_parent_removal_and_directory_change_fallback_keep_admission(self) -> None:
+        (self.bench / "escape").symlink_to(self.project, target_is_directory=True)
+        for command in (
+            "rm -rf ..", "rmdir -p docs", "rm -rf escape/",
+            "rm {docs,../../home/proj}/probe.txt",
+            "PATH=/tmp/fake rm docs/probe.txt",
+            "env LD_PRELOAD=/tmp/fake rm docs/probe.txt",
+            f"./git worktree remove {self.bench}",
+            f"PATH=/tmp/fake git worktree remove {self.bench}",
+            "cd missing; echo changed > notes.txt",
+            "cd missing || echo changed > notes.txt",
+            "cd docs | echo changed > notes.txt",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+        self.assertEqual(
+            self._bash("cd docs && echo changed > probe.txt", cwd=self.bench),
+            "allow",
+        )
 
     def test_file_writes_inside_temp_need_no_run(self) -> None:
         probe = self.bench / "docs" / "probe.txt"
@@ -300,7 +332,7 @@ class CommandsNamingARealProjectKeepTheirVerdictTests(_Fixture):
                 "python3 x.py ${HOME}/proj/notes.txt",
             ):
                 self._assert_unexempted(command)
-            self.assertEqual(self._bash("python3 x.py ~/elsewhere", cwd=self.bench), "allow")
+            self.assertEqual(self._bash("cat ~/elsewhere", cwd=self.bench), "allow")
 
     def test_a_temp_symlink_into_a_real_project_is_not_scratch(self) -> None:
         (self.bench / "real").symlink_to(self.project, target_is_directory=True)

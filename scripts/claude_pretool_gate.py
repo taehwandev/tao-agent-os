@@ -1954,8 +1954,18 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple, effective_cwd))
     command = bash_command(payload)
     roots = _governed_only(
-        bash_governed_roots(tokens, command_cwd, command=command), command, effective_cwd
+        bash_governed_roots(tokens, command_cwd, command=command), command, cwd
     )
+    if kind == "read_only" and any(
+        throwaway_checkout(found)
+        and scratch_write_target(str(found), found)
+        and not scratch_command(command, found, cwd, find_project_root)
+        for found in roots
+    ):
+        # Some test runners are classified as reads for ordinary tool access,
+        # yet execute arbitrary project code. They cannot acquire the stronger
+        # scratch exemption from that read-only label.
+        kind = "mutating"
     return _CallScope(
         kind,
         tokens,
@@ -1970,7 +1980,7 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
                 if found is not None
             ],
             command,
-            effective_cwd,
+            cwd,
         ),
         detail if kind == "unknown" else "",
     )
@@ -2000,15 +2010,12 @@ def _edit_target_roots(targets: list[tuple[Path, bool]]) -> list[Path]:
 def _governed_only(
     roots: "list[Path]", command: "str | None" = None, cwd: "Path | None" = None
 ) -> "list[Path]":
-    """Drop throwaway temp checkouts the call only writes files in.
+    """Drop a throwaway checkout only for a bounded scratch operation.
 
-    A worktree parked under the OS temp directory for a measurement is
-    scratch: editing, deleting or removing it lands in no project anyone
-    keeps, and demanding a lifecycle there is friction with nothing to
-    protect. Any program may run there; a Bash command keeps the checkout
-    governed only when it visibly reaches a real project (a path, option
-    value, assignment value or redirect into one) or the repository it shares
-    (a commit, a ref write, a publication), or cannot be read.
+    The passed cwd is the shell's starting directory. A parsed effective cwd
+    may already include a `cd` from command text, which scratch_command reads
+    itself. Project code and opaque programs retain normal admission because
+    their writes cannot be bounded from their command lines.
     """
 
     return [
