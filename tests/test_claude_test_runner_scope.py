@@ -104,5 +104,63 @@ class NamedProjectTestRuns(_Fixture):
             ))
 
 
+class TestPatternsAreNotPaths(_Fixture):
+    """File patterns and expressions name tests, not places the run goes."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        (self.project / "tests").mkdir()
+        self.other = self.base / "home" / "other"
+        self.other.mkdir(parents=True)
+        _git("init", "-q", "-b", "work", cwd=self.other)
+
+    def _kind(self, command: str) -> str:
+        payload = {"tool_input": {"command": command}}
+        effective, tokens, simple = readonly.bash_invocation(payload, self.project)
+        return readonly.bash_command_kind(tokens, simple, effective)
+
+    def test_patterns_expressions_and_local_paths_stay_read_only(self) -> None:
+        tests = self.project / "tests"
+        for command in (
+            'python3 -m unittest discover -s tests -p "test_*.py"',
+            "/opt/homebrew/bin/python3.14 -W ignore -m unittest discover -q -b"
+            f' -s {tests} -t {tests} -p "test_*.py"',
+            "python3 -m unittest discover -s tests --pattern=test_*.py",
+            "python3 -m unittest -k test_*_fast tests.test_x",
+            "python3 -m unittest discover -s tests",
+            "pytest tests/x.py::A::b",
+            "pytest tests/x.py::test_case[a-b]",
+            'pytest -k "not slow" tests',
+            'pytest -k "a or b" tests',
+            "pytest -m 'slow and not net' -p no:cacheprovider tests",
+            "pytest -x -q",
+            "pytest --maxfail=1 tests",
+            "pytest --tb=short -n 4 --durations 10 tests",
+            "pytest tests/test_*.py",
+            "pytest test_*.py",
+            "pytest -o python_files=test_*.py tests",
+            f"python3 -m unittest discover -s {self.temp / 'x'}",
+            f"pytest --junitxml={self.temp / 'x.xml'} tests",
+            f"pytest --basetemp {self.temp / 'bt'} tests",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", self._kind(command))
+
+    def test_paths_into_another_project_stay_governed(self) -> None:
+        for command in (
+            f"python3 -m unittest discover -s {self.other / 'web'}",
+            f"pytest {self.other / 'tests'}",
+            f"pytest {self.other}/tests/test_*.py",
+            f'python3 -m unittest discover -s {self.other} -p "test_*.py"',
+            f"pytest --junitxml={self.other / 'x.xml'} tests",
+            f"pytest --rootdir {self.other} tests",
+            f"pytest -c {self.other / 'pytest.ini'} tests",
+            f"pytest --basetemp={self.other / 'bt'} tests",
+            f"pytest -k slow {self.other}",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", self._kind(command))
+
+
 if __name__ == "__main__":
     unittest.main()

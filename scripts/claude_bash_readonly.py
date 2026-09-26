@@ -631,26 +631,89 @@ def test_runner_kind(tokens: list[str], cwd: Path | None = None) -> str | None:
     return None
 
 
+# Options whose value is a pattern, expression, name or number, never a path:
+# unittest's `-p/--pattern` and `-k`, pytest's `-k`/`-m` expressions, `-p`
+# plugin names and the report/limit knobs. `test_*.py` there is a filename
+# pattern matched inside the start directory, not a place the run goes.
+_TEST_RUNNER_NON_PATH_OPTIONS = frozenset({
+    "-p", "--pattern", "-k", "-m", "--maxfail", "--tb", "-n", "--numprocesses",
+    "--durations", "--durations-min", "-r", "--color", "--capture",
+    "--log-level", "--log-cli-level", "--import-mode",
+})
+# Options whose value is a path the run reads or writes, so it is checked.
+# `-o/--override-ini key=value` is checked on its value: `cache_dir=` names one.
+_TEST_RUNNER_PATH_OPTIONS = frozenset({
+    "-s", "--start-directory", "-t", "--top-level-directory", "--rootdir",
+    "-c", "--confcutdir", "--basetemp", "--junitxml", "--junit-xml",
+    "-o", "--override-ini",
+})
+_GLOB_CHARS = frozenset("*?[")
+
+
 def _test_runner_target_kind(arguments: list[str], cwd: Path | None) -> str:
     """Keep a test run local only while its visible paths stay local.
 
-    A bare module or selector is relative to the current project. Option values
-    and pytest's ``file.py::Test`` form are checked too. With no cwd, keep the
+    A bare module or selector is relative to the current project. Path option
+    values and pytest's ``file.py::Test`` form are checked; pattern, expression
+    and count option values are not paths and are skipped. With no cwd, keep the
     legacy classification; callers resolving write targets pass their cwd.
     """
 
     if cwd is None:
         return "read_only"
-    for argument in arguments:
-        for value in argument.split("="):
-            if value.startswith("--") or (value.startswith("-") and len(value) == 2):
+    index = 0
+    operands_only = False
+    while index < len(arguments):
+        argument = arguments[index]
+        index += 1
+        if operands_only or not argument.startswith("-") or argument == "-":
+            values = [argument]
+        elif argument == "--":
+            operands_only = True
+            continue
+        else:
+            if argument.startswith("--"):
+                name, equal, attached = argument.partition("=")
+                has_value = bool(equal)
+            else:
+                name, attached = argument[:2], argument[2:]
+                has_value = bool(attached)
+            if name in _TEST_RUNNER_NON_PATH_OPTIONS:
+                if not has_value:
+                    index += 1
                 continue
-            if value.startswith("-") and len(value) > 2:
-                value = value[2:]
+            if name in _TEST_RUNNER_PATH_OPTIONS:
+                if not has_value:
+                    if index >= len(arguments):
+                        continue
+                    attached = arguments[index]
+                    index += 1
+                if name in {"-o", "--override-ini"}:
+                    attached = attached.partition("=")[2]
+                values = [attached]
+            elif has_value:
+                values = [attached]
+            else:
+                # An unknown switch: whatever follows is judged on its own.
+                continue
+        for value in values:
             for candidate in value.split("::"):
-                if candidate and not check_target_local(candidate, cwd):
+                if candidate and not _test_target_local(candidate, cwd):
                     return "mutating"
     return "read_only"
+
+
+def _test_target_local(candidate: str, cwd: Path) -> bool:
+    """Judge a glob by the directory it starts from, not by its wildcard."""
+
+    glob_at = next((i for i, char in enumerate(candidate) if char in _GLOB_CHARS), None)
+    if glob_at is None:
+        return check_target_local(candidate, cwd)
+    slash = candidate.rfind("/", 0, glob_at)
+    if slash < 0:
+        # `test_*.py` or `test_x.py::test[a-b]`: a name matched in the cwd.
+        return True
+    return check_target_local(candidate[:slash] or "/", cwd)
 
 
 def _names_a_python(token: str) -> bool:
