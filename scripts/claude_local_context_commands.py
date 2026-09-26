@@ -1,9 +1,69 @@
-"""Classify trusted user-local context commands, without granting project writes."""
+"""Classify trusted user-local context commands and Tao-owned artifact cleanup.
+
+Neither grants ordinary project writes: the only project path this module can
+admit is a regular file Tao itself names `*.tao-backup`.
+"""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
+import stat
+
+# The suffix both setup writers use (support/setup_config_files.BACKUP_SUFFIX,
+# support/project_guidance). Kept literal so the gate imports no setup code.
+TAO_BACKUP_SUFFIX = ".tao-backup"
+_GLOB_CHARACTERS = frozenset("*?[]{}")
+
+
+def tao_backup_removal(tokens: list[str], cwd: Path | None) -> bool:
+    """Whether a lone `rm [-f] [--] <path>...` only removes Tao backup files.
+
+    Tao writes `<name>.tao-backup` beside a file before its setup rewrites it,
+    and nothing else is named that way. Removing one needs no workflow run,
+    so this admits it narrowly: only `-f` as an option, no globs, `~` or `..`,
+    and every operand must currently be a regular file (not a symlink, not a
+    directory) with that suffix. Relative operands need a known cwd. Any other
+    operand, option or shell composition leaves the ordinary verdict alone.
+    """
+    if not tokens or tokens[0] not in {"rm", "/bin/rm"}:
+        return False
+    operands: list[str] = []
+    options_ended = False
+    for token in tokens[1:]:
+        if not options_ended and token == "--":
+            options_ended = True
+        elif not options_ended and token.startswith("-"):
+            if token != "-f":
+                return False
+        else:
+            operands.append(token)
+    return bool(operands) and all(_is_tao_backup_file(operand, cwd) for operand in operands)
+
+
+def _is_tao_backup_file(operand: str, cwd: Path | None) -> bool:
+    if not operand or "\x00" in operand or operand.startswith("~"):
+        return False
+    if _GLOB_CHARACTERS & set(operand):
+        return False
+    lexical = Path(operand)
+    if ".." in lexical.parts:
+        return False
+    if not lexical.is_absolute():
+        if cwd is None:
+            return False
+        lexical = cwd / lexical
+    name = lexical.name
+    if not name.endswith(TAO_BACKUP_SUFFIX) or name == TAO_BACKUP_SUFFIX:
+        return False
+    try:
+        # The parent may be reached through a symlinked directory; the entry
+        # rm unlinks is still this name inside the resolved directory.
+        entry = lexical.parent.resolve(strict=True) / name
+        return stat.S_ISREG(os.lstat(entry).st_mode)
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def spill_label_kind(arguments: list[str]) -> str | None:

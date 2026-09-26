@@ -15,7 +15,7 @@ from claude_bash_compile_check import COMPILE_CHECK_MODULES, compile_check_kind
 from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
-from claude_local_context_commands import local_context_kind, spill_label_kind
+from claude_local_context_commands import local_context_kind, spill_label_kind, tao_backup_removal
 from claude_bash_syntax import (
     ENV_ASSIGNMENT_RE,
     ENV_IDENTITY_ONLY_FLAGS,
@@ -810,6 +810,10 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool, cwd: Path | Non
     if unmodelled_operator(tokens):
         return "mutating"
     if syntax_is_simple:
+        # Only a lone command: removing Tao's own backup files is lifecycle
+        # housekeeping, but chained with anything it keeps the normal verdict.
+        if tao_backup_removal(tokens, cwd):
+            return RUNTIME_CONTROL_KIND
         return simple_command_kind(tokens, cwd)
     # A compound command used to be mutating on sight, so plain inspection like
     # `grep ... | head` was blocked in a protected checkout and every diagnosis

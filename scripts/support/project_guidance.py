@@ -1,12 +1,14 @@
 """Refresh the known dispatch paragraph in existing managed project guidance.
 
-Owner: explicit project-guidance installation; imports: pathlib, re and setup
-file writer; forbidden: lifecycle or project source mutation. Caller: setup
-entrypoint; tests: test_support_project_guidance.
+Owner: explicit project-guidance installation; imports: pathlib, re,
+subprocess (read-only git queries) and setup file writer; forbidden: lifecycle
+or project source mutation. Caller: setup entrypoint; tests:
+test_support_project_guidance.
 """
 
 from pathlib import Path
 import re
+import subprocess
 
 from support.setup_config_files import SetupConfigError, _atomic_write_bytes
 
@@ -45,6 +47,26 @@ def refresh_project_guidance(project: Path, root: Path, *, dry_run: bool) -> dic
         if not dry_run:
             target = path.resolve()
             payload = original[:start] + updated_block + original[end:]
-            _atomic_write_bytes(target.with_name(target.name + ".tao-backup"), original.encode("utf-8"), target)
+            if not _committed_unchanged(target):
+                _atomic_write_bytes(target.with_name(target.name + ".tao-backup"), original.encode("utf-8"), target)
             _atomic_write_bytes(target, payload.encode("utf-8"), target)
     return {"tool": "project", "hook": "guidance.dispatch", "status": status, "path": str(path)}
+
+
+def _committed_unchanged(target: Path) -> bool:
+    """Whether git already holds this exact file, making a side backup redundant.
+
+    True only when the file is tracked and neither the index nor the working
+    tree differs from HEAD. Any git failure keeps the backup.
+    """
+    def git(*args: str) -> bool:
+        try:
+            return subprocess.run(
+                ["git", "-C", str(target.parent), *args, "--", target.name],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=10, check=False,
+            ).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    return git("ls-files", "--error-unmatch") and git("diff", "--quiet", "HEAD")
