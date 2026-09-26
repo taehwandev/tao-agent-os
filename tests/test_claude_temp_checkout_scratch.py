@@ -175,10 +175,15 @@ class PublicationStaysGovernedTests(_Fixture):
         )
 
 
-class OpaqueCodeInTheTempCheckoutTests(_Fixture):
-    """A disposable checkout does not confine programs that run from it."""
+class CodeRunsInTheTempCheckoutTests(_Fixture):
+    """Code run in the throwaway checkout needs no workflow start.
 
-    def test_program_execution_uses_the_ordinary_workflow(self) -> None:
+    That a program *could* write anywhere is not a risk the command shows, so
+    interpreters, package managers, build tools, `./tool` and assignment-
+    prefixed programs are scratch there like file utilities are.
+    """
+
+    def test_ordinary_code_execution_needs_no_run(self) -> None:
         (self.bench / "script.py").write_text("print(1)\n")
         (self.bench / "tool").write_text("#!/bin/sh\n")
         (self.bench / "build").mkdir()
@@ -191,7 +196,10 @@ class OpaqueCodeInTheTempCheckoutTests(_Fixture):
             "npx tsc --noEmit",
             "make",
             "make -C build",
+            "make build",
+            "python3 scripts/foo.py",
             "./tool",
+            "./tool --flag",
             f"{self.bench / 'tool'}",
             "node x.js",
             "FOO=1 npm test",
@@ -203,24 +211,33 @@ class OpaqueCodeInTheTempCheckoutTests(_Fixture):
             "python3 -c \"import os; print(os.environ['TAO_HOME'])\"",
         ):
             with self.subTest(command=command):
-                self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+                self.assertEqual(self._bash(command, cwd=self.bench), "allow")
 
-    def test_hidden_original_and_shared_git_writes_are_not_scratch(self) -> None:
-        (self.bench / "script.py").write_text(
-            "import os, subprocess\n"
-            "open(os.path.join(os.environ['TAO_HOME'], 'notes.txt'), 'w').write('changed')\n"
-            "subprocess.run(['git', 'tag', 'unexpected'], check=True)\n"
-        )
-        for command in ("python3 script.py", "python3 -m unittest discover -s tests"):
+    def test_a_scratch_verdict_is_never_stricter_than_an_ordinary_project(self) -> None:
+        """Observed: `python3 -m unittest discover -s tests` was denied in the
+        temp worktree while an ordinary checkout with no run allowed it."""
+
+        ordinary = self.base / "home" / "wt"
+        _git("worktree", "add", "--detach", str(ordinary), cwd=self.project)
+        rank = {"allow": 0, "ask": 1, "deny": 2}
+        for command in (
+            "python3 -m unittest discover -s tests",
+            "python3 -m unittest tests.test_x",
+            "npm test",
+        ):
             with self.subTest(command=command):
-                self.assertEqual(self._bash(command, cwd=self.bench), "deny")
-        self.assertEqual((self.project / "notes.txt").read_text(), "n\n")
+                scratch = self._bash(command, cwd=self.bench)
+                self.assertEqual(scratch, "allow")
+                for other in (self.project, ordinary):
+                    self.assertLessEqual(
+                        rank[scratch], rank[self._bash(command, cwd=other)]
+                    )
 
     def test_bounded_scratch_work_and_git_status_need_no_run(self) -> None:
         (self.bench / "build").mkdir()
         (self.bench / "a").write_text("a\n")
         for command in (
-            "rm -rf build", "cp a b", "rm docs/probe.txt",
+            "rm -rf build", "cp a b", "rm docs/probe.txt", "FOO=1 rm docs/probe.txt",
             "echo x > out.log", "cat a > copied.log", "git status",
         ):
             with self.subTest(command=command):
@@ -231,8 +248,7 @@ class OpaqueCodeInTheTempCheckoutTests(_Fixture):
         for command in (
             "rm -rf ..", "rmdir -p docs", "rm -rf escape/",
             "rm {docs,../../home/proj}/probe.txt",
-            "PATH=/tmp/fake rm docs/probe.txt",
-            "env LD_PRELOAD=/tmp/fake rm docs/probe.txt",
+            "rm --no-preserve-root docs/probe.txt",
             f"./git worktree remove {self.bench}",
             f"PATH=/tmp/fake git worktree remove {self.bench}",
             "cd missing; echo changed > notes.txt",
@@ -338,6 +354,13 @@ class CommandsNamingARealProjectKeepTheirVerdictTests(_Fixture):
         (self.bench / "real").symlink_to(self.project, target_is_directory=True)
         self._assert_unexempted("python3 x.py real/notes.txt")
         self._assert_unexempted("python3 x.py --out=real")
+
+    def test_an_edit_through_a_link_into_a_real_project_keeps_its_verdict(self) -> None:
+        (self.bench / "real").symlink_to(self.project, target_is_directory=True)
+        target = self.bench / "real" / "notes.txt"
+        self.assertEqual(self._edit(target, cwd=self.bench), "deny")
+        with patch.object(pretool, "throwaway_checkout", lambda root: False):
+            self.assertEqual(self._edit(target, cwd=self.bench), "deny")
 
     def test_the_observed_tao_home_write_stays_denied(self) -> None:
         command = (

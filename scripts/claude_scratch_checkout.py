@@ -7,9 +7,15 @@ existed only to be thrown away. Its files land in no project anyone keeps.
 Publishing from it, and writing the repository refs it shares, still reach the
 real project, so those keep the checkout governed.
 
-Programs that execute project code can write outside the scratch checkout
-without naming a target. They keep normal workflow admission. Only bounded
-file operations, reads, and disposal of the checkout are exempt.
+Code run there -- `python3 script.py`, `npm test`, `make`, `./tool` -- is
+released too: that it *could* write anywhere is no risk the command shows. What
+the command shows is judged instead. A word, an option value, an assignment's
+value or a redirect target that resolves into a governed project outside temp,
+or into the repository the checkout shares, keeps the checkout governed, so
+`TAO_HOME=<project> python3 x.py` gets the verdict it had before the exemption.
+Known file utilities are held to more: their write operands and redirect
+targets must resolve inside temp, with only options whose effect is known.
+Keeping the checkout governed is the only effect: nothing here denies anything.
 
 Owner: whether a governed root is a throwaway checkout -- it resolves strictly
 inside the OS temp directory while its repository is anchored outside it --
@@ -31,13 +37,14 @@ import os
 import re
 import shlex
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 import claude_bash_syntax as syntax
 from claude_bash_git import git_subcommand
 from claude_bash_raw_lines import raw_command_segments
 from claude_bash_readonly import simple_command_kind
 from claude_bash_syntax import (
+    SHELL_PROGRAMS,
     SHELL_STRUCTURE_WORDS,
     command_behind_wrappers,
     computed_word,
@@ -48,8 +55,8 @@ from claude_pretool_publication import publication_hold
 WORKTREE_DISPOSAL = frozenset({"remove", "prune"})
 # Programs that write shared repository state or publish when named anywhere.
 REPOSITORY_PROGRAMS = frozenset({"git", "gh"})
-# These commands have bounded file effects. Programs that execute project code
-# can reach the source checkout without naming it in their command line.
+# File utilities whose writes are read from their operands, with the short
+# options whose effect is known; any other option leaves the line governed.
 FILE_UTILITIES = {
     "rm": frozenset("rfivR"),
     "rmdir": frozenset("v"),
@@ -60,10 +67,6 @@ FILE_UTILITIES = {
     "ln": frozenset("sfnv"),
     "chmod": frozenset("Rfv"),
 }
-PURE_READERS = frozenset({
-    "cat", "echo", "printf", "head", "tail", "wc", "pwd", "true", "false",
-    "ls", "rg", "grep", "sed",
-})
 _SEPARATORS = frozenset({";", "&", "&&", "|", "||"})
 _OUTPUT_REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
 _INPUT_REDIRECTS = frozenset({"<", "<<<"})
@@ -72,6 +75,10 @@ _SCP_LIKE_RE = re.compile(r"^[^/:]+:")
 # The home directory spelled the ways the shell expands before running.
 _HOME_PREFIX_RE = re.compile(r"^(?:~|\$\{HOME\}|\$HOME)(?=/|$)")
 _HOME_VARIABLE_RE = re.compile(r"(?:\$\{HOME\}|\$HOME)(?=/|:|$)")
+# An absolute or home-rooted path inside a longer word, as in inline code.
+_EMBEDDED_PATH_RE = re.compile(r"(?:~|\$\{HOME\}|\$HOME)?/[^\s'\"`:;,()<>|&=$]*")
+# One unnested brace alternation, which the shell expands into several words.
+_BRACE_RE = re.compile(r"^(.*?)\{([^{}]*,[^{}]*)\}(.*)$")
 
 ProjectOf = Callable[[Path], "Path | None"]
 
@@ -164,11 +171,17 @@ def _remote_locations(root: Path, config: Path) -> list[Path]:
 
 
 def scratch_command(command: str, root: Path, cwd: Path, project_of: ProjectOf) -> bool:
-    """Exempt only effects confined to scratch; code execution keeps its run.
+    """Whether the line leaves real projects alone, so the checkout is scratch.
 
-    A path appearing in a command cannot bound what an interpreter or build
-    tool does after launch. Those commands use normal workflow admission even
-    when every visible argument is inside this disposable checkout.
+    Any program may run -- an interpreter, a package manager, a build tool, a
+    `./tool`, an assignment-prefixed or wrapped program. The line is not
+    scratch only when it visibly reaches out: a word, option value,
+    assignment value, `cd` target or redirect target resolving (`..` and
+    symlinks followed, relative to the effective cwd, `~` and `$HOME`
+    expanded) into a project `project_of` names outside temp or into the
+    shared repository; a file utility writing outside temp or with an option
+    not modelled; a Git command other than a read or `worktree remove|prune`;
+    `gh`; a publication; or a line that cannot be read.
     """
 
     if publication_hold(command, root=root, cwd=cwd):
@@ -219,6 +232,51 @@ class _Reach:
         except (OSError, ValueError):
             return False
         return owner is not None and not _inside_temp(owner.resolve())
+
+    def in_word(self, word: str, cwd: Path) -> bool:
+        return any(self.touches(candidate, cwd) for candidate in _candidates(word, cwd))
+
+
+def _candidates(word: str, cwd: Path) -> Iterator[str]:
+    """Every spelling of a path a word may carry.
+
+    The word itself, an option's or assignment's value, a short option's
+    attached value, each `:`-separated part of those, each alternative of a
+    brace expansion, and any absolute or home-rooted path inside it (inline
+    code, a URL-ish value). A relative spelling with no `/` counts only when
+    it names something that exists, so a bare argument such as `test` in
+    `npm test` run from a project is not read as that project's file.
+    """
+
+    values = [word]
+    brace = _BRACE_RE.match(word)
+    if brace:
+        values.extend(
+            brace.group(1) + choice + brace.group(3)
+            for choice in brace.group(2).split(",")
+        )
+    for value in list(values):
+        if "=" in value:
+            values.append(value.split("=", 1)[1])
+        if value.startswith("-") and not value.startswith("--") and len(value) > 2:
+            values.append(value[2:])
+    for value in values:
+        for part in {value, *value.split(":")}:
+            if not part:
+                continue
+            if part.startswith("/") or _HOME_PREFIX_RE.match(part):
+                yield part
+            elif "/" in part or part in {".", ".."} or _exists(cwd / part):
+                yield part
+        yield from _EMBEDDED_PATH_RE.findall(value)
+
+
+def _exists(path: Path) -> bool:
+    try:
+        return path.exists() or path.is_symlink()
+    except (OSError, ValueError):
+        return False
+
 
 def _expand_home(raw: str) -> "str | None":
     match = _HOME_PREFIX_RE.match(raw)
@@ -336,20 +394,27 @@ def _segment_is_scratch(words: list[str], cwd: Path, reach: _Reach) -> bool:
         name = Path(program[0]).name
         if name == "eval" or name in SHELL_STRUCTURE_WORDS:
             return False
-        if program[0] != name:
+        if name in SHELL_PROGRAMS and not _runs_a_script_file(program[1:]):
             return False
-        if name in FILE_UTILITIES:
-            # Prefix assignments and wrappers can replace the executable or
-            # inject code even when the visible file operands stay in temp.
-            if words != program:
+        if name in FILE_UTILITIES and not _file_operation_confined(name, program[1:], cwd):
+            return False
+    if simple_command_kind(words, cwd) == "read_only":
+        # Reading a real project changes nothing in it.
+        return True
+    return not any(reach.in_word(word, cwd) for word in words)
+
+
+def _runs_a_script_file(arguments: list[str]) -> bool:
+    """Whether a shell is handed a script file rather than inline or piped text."""
+
+    for argument in arguments:
+        if argument == "--":
+            continue
+        if argument.startswith("-") and argument != "-":
+            if not argument.startswith("--") and set(argument[1:]) & {"c", "s", "i"}:
                 return False
-            return _file_operation_confined(name, program[1:], cwd)
-        if name in PURE_READERS:
-            return simple_command_kind(words, cwd) == "read_only"
-        if name == "node" and "--check" in program[1:]:
-            return simple_command_kind(words, cwd) == "read_only"
-        if name.startswith("python") and program[1:4] == ["-I", "-m", "json.tool"]:
-            return simple_command_kind(words, cwd) == "read_only"
+            continue
+        return argument != "-"
     return False
 
 
