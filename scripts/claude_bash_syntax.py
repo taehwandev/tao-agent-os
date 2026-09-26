@@ -10,6 +10,7 @@ splitter together is what lets that vocabulary be audited on its own.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shlex
@@ -251,6 +252,32 @@ def scratch_roots() -> list[Path]:
     return resolved
 
 
+def resolve_target(path: Path) -> "Path | None":
+    """Where the kernel would open `path`, or `None` for a symlink loop.
+
+    A missing file or a dangling link still resolves (a new file lands at its
+    resolved location), exactly as a non-strict `resolve` answers. A loop has no
+    location at all, and interpreters disagree on saying so: 3.9 raises
+    `RuntimeError`, 3.13+ strict raises `OSError(ELOOP)`, and 3.13+ non-strict
+    returns the loop path as though it were an ordinary file. Asking strictly
+    first, then checking that the non-strict answer holds no unresolved link,
+    gives every version the same verdict. Other errors propagate unchanged.
+    """
+
+    try:
+        return path.resolve(strict=True)
+    except RuntimeError:
+        return None
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            return None
+    resolved = path.resolve(strict=False)
+    # Non-strict resolution follows every link it can; one left over is a loop.
+    if any(os.path.islink(step) for step in (resolved, *resolved.parents)):
+        return None
+    return resolved
+
+
 def scratch_write_target(raw: str, cwd: "Path | None") -> bool:
     """Whether a write to `raw` provably lands outside every project.
 
@@ -272,11 +299,12 @@ def scratch_write_target(raw: str, cwd: "Path | None") -> bool:
             return False
         path = cwd / path
     try:
-        resolved = path.resolve(strict=False)
+        resolved = resolve_target(path)
     except (OSError, RuntimeError):
         return False
-    if not any(resolved != root and resolved.is_relative_to(root)
-               for root in scratch_roots()):
+    if resolved is None or not any(
+        resolved != root and resolved.is_relative_to(root) for root in scratch_roots()
+    ):
         return False
     try:
         projects = [

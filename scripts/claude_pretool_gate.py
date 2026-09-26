@@ -67,7 +67,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
     )
     from claude_command_effect import command_effect, unknown_recovery
     from claude_scratch_checkout import scratch_command, throwaway_checkout
-    from claude_bash_syntax import scratch_write_target
+    from claude_bash_syntax import resolve_target, scratch_write_target
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -217,6 +217,9 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
 
     def scratch_write_target(raw: str, cwd: Path | None) -> bool:
         return False
+
+    def resolve_target(path: Path) -> Path | None:
+        return path.resolve()
 
     def scratch_command(command: str, root: Path, cwd: Path, project_of=None) -> bool:
         return False
@@ -1839,7 +1842,10 @@ def _owning_project(path: Path) -> Path | None:
     """
 
     try:
-        candidate = path.resolve()
+        candidate = resolve_target(path)
+        if candidate is None:
+            # A symlink loop has no location, whatever the interpreter says.
+            raise UnresolvableTarget(str(path)[:64])
         while not _target_is_present(candidate) and candidate != candidate.parent:
             candidate = candidate.parent
     except (OSError, ValueError) as error:
