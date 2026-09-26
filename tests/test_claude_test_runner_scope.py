@@ -36,6 +36,33 @@ class NamedProjectTestRuns(_Fixture):
             f"echo $(python3 -m unittest discover -s {self.project})",
             f"python3 -m unittest discover -s {self.project} | tail -1",
             f"pytest {self.project} && echo done",
+            f"echo ready && cd {self.bench} && python3 -m unittest discover -s {self.project}",
+            f"echo ready && cd {self.project} && pytest",
+            f"echo ready && cd {self.bench} && env pytest {self.project}",
+            'echo ready && cd "$TAO_HOME" && pytest',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("deny", self._bash(command, cwd=self.bench))
+
+    def test_compound_local_test_runs_still_work(self) -> None:
+        (self.project / "docs").mkdir()
+        for command in (
+            f"echo ready && cd {self.bench} && pytest docs",
+            f"echo ready && cd {self.bench / 'docs'} && python3 -m unittest discover -s .",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("allow", self._bash(command, cwd=self.bench))
+        self.assertEqual("allow", self._bash(
+            f"echo ready && cd {self.project / 'docs'} && pytest .",
+            cwd=self.project,
+        ))
+
+    def test_compound_relative_targets_and_repeated_cd_are_governed(self) -> None:
+        (self.bench / "docs" / "real").symlink_to(self.project, target_is_directory=True)
+        for command in (
+            f"echo ready && cd {self.bench / 'docs'} && pytest real",
+            f"echo ready && cd {self.bench / 'docs'} && cd real && pytest",
+            f"echo ready && cd {self.bench} && cd {self.project} && pytest",
         ):
             with self.subTest(command=command):
                 self.assertEqual("deny", self._bash(command, cwd=self.bench))

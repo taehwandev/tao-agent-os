@@ -19,6 +19,7 @@ from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
 from claude_local_context_commands import local_context_kind, spill_label_kind, tao_backup_removal
 from claude_bash_syntax import (
+    DIRECTORY_CHANGERS,
     ENV_ASSIGNMENT_RE,
     ENV_IDENTITY_ONLY_FLAGS,
     bash_command,
@@ -27,6 +28,7 @@ from claude_bash_syntax import (
     has_unresolvable_expansion,
     mask_substitutions,
     past_env_options,
+    resolve_target,
     shell_keyword_command,
     substitution_bodies,
     unmodelled_operator,
@@ -921,11 +923,17 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool, cwd: Path | Non
     # Every command a loop or branch actually runs still arrives as its own
     # segment and is classified below.
     commands = [shell_keyword_command(segment) for segment in segments]
-    # Leading `cd ... &&` was resolved by bash_invocation. A later directory
-    # change makes repository configuration unknown for context-sensitive calls.
-    if any(command and command[0] in {"cd", "pushd", "popd"} for command in commands):
-        cwd = None
-    kinds = {simple_command_kind(command, cwd) for command in commands if command}
+    # Leading `cd ... &&` was resolved by bash_invocation. A later change can
+    # select a second project's tests even with no test path argument. Keep
+    # both possible directories for a literal cd, since shell control flow
+    # may skip it; unsupported changes never earn a test-run allowance.
+    if any(command and command[0] in DIRECTORY_CHANGERS for command in commands):
+        if any(_is_test_runner_command(command) for command in commands if command):
+            kinds = _compound_test_kinds(commands, cwd)
+        else:
+            kinds = {simple_command_kind(command, None) for command in commands if command}
+    else:
+        kinds = {simple_command_kind(command, cwd) for command in commands if command}
     if not kinds:
         return "read_only"
     # Ordered strictest first, so the weakest allowance any part needs is the
@@ -934,6 +942,45 @@ def bash_command_kind(tokens: list[str], syntax_is_simple: bool, cwd: Path | Non
         if kind in kinds:
             return kind
     return "read_only"
+
+
+def _is_test_runner_command(command: list[str]) -> bool:
+    unwrapped = strip_env_assignments(command)
+    if unwrapped:
+        unwrapped = strip_env_wrapper(unwrapped)
+    return bool(unwrapped and test_runner_kind(unwrapped) is not None)
+
+
+def _compound_test_kinds(commands: list[list[str]], cwd: Path | None) -> set[str]:
+    """Classify tests under every directory a compound line may reach."""
+
+    if cwd is None:
+        return {"mutating"}
+    possible = [cwd]
+    kinds: set[str] = set()
+    changed = False
+    for command in commands:
+        if not command:
+            continue
+        if command[0] in DIRECTORY_CHANGERS:
+            if changed or command[0] != "cd" or len(command) != 2 or command[1] == "-":
+                return {"mutating"}
+            changed = True
+            try:
+                destination = resolve_target(cwd / command[1])
+            except (OSError, RuntimeError):
+                return {"mutating"}
+            if destination is None:
+                return {"mutating"}
+            possible = list(dict.fromkeys([cwd, destination]))
+            kinds.add(simple_command_kind(command, cwd))
+            continue
+        is_test = _is_test_runner_command(command)
+        for directory in possible:
+            if is_test and not check_target_local(str(directory), cwd):
+                return {"mutating"}
+            kinds.add(simple_command_kind(command, directory))
+    return kinds
 
 
 def contains_workflow_start(tokens: list[str]) -> bool:
