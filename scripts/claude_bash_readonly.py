@@ -11,7 +11,9 @@ import stat
 import sys
 from pathlib import Path
 
-from claude_bash_compile_check import COMPILE_CHECK_MODULES, compile_check_kind
+from claude_bash_compile_check import (
+    COMPILE_CHECK_MODULES, check_target_local, compile_check_kind,
+)
 from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
@@ -604,7 +606,7 @@ def test_runner_kind(tokens: list[str], cwd: Path | None = None) -> str | None:
     if not tokens:
         return None
     if Path(tokens[0]).name == "pytest":
-        return "read_only"
+        return _test_runner_target_kind(tokens[1:], cwd)
     if not _names_a_python(tokens[0]):
         return None
     # `-m <module>` has to be the first thing the interpreter is given, so a
@@ -624,7 +626,31 @@ def test_runner_kind(tokens: list[str], cwd: Path | None = None) -> str | None:
     module = tokens[index + 1]
     if module in COMPILE_CHECK_MODULES:
         return compile_check_kind(module, tokens[index + 2:], cwd)
-    return "read_only" if module in TEST_RUNNER_MODULES else None
+    if module in TEST_RUNNER_MODULES:
+        return _test_runner_target_kind(tokens[index + 2:], cwd)
+    return None
+
+
+def _test_runner_target_kind(arguments: list[str], cwd: Path | None) -> str:
+    """Keep a test run local only while its visible paths stay local.
+
+    A bare module or selector is relative to the current project. Option values
+    and pytest's ``file.py::Test`` form are checked too. With no cwd, keep the
+    legacy classification; callers resolving write targets pass their cwd.
+    """
+
+    if cwd is None:
+        return "read_only"
+    for argument in arguments:
+        for value in argument.split("="):
+            if value.startswith("--") or (value.startswith("-") and len(value) == 2):
+                continue
+            if value.startswith("-") and len(value) > 2:
+                value = value[2:]
+            for candidate in value.split("::"):
+                if candidate and not check_target_local(candidate, cwd):
+                    return "mutating"
+    return "read_only"
 
 
 def _names_a_python(token: str) -> bool:
@@ -902,7 +928,7 @@ MESSAGE_SUBCOMMANDS = frozenset({"commit", "tag"})
 MESSAGE_OPTIONS = frozenset({"-m", "--message"})
 
 
-def read_only_path_token_indices(tokens: list[str]) -> frozenset[int]:
+def read_only_path_token_indices(tokens: list[str], cwd: Path | None = None) -> frozenset[int]:
     """Token positions this command's own text proves it only reads from.
 
     Not a rule that paths are reads until proven otherwise: the default here
@@ -923,12 +949,12 @@ def read_only_path_token_indices(tokens: list[str]) -> frozenset[int]:
         if token not in COPY_SEGMENT_SEPARATORS:
             continue
         if start < index:
-            indices.update(_declared_read_indices(tokens[start:index], start))
+            indices.update(_declared_read_indices(tokens[start:index], start, cwd))
         start = index + 1
     return frozenset(indices)
 
 
-def _declared_read_indices(tokens: list[str], offset: int) -> list[int]:
+def _declared_read_indices(tokens: list[str], offset: int, cwd: Path | None = None) -> list[int]:
     """The read-only operands of one simple command, or nothing at all."""
 
     if not tokens:
@@ -937,7 +963,7 @@ def _declared_read_indices(tokens: list[str], offset: int) -> list[int]:
     # operands are not write targets of that later command. Redirections keep
     # the conservative path because they may write independently of the reader.
     if not any(token in {">", ">>", "<", "<<", ">&", "<&"} for token in tokens) and not unmodelled_operator(tokens):
-        if simple_command_kind(tokens) == "read_only":
+        if simple_command_kind(tokens, cwd) == "read_only":
             return list(range(offset, offset + len(tokens)))
     if _creates_a_pull_request(tokens):
         return _option_value_indices(tokens, offset, PULL_REQUEST_BODY_OPTIONS)
@@ -1225,7 +1251,7 @@ def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
         return _tokenise(payload, cwd)
     for body in bodies:
         inner_cwd, tokens, simple = _tokenise({"tool_input": {"command": body}}, cwd)
-        if not tokens or bash_command_kind(tokens, simple) != "read_only":
+        if not tokens or bash_command_kind(tokens, simple, inner_cwd) != "read_only":
             return cwd, [], False
     masked = {"tool_input": {"command": mask_substitutions(command)}}
     return _tokenise(masked, cwd)

@@ -43,7 +43,7 @@ def compile_check_kind(module: str, arguments: list[str], cwd: "Path | None") ->
     # No operand: compileall compiles `sys.path` (the interpreter's own
     # directories, skipping the current one) and py_compile compiles nothing.
     # Neither names a project, so this keeps the verdict it always had.
-    return "read_only" if all(_local(path, cwd) for path in paths) else "mutating"
+    return "read_only" if all(check_target_local(path, cwd) for path in paths) else "mutating"
 
 
 def _named_paths(module: str, arguments: list[str]) -> "list[str] | None":
@@ -96,7 +96,8 @@ def _named_paths(module: str, arguments: list[str]) -> "list[str] | None":
     return paths
 
 
-def _local(raw: str, cwd: "Path | None") -> bool:
+def check_target_local(raw: str, cwd: "Path | None") -> bool:
+    """Whether a check's named target stays in its project or scratch."""
     if scratch_write_target(raw, cwd):
         return True
     if cwd is None or not raw or set(raw) & UNRESOLVED_PATH_CHARS:

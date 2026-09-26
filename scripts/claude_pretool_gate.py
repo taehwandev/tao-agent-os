@@ -141,7 +141,9 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
     def raw_path_arguments(command: str) -> "list[Path]":
         return []
 
-    def read_only_path_token_indices(tokens: list[str]) -> "frozenset[int]":
+    def read_only_path_token_indices(
+        tokens: list[str], cwd: "Path | None" = None
+    ) -> "frozenset[int]":
         # A broken install claims no operand is read-only, so every path stays
         # a target and the gate keeps its strictest reading.
         return frozenset()
@@ -1806,7 +1808,7 @@ def bash_target_project_roots(tokens: list[str], cwd: Path) -> list[Path]:
     touching them, were each refused as a write.
     """
 
-    source_indices = read_only_path_token_indices(tokens)
+    source_indices = read_only_path_token_indices(tokens, cwd)
     targets = [
         token for index, token in enumerate(tokens) if index not in source_indices
     ]

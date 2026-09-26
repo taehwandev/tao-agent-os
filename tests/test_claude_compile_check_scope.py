@@ -77,10 +77,10 @@ class OwnProjectAndTempStayReadOnlyTests(_Projects):
         self.assertEqual("read_only", self._kind("python3 -m compileall", self.project))
         self.assertEqual("read_only", self._kind("python3 -m compileall -q", self.project))
 
-    def test_test_runners_are_unchanged(self) -> None:
+    def test_local_test_runners_are_unchanged(self) -> None:
         for command in (
-            f"python3 -m unittest discover -s {self.other}",
-            f"python3 -m pytest {self.other}",
+            "python3 -m unittest discover -s scripts",
+            "python3 -m pytest scripts",
             "python3 -m unittest",
         ):
             with self.subTest(command=command):

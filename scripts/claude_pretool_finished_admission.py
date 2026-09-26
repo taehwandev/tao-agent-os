@@ -179,7 +179,7 @@ def publishes_finished_command(
         if publishes_finished_work(root, session_id, segment, runs, cwd):
             published = True
             continue
-        legacy_kind = bash_command_kind(segment, True)
+        legacy_kind = bash_command_kind(segment, True, cwd)
         effect, _reason = command_effect(segment, True, legacy_kind)
         if effect != "read_only":
             return False
