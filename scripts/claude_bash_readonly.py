@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import sys
@@ -652,7 +653,9 @@ _TEST_RUNNER_PATH_OPTIONS = frozenset({
 _GLOB_CHARS = frozenset("*?[")
 
 
-def _test_runner_target_kind(arguments: list[str], cwd: Path | None) -> str:
+def _test_runner_target_kind(
+    arguments: list[str], cwd: Path | None, *, allow_addopts: bool = True,
+) -> str:
     """Keep a test run local only while its visible paths stay local.
 
     A bare module or selector is relative to the current project. Path option
@@ -691,7 +694,18 @@ def _test_runner_target_kind(arguments: list[str], cwd: Path | None) -> str:
                     attached = arguments[index]
                     index += 1
                 if name in {"-o", "--override-ini"}:
-                    attached = attached.partition("=")[2]
+                    key, separator, ini_value = attached.partition("=")
+                    if key == "addopts":
+                        if not separator or not allow_addopts:
+                            return "mutating"
+                        try:
+                            nested = shlex.split(ini_value)
+                        except ValueError:
+                            return "mutating"
+                        if _test_runner_target_kind(nested, cwd, allow_addopts=False) != "read_only":
+                            return "mutating"
+                        continue
+                    attached = ini_value
                 values = [attached]
             elif has_value:
                 values = [attached]

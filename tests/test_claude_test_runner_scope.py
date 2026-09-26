@@ -83,6 +83,20 @@ class NamedProjectTestRuns(_Fixture):
                 self.assertEqual("mutating", self._kind(command, self.bench))
                 self.assertEqual("deny", self._bash(command, cwd=self.bench))
 
+    def test_pytest_addopts_cannot_hide_another_projects_output(self) -> None:
+        for command in (
+            f"python3 -m pytest -o addopts=--junitxml={self.project / 'report.xml'} -q",
+            f"python3 -m pytest --override-ini=addopts='--junitxml {self.project / 'report.xml'}' -q",
+            f"python3 -m pytest -o addopts='--basetemp {self.project / 'temp'}' -q",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", self._kind(command, self.bench))
+                self.assertEqual("deny", self._bash(command, cwd=self.bench))
+
+        local = f"python3 -m pytest -o addopts='-q --junitxml={self.bench / 'report.xml'}'"
+        self.assertEqual("read_only", self._kind(local, self.bench))
+        self.assertEqual("allow", self._bash(local, cwd=self.bench))
+
     def test_own_and_temp_test_targets_stay_run_free(self) -> None:
         for command in (
             "python3 -m unittest discover -s docs",
