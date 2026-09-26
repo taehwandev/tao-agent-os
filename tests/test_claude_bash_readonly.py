@@ -1081,7 +1081,8 @@ class TestRunnersReadTheSamePipedOrNotTests(unittest.TestCase):
             "python3 -m pytest tests -q",
             "python3 -m pytest tests -q | tail -4",
             "python -m unittest discover -s tests",
-            "python3 -m py_compile scripts/agent-hook.py",
+            # A relative compile target needs a cwd; see test_claude_compile_check_scope.
+            "python3 -m py_compile /tmp/agent-hook.py",
             "python3.11 -m pytest tests",
         ):
             with self.subTest(command=command):

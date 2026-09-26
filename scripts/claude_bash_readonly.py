@@ -11,6 +11,7 @@ import stat
 import sys
 from pathlib import Path
 
+from claude_bash_compile_check import COMPILE_CHECK_MODULES, compile_check_kind
 from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
@@ -590,10 +591,14 @@ def _current_python_interpreter(token: str) -> bool:
 # a test run executes repository code, and `-m` cannot be pinned to a digest.
 # It is bounded instead by naming the module, so `python3 -m pytest` is a test
 # run and `python3 -m http.server` is not.
-TEST_RUNNER_MODULES = frozenset({"pytest", "unittest", "py_compile", "compileall"})
+#
+# The compile checks write `__pycache__` beside every source they compile, so
+# they are read-only only while every path they name stays in the project the
+# command runs in, or in temp (claude_bash_compile_check).
+TEST_RUNNER_MODULES = frozenset({"pytest", "unittest", *COMPILE_CHECK_MODULES})
 
 
-def test_runner_kind(tokens: list[str]) -> str | None:
+def test_runner_kind(tokens: list[str], cwd: Path | None = None) -> str | None:
     """Read-only when the line is a test or compile check and nothing else."""
 
     if not tokens:
@@ -616,7 +621,10 @@ def test_runner_kind(tokens: list[str]) -> str | None:
             return None
     if len(tokens) < index + 2:
         return None
-    return "read_only" if tokens[index + 1] in TEST_RUNNER_MODULES else None
+    module = tokens[index + 1]
+    if module in COMPILE_CHECK_MODULES:
+        return compile_check_kind(module, tokens[index + 2:], cwd)
+    return "read_only" if module in TEST_RUNNER_MODULES else None
 
 
 def _names_a_python(token: str) -> bool:
@@ -1147,7 +1155,7 @@ def simple_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
         if not _trusted_installed_executable(command[0]):
             return "mutating"
         command = [Path(command[0]).name, *command[1:]]
-    runner_kind = test_runner_kind(command)
+    runner_kind = test_runner_kind(command, cwd)
     if runner_kind is not None:
         return runner_kind
     inspection_kind = inspection_command_kind(command)
