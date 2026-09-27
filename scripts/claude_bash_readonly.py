@@ -18,6 +18,7 @@ from claude_bash_compile_check import (
 from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
+from claude_discovery_command import discovery_command_kind
 from claude_local_context_commands import local_context_kind, spill_label_kind, tao_backup_removal
 from claude_bash_syntax import (
     DIRECTORY_CHANGERS,
@@ -232,6 +233,9 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     except (OSError, ValueError):
         return None
     if executable_path == stable_launcher_path().expanduser().resolve() and len(tokens) > 1:
+        discovery_kind = discovery_command_kind(tokens[1], tokens[2:])
+        if discovery_kind is not None:
+            return discovery_kind
         if writes_output:
             return "mutating"
         if tokens[1] == "agent-mailbox":
@@ -254,7 +258,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     # The executable shebang entrypoint is the same trusted hook as the
     # interpreter form below. Match the canonical sibling, never its basename.
     if executable_path in {Path(__file__).resolve().with_name(name)
-                           for name in ("agent-hook.py", "agent-mailbox.py", "agent_project_memory.py")}:
+                           for name in ("agent-hook.py", "agent-mailbox.py", "agent_project_memory.py",
+                                        "project-discover.py", "agent-entry.py")}:
         tokens = [sys.executable, *tokens]
     # Two tokens is enough for the installer, which takes no subcommand. The
     # hook below needs a third, and says so itself.
@@ -275,6 +280,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     except (OSError, ValueError):
         return None
     here = Path(__file__).resolve()
+    if script in {here.with_name("project-discover.py"), here.with_name("agent-entry.py")}:
+        return discovery_command_kind(script.stem, tokens[2:])
     if script == here.with_name("agent-mailbox.py"):
         return "mutating" if writes_output else _mailbox_intake_kind(tokens[2:])
     if script == here.with_name("agent_project_memory.py"):
