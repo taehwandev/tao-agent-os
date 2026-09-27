@@ -109,9 +109,11 @@ context; do not rediscover development guidance just because a diff exists.
    line budget can still fail because one owner block exceeds the function
    limit; do not wait for the hook to discover that avoidable split.
    Also count public and non-private top-level owners in every new runtime file,
-   and inspect every new package path for broad segments such as `utils`,
-   `helpers`, `common`, or `misc`. Move the implementation to a purpose-named
-   package and collapse private support behind one public owner before review;
+   and inspect every new package path for broad segments such as `lib`, `utils`,
+   `helpers`, `common`, or `misc`. A purpose-named filename inside one of those
+   segments does not establish package ownership. Move the implementation to a
+   purpose-named package and collapse private support behind one public owner
+   before review;
    existing legacy placement does not exempt a newly added runtime file. For a
    modified legacy TypeScript file, an unchanged helper or type that belonged to
    the prior runtime owner's support family remains in that baseline when an
@@ -267,9 +269,10 @@ context; do not rediscover development guidance just because a diff exists.
    whether the diff increased the unit size or added a responsibility; do not
    omit `--structure-review-evidence` merely because the pressure was
    pre-existing. If a small change introduces a public helper into a legacy
-   multi-owner module, place the helper in a purpose-named module and preserve
-   the legacy file's existing behavior. If the changed function exceeds the
-   review limit, extract a cohesive private step with its own focused check.
+   multi-owner module, place the helper in a purpose-named package and module,
+   preserving the legacy file's existing behavior. If the changed function
+   exceeds the review limit, extract a cohesive private step with its own
+   focused check.
    Review the complete changed scope after the split; do not narrow a pathspec
    merely to hide the failing file.
 3. Confirm boundary-plan evidence exists for code work, or record why the
