@@ -266,7 +266,12 @@ context; do not rediscover development guidance just because a diff exists.
    closes and reports them, with no repair cycle. When the hook reports structure pressure, record
    whether the diff increased the unit size or added a responsibility; do not
    omit `--structure-review-evidence` merely because the pressure was
-   pre-existing.
+   pre-existing. If a small change introduces a public helper into a legacy
+   multi-owner module, place the helper in a purpose-named module and preserve
+   the legacy file's existing behavior. If the changed function exceeds the
+   review limit, extract a cohesive private step with its own focused check.
+   Review the complete changed scope after the split; do not narrow a pathspec
+   merely to hide the failing file.
 3. Confirm boundary-plan evidence exists for code work, or record why the
    change had no code boundary.
 4. Confirm affected docs are updated, or record why no docs changed.
