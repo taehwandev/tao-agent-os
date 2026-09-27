@@ -19,6 +19,7 @@ from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
 from claude_discovery_command import discovery_command_kind
+from claude_project_bootstrap import project_directory_bootstrap
 from claude_local_context_commands import local_context_kind, spill_label_kind, tao_backup_removal
 from claude_bash_syntax import (
     DIRECTORY_CHANGERS,
@@ -1323,6 +1324,8 @@ def simple_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
     if inspection_kind is not None:
         return inspection_kind
     executable = Path(command[0]).name
+    if project_directory_bootstrap(command):
+        return "bootstrap"
     if executable == "curl":
         return "read_only" if curl_read_only(command[1:]) else "mutating"
     # Bound the observed inventory pipeline to one inert consumer. Input may
