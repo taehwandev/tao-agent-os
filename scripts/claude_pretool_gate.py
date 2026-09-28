@@ -66,7 +66,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         protected_checkout_verdict,
     )
     from claude_command_effect import command_effect, unknown_recovery
-    from claude_scratch_checkout import scratch_command, throwaway_checkout
+    from claude_scratch_checkout import scratch_command, scratch_script_command, throwaway_checkout
     from claude_bash_syntax import resolve_target, scratch_write_target
     from claude_worktree_gate import (
         BASH_TOOLS,
@@ -224,6 +224,9 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
         return path.resolve()
 
     def scratch_command(command: str, root: Path, cwd: Path, project_of=None) -> bool:
+        return False
+
+    def scratch_script_command(command: str, root: Path, cwd: Path, project_of=None) -> bool:
         return False
 
 
@@ -1939,6 +1942,10 @@ class _CallScope(NamedTuple):
         return self.roots[0] if self.roots else None
 
 
+# A Bash line that only runs a scratch helper script; see _call_scope.
+SCRATCH_SCRIPT_KIND = "scratch_script"
+
+
 def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     """Read the call once, so every verdict below reads the same answer."""
 
@@ -1960,6 +1967,13 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     command_cwd = _git_effective_cwd(tokens, effective_cwd)
     kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple, effective_cwd))
     command = bash_command(payload)
+    # A helper script kept in the session scratchpad lands in no project, so
+    # running it needs no run in any project -- unless the line visibly
+    # reaches one (an argument, assignment or redirect), which keeps its verdict.
+    if kind in {"mutating", "unknown"} and scratch_script_command(
+        command, find_project_root(cwd) or cwd, cwd, find_project_root
+    ):
+        kind, detail = SCRATCH_SCRIPT_KIND, ""
     # A single absolute `touch` operand is the complete write target. The
     # launcher checkout is only where the command was issued, not a target.
     # Resolve both the parent and final path before dropping that checkout so
@@ -2180,6 +2194,8 @@ def _decide(payload: dict) -> int:
             unknown_recovery(scope.unknown_reason) if scope.unknown_reason else read_denial,
             "unreadable_command_effect" if scope.unknown_reason else "read_only_run_mutation",
         )
+    if tool in BASH_TOOLS and bash_kind == SCRATCH_SCRIPT_KIND:
+        return allow()
     if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:
         # The hazard list is consulted here too. Nothing Git classifies as
         # bootstrap is destructive today -- `fetch` and `worktree add` are the

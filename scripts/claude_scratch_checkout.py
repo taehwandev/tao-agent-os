@@ -26,8 +26,10 @@ claude_bash_raw_lines, claude_bash_readonly and claude_pretool_publication.
 Forbidden imports: claude_pretool_gate and run evidence; this is decided from
 the filesystem and the command text alone, and the gate hands in how it finds
 the project owning a path.
-Callers/tests: claude_pretool_gate._call_scope;
-tests/test_claude_temp_checkout_scratch.py.
+It also owns whether a line only runs a helper script kept in scratch
+(`scratch_script_command`), which the gate releases in every project.
+Callers/tests: claude_pretool_gate._call_scope and _governed_only;
+tests/test_claude_temp_checkout_scratch.py, tests/test_claude_scratch_scripts.py.
 Verification: that module and the full gate suite.
 """
 
@@ -42,7 +44,7 @@ from typing import Callable, Iterator
 import claude_bash_syntax as syntax
 from claude_bash_git import git_subcommand
 from claude_bash_raw_lines import raw_command_segments
-from claude_bash_readonly import simple_command_kind
+from claude_bash_readonly import _trusted_installed_executable, simple_command_kind
 from claude_bash_syntax import (
     SHELL_PROGRAMS,
     SHELL_STRUCTURE_WORDS,
@@ -77,6 +79,12 @@ _HOME_PREFIX_RE = re.compile(r"^(?:~|\$\{HOME\}|\$HOME)(?=/|$)")
 _HOME_VARIABLE_RE = re.compile(r"(?:\$\{HOME\}|\$HOME)(?=/|:|$)")
 # An absolute or home-rooted path inside a longer word, as in inline code.
 _EMBEDDED_PATH_RE = re.compile(r"(?:~|\$\{HOME\}|\$HOME)?/[^\s'\"`:;,()<>|&=$]*")
+# Interpreter switches that change how a script runs but never supply code:
+# Python's -B -u -I -E -s -S -O -q. A shell or node takes none here -- a shell
+# switch already makes publication_hold treat the line as unreadable -- and
+# `-c`/`-e` inline code above all leaves the line to its ordinary verdict.
+_PYTHON_NAME_RE = re.compile(r"python\d+(?:\.\d+)*")
+_PYTHON_SWITCHES = frozenset("BuIEsSOq")
 # One unnested brace alternation, which the shell expands into several words.
 _BRACE_RE = re.compile(r"^(.*?)\{([^{}]*,[^{}]*)\}(.*)$")
 
@@ -203,6 +211,60 @@ def scratch_command(command: str, root: Path, cwd: Path, project_of: ProjectOf) 
         if not _segment_is_scratch(words, cwd, reach):
             return False
     return True
+
+
+def scratch_script_command(command: str, root: Path, cwd: Path, project_of: ProjectOf) -> bool:
+    """Whether the line is one interpreter running a script file kept in scratch.
+
+    A helper script in the session scratchpad is released in every project,
+    not only in a throwaway checkout: what it *could* write is no risk the
+    command shows. The script operand has to be a regular file under temp with
+    no project marker at or above it, the interpreter has to be named plainly
+    (or by an installed absolute path) with only switches that do not supply
+    inline code, output redirects must land in scratch, and the whole line
+    must pass `scratch_command`, so an assignment, argument or redirect that
+    reaches a real project keeps the verdict it had. Inline code (`-c`, `-e`),
+    stdin scripts and chained or piped lines are not this case.
+    """
+
+    if raw_command_segments(command) is None:
+        return False
+    reach = _Reach(project_of, _shared_repository(root))
+    segments = _segments(command, cwd, reach)
+    if not segments or len(segments) != 1:
+        return False
+    script = _script_operand(segments[0])
+    if script is None or not _scratch_path(script, cwd):
+        return False
+    expanded = _expand_home(script) or ""
+    path = Path(expanded) if Path(expanded).is_absolute() else cwd / expanded
+    try:
+        if not path.resolve(strict=True).is_file():
+            return False
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return scratch_command(command, root, cwd, project_of)
+
+
+def _script_operand(words: list[str]) -> "str | None":
+    """The script file an interpreter is handed, when nothing else is run."""
+
+    program = words[0]
+    name = Path(program).name
+    if program != name and not _trusted_installed_executable(program):
+        return None
+    if name in {"python", "python3"} or _PYTHON_NAME_RE.fullmatch(name):
+        switches = _PYTHON_SWITCHES
+    elif name in {"node", "sh", "bash", "zsh"}:
+        switches = frozenset()
+    else:
+        return None
+    for word in words[1:]:
+        if not word.startswith("-"):
+            return word
+        if word == "-" or word.startswith("--") or not set(word[1:]) <= switches:
+            return None
+    return None
 
 
 class _Reach:
