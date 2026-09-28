@@ -24,16 +24,19 @@ Shared Tao Agent OS library:
 Use repo-local instructions first. If this block is being installed into a
 personal or global runtime instructions file, and the runtime starts outside the
 target repo or the request does not name one clear repo, run
-`agent-entry.py` or `project-discover.py` first and stop when it returns
-`ambiguous` or `not_found`. If `agent-entry.py` returns `selected`, prefer
+`agent-entry.py` or `project-discover.py` first. Ask for a target if it remains
+ambiguous or unidentified. An explicitly named path for a new project may be
+created and edited when discovery says `not_found`; no existing repo or
+instruction file exists to select yet. Read its instructions once present and
+apply its Git/worktree policy after initialization. If `agent-entry.py`
+returns `selected`, prefer
 starting or relaunching the runtime with that selected repo as the primary
 workspace. For Codex, use `codex -C <TARGET_REPO>`; add
 `--add-dir <TAO_ROOT>` only when the task needs the shared
 Tao Agent OS root in the session workspace. Repo instruction files define
-behavior; runtime launch options define filesystem scope. Explicitly read the
-current target project's
-instruction file for this runtime before using Tao Agent OS: Codex-style
-agents read `AGENTS.md`, Claude reads `CLAUDE.md` when
+behavior; runtime launch options define filesystem scope. Before work in a
+target project, explicitly read its instruction file when present for this
+runtime: Codex-style agents read `AGENTS.md`, Claude reads `CLAUDE.md` when
 present, Codex-specific setups read `CODEX.md` when present,
 Gemini/Antigravity/AGY reads `AGENTS.md`, and generic agents read their
 configured project instruction document or `.agents/README.md` when used.

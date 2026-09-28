@@ -6,14 +6,14 @@ type: ai-generated
 
 # Runtime Recovery
 
-For an explicitly selected new project, a routing workspace marked with
-`<!-- BEGIN MANAGED TAO AGENT OS WORKSPACE GUARD -->` admits a single
-`mkdir [-p] <absolute-new-direct-child>` as directory bootstrap. The parent
-must exist outside any Git checkout; existing targets, symlinks, hidden names,
-extra options and chained writes retain ordinary checks. This creates only an
-empty directory, so start the project's own writable lifecycle there before
-authoring. Do not start a project audit over the routing workspace and its
-unrelated repositories merely to create the directory.
+For an explicitly selected new project, `mkdir [-p] <one absolute new path>`
+is directory bootstrap wherever its nearest existing parent resolves outside
+an existing Git checkout. `-p` may create intermediate directories; a safe
+parent alias is allowed. Existing targets, hidden target names, `..`, extra
+options and chained writes retain ordinary checks. Create and edit the new
+project in its own directory; once it becomes a governed Git project, follow
+its instructions and use a linked worktree for changes to a protected checkout.
+Do not audit unrelated repositories merely because the shell started there.
 
 Read only for the condition named by the runtime bridge, not as an extra startup reading list. Paths below are relative to <TAO_ROOT>. Current user authority and project instructions prevail.
 

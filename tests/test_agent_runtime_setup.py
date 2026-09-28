@@ -391,7 +391,8 @@ class RuntimeSetupTests(unittest.TestCase):
     def test_agy_runtime_bridge_requires_project_discovery_entry(self) -> None:
         required = [
             "If the runtime starts outside the target repo or the target repo is not explicit, run Tao Agent OS agent-entry.py or project-discover.py before project work.",
-            "If project discovery returns ambiguous or not_found, ask the user for the target project before routing, editing, testing, committing, or reporting completion.",
+            "If discovery leaves the target ambiguous or unidentified, ask the user. An explicitly named new project path may be created and edited on not_found; read its instructions once present.",
+            "Before project work, read the project-root instruction file for the active runtime when present; its absence does not block a newly created project.",
         ]
         block = _agy_runtime_bridge_block(ROOT)
 

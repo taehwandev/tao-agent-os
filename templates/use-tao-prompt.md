@@ -40,16 +40,18 @@ Rules:
    If the target repo is not explicit or the runtime current directory is
    outside the target, run:
    <TAO_LAUNCHER> agent-entry --request "<USER_REQUEST>" --cwd "<CURRENT_DIRECTORY>" --runtime <RUNTIME>
-   Continue only when it returns `selected`; ask me to choose when it returns
-   `ambiguous` or `not_found`.
+   Continue on `selected`. If I explicitly named a new project path, create
+   and edit it even if discovery returns `not_found`; read its instructions
+   once present and apply its Git/worktree policy after initialization. Ask
+   me to choose only when the target remains ambiguous or unidentified.
    Do not rely on implicit runtime discovery. If you are Codex-style, explicitly
-   read the current project's AGENTS.md; if you are Claude, explicitly read
+   read the project's AGENTS.md when present; if you are Claude, explicitly read
    CLAUDE.md when present; if you are Gemini/Antigravity/AGY, explicitly read
    the current project's AGENTS.md; if you are another runtime, explicitly read
    the project instruction document that runtime is configured to load.
-   If you are Antigravity and cannot confirm the project-root AGENTS.md, stop
-   before routing, editing, testing, committing, or reporting completion and ask
-   for bridge repair.
+   If you are Antigravity and a present project-root AGENTS.md cannot be read,
+   stop before routing, editing, testing, committing, or reporting completion
+   and ask for bridge repair. Its absence does not block a new project.
    Do not mention setup, hook, permission, helper, label, or background metering
    details in normal conversation unless I explicitly ask about that subsystem.
    If a response exposed those background details, do not finish with an

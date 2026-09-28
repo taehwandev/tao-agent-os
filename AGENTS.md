@@ -32,13 +32,18 @@ is broad-use. `type` records provenance.
 
 Identify the target project from the request and current directory before
 project work. When it is not explicit or the runtime starts elsewhere, use the
-installed Tao project-discovery entrypoints. Continue only on `selected`;
-`ambiguous` or `not_found` requires the user to identify the target.
+installed Tao project-discovery entrypoints. An explicitly named new project
+path may be created and edited even when discovery reports `not_found`: there
+is no existing project to select yet. Once created, read its instructions if
+present and apply its Git/worktree policy when initialized. Ask the user for a
+target only when it remains ambiguous or unidentified.
 
-Read the target project's runtime instruction file before shared guidance. For
-Codex that is the project-root `AGENTS.md`. If the bridge or instruction file
-cannot be confirmed, stop before routing, editing, testing, committing, or
-reporting completion.
+Read a target project's runtime instruction file when present before shared
+guidance. For Codex that is the project-root `AGENTS.md`. A new directory need
+not contain instructions before its first files are authored; the current
+request and shared guidance apply until the project provides its own. An
+absent instruction file is not a reason to stop; an existing file that cannot
+be read, or an unconfirmed runtime bridge, is.
 
 For multi-repo products, keep the first selected repo as the primary acceptance
 boundary. Before writing another repo, checkpoint the primary repo, secondary

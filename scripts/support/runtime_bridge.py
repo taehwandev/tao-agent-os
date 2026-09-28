@@ -119,8 +119,8 @@ RUNTIME_BRIDGE_GRAPH_PHRASES = [
 RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES = [
     "Start every task by identifying the current project root.",
     "If the runtime starts outside the target repo or the target repo is not explicit, run Tao Agent OS agent-entry.py or project-discover.py before project work.",
-    "If project discovery returns ambiguous or not_found, ask the user for the target project before routing, editing, testing, committing, or reporting completion.",
-    "Before project work, open the project-root instruction file for the active runtime.",
+    "If discovery leaves the target ambiguous or unidentified, ask the user. An explicitly named new project path may be created and edited on not_found; read its instructions once present.",
+    "Before project work, read the project-root instruction file for the active runtime when present; its absence does not block a newly created project.",
     RUNTIME_READING_BRIDGE_PHRASE,
     RUNTIME_LOOKUP_BRIDGE_PHRASE,
     RUNTIME_START_BRIDGE_PHRASE,
@@ -140,7 +140,7 @@ def runtime_bridge_required_phrases(runtime_name: str, instruction_file: str) ->
     phrases = [
         f"{runtime_name} reads {instruction_file}.",
         *RUNTIME_BRIDGE_COMMON_REQUIRED_PHRASES,
-        f"If this bridge or the project-root {instruction_file} cannot be confirmed before project work, stop before routing, editing, testing, committing, or reporting completion and ask for bridge repair.",
+        f"If this bridge cannot be confirmed, or a present project-root {instruction_file} cannot be read, stop before routing, editing, testing, committing, or reporting completion and ask for bridge repair. An absent instruction file does not block a new project.",
     ]
     native_delegation = RUNTIME_NATIVE_DELEGATION_PHRASES.get(runtime_name)
     if native_delegation:

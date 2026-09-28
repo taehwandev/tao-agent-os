@@ -263,9 +263,9 @@ The bridge must force this behavior:
 - Start every task by identifying the current project root.
 - If the runtime starts from ~ or another non-project directory, resolve the
   target with `<TAO_LAUNCHER> agent-entry` or `<TAO_LAUNCHER> project-discover` before project work.
-- If discovery is `ambiguous` or `not_found`, ask me for the target project
-  instead of proceeding.
-- Before project work, open the project-root instruction file for the active runtime.
+- Ask me when discovery leaves the target ambiguous or unidentified. If I
+  explicitly named a new project path, create and edit it on `not_found`.
+- Before project work, open its project-root instruction file for the active runtime when present. A new path may not have one yet; continue under the request and shared guidance.
 - Codex reads AGENTS.md.
 - Claude reads CLAUDE.md.
 - Antigravity reads AGENTS.md.

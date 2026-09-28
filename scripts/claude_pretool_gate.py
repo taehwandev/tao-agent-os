@@ -1403,6 +1403,11 @@ def _worktree_policy_verdict(
         and standing_in_the_protected_checkout
         else ""
     )
+    # Ordinary non-Git commands defer to the runtime because a build or test
+    # may be read-only. A single `touch` has a known write target, so it must
+    # not author a file in the protected checkout merely because it is not Git.
+    if landing == "defer" and len(tokens) == 2 and tokens[0] == "touch":
+        landing = ""
     # A landing that lets the command through speaks for the protected
     # checkout, and only for it. The same command can write into a second
     # governed project, and that project's workflow entry is a separate
@@ -1955,6 +1960,22 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     command_cwd = _git_effective_cwd(tokens, effective_cwd)
     kind, detail = command_effect(tokens, syntax_is_simple, bash_command_kind(tokens, syntax_is_simple, effective_cwd))
     command = bash_command(payload)
+    # A single absolute `touch` operand is the complete write target. The
+    # launcher checkout is only where the command was issued, not a target.
+    # Resolve both the parent and final path before dropping that checkout so
+    # a symlink into a protected project still keeps its owner governed.
+    if kind == "mutating" and syntax_is_simple and len(tokens) == 2 and tokens[0] == "touch":
+        target = Path(tokens[1])
+        if target.is_absolute():
+            try:
+                target.parent.resolve(strict=True)
+                target.resolve(strict=False)
+            except (OSError, ValueError, RuntimeError):
+                pass
+            else:
+                target_roots = _edit_target_roots([(target, True)])
+                return _CallScope(kind, tokens, True, command_cwd, effective_cwd,
+                                  target_roots, list(target_roots))
     roots = _governed_only(
         bash_governed_roots(tokens, command_cwd, command=command), command, cwd
     )
