@@ -1054,6 +1054,9 @@ def _register_started_run(
         # active. A kill before the promotion leaves only a hook-owned transient
         # claim; a kill after it leaves complete runtime evidence.
         payload["agent_run_id"] = claimed_run_id
+        resume_generation = int((claimed or {}).get("resume_generation") or 0)
+        if resume_generation:
+            payload["runtime_session"]["resume_generation"] = resume_generation
         write_json(evidence_path, payload)
         resync_gate_evidence_ledger(evidence_path, payload)
         run = register_run(
