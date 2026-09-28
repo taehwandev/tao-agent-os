@@ -13,10 +13,9 @@ applicable rule; load references only if their entrypoint cannot resolve it.
 
 ## Process
 
-1. Batch branch/status, changed-path and scoped-diff reads; inspect every result
-   and full final diff, not stats/truncated patches. Refresh affected evidence
-   after edits/staging/integration.
-   Keep mutations/dependent checks sequential under runtime permissions.
+1. Batch branch/status, paths and scoped diff; inspect each result and full
+   patch. Refresh evidence after edits/staging/integration. Keep mutations and
+   dependent checks sequential under runtime permissions.
 2. Reuse matching checks under `common/skills/testing/references/final-check.md`
    and gate-batch remaining list. Review Hook replaces duplicate adjacent audits.
    A finished, clean, unchanged worktree's fast-forward is admitted by its
@@ -25,10 +24,10 @@ applicable rule; load references only if their entrypoint cannot resolve it.
    clean target at that commit, exact parent/bytes, unchanged rules/checker/limits
    and valid source evidence; else run full checks. Audit/drift checks and the
    new review record stay fresh.
-3. Touched legacy structure and stale links still block review: split or fix
-   them; never raise limits. Verify repair from first failed checkpoint,
-   then resume. Require reproducer, impact, diff cause and nearest check;
-   otherwise stop.
+3. Count touched legacy owners/spans before edits; put new exports in
+   purpose-named modules and extract long handlers. Stale links also block
+   review: fix without raising limits. Resume the first failed checkpoint
+   only with reproducer, impact, diff cause and nearest check; otherwise stop.
 4. Run Review Hook with advertised outcome and required evidence, never bare
    `review`. For changed multi-role packages (including existing ones), pass
    `--structure-review-evidence`, not `--boundary-plan-evidence`, with:
@@ -59,5 +58,5 @@ needs no development/branch-strategy cards.
 - Do not rediscover advertised commands with `--help`, reread unchanged reviewed
   source or implement non-blocking observations.
 
-Tao workflow validation keeps normal-code-route required reading below 100,000
-aggregate bytes. Compact duplication, preserve contracts; no Codex-only gate.
+Keep required code-route reading below 100KB; compact duplicates, preserve
+contracts, and avoid Codex-only gates.
