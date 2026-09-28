@@ -700,6 +700,9 @@ def resolve_docs(
         concerns=concerns,
         surface_matches=surface_matches,
         project_root=project_root,
+        inferred_concerns=inferred,
+        # The concern may have been inferred from either text, so both are read.
+        request_text=f"{request_text}\n{classification_evidence}",
     )
     graphify_requested = bool(graphify_context["requested"])
     gates = route_gates(command, graphify_required=graphify_requested)
