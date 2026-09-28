@@ -407,8 +407,8 @@ class ClaudePreToolGateTests(unittest.TestCase):
             _require_linked_worktree(linked, linked=True)
 
             cases = {
-                "chains, pipes, and multiline": (main, "npm test | tail -4"),
-                "expand substitutions, backquotes, and variables": (main, "npm test $(ls tests)"),
+                "chains, pipes, and multiline": (main, "npm run build | tail -4"),
+                "expand substitutions, backquotes, and variables": (main, "npm run build $(ls tests)"),
                 "Git command writes to the protected checkout": (main, "git commit -m wip"),
                 "protected path named": (linked, f"python3 tool.py --project {main}"),
             }
@@ -438,7 +438,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     "tool_name": "Bash",
                     "cwd": str(main),
                     "session_id": "no-evidence",
-                    "tool_input": {"command": "npm test | tail -4"},
+                    "tool_input": {"command": "npm run build | tail -4"},
                 }
             )
 

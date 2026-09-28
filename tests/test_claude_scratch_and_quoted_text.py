@@ -124,12 +124,12 @@ class ScratchWriteTests(_Fixture):
         self.assertNotEqual("", self._verdict(command))
 
     def test_a_project_command_keeps_its_own_verdict(self) -> None:
-        """`npm test > <scratch>` is judged as `npm test`, which runs project code."""
+        """`npm run build > <scratch>` is judged as `npm run build`, which runs project code."""
 
-        scratch = self._verdict(f"npm test > {self.scratch}/unit.log 2>&1")
+        scratch = self._verdict(f"npm run build > {self.scratch}/unit.log 2>&1")
 
         self.assertNotEqual("", scratch)
-        self.assertEqual(self._verdict("npm test > /dev/null 2>&1"), scratch)
+        self.assertEqual(self._verdict("npm run build > /dev/null 2>&1"), scratch)
 
     def test_writes_that_land_in_a_project_stay_writes(self) -> None:
         link = self.scratch / "link"

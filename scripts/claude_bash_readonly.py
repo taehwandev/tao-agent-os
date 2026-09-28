@@ -14,10 +14,12 @@ from pathlib import Path
 
 from claude_bash_compile_check import (
     COMPILE_CHECK_MODULES, check_target_local, compile_check_kind,
+    runner_target_local as _test_target_local,
 )
 from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
+from claude_bash_local_tools import lookup_command_kind, node_test_kind
 from claude_discovery_command import discovery_command_kind
 from claude_project_bootstrap import project_directory_bootstrap
 from claude_local_context_commands import local_context_kind, spill_label_kind, tao_backup_removal
@@ -616,6 +618,10 @@ def test_runner_kind(tokens: list[str], cwd: Path | None = None) -> str | None:
 
     if not tokens:
         return None
+    # `npm test` and `tsc --noEmit` share the Python runners' locality rule.
+    node_kind = node_test_kind(tokens, cwd)
+    if node_kind is not None:
+        return node_kind
     if Path(tokens[0]).name == "pytest":
         return _test_runner_target_kind(tokens[1:], cwd)
     if not _names_a_python(tokens[0]):
@@ -658,7 +664,6 @@ _TEST_RUNNER_PATH_OPTIONS = frozenset({
     "-c", "--confcutdir", "--basetemp", "--junitxml", "--junit-xml",
     "-o", "--override-ini",
 })
-_GLOB_CHARS = frozenset("*?[")
 
 
 def _test_runner_target_kind(
@@ -725,19 +730,6 @@ def _test_runner_target_kind(
                 if candidate and not _test_target_local(candidate, cwd):
                     return "mutating"
     return "read_only"
-
-
-def _test_target_local(candidate: str, cwd: Path) -> bool:
-    """Judge a glob by the directory it starts from, not by its wildcard."""
-
-    glob_at = next((i for i, char in enumerate(candidate) if char in _GLOB_CHARS), None)
-    if glob_at is None:
-        return check_target_local(candidate, cwd)
-    slash = candidate.rfind("/", 0, glob_at)
-    if slash < 0:
-        # `test_*.py` or `test_x.py::test[a-b]`: a name matched in the cwd.
-        return True
-    return check_target_local(candidate[:slash] or "/", cwd)
 
 
 def _names_a_python(token: str) -> bool:
@@ -1323,6 +1315,9 @@ def simple_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
     inspection_kind = inspection_command_kind(command)
     if inspection_kind is not None:
         return inspection_kind
+    lookup_kind = lookup_command_kind(command, cwd)
+    if lookup_kind is not None:
+        return lookup_kind
     executable = Path(command[0]).name
     if project_directory_bootstrap(command):
         return "bootstrap"

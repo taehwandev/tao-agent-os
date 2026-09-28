@@ -6,7 +6,8 @@ another project with no workflow run. Syntax-checking the project the command
 runs in stays read-only; this module decides only whether every path the
 command visibly names stays inside that project or the OS temp directory.
 
-Owner: the path contract of the two compile-check CLIs. It denies nothing: a
+Owner: the path contract of the two compile-check CLIs, and the shared
+locality test that Python and Node test-runner targets reuse. It denies nothing: a
 line it cannot prove local is `mutating`, and the target project's ordinary
 rules decide from there.
 """
@@ -111,6 +112,22 @@ def check_target_local(raw: str, cwd: "Path | None") -> bool:
         return False
     home = _project_of(here)
     return home is not None and _project_of(target) == home
+
+
+_GLOB_CHARS = frozenset("*?[")
+
+
+def runner_target_local(candidate: str, cwd: Path) -> bool:
+    """Judge a glob by the directory it starts from, not by its wildcard."""
+
+    glob_at = next((i for i, char in enumerate(candidate) if char in _GLOB_CHARS), None)
+    if glob_at is None:
+        return check_target_local(candidate, cwd)
+    slash = candidate.rfind("/", 0, glob_at)
+    if slash < 0:
+        # `test_*.py` or `test_x.py::test[a-b]`: a name matched in the cwd.
+        return True
+    return check_target_local(candidate[:slash] or "/", cwd)
 
 
 def _project_of(path: Path) -> "Path | None":
