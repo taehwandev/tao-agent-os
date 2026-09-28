@@ -173,6 +173,7 @@ export interface Tail { id: string }
         failures = top_level_declaration_failures(Path("src/model/contracts.ts"), current, previous)
 
         self.assertTrue(any("public/exported top-level owners" in failure for failure in failures))
+        self.assertTrue(any("keep existing exports and place the new helper" in failure for failure in failures))
 
     def test_existing_broad_contract_file_can_rename_owner_without_growth_failure(self) -> None:
         previous = declarations(
