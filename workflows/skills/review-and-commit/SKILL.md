@@ -25,9 +25,10 @@ applicable rule; load references only if their entrypoint cannot resolve it.
    clean target at that commit, exact parent/bytes, unchanged rules/checker/limits
    and valid source evidence; else run full checks. Audit/drift checks and the
    new review record stay fresh.
-3. Repair findings only with reproducer, impact, current-diff causality, owner
-   and nearest falsifying check. Give proven blockers one bounded repair/recheck;
-   otherwise record follow-up or stop publication.
+3. Touched legacy structure and stale links still block review: split or fix
+   them; never raise limits. Verify repair from first failed checkpoint,
+   then resume. Require reproducer, impact, diff cause and nearest check;
+   otherwise stop.
 4. Run Review Hook with advertised outcome and required evidence, never bare
    `review`. For changed multi-role packages (including existing ones), pass
    `--structure-review-evidence`, not `--boundary-plan-evidence`, with:
