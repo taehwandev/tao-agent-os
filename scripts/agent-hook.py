@@ -581,7 +581,8 @@ def _review_prerequisite_lines(gates: list[str]) -> list[str]:
     prerequisites = gates[:gates.index("review hook")]
     return [
         f"Before review, record successful evidence for: {prerequisites}. A passing "
-        "command alone records nothing; review is not for discovering missing records."
+        "command alone records nothing; review is not for discovering missing records.",
+        *_plain_gate_record_lines(prerequisites),
     ]
 
 
@@ -626,6 +627,24 @@ def _gate_batch_guidance_lines(gates: list[str]) -> list[str]:
         "Performance: record simultaneously-ready agent-owned gates in one gate-batch "
         "(one strong continuation checkpoint; its remaining-gates snapshot replaces a ledger "
         "query); keep them separate across different phases or after a repeated batch failure."
+    ]
+
+
+def _plain_gate_record_lines(gates: list[str]) -> list[str]:
+    """Show the record shape when no gate needs named fields.
+
+    A commit route asks for `request intake` evidence but has no fielded gate,
+    so no shape was printed and agents searched the docs for the syntax.
+    """
+
+    recordable = [gate for gate in gates if gate not in {"review hook", "commit readiness"}]
+    if not recordable or any(FIELD_REQUIREMENTS.get(gate) for gate in gates):
+        # A fielded gate already prints the shape with its field list.
+        return []
+    return [
+        "gate-batch --gate-record shape: "
+        f'[{{"gate":"{recordable[0]}","status":"SUCCESS","fields":{{"evidence":"<observed evidence>"}}}}]; '
+        "record the listed gates this way before review."
     ]
 
 

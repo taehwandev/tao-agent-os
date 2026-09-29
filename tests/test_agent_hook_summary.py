@@ -158,6 +158,18 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("include a skill actually loaded by this run", summary)
         self.assertIn("literal -> separator from anchor to verified owner", summary)
 
+    def test_unfielded_prerequisites_still_get_a_record_shape(self) -> None:
+        commit = "\n".join(agent_hook._review_prerequisite_lines(
+            ["request intake", "review hook", "commit readiness"]
+        ))
+        self.assertIn('gate-batch --gate-record shape: [{"gate":"request intake"', commit)
+        self.assertIn('"fields":{"evidence":"<observed evidence>"}', commit)
+        # A fielded prerequisite already gets the shape from the field lines.
+        task = "\n".join(agent_hook._review_prerequisite_lines(
+            ["tests", "review hook", "retrospective check"]
+        ))
+        self.assertNotIn("gate-batch --gate-record shape", task)
+
     def test_commit_reuse_is_scoped_and_never_reads_candidate_documents(self) -> None:
         for command in ("commit", "git_commit", "feature"):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
