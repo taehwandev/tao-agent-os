@@ -107,6 +107,11 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   Unchanged resulting inputs preserve the finish receipt; changed inputs or
   conflicts require continuation with affected checks and current review.
   Do not chain rebase with commit/push or enable updates to other branches;
+- a follow-up commit request never rewrites commits already on the remote to
+  catch up with a newer destination. Check the real merge with
+  `git merge-tree --write-tree <branch> <destination>`; when it is clean,
+  commit on the current base and report the lag. When it conflicts, stop and
+  ask before a merge or a rebase that needs a force push;
 - if a check blocks publication, distinguish a task-caused defect from
   pre-existing debt or an execution/access failure before choosing recovery.
   A failed check and a work route are not source-change authority. Do not
