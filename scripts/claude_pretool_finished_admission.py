@@ -98,8 +98,15 @@ def _publication_effect(root: Path, command: list[str], cwd: Path) -> str:
         if subcommand not in PUBLICATION_GIT_SUBCOMMANDS:
             return ""
         return "external_write" if subcommand == "push" else "git_write"
-    if github_publication(command) or project_publication_kind(root, command, cwd) == "publishes":
+    kind = project_publication_kind(root, command, cwd)
+    if github_publication(command) or kind == "publishes":
         return "external_write"
+    if kind == "not_publication":
+        # A declared check form (for example `create_pr.py --check`) guards the
+        # publication after finish. It was refused as an unknown effect, so the
+        # agent hand-wrote the provider API call instead. The lowest receipt a
+        # finish records admits it; it still needs that fresh, unchanged finish.
+        return "git_write"
     return ""
 
 

@@ -125,6 +125,23 @@ def github_publication(tokens: list[str]) -> bool:
     ))
 
 
+def adb_install(tokens: list[str]) -> bool:
+    """Recognize one APK install, not arbitrary ADB shell or device commands."""
+    if not tokens or Path(tokens[0]).name != "adb":
+        return False
+    arguments = tokens[1:]
+    if arguments[:1] == ["-s"]:
+        if len(arguments) < 3 or not arguments[1] or arguments[1].startswith("-"):
+            return False
+        arguments = arguments[2:]
+    if arguments[:1] != ["install"]:
+        return False
+    arguments = arguments[1:]
+    while arguments and arguments[0] in {"-r", "-d", "-t"}:
+        arguments = arguments[1:]
+    return len(arguments) == 1 and bool(arguments[0]) and not arguments[0].startswith("-")
+
+
 def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[str, str]:
     """Return an effect and content-free explanation; keep control kinds intact.
 
@@ -154,6 +171,8 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
         return "mutating", "GitHub publication command"
     if github_pr_merge(tokens):
         return "unknown", GH_PR_MERGE_REASON
+    if adb_install(tokens):
+        return "mutating", "Android application installation"
     if executable in {"rm", "mv", "cp", "touch", "mkdir", "rmdir", "tee", "install", "chmod", "chown",
                       "ln", "mktemp", "tar"}:
         return "mutating", "filesystem-changing command"

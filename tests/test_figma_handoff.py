@@ -432,6 +432,29 @@ class FigmaHandoffRegressionTests(unittest.TestCase):
         self.assertIn("I2:4;3:5", documents)
         self.assertEqual(len(edges), 4)
 
+    def test_zero_depth_keeps_transition_without_fetching_destination(self) -> None:
+        calls: list[str] = []
+
+        class FakeApi:
+            def get_json(self, url: str) -> dict:
+                calls.append(url)
+                return {
+                    "nodes": {
+                        "1:1": {
+                            "document": {
+                                "id": "1:1", "name": "Requested frame", "type": "FRAME",
+                                "children": [{"id": "1:2", "type": "FRAME", "transitionNodeID": "2:1"}],
+                            },
+                        },
+                    },
+                }
+
+        _, documents, edges, _, _ = FigmaFlowFetcher(FakeApi()).fetch("FILE123", "1:1", 0, [])
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(set(documents), {"1:1"})
+        self.assertEqual(edges[0]["toNodeId"], "2:1")
+
     def test_fetch_collects_file_level_component_maps(self) -> None:
         class FakeApi:
             def get_json(self, url: str) -> dict:

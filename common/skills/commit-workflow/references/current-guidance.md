@@ -107,6 +107,11 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   Unchanged resulting inputs preserve the finish receipt; changed inputs or
   conflicts require continuation with affected checks and current review.
   Do not chain rebase with commit/push or enable updates to other branches;
+- a published branch follows the repo's destination-sync policy like any
+  other; a deferred conflict still needs the same rebase before merge. After
+  rebasing commits already on the remote, push only with
+  `--force-with-lease`, never bare `--force`, and when push was not requested
+  report that the next push needs it;
 - if a check blocks publication, distinguish a task-caused defect from
   pre-existing debt or an execution/access failure before choosing recovery.
   A failed check and a work route are not source-change authority. Do not

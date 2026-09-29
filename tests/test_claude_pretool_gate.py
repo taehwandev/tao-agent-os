@@ -407,7 +407,9 @@ class ClaudePreToolGateTests(unittest.TestCase):
             _require_linked_worktree(linked, linked=True)
 
             cases = {
-                "chains, pipes, and multiline": (main, "npm run build | tail -4"),
+                "Readers may pipe; `npm` is not one": (main, "npm run build | tail -4"),
+                "Readers may pipe; `awk` is not one": (main, "grep x README.md | awk '{print $1}'"),
+                "chains, pipes, and multiline": (main, "grep x README.md > found.txt"),
                 "expand substitutions, backquotes, and variables": (main, "npm run build $(ls tests)"),
                 "Git command writes to the protected checkout": (main, "git commit -m wip"),
                 "protected path named": (linked, f"python3 tool.py --project {main}"),
@@ -4171,7 +4173,10 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("a successful finish", _reason(out))
 
-    def test_unknown_pr_check_after_finish_does_not_suggest_another_run(self) -> None:
+    def test_declared_pr_check_after_finish_is_admitted_by_that_finish(self) -> None:
+        """Observed refused as an unknown effect after finish, so the agent
+        hand-wrote the provider API call instead of using the project script."""
+
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))
             policy = project / gate.WORKTREE_POLICY_PATH
@@ -4190,8 +4195,19 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
             code, out = self._decide(project, "python3 tools/bitbucket_pr/create_pr.py --check")
 
         self.assertEqual(0, code)
-        self.assertIn("continue without another workflow start", _reason(out))
-        self.assertNotIn("a successful finish", _reason(out))
+        decision = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual("allow", decision["permissionDecision"])
+        self.assertIn("a successful finish", decision["permissionDecisionReason"])
+
+    def test_declared_pr_check_after_finish_still_needs_its_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            self._declare_pr_command(project)
+
+            code, out = self._decide(project, "python3 tools/bitbucket_pr/create_pr.py --check")
+
+        self.assertEqual(0, code)
+        self.assertNotEqual("", out)
 
     def test_unknown_effect_without_a_finished_run_keeps_the_route_remedy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4203,6 +4219,16 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertIn("Tao command effect: unknown", _reason(out))
         self.assertNotIn("without another workflow start", _reason(out))
         self.assertIn("Enter its scoped writable route once", _reason(out))
+
+    def test_adb_install_after_finish_requires_a_new_verification_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            code, out = self._decide(project, "adb -s device-serial install -r app.apk")
+
+        self.assertEqual(0, code)
+        self.assertIn("run the workflow start hook", _reason(out))
+        self.assertNotIn("Tao command effect: unknown", _reason(out))
 
     def test_finish_does_not_authorize_an_undeclared_python_tool(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -43,8 +43,10 @@ WORKTREE_POLICY_OPTIONAL_KEYS = frozenset(
         "product_path_prefixes",
         "product_file_names",
         "product_suffixes",
+        "route_docs",
     }
 )
+ROUTE_DOCS_COMMAND = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
 MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
 
@@ -129,8 +131,40 @@ def worktree_policy(root: Path) -> dict | None:
         )
         and _publication_commands_are_valid(parsed)
         and _ticket_policy_is_valid(parsed)
+        and _route_docs_are_valid(parsed)
     )
     return parsed if valid else default_worktree_policy()
+
+
+def _route_docs_are_valid(policy: dict) -> bool:
+    """Validate project docs declared per route command.
+
+    Paths are project-relative files a route should read. They are reading
+    guidance recorded for reuse; they never grant authority or waive a gate.
+    """
+
+    if "route_docs" not in policy:
+        return True
+    routes = policy["route_docs"]
+    if not isinstance(routes, dict) or len(routes) > 16:
+        return False
+    for command, paths in routes.items():
+        if not ROUTE_DOCS_COMMAND.fullmatch(command):
+            return False
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 8:
+            return False
+        for path in paths:
+            if (
+                not isinstance(path, str)
+                or not path
+                or len(path) > 512
+                or path.startswith("/")
+                or ".." in Path(path).parts
+            ):
+                return False
+        if len(set(paths)) != len(paths):
+            return False
+    return True
 
 
 def _publication_commands_are_valid(policy: dict) -> bool:
@@ -341,6 +375,16 @@ CHAINED_START_REMEDY = (
 # file, because the sentence above names no path at all.
 NAMED_TARGET_PATH = "Cause: protected path named: `{named}`. "
 
+# A pipeline of recognised readers is admitted, so "chains and pipes are not
+# accepted" was false for the line that actually got refused: one step (awk,
+# `uniq -c`, a script) was not a recognised read. The reader split a working
+# pipeline apart instead of replacing that one step.
+UNREAD_STEP = "unread_step"
+UNREAD_STEP_CAUSE = (
+    "Cause: use one literal command; chains, pipes, and multiline input are "
+    "not accepted. Readers may pipe; `{named}` is not one. "
+)
+
 
 def named_target_cause(named: str = "") -> str:
     """The named-target sentence, carrying the path when one is known."""
@@ -360,11 +404,12 @@ def worktree_deny_reason(
         if require_linked_worktree and (root / ".git").is_dir()
         else f"protected branch `{branch}`"
     )
-    explanation = (
-        named_target_cause(named)
-        if cause == NAMED_TARGET
-        else DENIAL_CAUSES.get(cause, "")
-    )
+    if cause == NAMED_TARGET:
+        explanation = named_target_cause(named)
+    elif cause == UNREAD_STEP:
+        explanation = UNREAD_STEP_CAUSE.format(named=named)
+    else:
+        explanation = DENIAL_CAUSES.get(cause, "")
     if remedy:
         # A caller that knows what the command was asking for says so itself.
         # Everything below is advice about where the shell stands, which is the

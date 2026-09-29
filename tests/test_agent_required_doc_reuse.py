@@ -14,7 +14,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 
-from agent_required_doc_reuse import required_doc_reuse
+from agent_required_doc_reuse import project_route_doc_reuse, record_doc_takeaway, required_doc_reuse
 import agent_required_doc_reuse as reuse_module
 
 
@@ -25,6 +25,7 @@ class RequiredDocReuseTests(unittest.TestCase):
         *,
         prior_session: str = "session-one",
         prior_hash: str = "a" * 64,
+        takeaway: str = "prior run applied the operating contract",
     ) -> Path:
         tao = root / ".tao"
         prior_id = "a" * 32
@@ -82,6 +83,8 @@ class RequiredDocReuseTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        if takeaway:
+            record_doc_takeaway(prior, takeaway)
         (tao / "run-registry.json").write_text(
             json.dumps(
                 {
@@ -137,7 +140,7 @@ class RequiredDocReuseTests(unittest.TestCase):
                 with patch.object(reuse_module, '_read', wraps=reuse_module._read) as reads:
                     result = required_doc_reuse(current)
                 self.assertEqual([], result['unread'])
-                self.assertEqual(3, reads.call_count, 'current, registry, latest match only')
+                self.assertEqual(5, reads.call_count, 'current, registry, latest match, its ledger and review takeaway')
 
     def test_history_scan_remains_bounded_without_a_match(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -170,6 +173,116 @@ class RequiredDocReuseTests(unittest.TestCase):
                 payload["request_intake"] = {"request": "같은 번호로 다시 배포해"}
                 current.write_text(json.dumps(payload))
                 self.assertTrue(required_doc_reuse(current)["reused"])
+
+    def test_reuse_replays_the_prior_runs_recorded_source_docs_takeaway(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root, takeaway="")
+            ledger = root / ".tao/runs" / ("a" * 32) / "gate-evidence.json"
+            ledger.write_text(json.dumps({"entries": [
+                {"gate": "source docs", "status": "SUCCESS",
+                 "fields": {"takeaway": "stage before review;\n  one lifecycle per task"}},
+            ]}))
+
+            reuse = required_doc_reuse(current)
+
+            self.assertEqual(["stage before review; one lifecycle per task"], reuse["takeaways"])
+
+    def test_a_run_that_recorded_no_takeaway_proves_no_reading(self) -> None:
+        """Listing a document proves it was required, not read; after a
+        compaction a takeaway-less reuse notice pointed at a lost reading."""
+
+        for entries in ([], [{"gate": "source docs", "status": "FAIL", "fields": {"takeaway": "x"}}]):
+            with self.subTest(entries=entries), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                current = self._fixture(root, takeaway="")
+                ledger = root / ".tao/runs" / ("a" * 32) / "gate-evidence.json"
+                ledger.write_text(json.dumps({"entries": entries}))
+                reuse = required_doc_reuse(current)
+                self.assertEqual([], reuse["reused"])
+                self.assertIn("common/skills/agent-operating-skill/SKILL.md", reuse["unread"])
+                self.assertNotIn("takeaways", reuse)
+
+    def test_commit_ready_proof_needs_history_not_a_takeaway(self) -> None:
+        """Commit-ready re-attests an already reviewed diff and reads no doc."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            current = self._fixture(Path(directory), takeaway="")
+            reuse = required_doc_reuse(current, require_takeaway=False)
+            self.assertEqual(["common/skills/agent-operating-skill/SKILL.md"], reuse["reused"])
+            self.assertNotIn("takeaways", reuse)
+
+    def test_project_docs_from_a_takeaway_less_run_stay_unread(self) -> None:
+        document = {"path": ".agents/shared/llm-skills/commit-and-push/SKILL.md",
+                    "sha256": "e" * 64, "size_bytes": 900}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root, takeaway="")
+            prior = root / ".tao/runs" / ("a" * 32) / "preflight.json"
+            for path in (prior, current):
+                payload = json.loads(path.read_text())
+                payload["project_route_docs"] = [document]
+                path.write_text(json.dumps(payload))
+
+            reuse = project_route_doc_reuse(current)
+
+            self.assertEqual([], reuse["reused"])
+            self.assertEqual([document["path"]], reuse["unread"])
+
+    def test_project_route_docs_reuse_unchanged_records_only(self) -> None:
+        document = {"path": ".agents/shared/llm-skills/commit-and-push/SKILL.md",
+                    "sha256": "e" * 64, "size_bytes": 900}
+        changed = {"path": ".agents/shared/llm-skills/pr/SKILL.md",
+                   "sha256": "f" * 64, "size_bytes": 400}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root)
+            prior = root / ".tao/runs" / ("a" * 32) / "preflight.json"
+            prior_payload = json.loads(prior.read_text())
+            prior_payload["project_route_docs"] = [document, {**changed, "sha256": "0" * 64}]
+            prior.write_text(json.dumps(prior_payload))
+            payload = json.loads(current.read_text())
+            payload["project_route_docs"] = [document, changed]
+            current.write_text(json.dumps(payload))
+
+            reuse = project_route_doc_reuse(current)
+
+            self.assertEqual([document["path"]], reuse["reused"])
+            self.assertEqual([changed["path"]], reuse["unread"])
+            self.assertEqual(["prior run applied the operating contract"], reuse["takeaways"])
+
+    def test_review_takeaway_replays_for_routes_without_source_docs(self) -> None:
+        """A commit run has no source-docs gate; its review takeaway is the record."""
+
+        document = {"path": ".agents/shared/llm-skills/commit-and-push/SKILL.md",
+                    "sha256": "e" * 64, "size_bytes": 900}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root, takeaway="")
+            prior = root / ".tao/runs" / ("a" * 32) / "preflight.json"
+            for path in (prior, current):
+                payload = json.loads(path.read_text())
+                payload["project_route_docs"] = [document]
+                path.write_text(json.dumps(payload))
+            record_doc_takeaway(prior, "fetch twice;\n  rebase alone, no autostash")
+
+            self.assertEqual(
+                ["fetch twice; rebase alone, no autostash"],
+                project_route_doc_reuse(current)["takeaways"],
+            )
+            self.assertEqual(
+                ["fetch twice; rebase alone, no autostash"],
+                required_doc_reuse(current)["takeaways"],
+            )
+
+    def test_review_takeaway_is_bounded_and_blank_is_not_written(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "preflight.json"
+            record_doc_takeaway(evidence, "   ")
+            self.assertFalse((Path(directory) / reuse_module.DOC_TAKEAWAY_FILE).exists())
+            record_doc_takeaway(evidence, "x" * 1000)
+            stored = json.loads((Path(directory) / reuse_module.DOC_TAKEAWAY_FILE).read_text())
+            self.assertEqual(reuse_module.MAX_TAKEAWAY_CHARS, len(stored["takeaway"]))
 
 
 

@@ -18,8 +18,8 @@ read the relevant source skill file and its references before designing,
 editing, or reviewing that surface.
 
 For the skill-bundle entrypoint and reusable distilled rules, read
-`platforms/android/skills/source-coverage/SKILL.md` and
-`platforms/android/skills/source-coverage/references/external-source-distillation.md`.
+[source-coverage](../../source-coverage/SKILL.md) and
+[external-source-distillation.md](../../source-coverage/references/external-source-distillation.md).
 
 Do not claim all external guidance was applied unless the task checked this
 manifest and either loaded the matching source docs or documented why they were
@@ -56,8 +56,8 @@ or inspection command alone does not require reopening this manifest or its
 upstream references. Changed tool setup, test strategy, SDK behavior and
 security decisions still require their matching sources.
 
-For Android documentation, architecture, module, Compose, performance, testing,
-or platform-SDK work:
+For Android documentation, architecture, module, Compose, lifecycle,
+coroutine scope, background work, performance, testing, or platform-SDK work:
 
 1. Identify the touched source surface below.
 2. Read the matching `SKILL.md`.
@@ -69,7 +69,8 @@ or platform-SDK work:
    were out of scope.
 
 This gate is especially important for tasks involving package/module
-boundaries, Navigation 3, deep links, Compose performance, edge-to-edge,
+boundaries, Navigation 3, deep links, Compose performance, Flow lifecycle
+collection and effect keys, coroutine scope ownership, edge-to-edge,
 testing, credentials, billing, profiling, Wear, XR, CameraX, and AppFunctions.
 
 ## Workflow Routing Contract
@@ -105,11 +106,15 @@ omission and to confirm version-sensitive source behavior.
 
 Use the narrowest external source file that matches the touched surface:
 
-| Surface | Start With |
-| --- | --- |
-| Compose recomposition, stability, deferred reads, lazy list jank, custom modifiers, baseline profiles, or performance claims | `skydoves/compose-performance-skills` `INDEX.md` and the matching `SKILL.md`; then use Chris Banes focused Compose skills when state, effects, or API shape is the root cause. |
-| Compose state hoisting, state-holder split, side effects, modifiers, slots, focus, UI testing, Flow, or coroutine ownership | `chrisbanes/skills` matching `skills/<name>/SKILL.md`. |
-| Android CLI/device inspection, AGP, R8, Navigation 3, edge-to-edge, testing setup, intent security, CameraX, credentials, Play, Wear, XR, or AppFunctions | `android/skills` matching platform `SKILL.md` and its listed references. |
+| Surface | Start With | Tao local card |
+| --- | --- | --- |
+| Compose recomposition, stability, deferred reads, lazy list jank, custom modifiers, baseline profiles, or performance claims | `skydoves/compose-performance-skills` `INDEX.md` and the matching `SKILL.md`; then use Chris Banes focused Compose skills when state, effects, or API shape is the root cause. | [android-compose-ui](../../android-compose-ui/SKILL.md) |
+| Compose state hoisting, state-holder split, modifiers, slots, focus, or UI testing | `chrisbanes/skills` matching `skills/<name>/SKILL.md`. | [android-compose-ui](../../android-compose-ui/SKILL.md), [android-viewmodel-state](../../android-viewmodel-state/SKILL.md) |
+| Flow lifecycle collection, effect keys, lifecycle effects, or side-effect cost | `skydoves/compose-performance-skills` `side-effects/collecting-flows-safely/SKILL.md` and `side-effects/using-efficient-effects/SKILL.md`; `chrisbanes/skills` `skills/compose-side-effects/SKILL.md` when the effect API choice is the question. | [android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md), [android-compose-ui](../../android-compose-ui/SKILL.md) |
+| Coroutine scope ownership, stored scopes, `GlobalScope`, `runBlocking`, cancellation, or state/event stream modeling | `chrisbanes/skills` `skills/kotlin-coroutines-structured-concurrency/SKILL.md`; `skills/kotlin-flow-state-event-modeling/SKILL.md` for state and event streams. | [android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md), [android-background-work](../../android-background-work/SKILL.md), [android-viewmodel-state](../../android-viewmodel-state/SKILL.md) |
+| Runtime performance, release measurement, R8, Baseline Profile, or Perfetto root cause | `skydoves/compose-performance-skills` `measurement/*` and `build/configuring-r8-for-compose/SKILL.md`; `android/skills` `performance/r8-analyzer/SKILL.md` and `profilers/perfetto-*`. | [runtime-performance.md](../../android-review/references/runtime-performance.md) |
+| Intent security, exported components, credentials, or verified email | `android/skills` `security/android-intent-security/SKILL.md` and `identity/verified-email/SKILL.md`. | [android-security](../../android-security/SKILL.md) |
+| Android CLI/device inspection, AGP, Navigation 3, edge-to-edge, testing setup, CameraX, Play, Wear, XR, or AppFunctions | `android/skills` matching platform `SKILL.md` and its listed references. | [android-architecture](../../android-architecture/SKILL.md), [android-module-structure](../../android-module-structure/SKILL.md), [android-compose-ui](../../android-compose-ui/SKILL.md) |
 
 Do not copy full skill text into Tao Agent OS. Distill only reusable decision
 rules, stop signals, and verification requirements into the local Android card
@@ -370,17 +375,31 @@ Skill coverage:
 
 These Tao Agent OS cards consume this source coverage:
 
-- `platforms/android/skills/android-module-structure/SKILL.md` for Android modularization,
-  source-set, SDK-surface, toolchain, and package-boundary routing.
-- `platforms/android/skills/android-compose-ui/SKILL.md` for Compose state, performance,
-  layout, modifiers, effects, slots, focus, animation, previews, and testing.
-- `platforms/android/skills/android-review/SKILL.md` for review acceptance criteria across
-  Android module, Compose, performance, security, and SDK surfaces.
-- `platforms/android/skills/android-architecture/SKILL.md` for app architecture, Navigation
-  3, deep links, route contracts, and app-runtime boundaries.
-- `platforms/kmp/skills/kmp-architecture/SKILL.md` and
-  `platforms/kmp/skills/kmp-module-structure/SKILL.md` when Kotlin Multiplatform,
-  expect/actual, common source sets, or platform adapters are involved.
+- [android-module-structure](../../android-module-structure/SKILL.md) for Android
+  modularization, source-set, SDK-surface, toolchain, and package-boundary routing.
+- [android-compose-ui](../../android-compose-ui/SKILL.md) for Compose state,
+  performance, layout, modifiers, effects, slots, focus, animation, previews,
+  and testing.
+- [android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md) for Flow
+  lifecycle collection, effect keys, lifecycle effects, heavy-resource release,
+  and coroutine scope ownership.
+- [android-background-work](../../android-background-work/SKILL.md) for
+  WorkManager, foreground services, structured concurrency in workers, retry,
+  and cancellation.
+- [android-security](../../android-security/SKILL.md) for intent security,
+  exported components, credentials, and verified email.
+- [android-review](../../android-review/SKILL.md) for review acceptance criteria
+  across Android module, Compose, lifecycle, performance, security, and SDK
+  surfaces, including its
+  [runtime-performance.md](../../android-review/references/runtime-performance.md)
+  procedure.
+- [android-architecture](../../android-architecture/SKILL.md) for app
+  architecture, Navigation 3, deep links, route contracts, and app-runtime
+  boundaries.
+- [kmp-architecture](../../../../kmp/skills/kmp-architecture/SKILL.md) and
+  [kmp-module-structure](../../../../kmp/skills/kmp-module-structure/SKILL.md)
+  when Kotlin Multiplatform, expect/actual, common source sets, or platform
+  adapters are involved.
 
 When a source doc is missing from these mappings, update this manifest first,
 then update the concise rule card that owns the recurring lesson.

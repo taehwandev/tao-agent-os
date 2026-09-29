@@ -12,15 +12,16 @@ checking that dependencies still point in one direction.
 
 ## Module Families
 
-Use repo-local names first. A large Android app commonly separates these module
-families:
+Detect the repo's existing module families and names first
+(`settings.gradle(.kts)` and the module directories) and keep them. Use this
+table only as a fallback vocabulary. A large Android app commonly separates
+these module families:
 
 | Family | Owns | Must Not Own |
 | --- | --- | --- |
 | `app` | Application class, build types/flavors, app-level DI graph, startup, top-level navigation wiring. | Feature implementation, repository implementation details, shared UI primitives. |
 | `build-logic` | Convention plugins, common Android/Kotlin/Compose/test settings, dependency bundles. | Product behavior or runtime code. |
-| `core` | Pure Kotlin or implementation-neutral contracts such as models, domain interfaces, route contracts, network contracts, dispatchers, resource-provider contracts, and test-support contracts. | Android/Compose runtime, feature product policy, or screen-specific UI. |
-| `core-ui` / `core-app` / `core-runtime` | Android/Compose app-runtime commonization such as design system, resources, permission helpers, ActivityRoute launch adapters, WebView runtime, notice or alert hosts, toast/dialog rendering, and app UI infrastructure. | Feature-specific copy, route policy, analytics policy, or repository calls. |
+| `core/<capability>` | One shared capability per module, named by what it exports: models, route contracts, network contracts, dispatchers, design system, resources, permission adapters, Activity route launching, WebView runtime, notice hosts, test-support contracts. The Gradle plugin follows the export: pure Kotlin, Android library, or Compose-enabled Android library. | Feature product policy, feature copy, route policy, analytics policy, repository calls, screen-specific UI, or dependencies on `feature` modules. |
 | `data` / `core-data` | Repository contracts, repository implementations, local/remote data sources, DTO mapping, DataStore/Room/cache ownership. | Compose UI, navigation decisions, screen state. |
 | `domain` | Optional use cases and product policies reused across screens or risky enough to test independently. | Pass-through wrappers around one repository call. |
 | `feature-api` | The whole navigation contract: destination type and arguments, `navigateTo<Feature>` action, deep-link spec, result types, public events, entrypoint interfaces, and small caller-facing models. | Holders, screens, ViewModels, destination-to-content bindings, repository implementations, DI bindings with heavy dependencies. |
@@ -50,6 +51,11 @@ Choose the module type by import contract:
   imports are clear. Otherwise prefer a capability name such as `notice`,
   `router`, `permission`, `webview`, `activity`, or `resource`.
 
+A separate `core-app`, `core-ui`, or `core-runtime` family is an option only
+when the repo already uses one. Do not introduce it as a default, and do not
+move an Android or Compose helper out of `core` only because it uses Android or
+Compose APIs.
+
 Review should stop when a module is called `core`, `common`, `shared`,
 `extensions`, or `base` but callers cannot tell whether it is safe for pure
 Kotlin, Android runtime, Compose runtime, tests, or app-shell code. Split the
@@ -64,7 +70,8 @@ caller may still remain unsplit.
 
 If the repo already uses convention plugins, apply the nearest plugin instead of
 copying dependency blocks by hand. If no convention exists, update or add one
-only when at least two modules will share the same setup.
+only when at least two modules will share the same setup (see
+[`di-build-logic.md`](di-build-logic.md)).
 
 ## Dependency Direction
 
@@ -105,10 +112,32 @@ Forbidden edges:
   destination, arguments, deep link, or result is in the wrong module
 - `repository-api -> repository implementation`
 - `repository -> feature`
-- `core/designsystem -> feature`
+- `core -> feature`, including `core/designsystem -> feature`
 - `domain -> UI, Compose, Android framework UI types, DTO transport models`
 - `app -> concrete repository internals` except app-level DI binding when the
   repo intentionally centralizes bindings there
+
+## Dependency Edge Verification
+
+Run this for every change that adds a module, a Gradle dependency, or a
+cross-module import.
+
+1. Put integration code that must know two layers in the outermost module that
+   may depend on both (usually the host or the feature `impl`), not in the
+   lower one.
+2. Moving an edge behind a DI interface is not a fix. An interface in a lower
+   module plus a binding in `impl` still makes the lower module depend on
+   `impl` behavior at runtime. It is acceptable only when the interface is the
+   lower layer's own contract, one it would need with any implementation.
+3. Search, using the repo's module paths and package names:
+   - imports of `impl` packages from every `api` and `ui` module
+     (for example `rg "import .*\.impl\." <feature>/api <feature>/ui`)
+   - `impl` project dependencies in the Gradle files of `api` and `ui`
+     modules (for example `rg -g "*.gradle*" "impl" <feature>/api <feature>/ui`)
+   - feature or data implementation references from `core` modules
+4. A clean result is a search result, not an assumption. Do not write "no
+   forbidden edges" without having run the searches.
+5. Report the edges added and removed and the integration owner.
 
 ## Feature Package Layout
 

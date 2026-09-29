@@ -17,8 +17,86 @@ release-channel config.
 For exported components, nested intents, `PendingIntent`, ContentProvider,
 dynamic receiver, Credential Manager, verified email, WebView credential flows,
 or bound-service caller validation, also use
-`android-external-skill-source-coverage.md` and start with the official
+[android-external-skill-source-coverage](../../android-external-skill-source-coverage/references/current-guidance.md#source-trigger-map)
+and start with the official
 `android/skills` `security/android-intent-security/SKILL.md`.
+
+This card owns Android trust boundaries: secret storage, client-visible
+configuration, exported components, intents and deep links, `PendingIntent`,
+providers and bound services, WebView bridges, platform capability gates, and
+release-build exposure.
+
+## Steps
+
+1. **List the changed surfaces.** Apply this card if the change touches any of:
+   credentials or tokens, local storage, manifest components or `exported`,
+   intents, deep or app links, `PendingIntent`, receivers, providers, bound
+   services, WebView, permissions or pickers, HTTP clients for foreign hosts,
+   logging of user data, or release build configuration.
+2. **Apply the rules.** You MUST read [Rules](#rules) below before designing,
+   editing, or reviewing any surface from step 1, and apply each rule for the
+   touched surfaces.
+3. **Detect the repo's existing convention first.** Reuse the repo's secure
+   storage wrapper, intent sanitizer, URL allowlist, WebView holder, and
+   per-purpose HTTP client before adding one. The defaults below apply
+   when none exists.
+4. **Apply the shared baselines.** You MUST apply
+   [secure-development-baseline](../../../../../common/skills/secure-development-baseline/SKILL.md)
+   for secrets, logging, and diagnostics, and
+   [runtime-url-configuration](../../../../../common/skills/runtime-url-configuration/SKILL.md)
+   when API origins, link hosts, callback URLs, or asset hosts change.
+5. **Check the source skill for platform security SDKs.** For exported
+   components, nested intents, `PendingIntent`, providers, dynamic receivers,
+   Credential Manager, verified email, WebView credential flows, or bound
+   service caller validation, load the matching upstream source listed in
+   [external source coverage](../../android-external-skill-source-coverage/references/current-guidance.md#source-trigger-map).
+6. **Answer every Check question** below for the touched surfaces,
+   and record the answer in the report.
+7. **Test** the hostile and degraded paths listed under Tests below.
+
+## Card Source Map
+
+| Need | Source |
+| --- | --- |
+| Rules, checks, and tests for Android surfaces | this card, below |
+| Secrets, logging, repo safety | [secure-development-baseline](../../../../../common/skills/secure-development-baseline/SKILL.md) |
+| Environment URLs and link hosts | [runtime-url-configuration](../../../../../common/skills/runtime-url-configuration/SKILL.md) |
+| Security and privacy review workflow | [security-privacy-review](../../../../../common/skills/security-privacy-review/SKILL.md) |
+| WebView lifetime and cleanup | [android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md) |
+| Sensitive payloads in background work | [android-background-work](../../android-background-work/SKILL.md) |
+
+## Procedure Do Not
+
+- Do not store tokens, private keys, or sensitive user data in plain
+  preferences, logs, analytics, crash payloads, notifications, or clipboard.
+- Do not put server-only secrets in `BuildConfig`, resources, manifest
+  placeholders, assets, or generated config; they are client-visible.
+- Do not export a component without a permission, signature check, caller
+  validation, or documented public contract.
+- Do not launch a nested or redirected intent without sanitizing it.
+- Do not open a JavaScript bridge to untrusted content or fall back to a
+  known-unsafe legacy API when a safer capability is unsupported.
+- Do not reuse the app-backend HTTP client for foreign hosts.
+
+## Procedure Stop If
+
+- A server-only secret must ship in the client for the feature to work.
+- A component must be exported and no caller validation or permission model
+  is defined.
+- A credential or verified-email result would be trusted before backend
+  validation.
+
+## Procedure Verification
+
+Compile success is not proof. Cover permission denied and revoked, malformed
+and malicious deep links, nested intent redirection, `onNewIntent` warm entry,
+provider query limits, exported service caller rejection, unsupported
+capability degradation, and release-build configuration as applicable.
+
+## Procedure Report
+
+Name each touched surface, the rule applied, the Check answers, the tests run,
+and the residual risks left to manual verification.
 
 ## Rules
 

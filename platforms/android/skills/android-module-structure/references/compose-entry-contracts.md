@@ -22,9 +22,17 @@ contract intentionally exposes:
 | Compose entry API | A narrow `@Composable` entrypoint interface or composable slot type that callers intentionally compile against. | Apply the Compose compiler plugin and expose only the minimal Compose runtime dependency required by the public signature. |
 | Android entry API | Activity route/request keys or another Android capability contract that genuinely needs framework types. | Use an Android library only when the public contract cannot remain platform-free; keep concrete Activities, manifests, and launch execution in implementation. |
 
-A Compose entry API is valid when another module must render, register, swap,
-or test a feature surface without importing its concrete Compose UI. The
-contract should be an interface or role-sized entry object. A top-level
+A Compose entry API is valid only when the host needs an abstract seam: two or
+more interchangeable implementations (flavors, form factors, replaceable
+features), or a runtime registry that dispatches by route or key across several
+contributing modules. The contract should be an interface or role-sized entry
+object.
+
+An interface with a single implementation and a single `@Binds` whose only job
+is to hide one concrete composable from one caller is forbidden. It adds an
+interface, a default implementation, and a DI module without removing any
+dependency. When one outside consumer must render a feature surface, extract
+the feature `ui` module (see below) and call the composable directly. A top-level
 `@Composable` function with a concrete body is implementation, not merely an
 API declaration; keep it in the feature's `impl` (or its extracted `ui`),
 feature-common, or design-system owner.
@@ -86,7 +94,7 @@ When a second consumer forces the extraction:
 Do not copy the same composable signature into both `api` and `ui`. The module
 that owns the content owns the concrete Compose API. Keep a Compose-capable
 interface in `api` only when the host needs an abstract registry or replacement
-seam. An Activity wrapper stays in `impl` and delegates; it does not own a
+seam with more than one real implementation or contributor. An Activity wrapper stays in `impl` and delegates; it does not own a
 second holder or ViewModel.
 
 The default packet is:
@@ -121,8 +129,10 @@ api contract
   -> focused contract + UI + optional platform integration verification
 ```
 
-For an additive Compose registry, the content module contributes its entry
-object and keeps the holder beside the ViewModel:
+For an additive Compose registry that several feature modules contribute to,
+each content module contributes its entry object and keeps the holder beside
+the ViewModel. With only one contributor and one caller, skip the registry and
+call the composable directly:
 
 ```kotlin
 class FeedComposeRouteEntry @Inject constructor() : ComposeRouteEntry {

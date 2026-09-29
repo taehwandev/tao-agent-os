@@ -99,9 +99,9 @@ Do not:
 
 ## Topic References
 
-The rules below the always-applicable core live in focused siblings so a
-route can select the boundary, layout, entry-contract, build, split, or
-review material it actually needs. Each sibling is separately routable.
+The rules below the always-applicable core live in focused siblings. The
+`SKILL.md` Steps say which sibling each kind of change MUST read; a route may
+also select a sibling directly.
 
 - [`module-boundaries.md`](module-boundaries.md) — Android Module Boundary Contracts.
 - [`module-layout.md`](module-layout.md) — Android Module And Package Layout.

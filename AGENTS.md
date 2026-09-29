@@ -71,12 +71,15 @@ For low-risk local corrections with one owner and at most four changed files,
 select `small-change` using `common/skills/agent-operating-skill/references/small-change.md`. Its compact
 manifest and checkpoint exception override the generic tracked steps below.
 
-For a repo-owned development app rebuild, relaunch, or restart that only
+For a repo-owned development app rebuild, install, relaunch, or restart that only
 verifies the current checkout without changing tracked source, docs, or
 configuration, select the `test` verification route. A local build wrapper
 compiling an app does not by itself make this a `build` implementation task.
 Verify the generated bundle and exact running process, not an unrelated
 commit-range diff. A requested source change follows its own code route.
+After an implementation run has finished, bind a new `test` run to the existing
+task worktree before installing its APK. Reuse the user's same-device approval;
+the finished run's publication allowance does not cover a device install.
 
 For tracked work:
 
@@ -423,17 +426,17 @@ subsystem.
 For every task that may change code, configuration, dependencies, data,
 deployment, or credentials:
 
-1. Run `vibeguard audit .` before editing.
+1. Run `vibeguard audit .` before editing. Reuse a successful workflow-hook audit only when it covers the same task, exact input bytes, rules, and audit mode. Missing, failed, skipped, changed, or uncertain evidence requires a fresh audit.
 2. Do not run VibeGuard `setup` or `update` during ordinary work. Run either operation only when the user explicitly requests that exact VibeGuard maintenance action.
 3. If `vibeguard` is unavailable, run `npx --yes @taehwandev/vibeguard@latest audit .` instead and use the same `npx --yes @taehwandev/vibeguard@latest ...` form for fixes.
 4. If fixable findings exist, run `vibeguard audit . --fix` before implementing.
 5. Never print detected secret values. Keep real secrets only in ignored runtime env files and keep env templates such as `.env.example` and `.env.sample` value-free.
-6. Obtain explicit user authority before deleting data, running migrations, deploying to production, increasing paid API/model usage, adding recurring infrastructure, or changing credentials. Before production execution, state the exact target and action and check that existing approval covers them. Continue an explicitly authorized same-target, same-version release recovery, including scoped repairs and retries, without asking again solely because the source revision changed. Recheck affected evidence; a new revision does not itself revoke approval. Ask when the target or version is unresolved, the action exceeds granted scope, material risk changes, or the user has paused, limited, or revoked authority. Generic wording grants no unknown target, new destructive action, or unapproved tag overwrite.
+6. Obtain explicit user authority before deleting data, running migrations, deploying to production, increasing paid API/model usage, adding recurring infrastructure, or changing credentials. Before execution, state the exact target and action and check that existing approval covers them. Continue within that approval through scoped corrections and retries; a source revision change alone does not revoke approval. Ask when the target or action is unresolved, scope or material risk changes, or the user pauses, limits, or revokes authority. Never infer approval from silence or extend it to unrelated actions, a new version, destructive operations, or an unapproved tag overwrite.
 7. Prefer cost-aware architecture. Before adding a paid service, database, queue, background worker, model call, analytics SDK, or cloud resource, explain why existing code or a simpler local/server-side design is insufficient.
 8. For web apps, commonize repeated API/model/provider calls behind shared server-side helpers or endpoints. Prefer server-side caching, batching, and rate limits before adding new client-side call paths.
 9. Before commit or push, verify `git remote -v`, repository visibility, and changed files. If the repository is public or visibility is unknown, stop before pushing secrets, env files, credentials, deployment, infrastructure, or paid-service changes.
-10. After editing, run relevant tests and `vibeguard audit .` again before finishing.
-11. Before creating a commit, run `vibeguard audit .`; before pushing or publishing, run `vibeguard audit . --strict`.
+10. After editing, run relevant tests and require a successful audit of the finished change. Reuse a matching workflow-hook result under rule 1; otherwise run the audit.
+11. Before creating a commit, require a successful audit of the exact inputs being committed. Before pushing or publishing, require `vibeguard audit . --strict` for the exact inputs being published. A workflow, pre-commit, pre-push, or publish hook may supply the matching result under rule 1. Never reuse failed, skipped, uncertain, stale, or non-strict evidence for a strict requirement.
 12. If execution evidence is available, run `vibeguard evidence .` before the final response and do not claim tests or audits ran unless they were observed.
 13. Keep secrets server-side. Do not expose provider keys, database URLs, signing secrets, service-role keys, or webhook secrets to client code.
 14. If the user pastes a secret in chat, treat it as exposed. Do not repeat it, put it in commands/logs/files/GitHub secrets/deployment settings/servers, or continue with deployment using that value. Guide the user to rotate it and enter a new value only through a local provider UI or secret-store prompt.

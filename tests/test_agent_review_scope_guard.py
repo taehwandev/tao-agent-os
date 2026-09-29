@@ -20,6 +20,7 @@ from agent_review_hook import (
     review_hook,
 )
 from agent_review_attestation import ReviewAttestation
+import agent_review_hook
 
 
 def run_command(command: list[str], cwd: Path) -> dict[str, object]:
@@ -930,6 +931,12 @@ class ReviewScopeGuardTests(unittest.TestCase):
         def unexpected_command(*_args: object, **_kwargs: object) -> object:
             self.fail("substantive review checks must not run for an empty review scope")
 
+        def range_lookup_only(command: list[str], _project: Path) -> dict[str, object]:
+            # Only the read-only lookups that name a commit-range may run.
+            if command[:2] not in (["git", "rev-parse"], ["git", "merge-base"]):
+                self.fail(f"unexpected command for an empty review scope: {command}")
+            return {"returncode": 1, "stdout": "", "stderr": ""}
+
         def finish_with_result(
             name: str,
             success: bool,
@@ -963,7 +970,7 @@ class ReviewScopeGuardTests(unittest.TestCase):
         ):
             result = review_hook(
                 args,
-                unexpected_command,
+                range_lookup_only,
                 git_status,
                 unexpected_command,
                 unexpected_command,
@@ -979,7 +986,40 @@ class ReviewScopeGuardTests(unittest.TestCase):
         self.assertTrue(
             any("before commit" in detail for detail in result_payload["details"])
         )
+        self.assertFalse(
+            any("committed branch" in detail for detail in result_payload["details"])
+        )
         record_failure.assert_not_called()
+
+    def test_a_clean_committed_branch_is_told_the_exact_commit_range(self) -> None:
+        """Observed: a clean rebased branch failed working-tree review and the
+        next call went looking for the base the refusal did not name."""
+
+        base, head = "a" * 40, "b" * 40
+        answers = {
+            ("rev-parse", "--abbrev-ref", "HEAD"): "topic",
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"): "origin/topic",
+            ("rev-parse", "--verify", "--quiet", "origin/develop"): base,
+            ("merge-base", "HEAD", "origin/develop"): base,
+            ("rev-parse", "HEAD"): head,
+        }
+
+        def git(command: list[str], _project: Path) -> dict[str, object]:
+            stdout = answers.get(tuple(command[1:]))
+            return {"returncode": 0 if stdout else 1, "stdout": stdout or "", "stderr": ""}
+
+        with patch("agent_review_hook.BASE_DRIFT_CANDIDATE_REFS", ("origin/develop",)):
+            suggestion = agent_review_hook.suggested_commit_range(ROOT, git)
+
+        self.assertEqual(
+            "(merge-base with origin/develop): "
+            f"--review-scope commit-range --review-base {base} --review-head {head}",
+            suggestion,
+        )
+        self.assertTrue(suggestion.endswith(head), "the arguments end the line")
+        answers[("merge-base", "HEAD", "origin/develop")] = head
+        with patch("agent_review_hook.BASE_DRIFT_CANDIDATE_REFS", ("origin/develop",)):
+            self.assertEqual("", agent_review_hook.suggested_commit_range(ROOT, git))
 
     def test_changed_path_limit_stops_before_review_and_does_not_record_failure(self) -> None:
         changed_paths = [f" M src/file_{index}.py" for index in range(26)]

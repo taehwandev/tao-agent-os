@@ -120,6 +120,15 @@ python3 "$HANDOFF_CLI" \
   --export-assets
 ```
 
+When the request supplies separate frame URLs, first extract each named frame
+with `--max-flow-depth 0`, then inspect `flowEdges` and `flowInteractions` across
+the bundles. This pass discovers links but does not fetch their destinations.
+Fetch a linked destination separately when the requested behavior depends on it
+and it was not among the supplied frames. For a connected prototype journey,
+omit the flag to use the CLI's default breadth-first traversal through depth 4.
+Do not treat a depth-0 bundle as verification of a linked destination, and do
+not expand every frame when only selected destinations are relevant.
+
 Large SECTION splits, JSON-only runs, asset caps, and scale choices follow the
 tool contract. Without `--out`, bundles land in `.figma-handoff-work/`, a
 hidden workspace never added to Git. Create deliverable handoffs only in a
@@ -141,6 +150,13 @@ units from `components` and `componentBlueprints`, and land the individual
 assets from `assetInventory` and `assetCandidates[].assetPath` into the target
 repository by relative path. Never embed the full-frame image as the screen
 implementation.
+
+When the request replaces an existing dummy or placeholder UI, treat its
+visuals as provisional. Map every visible region in the requested Figma state
+to the existing screen owner, including copy, imagery, icons, layout, and
+decoration. Replace unmatched placeholder visuals rather than retaining them
+or adding a second screen beside them. Preserve real navigation, data, and
+state behavior unless the request or an accepted product source changes it.
 
 States absent from Figma — loading, empty, error, validation, dark mode,
 responsive, accessibility — follow the target product's sources and existing
@@ -194,12 +210,13 @@ These are gates, not advice. Do not report an implementation that breaks one.
    implementation retroactively.
 9. **Figma completion requires negative evidence for excess UI.** Capture each
    implemented full-frame state and compare it side by side or by overlay with
-   the exact reference. Also record the implementation-to-source inventory for
-   visible controls and emitted actions, with zero unmatched items. If the
-   production route is not wired, a state cannot be captured, or an unmatched
-   item remains, visual verification is incomplete. Previews, builds, unit
-   tests, source-text assertions, and summary measurements do not replace this
-   evidence.
+   the exact reference. Compare visible content and decoration as well as
+   controls; account for missing design regions and leftover placeholder
+   regions. Record the implementation-to-source inventory for visible controls
+   and emitted actions, with zero unmatched items. If the production route is
+   not wired, a state cannot be captured, or a mismatch remains, visual
+   verification is incomplete. Previews, builds, unit tests, source-text
+   assertions, and summary measurements do not replace this evidence.
 10. **A semantic token name is not paint evidence.** For each rendered node,
     compare the complete `renderedPaints` fill/stroke/background stack — solid
     alpha or every gradient stop and handle — with the implementation output. A
@@ -228,22 +245,21 @@ These are gates, not advice. Do not report an implementation that breaks one.
 | "Preview and unit tests passed, so the design is verified." | Require the full-frame state comparison and the zero-unmatched implementation inventory. |
 | "The button always uses the active/primary color; nothing in the request called for a disabled look." | Check whether Figma renders the same element differently under different conditions. If it does and the design system already has the matching token (e.g. `disabled`), the screen model needs the field that drives it — a single hardcoded token is a Missing State. |
 
-### 6-2. Scope Gate — Never Fold A New Design Into Existing Components
+### 6-2. Scope Gate — Change The Requested Screen, Not Its Neighbors
 
-**Implement a new design with new components. Visual similarity to an existing
-screen is not a reason to reuse or modify that screen's shared component.**
+**A new screen and a replacement of the same screen's dummy UI are different
+tasks.** For a replacement, changing the existing screen's owning files is
+expected; an existing file in the diff is not itself a reason to stop.
 
-- Another screen's design is a separate specification. Two designs that look
-  alike today change independently tomorrow.
-- Touching a shared component changes screens nobody asked about. That is a
-  scope violation, not a refactor.
-- Extract, share, or parameterise only when the user explicitly asks.
-  "It is duplicated" and "reuse is cleaner" are not authorisation.
-- Before implementing, write down the files this design will own and the files
-  it will not touch. An existing file appearing in the diff is the signal to
-  stop and ask.
-- Once a question is raised about touching shared code, do not act until the
-  answer arrives.
+- Another screen's design remains a separate specification. Do not reuse or
+  modify its shared component merely because the screens look alike.
+- Identify the requested screen's owning files and the callers of any shared
+  component before editing. Keep unrelated screens' appearance and behavior
+  intact; use a screen-local component when shared edits would widen scope.
+- Do not leave placeholder copy, assets, or layout in the requested state just
+  because the old screen already renders or its interactions work.
+- Ask only when the requested replacement cannot be scoped without changing an
+  unrelated screen or when product behavior is genuinely unresolved.
 
 ## 7. Verify And Report
 

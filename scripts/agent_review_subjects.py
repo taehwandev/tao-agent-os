@@ -220,12 +220,18 @@ def settled_review_run_invocation_failure_details(state: str) -> list[str]:
 def empty_review_scope_invocation_failure_details(
     failure: str,
     review_scope: str,
+    suggested_range: str = "",
 ) -> list[str]:
-    return [
+    details = [
         f"review scope: {review_scope}",
         f"review scope guard: {failure}",
         "invocation request: run the review hook before commit in the worktree that owns "
         "the changed paths; for an existing commit, complete the commit-review workflow and "
         "invoke this hook with --review-scope commit-range, --review-base, and --review-head",
-        "review did not start, so no lifecycle checkpoint failed and repair-verify is not required",
     ]
+    if suggested_range:
+        details.append(f"committed branch, rerun the same review with {suggested_range}")
+    details.append(
+        "review did not start, so no lifecycle checkpoint failed and repair-verify is not required"
+    )
+    return details

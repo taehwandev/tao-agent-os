@@ -147,8 +147,8 @@ closed contract:
 }
 ```
 
-`require_workflow_entry`, `publication_commands`, and the ticketed-product
-branch fields are optional. The waiver described below is what
+`require_workflow_entry`, `publication_commands`, `route_docs`, and the
+ticketed-product branch fields are optional. The waiver described below is what
 `require_workflow_entry` turns off, and it defaults to absent so an existing
 declaration keeps its current behaviour. Every other key is required, and the
 contract stays closed in both directions: an unrecognised key is a malformed
@@ -162,9 +162,21 @@ only an interpreter. Each rule has exactly `argv_prefix` and boolean
 `publishes: false` rule can exclude a check-only form from its publishing
 parent, but it does not certify that command as read-only or make it runnable
 without an active workflow. A `publishes: true` match waits for finish and may
-then use that same fresh finish. Undeclared interpreter calls remain unknown.
+then use that same fresh finish; a `publishes: false` match is admitted by the
+same fresh finish receipt, so the check that guards a publication still runs
+after finish. Undeclared interpreter calls remain unknown.
 Declare the literal argv the repository's documented tool uses; provider names
 and account details stay in the target repository, not Tao.
+
+`route_docs` maps a route command (`commit`, `docs`, ...) to 1–8
+project-relative files that route must read, at most 16 commands. Start hashes
+the existing files into `project_route_docs` beside the route manifest and
+partitions them with the same completed same-session proof as `required_docs`,
+so a project's own commit or PR procedure is read once per session instead of
+through its entry-document pointer chain. Absolute, `..`, duplicate or
+non-string paths make the declaration malformed. A missing file or a symlink
+leaving the project is skipped. The list guides reading only; it grants no
+authority and waives no gate.
 
 `require_linked_worktree` accepts either boolean. `false` permits work in the
 main checkout but still enforces any `protected_branches`; an empty branch list

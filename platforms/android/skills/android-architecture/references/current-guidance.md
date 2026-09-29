@@ -8,23 +8,83 @@ type: ai-generated
 
 Use for Compose/ViewModel/Flow, data, and Android platform boundary work.
 
-For Compose state, Flow, repository, persistence, permissions, or lifecycle details, also use `android-state-data.md`.
+Related cards (open their `SKILL.md` first):
 
-For ViewModel, `UiState`, Flow, repository, use case, persistence, and one-off event implementation details, also use `android-viewmodel-state.md`.
+- Compose state, Flow, repository, persistence, permissions, or lifecycle:
+  [android-state-data](../../android-state-data/SKILL.md).
+- ViewModel, `UiState`, Flow, repository, use case, persistence, and one-off
+  events: [android-viewmodel-state](../../android-viewmodel-state/SKILL.md).
+- Compose screen/component structure, stateful/stateless split, previews:
+  [android-compose-ui](../../android-compose-ui/SKILL.md).
+- Gradle module boundaries, `api`/implementation splits, package layout, and
+  feature/core ownership:
+  [android-module-structure](../../android-module-structure/SKILL.md).
+- Credentials, deep links, exported components, WebView, or release builds:
+  [android-security](../../android-security/SKILL.md).
+- WorkManager, foreground services, alarms, notifications, sync, uploads, or
+  downloads: [android-background-work](../../android-background-work/SKILL.md).
+- Official skill surfaces such as Navigation 3, CameraX, AppFunctions,
+  Credential Manager verified email, Play Engage, Play Billing, AGP, R8,
+  Perfetto, Wear, XR/Glimmer, or Android CLI/device tooling:
+  [android-external-skill-source-coverage](../../android-external-skill-source-coverage/SKILL.md)
+  and [source-coverage](../../source-coverage/SKILL.md).
 
-For Compose screen/component structure, stateful/stateless split, previews, or package layout, also use `android-compose-ui.md`.
+This card owns the Android architecture track for a feature (local UI, MVVM,
+Clean Architecture, reducer), the layer boundaries between UI, ViewModel,
+domain, data, and platform adapters, and where runtime capabilities such as
+notice, routing, permissions, and launchers are placed.
 
-For Gradle module boundaries, `api`/implementation splits, package layout, and feature/common/core ownership, also use `android-module-structure.md`.
+## Steps
 
-For credentials, deep links, exported components, WebView, or release builds, also use `android-security.md`.
+1. **Detect the repo's architecture convention.** Read one neighbouring
+   feature end to end: its holder/content naming, ViewModel shape, result or
+   error type, DI framework, and navigation library. The repo's convention wins;
+   the defaults in the references are the fallback.
+2. **Choose the smallest track.** MUST read
+   [Feature Slice Baseline](#feature-slice-baseline) and
+   [Boundaries](#boundaries) below and name the track before editing. Add use cases, repositories, reducers, or modules
+   only when they protect a product rule, side effect, cache, permission, or
+   test boundary.
+3. **Place each boundary.** Apply [Rules](#rules) and
+   [Boundary Placement](#boundary-placement) below: no `Context`,
+   `Activity`, `NavController`, or UI hosts in the ViewModel; effects go through
+   small capability interfaces.
+4. **New module, feature slice, or shared runtime boundary.** MUST read
+   [structure-baseline.md](structure-baseline.md) and then
+   [android-module-structure](../../android-module-structure/SKILL.md) before
+   creating a module or a shared runtime contract.
+5. **DI wiring.** MUST read
+   [runtime-composition.md](runtime-composition.md) before adding or
+   changing Hilt scopes, modules, or the entries that assemble screens and
+   Activities.
+6. **Navigation and deep links.** MUST read
+   [navigation-deep-links.md](navigation-deep-links.md) before
+   changing routes, back stack behavior, or deep links.
+7. **WebView.** MUST read [webview-surface.md](webview-surface.md)
+   before embedding or hardening a WebView.
+8. **Hand off detail work** to the related cards listed at the top for
+   state, UI, security, and background work.
 
-For WorkManager, foreground services, alarms, notifications, sync, uploads, or downloads, also use `android-background-work.md`.
+## Procedure Stop If
 
-For Android work that touches official skill surfaces such as Navigation 3,
-CameraX, AppFunctions, Credential Manager verified email, Play Engage, Play
-Billing, AGP, R8, Perfetto, Wear, XR/Glimmer, or Android CLI/device tooling,
-also use `android-external-skill-source-coverage.md` and
-`skills/source-coverage/SKILL.md`.
+- You cannot name the track and the boundary that justifies each added layer.
+- A shared runtime contract has no caller, forbidden import, and verification
+  path (see Runtime Boundary Example Stops in
+  [structure-baseline.md](structure-baseline.md)).
+- The repo's convention contradicts a default here and you have not decided
+  which one applies.
+
+## Procedure Verification
+
+Compile the changed modules and one consumer, test changed ViewModel state
+transitions, and run the DI or navigation checks of the reference you read.
+
+## Procedure Report
+
+- Chosen track and why the smaller one was not enough.
+- Boundaries added or moved, and the repo convention followed or the default
+  used where none existed.
+- Verification run and anything not run.
 
 ## Boundaries
 
@@ -126,16 +186,16 @@ Do not add use cases, repositories, reducers, or modules only for ceremony. Add 
 - A feature adds ViewModel state without previews or a visible-state test.
 - A shared composable accepts product policy, routes, repositories, or a full screen `UiState` when smaller values would preserve reuse.
 
-## Conditional References
+## Required References By Decision
 
-Read one of these only when this change makes that decision. A change that does
-not wire dependencies does not need the composition rules, and the boundary
-contract above is complete without them.
+Each reference below holds rules that this file does not repeat. When the
+change makes that decision, reading the reference is required before editing.
 
-- `references/structure-baseline.md` when creating a module or feature slice, or
-  placing a new runtime boundary.
-- `references/runtime-composition.md` when wiring Hilt scopes, modules, or the
-  entries that assemble Compose screens and activities.
-- `references/navigation-deep-links.md` when changing navigation routes, back
-  stack behaviour, or deep links.
-- `references/webview-surface.md` when embedding or hardening a WebView.
+- [structure-baseline.md](structure-baseline.md): before creating a module or
+  feature slice, or placing a new runtime boundary.
+- [runtime-composition.md](runtime-composition.md): before wiring Hilt scopes,
+  modules, or the entries that assemble Compose screens and Activities.
+- [navigation-deep-links.md](navigation-deep-links.md): before changing
+  navigation routes, back stack behavior, or deep links.
+- [webview-surface.md](webview-surface.md): before embedding or hardening a
+  WebView.

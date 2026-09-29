@@ -8,8 +8,9 @@ type: human-reviewed-needed
 
 Use when building a new screen, choosing an architecture track, or deciding where composables, previews and modules live.
 
-Split out of `current-guidance.md`, which keeps the Compose
-authoring contract every UI change applies.
+Read at step 3 of [`../SKILL.md`](../SKILL.md). The authoring rules every UI
+change applies, including the screen skeleton and IME owner, live in
+[`current-guidance.md`](current-guidance.md).
 
 ## Screen And Content Template
 
@@ -96,6 +97,9 @@ fun ProfileContent(
 
 Rules for applying this template:
 
+- When the screen has a fixed CTA, input bar, or bottom navigation, pass it as
+  the scaffold's `bottomBar` and choose the single IME owner described under
+  Screen Skeleton in [`current-guidance.md`](current-guidance.md).
 - The `Screen` holder may know ViewModel, lifecycle collection, navigation
   outputs, permission launchers, activity results, and snackbar/focus effects.
   This is execution of an already decided ViewModel effect, not permission to
@@ -138,7 +142,7 @@ feature/<name>/impl/src/main/.../<name>/
   <Name>ViewModel.kt    UI state owner
   <Name>UiState.kt      state, actions, effects, UI models
   navigation/           binds the api destination to this content
-  components/           feature-local reusable pieces
+  components/           only once a piece is shared by 2+ files of the feature
   preview/              shared preview providers only when reused across files
 ```
 
@@ -153,8 +157,10 @@ keep DI, the destination binding, Activity, and Intent/result handling in
 `feature/<name>/api`, not here. The canonical module contract lives in
 `../../android-module-structure/references/module-boundaries.md`.
 
-Use `components/` for feature-local pieces and promote only stable visual
-contracts to a shared design-system module. Shared design-system modules can use:
+Keep sections as private composables in the screen's own file by default. Add
+`components/` for feature-local pieces only when a second file of the feature
+needs one, and promote only stable visual contracts to a shared design-system
+module. Shared design-system modules can use:
 
 ```text
 core/designsystem/.../theme/

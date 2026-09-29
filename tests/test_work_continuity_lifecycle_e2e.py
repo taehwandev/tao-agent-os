@@ -273,7 +273,9 @@ class NestedWorktreeContinuityTests(unittest.TestCase):
             ROOT,
             cls.rules,
             symlinks=True,
-            ignore=shutil.ignore_patterns(".git", ".tao", "__pycache__", ".pytest_cache"),
+            # `.codegraph/` holds a live daemon socket in a developer checkout;
+            # copytree cannot copy a socket, and the fixture needs no index.
+            ignore=shutil.ignore_patterns(".git", ".tao", "__pycache__", ".pytest_cache", ".codegraph"),
         )
         git(cls.rules, "init", "-q")
         git(cls.rules, "config", "user.email", "continuity@example.invalid")

@@ -77,6 +77,21 @@ class CommandEffectTests(unittest.TestCase):
         # Git refuses an unmerged `branch -d` itself: admitted ref cleanup.
         self.assertEqual("bootstrap", self.effect("git branch -d owner/task")[0])
 
+    def test_adb_install_has_a_device_write_contract_without_admitting_other_commands(self):
+        for command in (
+            "adb install app.apk",
+            "adb -s R3CT80PAG4Z install -r app.apk",
+            "adb -s R3CT80PAG4Z install -r -d app.apk",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(("mutating", "Android application installation"), self.effect(command))
+        for command in (
+            "adb install", "adb -s R3CT80PAG4Z install --unknown app.apk",
+            "adb shell rm -rf /data", "adb -s R3CT80PAG4Z shell am start -n app/activity",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("unknown", self.effect(command)[0])
+
     def test_branch_reads_and_unknown_git_commands_stay_distinct(self):
         for command in ("git branch", "git branch -vv", "git branch --list owner/task",
                         "git -C /tmp/project branch --merged main"):

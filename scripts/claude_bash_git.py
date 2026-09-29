@@ -93,6 +93,8 @@ TAG_WRITE_OPTIONS = frozenset(
     }
 )
 GIT_SAFE_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
+# Scope selectors that leave a single-key `git config <key>` a read.
+CONFIG_READ_SCOPES = frozenset({"--global", "--local", "--system", "--worktree", "--show-origin", "--show-scope", "-z", "--null"})
 # The `git branch` options that only list. Kept as one classifier vocabulary so
 # read-only inspection of the protected checkout is not mistaken for a write.
 BRANCH_READ_ONLY_OPTIONS = frozenset(
@@ -501,7 +503,16 @@ def git_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
     if command == "config":
         getters = {"--get", "--get-all", "--get-regexp", "--list"}
         names = {argument.split("=", 1)[0] for argument in args}
-        return "read_only" if names & getters else "mutating"
+        if names & getters or (args and args[0] in {"get", "list"}):
+            return "read_only"
+        # `git config user.name` -- one key, no value -- is git's own getter,
+        # and the form commit procedures document. A value, a write flag or any
+        # option outside the read-only scope selectors keeps it mutating.
+        positional = [argument for argument in args if not argument.startswith("-")]
+        options = [argument for argument in args if argument.startswith("-")]
+        if len(positional) == 1 and set(options) <= CONFIG_READ_SCOPES:
+            return "read_only"
+        return "mutating"
     if command == "worktree":
         if args and args[0] == "list":
             return "read_only"

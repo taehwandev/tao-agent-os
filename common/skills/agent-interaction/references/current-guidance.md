@@ -29,6 +29,20 @@ in English.
 - Report evidence and progress instead of generic confidence.
 - Avoid open-ended questions when a concrete decision frame is possible.
 - Avoid overclaiming; separate what was verified from what remains risky.
+- Interpret technical questions in the established project and conversation
+  context before asking the user to clarify.
+- When that context ties a question to the current project, give the direct
+  answer, then inspect the relevant implementation with bounded read-only
+  searches without waiting for a separate request to look at the code.
+  Explain what the project already does, cite the inspected files, and suggest
+  the smallest useful next step; distinguish findings from general advice or
+  unverified assumptions. Pure conceptual questions need no repository search,
+  and a question alone does not authorize edits.
+- When a feasibility question implies implementation intent, explain the core
+  method and material constraints; include a small example when useful.
+- After the user corrects an interpretation, complete the original answer using
+  that correction instead of stopping at an apology or acknowledgement.
+- Keep answers concise without omitting information needed to decide or act.
 
 ## Questions
 

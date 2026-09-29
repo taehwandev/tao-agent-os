@@ -130,18 +130,21 @@ inside it still need SOLID responsibility and Interface Segregation. A test
 that needs only a route fixture should not import an Activity launcher fake,
 repository recorder, WebView helper, or production implementation dependency.
 
-Choose a `core-app` module when:
+Choose a shared `core/<capability>` module when:
 
-- the shared code needs Android or Compose runtime APIs
-- the code is app-shell infrastructure reused by several features, such as
-  notice or alert hosts, permission adapters, ActivityRoute launching, WebView
-  runtime, resources, or app-level composition helpers
+- the code is infrastructure reused by several features, such as notice or
+  alert hosts, permission adapters, Activity route launching, WebView runtime,
+  resources, or app-level composition helpers
 - the caller-facing API can stay free of feature copy, product route policy,
   analytics policy, repository calls, and screen-specific state
 
-Keep pure contracts in `core`; move Android/Compose runtime commonization to
-`core-app`, `core-ui`, or a repo-specific runtime module only when a real
-shared app-runtime boundary exists.
+Name the module by the capability it exports and pick its Gradle plugin from
+what that export imports: pure Kotlin, Android library, or Compose-enabled
+Android library (see `Core Is A Capability Namespace` in
+[`module-layout.md`](module-layout.md)). Needing Android or Compose runtime is
+not a reason to leave `core`. A `core-app`, `core-ui`, or `runtime` family is
+an option only when the repo already uses one; do not introduce it as a
+default.
 Avoid broad `BaseActivity`, `BaseFragment`, or universal `BaseViewModel`
 hierarchies. Prefer small contracts such as app environment, route coordinator,
 notice host, permission host, and platform adapter interfaces.
@@ -161,15 +164,42 @@ base.
 
 ## Migration Strategy
 
-When modernizing an old Android feature:
+When moving or modernizing an existing Android feature:
 
-1. Record the current owner boundary and imports before moving files.
-2. Extract stable contracts first: route data, repository interface, public
+0. Search the target module for an existing equivalent contract (destination,
+   repository port, component, mapper). If one exists, the work is duplicate
+   removal, not a migration: converge the remaining callers onto it and add no
+   new files.
+1. Fill the pre-edit gate below before editing.
+2. Record the current owner boundary and imports before moving files.
+3. Extract stable contracts first: route data, repository interface, public
    entities, or UI component API.
-3. Compile or typecheck the contract boundary before moving implementation.
-4. Move implementation behind the contract in the smallest reviewable slice.
-5. Add or update tests/previews for the moved boundary.
-6. Remove only old code that is no longer referenced.
+4. Compile or typecheck the contract boundary before moving implementation.
+5. Move implementation behind the contract in the smallest reviewable slice.
+6. Add or update tests/previews for the moved boundary.
+7. Remove only old code that is no longer referenced, in a separate change
+   unless the user asked for deletion in this one.
+
+Pre-edit gate:
+
+```text
+baseline:                current owner module, files, and public contract
+target:                  destination module and package
+callers:                 every import site that will switch
+simplest direct change:  what a change without a move would look like
+why migration:           the caller or boundary the move serves
+parity evidence:         per-state render or test evidence planned
+```
+
+If `why migration` has no caller, make the simplest direct change instead.
+
+For any UI-bearing move, apply Copy-First Behavioral Migration in
+[`deprecation-migration`](../../../../../common/skills/deprecation-migration/references/current-guidance.md#copy-first-behavioral-migration):
+copy the surface verbatim, allow only mechanical differences (package, import,
+visibility, resource namespace, DI, route, manifest wiring), keep the visual
+change count at zero, and switch callers only after per-state render evidence
+matches. A compile or a preview alone is not parity evidence. New-module
+dependency constraints are not a reason to swap components or redesign.
 
 For a `ui` extraction, move the surface the named consumer reuses as one unit —
 the stateless content and its models, plus the holder, ViewModel, and mapping
@@ -183,6 +213,21 @@ it appear self-contained.
 
 Do not combine broad module moves with behavior changes unless the behavior
 change is necessary to make the split correct.
+
+## End State
+
+A module split is complete only when the host module (usually `app`) lost the
+ownership that moved. Extracting an `api` while the screen stays in the host,
+then adding host-side glue that maps the new destination to the old screen, is
+an intermediate state, not a finished one.
+
+- Every bridge, adapter, or binding added to the host to connect a new
+  contract to code that has not moved yet records, in the file, what still has
+  to move and the condition that removes the bridge. A sentence with no owner
+  or condition ("remove after migration") does not count.
+- Count host files deleted and host files added by the change. If the host
+  net-grew, report the result as a partial migration and list the remaining
+  bridges; do not report it as complete.
 
 ## Split Hazards
 
