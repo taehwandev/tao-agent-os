@@ -203,6 +203,38 @@ class RequiredDocReuseTests(unittest.TestCase):
                 self.assertIn("common/skills/agent-operating-skill/SKILL.md", reuse["unread"])
                 self.assertNotIn("takeaways", reuse)
 
+    def test_a_run_past_the_takeaway_cap_is_not_credited(self) -> None:
+        """Four prior runs each supply a different document; only three
+        takeaways are shown, so the fourth document must stay unread."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root, takeaway="")
+            docs = [{"path": f"docs/{index}.md", "sha256": f"{index}" * 64, "size_bytes": 10 + index}
+                    for index in range(4)]
+            payload = json.loads(current.read_text())
+            payload["route"]["required_docs"] = [doc["path"] for doc in docs]
+            payload["execution_snapshot"]["required_docs"] = docs
+            current.write_text(json.dumps(payload))
+            runs = []
+            for index, doc in enumerate(docs):
+                run_id = f"{index + 1:032x}"
+                prior = root / ".tao/runs" / run_id / "preflight.json"
+                prior.parent.mkdir(parents=True)
+                prior.write_text(json.dumps({**payload, "agent_run_id": run_id,
+                                             "execution_snapshot": {"required_docs": [doc]}}))
+                record_doc_takeaway(prior, f"takeaway {index}")
+                runs.append({"run_id": run_id, "state": "completed"})
+            (root / ".tao/run-registry.json").write_text(json.dumps({"runs": runs}))
+
+            reuse = required_doc_reuse(current)
+
+            self.assertEqual(3, len(reuse["takeaways"]))
+            self.assertEqual(3, len(reuse["reused"]))
+            self.assertEqual(1, len(reuse["unread"]))
+            shown = {text.split()[-1] for text in reuse["takeaways"]}
+            self.assertEqual(shown, {path.split("/")[-1].split(".")[0] for path in reuse["reused"]})
+
     def test_commit_ready_proof_needs_history_not_a_takeaway(self) -> None:
         """Commit-ready re-attests an already reviewed diff and reads no doc."""
 

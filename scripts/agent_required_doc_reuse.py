@@ -188,7 +188,10 @@ def _credit(
     for text in recorded:
         if len(takeaways) < MAX_TAKEAWAYS and text not in takeaways:
             takeaways.append(text)
-    return bool(recorded)
+    # Only a run whose takeaway the notice actually shows is credited. Past
+    # the display cap a run's documents would otherwise leave the unread list
+    # with nothing replayed for them -- the gap the takeaway rule closes.
+    return any(text in takeaways for text in recorded)
 
 
 def _source_docs_takeaway(prior_path: Path) -> str:
