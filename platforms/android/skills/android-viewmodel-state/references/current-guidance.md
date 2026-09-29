@@ -10,9 +10,117 @@ Use when creating, changing, moving, or reviewing Android ViewModels, typed UI
 actions, `UiState`, one-off effects, `Flow`, use cases, repositories, network
 presentation hints, persistence, permission state, or navigation events.
 
-For Compose screen/component structure, also read `android-compose-ui.md`. For
-background work, also read `android-background-work.md`. For reusable extraction,
-also read `../../common/skills/reusable-code-design/SKILL.md`.
+For Compose screen/component structure, also read
+[android-compose-ui](../../android-compose-ui/SKILL.md). For background work,
+also read [android-background-work](../../android-background-work/SKILL.md).
+For DTO, repository and persistence rules, read
+[android-state-data](../../android-state-data/SKILL.md). For reusable
+extraction, also read
+[reusable-code-design](../../../../../common/skills/reusable-code-design/SKILL.md).
+
+This card owns how an Android screen's state is held and changed: the state
+holder choice, the `UiState` model, typed actions and one-off effects, the
+stream primitives, user-visible text, error handling, and coroutine ownership
+in the ViewModel.
+
+## Steps
+
+Follow these for every ViewModel, `UiState`, action or effect change, even
+when the request names only one of them. Each step names the section below
+you MUST read at that step.
+
+1. **Detect the repo convention.** Read one neighbouring ViewModel end to end
+   and apply
+   [Detect The Repo Convention First](#detect-the-repo-convention-first)
+   and [Naming](#naming). A small fix keeps the
+   existing path.
+2. **Choose the holder.** `remember`, a plain state holder, a ViewModel, or a
+   reducer, per
+   [State Holder Selection](#state-holder-selection).
+3. **Model the state.** Pick one model in
+   [Choose The State Model](#choose-the-state-model)
+   and make every reachable state (loading, empty, error, permission denied,
+   offline, submitting) representable. Apply the
+   [UiState Stability Contract](#uistate-stability-contract).
+4. **Define the surface.** `state`, `effects`, `onAction`, nothing else. No
+   Android platform objects in the ViewModel: apply
+   [No Android Platform Objects In ViewModels](#no-android-platform-objects-in-viewmodels).
+   Before adding a feature effect, look for an existing app-wide notice or
+   route host.
+5. **Pick stream primitives** by delivery contract with
+   [Stream Primitive Selection](#stream-primitive-selection).
+6. **Carry text as values.** Validators and mappers return typed values; the
+   ViewModel emits `UiText` or resource ids, and the renderer resolves them
+   (Feature Actions, Feedback, And I18n Text).
+7. **Handle failures.** Follow the repo's result type, then apply the
+   failure-to-UI table and retry classes in
+   [Error Handling](#error-handling).
+8. **Write transitions safely.** Update inside `update { }`, guard writes after
+   suspension, and cancel stale work, per
+   [State Transitions And Stale Snapshots](#state-transitions-and-stale-snapshots)
+   and [Flow And Coroutine Rules](#flow-and-coroutine-rules).
+9. **Test** the transitions and effects listed in
+   [Tests](#tests).
+
+## Card Source Map
+
+| Need | Source |
+| --- | --- |
+| State model, surface, streams, errors, coroutines | this card, below |
+| DTOs, repositories, nullability, persistence | [android-state-data](../../android-state-data/SKILL.md) |
+| Holder and content composables, previews | [android-compose-ui](../../android-compose-ui/SKILL.md) |
+| Lifecycle-aware collection and cleanup | [android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md) |
+| Work that outlives the screen | [android-background-work](../../android-background-work/SKILL.md) |
+
+## Procedure Do Not
+
+- Inject `Context`, `Application`, `Resources`, `Activity` or `NavController`
+  into a ViewModel, including `@ApplicationContext` and `AndroidViewModel`.
+- Expose mutable state, polled getters, or suspend functions the view awaits
+  for results.
+- Put display strings in validators, mappers, enums or `UiState`.
+- Swallow a failure, turn it into a success value, or auto-retry a
+  non-idempotent write.
+- Read the state holder, suspend, and write the stale snapshot back.
+
+## Procedure Stop If
+
+- The repo's result or effect convention conflicts with a default here and you
+  have not decided which one applies.
+- A state the flow can reach has no representation in `UiState`.
+- A retry would repeat a write that has no idempotency guarantee.
+
+## Procedure Verification
+
+ViewModel tests for each state transition, each effect, retry, stale-result
+suppression, and cancellation, with injected dispatchers. Compile success alone
+does not verify state behavior.
+
+## Procedure Report
+
+The state model chosen and why, the convention followed or the default used,
+the failure-to-UI mapping, and the tests run and not run.
+
+## Detect The Repo Convention First
+
+Before applying any default in this card, read one neighbouring ViewModel end
+to end and record: its state type and name, how actions arrive, the effect
+primitive, the result or error type returned by repositories, how user-visible
+text is carried, and any app-wide notice or route host. Follow that convention.
+The defaults below apply only when the repo has none, and a small fix keeps the
+existing path instead of migrating it.
+
+## Naming
+
+Use the repo's names when they exist; otherwise:
+
+| Name | Holds | Not |
+| --- | --- | --- |
+| `FooUiState` | the durable, renderable screen state the ViewModel exposes | callbacks, effects, Android objects |
+| `FooAction` | typed user intents sent to `onAction` | results, UI commands |
+| `FooEffect` | one-off commands the holder performs once (navigate, snackbar, launch) | anything a late collector must still see |
+| `FooDraft` | unsaved user input for a form or editor | server state |
+| `FooSnapshot` | an immutable copy captured for a request, diff or undo | the live state holder |
 
 ## State Ownership
 
@@ -72,10 +180,29 @@ or typed actions. One coarse observable state stream is a useful default for
 small screens, but it is not mandatory when performance, ownership, or update
 cadence requires smaller streams.
 
+The public surface is `state` (a `StateFlow`), `effects` (a `Flow` of typed
+one-off commands) and `onAction(action)`. Do not add public getters the view
+polls, suspend functions the view awaits for a result, public `MutableStateFlow`
+or `MutableState`, or callbacks the view registers.
+
+### Choose The State Model
+
+Pick one model per screen and keep the example, the mapper and the renderer
+consistent with it:
+
+| Model | Use when | Shape |
+| --- | --- | --- |
+| Sealed status carrying content | A load fully replaces what the screen shows; there is no stale content during refresh or error. | `status: FooStatus` where `Content(data)` holds the payload |
+| Always-present content + `LoadStatus` | Content stays visible while it refreshes, pages or fails (pull to refresh, list plus error banner). | `content` with a non-null empty default plus `status: LoadStatus` |
+
+Do not mix them: a nullable payload beside a status that can say `Content` is
+an impossible-state generator.
+
 ```kotlin
+// Always-present content + LoadStatus.
 @Immutable
 data class ProfileUiState(
-    val content: ProfileViewData? = null,
+    val rows: ImmutableList<ProfileRow> = persistentListOf(),
     val status: LoadStatus = LoadStatus.Loading,
     val permission: PermissionState = PermissionState.Unknown,
     val isSubmitting: Boolean = false,
@@ -125,6 +252,28 @@ state transition; the delegate only owns the reusable capability it represents.
 
 Do not create a `BaseViewModel` only to inherit notice, routing, permission, or
 coroutine helpers. Inject small interfaces or delegates instead.
+
+Before adding a feature-level effect for a snackbar, alert, toast or route,
+search for an existing app-wide notice host or route host. Use it when it
+exists; a second, feature-local host for the same job splits ordering and
+dismissal rules.
+
+### No Android Platform Objects In ViewModels
+
+A ViewModel never holds or receives `Context`, `Application`, `Resources`,
+`Activity`, `NavController`, `SnackbarHostState`, `ActivityResultLauncher`, or a
+View. That includes `@ApplicationContext` injection and `AndroidViewModel`: an
+application context is not leak-free by being long-lived, it hides platform
+work that belongs elsewhere and makes the ViewModel untestable on the JVM.
+
+| The ViewModel needs | Put it here instead |
+| --- | --- |
+| A localized string | a resource id or `UiText` in state or effect; the renderer resolves it |
+| Files, DataStore, Room, clipboard, sensors | a repository or data source |
+| Navigation | a typed effect or a route port |
+| Snackbar, toast, dialog | a typed effect or the notice port |
+| Permission or Activity result | the holder composable, which sends the decision as an action |
+| System services, SDK clients | an adapter behind a small interface |
 
 Confirmation results belong to the state owner. When a dialog or alert needs a
 confirm/cancel outcome, model it as a typed suspending notice request on the
@@ -235,9 +384,22 @@ private fun InboxContent(
 }
 ```
 
-Keep user-visible text localizable at the UI/resource boundary. ViewModels may
-emit Android string resource ids, such as `R.string.retry`, as stable message
-keys when the repo uses that convention. They should not resolve those ids with
+Keep user-visible text localizable at the UI/resource boundary. When the repo
+has no convention, carry text as a small `UiText` value:
+
+```kotlin
+sealed interface UiText {
+    data class Resource(@StringRes val id: Int, val args: List<Any> = emptyList()) : UiText
+    data class Plural(@PluralsRes val id: Int, val count: Int) : UiText
+    data class Raw(val value: String) : UiText // safe server fallback text only
+}
+```
+
+Validators, mappers and use cases return typed values (`EmailError.TooShort`,
+`PriceFormat.Free`), never display strings; the ViewModel maps them to
+`UiText`, and the renderer resolves it with `stringResource` or
+`pluralStringResource`. ViewModels may emit Android string resource ids, such as
+`R.string.retry`, as stable message keys when the repo uses that convention. They should not resolve those ids with
 `Context`, `Resources`, `getString()`, or `stringResource`, and should not
 hardcode user-visible copy. The Screen holder, Activity, Fragment, or Composable
 renderer resolves message keys into localized platform resources. Safe server
@@ -275,9 +437,9 @@ afterthought:
 - Do not add Compose runtime annotations to pure domain, repository, or model
   modules only to satisfy UI stability. Keep those modules structurally immutable,
   then map to annotated UI models in the feature or design-system boundary.
-- Avoid `var`, mutable collections, mutable maps, arrays, raw SDK objects,
-  unguarded `Context`, `Activity`, `NavController`, `CoroutineScope`, or
-  repository references inside `UiState`.
+- Never put `var`, mutable collections, mutable maps, arrays, raw SDK objects,
+  `Context`, `Activity`, `NavController`, `CoroutineScope`, or repository
+  references inside `UiState`.
 - Use immutable or persistent collections for lists that cross into Compose,
   especially high-churn `LazyColumn` or `LazyRow` models. If the repo uses
   `kotlinx.collections.immutable`, prefer `ImmutableList` plus `persistentListOf`
@@ -305,7 +467,7 @@ sealed interface ProfileStatus {
     data class Content(val profile: ProfileViewData) : ProfileStatus
 
     @Immutable
-    data class Error(val message: UiMessage) : ProfileStatus
+    data class Error(val message: UiText) : ProfileStatus
 }
 ```
 
@@ -365,7 +527,7 @@ sealed interface ProfileStatus {
     @Immutable
     data class Content(val profile: ProfileViewData) : ProfileStatus
     @Immutable
-    data class Error(val message: UiMessage) : ProfileStatus
+    data class Error(val message: UiText) : ProfileStatus
     data object PermissionDenied : ProfileStatus
 }
 
@@ -378,7 +540,7 @@ sealed interface ProfileAction {
 sealed interface ProfileEffect {
     data object NavigateBack : ProfileEffect
     data class OpenEditor(val id: ProfileId) : ProfileEffect
-    data class ShowSnackbar(val message: UiMessage) : ProfileEffect
+    data class ShowSnackbar(val message: UiText) : ProfileEffect
 }
 ```
 
@@ -389,6 +551,10 @@ class ProfileViewModel(
     private val _state = MutableStateFlow(ProfileUiState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
 
+    // Channel(BUFFERED): one holder consumes each effect exactly once, and an
+    // effect sent while no collector is attached (between STOP and START) waits
+    // in the buffer instead of being dropped, as a SharedFlow without replay
+    // would do. Use SharedFlow when several collectors must each see it.
     private val _effects = Channel<ProfileEffect>(Channel.BUFFERED)
     val effects: Flow<ProfileEffect> = _effects.receiveAsFlow()
 
@@ -396,7 +562,8 @@ class ProfileViewModel(
         when (action) {
             ProfileAction.RetryClick -> load()
             ProfileAction.BackClick -> emitEffect(ProfileEffect.NavigateBack)
-            ProfileAction.EditClick -> openEditor()
+            ProfileAction.EditClick ->
+                editTarget(_state.value)?.let { emitEffect(ProfileEffect.OpenEditor(it)) }
         }
     }
 
@@ -407,10 +574,9 @@ class ProfileViewModel(
         }
     }
 
-    private fun openEditor() {
-        val content = _state.value.status as? ProfileStatus.Content ?: return
-        emitEffect(ProfileEffect.OpenEditor(content.profile.id))
-    }
+    // Pure: takes the state it decides on instead of reading the holder.
+    private fun editTarget(state: ProfileUiState): ProfileId? =
+        (state.status as? ProfileStatus.Content)?.profile?.id
 
     private fun emitEffect(effect: ProfileEffect) {
         viewModelScope.launch { _effects.send(effect) }
@@ -436,12 +602,15 @@ Implementation rules:
   product contract.
 - Convert repository/domain errors into typed UI messages or state. Do not pass
   raw exceptions to Compose.
-- For `suspend` API calls, do not make sealed `Success/Failure` network results
-  the default shape only to re-wrap exceptions. Let successful suspend calls
-  return the value, normalize library-specific HTTP responses at the network or
-  API boundary, and throw typed transport/protocol/domain exceptions for failure.
-  The ViewModel or reducer should catch those typed failures and map them to
-  screen state or one-off effects.
+- Follow the repo's existing result convention for `suspend` API calls. When
+  repositories already return a sealed result type, keep it and branch with an
+  exhaustive `when`; do not add `getOrThrow()` or a parallel exception path in
+  new code. Only when the repo has no convention: do not invent sealed
+  `Success/Failure` results just to re-wrap exceptions. Let successful suspend
+  calls return the value, normalize library-specific HTTP responses at the
+  network or API boundary, and throw typed transport/protocol/domain
+  exceptions for failure. Either way the ViewModel or reducer maps the typed
+  failure to screen state or a one-off effect, as described in Error Handling.
 - When a Retrofit or HTTP stack exposes raw response handles, prefer a
   `CallAdapter`, client interceptor, or API boundary adapter that centralizes
   success, non-2xx, empty body, body conversion failure, network failure, and
@@ -484,6 +653,57 @@ State transitions must operate on the freshest state:
   contract stays two lanes: `UiState` fields and typed effects.
   Counter-increment-and-return helpers and getters the view polls are the same
   third-channel violation.
+
+## Error Handling
+
+Layering: the data or API boundary turns transport, HTTP and parsing failures
+into typed failures; the repository or use case adds domain meaning; the
+ViewModel alone decides what the user sees. Composables never inspect an
+exception or a raw server envelope.
+
+| Failure | Default UI | Retry |
+| --- | --- | --- |
+| Initial load failed, nothing to show | full-screen error state with retry | user-triggered |
+| Refresh or paging failed, content already shown | keep content, show a banner or snackbar with retry | user-triggered |
+| Submit or save failed | keep the draft, show an inline or snackbar error, re-enable submit | user-triggered |
+| Validation failed | inline field error from a typed validation value | none; fix input |
+| Offline | offline state or banner; queue only work that is safe to replay | on reconnect, when idempotent |
+| Session expired or unauthorized | the app's re-auth route, not a screen-local message | after re-auth |
+| Permission denied | permission-denied state with the settings path | on grant |
+
+Retry classes:
+
+- Transient (timeout, 5xx, connection lost): may retry automatically with a
+  bounded backoff only when the operation is idempotent (a read, or a write
+  with an idempotency key or server-side dedupe).
+- Permanent (4xx other than auth, validation, not found): never auto-retry;
+  show the state and let the user change something.
+- Unknown: treat as permanent for automatic retry; offer a manual retry.
+
+A silent fallback (empty list, cached value, default) is allowed only when the
+product explicitly treats the data as optional and the failure is logged with
+its cause; otherwise the failure must be visible.
+
+Do not:
+
+- Catch and drop an exception with an empty block, or log it and continue as
+  if it succeeded.
+- Turn a failure into a success value (an empty list, `false`, a default
+  object) that the UI cannot tell apart from real data.
+- Lose the cause: map to a typed failure but keep the original exception for
+  logging and diagnostics.
+- Convert `CancellationException` into a user-visible error.
+- Retry automatically a write that is not idempotent.
+
+## Compose State Bridges And Recovery
+
+- Turn Compose state (scroll position, text field state, visible item) into a
+  ViewModel input with `snapshotFlow` collected in an effect keyed by its
+  owner, then send typed actions; do not read Compose `State` inside the
+  ViewModel.
+- Recovery actions (retry, refresh, re-auth return, reconnect) must be
+  idempotent: a second trigger while the first is in flight is ignored or
+  replaces it, and never duplicates a write or an effect.
 
 ## Flow And Coroutine Rules
 

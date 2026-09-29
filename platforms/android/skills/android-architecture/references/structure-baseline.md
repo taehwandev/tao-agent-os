@@ -13,20 +13,32 @@ contract every Android change applies.
 
 ## Concrete Structure Baseline
 
-For a product-sized Compose app, start with this concrete structure and shrink it when the repo is smaller:
+Detect the repo's existing module layout first and extend it. The tree below
+is the largest shape a product-sized Compose app may grow into. It is never a
+scaffold: do not create it, or empty parts of it, up front. Add each module only
+when the split decision in
+[`module-boundaries.md`](../../android-module-structure/references/module-boundaries.md)
+names the caller that needs it.
 
 ```text
 app                         Activity, app startup, top-level navigation, DI wiring
 core/designsystem            theme, semantic tokens, component wrappers, previews
-core/model                   pure Kotlin product models and ids
-core/domain                  use cases, repository contracts, product policies
+core/model                   optional: pure Kotlin models shared by several modules
+core/domain                  optional: pure policy shared across features
 core/data                    repository implementations, DTO/cache mapping, fakes
-core-app/<area>              Android/Compose app-runtime helpers
+core/<capability>            shared Android/Compose runtime helpers, one capability each
 feature/<name>/api           destinations, navigate actions, entrypoints, events
 feature/<name>/impl          Screen holder, ViewModel, UiState, Content, components
-core/<area>/assertions       reusable fakes, fixtures, and assertion helpers
+core/<area>/assertions       optional: fakes and fixtures shared by several test boundaries
 build-logic                  convention plugins and shared build settings
 ```
+
+`core/domain` exists only for pure policy shared across features; never add
+pass-through use cases to fill it, and do not create one domain module per
+capability. `core/model` exists only when several modules share the same pure
+types. Start data as one `api`/implementation pair partitioned by capability
+packages (see
+[`split-and-migration.md`](../../android-module-structure/references/split-and-migration.md)).
 
 Keep the `app` module thin. Put reusable visual primitives in the design system, pure business data in model/domain, source coordination in data, and screen orchestration in feature implementations. Skip `api` modules, use cases, or repository splits until another module, test boundary, platform dependency, or replaceable implementation needs the contract.
 
@@ -36,8 +48,8 @@ the concrete feature surface; keep Activity and entry-binding execution in
 `impl`. Add `api` for the whole navigation contract — destination type,
 arguments, deep link, result, and `navigateTo<Feature>` — so a module that only
 navigates never depends on the implementation. See
-`../../android-module-structure/references/module-boundaries.md` for the
-canonical ownership and dependency rules.
+[`module-boundaries.md`](../../android-module-structure/references/module-boundaries.md)
+for the canonical ownership and dependency rules.
 
 When a repo intentionally uses `api` plus implementation modules as its baseline
 architecture, keep the same SOLID meaning: `api` exposes role-sized contracts,
@@ -52,12 +64,15 @@ or `base` name is too broad for a caller to infer the capability, either split
 the capability into a precise module or keep a precise package/export boundary
 under the existing module.
 
-Use `core-app` when shared code needs Android or Compose runtime APIs but should
-remain feature-policy free. Good candidates are notice or alert hosts,
-permission adapters, ActivityRoute launch adapters, reusable WebView runtime,
-resources, and app-shell helpers. Keep feature copy, product route policy,
-analytics policy, repositories, and screen-specific state in the app or feature
-owner.
+Use a shared `core/<capability>` module when shared code is reused by several
+features but should remain feature-policy free, and pick its Gradle plugin from
+what it exports (pure Kotlin, Android library, or Compose). Needing Android or
+Compose runtime APIs is not a reason to leave `core`. Good candidates are notice
+or alert hosts, permission adapters, Activity route launch adapters, reusable
+WebView runtime, resources, and app-shell helpers. Keep feature copy, product
+route policy, analytics policy, repositories, and screen-specific state in the
+app or feature owner. A `core-app` family is an option only when the repo
+already uses one.
 
 Do not put reusable Compose Activity templates, route execution, deep-link
 handoff, notice/toast/dialog rendering, permission launchers, reusable WebView
@@ -234,5 +249,5 @@ Module decision:
   Activity wrapper is not sufficient reason.
 - Add repository `api`/implementation split when features need stable repository interfaces/entities but must not see DTOs, Retrofit/Room/DataStore, SDKs, or cache internals.
 - Add `assertions` modules only when reusable fakes, fixtures, recording helpers, or assertion DSLs need to compile against stable API contracts without importing production implementation modules.
-- Add `core-app` only for shared Android/Compose app-runtime helpers that are free of feature copy, route policy, analytics policy, repository calls, and screen-specific state.
+- Add a shared `core/<capability>` module only for Android/Compose app-runtime helpers that are free of feature copy, route policy, analytics policy, repository calls, and screen-specific state.
 - Add shared/core modules only for stable, repeated contracts with clear ownership; do not create catch-all common modules.

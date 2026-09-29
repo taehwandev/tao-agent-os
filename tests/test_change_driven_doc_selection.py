@@ -310,7 +310,11 @@ class ComposeCardSplitTests(unittest.TestCase):
     )
 
     def test_the_authoring_contract_stays_small(self):
-        self.assertLess(self.CONTRACT.stat().st_size, 12_000)
+        # The contract now carries the ordered authoring procedure and the
+        # authoring defaults (lazy keys, Modifier.Node, animation, effects)
+        # that used to sit in compose-performance.md, where ordinary screen
+        # work never read them. Still far below the 39.9 KB it was split from.
+        self.assertLess(self.CONTRACT.stat().st_size, 18_500)
 
     def test_every_sibling_exists_and_is_reachable_from_the_contract(self):
         contract = self.CONTRACT.read_text(encoding="utf-8")
@@ -360,7 +364,6 @@ class ComposeCardSplitTests(unittest.TestCase):
             "compose-performance.md": [
                 "Use a measure-first loop for Compose performance work",
                 "Stability annotations are contracts.",
-                "Every domain-backed lazy item should have a stable key",
                 "Compose performance starts with stable inputs.",
                 "A Compose stability configuration file can mark external",
             ],
@@ -377,6 +380,9 @@ class ComposeCardSplitTests(unittest.TestCase):
             ],
         }
         kept_in_contract = [
+            # Authoring defaults moved from compose-performance.md so ordinary
+            # screen work applies them without a performance request.
+            "Every domain-backed lazy item should have a stable key",
             "Screen/Holder Composable -> Content Composable -> Section Composable",
             "Compose screens must be split into named composables",
             "Do not obtain ViewModels, repositories, activities, nav controllers",

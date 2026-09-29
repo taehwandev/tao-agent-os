@@ -6,8 +6,12 @@ type: ai-generated
 
 # Compose Edge-To-Edge And IME Insets
 
-Use when a Compose screen draws behind system bars, handles keyboard overlap,
-or migrates legacy window system-bar configuration.
+Read at step 5 of the [Compose UI steps](current-guidance.md#steps) for every screen
+skeleton, and whenever a Compose screen draws behind system bars, handles
+keyboard overlap, or migrates legacy window system-bar configuration. The
+scaffold-level rules (bars in slots, body consumes inner padding, one IME
+owner) are in
+[Screen Skeleton](current-guidance.md#screen-skeleton).
 
 ## Edge-To-Edge Ownership
 
@@ -53,6 +57,10 @@ or migrates legacy window system-bar configuration.
   when copying an existing Activity or manifest entry. Handle the software
   keyboard with `Modifier.imePadding()` instead.
 - Keep `adjustResize` only on an Activity whose screens are XML layouts.
+- An `adjustResize` that already exists at the app or Activity level may be a
+  compatibility setting that delivers IME insets on older Android versions.
+  Leave it in place during screen work. Removing it is a separate change that
+  needs verification on a device at the app's minSdk, not part of a UI edit.
 - When Compose hosts XML through `AndroidView` or another interop seam, the
   Compose tree still owns the layout, so use `Modifier.imePadding()` on the
   Compose container instead of adding `adjustResize` to that Activity.
@@ -63,24 +71,35 @@ or migrates legacy window system-bar configuration.
 - Target SDK 35 or higher makes edge-to-edge the platform default, so
   `enableEdgeToEdge()` plus `Modifier.imePadding()` is the baseline keyboard
   path. No manifest soft-input mode is needed to make it work, and an older
-  runtime API level is not a reason to reintroduce one.
-- Use `Modifier.imePadding()` on the screen container, scroll container, or
-  bottom action area that must move above the software keyboard. Do not rely on
-  fixed `Dp` keyboard spacers or a manifest soft-input mode alone.
+  runtime API level is not a reason to add one to a screen that lacks it.
+- Apply the IME inset at one owner: `Modifier.imePadding()` on the root
+  `Scaffold` (keeping `ime` out of its `contentWindowInsets`), `imePadding()` on
+  the `bottomBar` content when only the bar should move, a repo scaffold wrapper
+  that already does one of these, or a single content container when the
+  screen has no scaffold. A stock Material3 `Scaffold`'s `contentWindowInsets`
+  pads only the body and never lifts `bottomBar`, so it is not an IME owner for
+  a bottom CTA. Put a bottom CTA or input bar that must follow the keyboard in
+  the scaffold's `bottomBar`, not in a sibling overlay with its own
+  `imePadding()`. Do not rely on fixed `Dp` keyboard spacers or a manifest
+  soft-input mode alone.
 - Place `Modifier.imePadding()` before `Modifier.verticalScroll()` in the
   modifier chain. After the scroll modifier it pads inside the scrolling
   content instead of moving the container above the keyboard.
 - Give each screen exactly one IME owner. Do not add `Modifier.imePadding()`
   under a parent that already accounts for the IME through `Scaffold`
   `contentWindowInsets` or another inset consumer; two owners double the
-  keyboard padding.
+  keyboard padding. Do not pre-consume the IME with
+  `consumeWindowInsets(WindowInsets.ime)` under that owner either.
 - Prefer Compose inset modifiers such as `safeDrawingPadding`,
   `windowInsetsPadding`, `windowInsetsBottomHeight`, and `imePadding` over
   hand-rolled system bar or keyboard measurements. Avoid double-applying insets
-  across parent and child layouts.
+  across parent and child layouts, and do not wrap the whole root in
+  `safeDrawingPadding()` when a scaffold already hands out inner padding.
 - For `LazyColumn` or other scrolling forms, verify the focused text field and
-  bottom actions remain visible while the IME opens. Use inset-sized bottom
-  spacers when needed instead of only `contentPadding`.
+  bottom actions remain visible while the IME opens, and that no extra bottom
+  gap remains after it closes. Do not assume a shrunken viewport scrolls the
+  focused field into view; verify it. Use inset-sized bottom spacers when needed instead
+  of only `contentPadding`.
 - Keep tappable controls and gesture targets out of unsafe system gesture areas
   unless the product intentionally owns that interaction and verifies it on
   gesture navigation and 3-button navigation.

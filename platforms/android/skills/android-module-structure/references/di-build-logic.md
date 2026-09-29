@@ -13,7 +13,10 @@ graph assembly across Android modules.
 ## Convention Plugin Shape
 
 Use `build-logic` to remove repeated Gradle setup, not to hide product behavior.
-A small Android repo usually needs only a few additive convention plugins:
+Detect the repo's existing plugin ids, package, and plugin granularity first
+and extend them; the list below is the fallback when the repo has none. Never
+copy a reference app's plugin list. A small Android repo usually needs only a
+few additive convention plugins:
 
 ```text
 <repo>.android.application
@@ -50,6 +53,25 @@ per-module baseline files owned by each module. Register rule-set plugin
 dependencies in exactly one build-logic owner; do not duplicate them across
 plugins or place shared tool config inside the app or a feature module.
 
+Do not add Gradle tasks, staged-only checks, or Git hooks that nothing invokes.
+A task needs a caller: a module that applies it, a CI step, or a documented
+command the repo already runs.
+
+## Cleanup Procedure
+
+When tidying `build-logic` or convention plugins:
+
+1. List every plugin id, its `implementationClass`, its configure helpers, and
+   the modules that apply it.
+2. Search for real callers of each plugin id, task name, and configure helper
+   (for example `rg "<plugin-id>|<taskName>|<configureFunction>"`).
+3. Treat a plugin, task, or helper with no caller as a removal candidate, and
+   remove it unless the user asked to keep it.
+4. Consolidate duplicate dependency blocks into one convention plugin or helper
+   so each repeated block has exactly one owner.
+5. Keep file moves separate from behavior changes, and keep each plugin's
+   package declaration aligned with its file path.
+
 ## Android DI Build Logic
 
 When an Android repo chooses Hilt, treat it as the default Android DI baseline
@@ -78,7 +100,7 @@ Use this placement:
 
 ```text
 app                         @HiltAndroidApp, @AndroidEntryPoint activities
-core/runtime or core-app     runtime bindings such as ActivityRouteLauncher
+core/<capability>            runtime bindings such as ActivityRouteLauncher
 feature/<name>/impl          feature-owned @IntoSet entries and adapters
 core/domain or feature/api   pure contracts with no Hilt dependency
 build-logic                  the <repo>.android.hilt convention only
@@ -88,7 +110,9 @@ Prefer Hilt multibindings for additive registrations such as activity route
 launch handlers, route event handlers, deep-link specs, app initializers,
 notice renderers, and route entry providers. The app shell should inject a
 `Set<Handler>` or registry contract instead of manually constructing
-`listOf(FeatureHandler())`.
+`listOf(FeatureHandler())`. A binding with one implementation that only hides
+one concrete composable from one caller is not an additive registration; see
+[`compose-entry-contracts.md`](compose-entry-contracts.md).
 
 When a handler set is injected, keep the owner that consumes the set injectable
 too. Use a route graph, router factory, coordinator, or registry class with an
@@ -104,7 +128,7 @@ implementation:
 ```text
 app/di                       BuildConfig config, app-wide repository selection,
                              auth gateway selection, qualified network clients
-core/runtime/di              runtime adapters that need Android APIs
+core/<capability>/di         runtime adapters that need Android APIs
 feature/<name>/impl/di       feature-owned @IntoSet handlers and route entries
 feature/api or core/domain   pure contracts, no Hilt annotations
 ```
@@ -141,6 +165,12 @@ environment, inject it at the appropriate scope. Wrapping in `private`,
 pure value, and locally recreating an already-DI-managed type creates
 configuration divergence and test blind spots. Prefer a narrow pure API over a
 full configured instance when only one small operation is needed.
+
+A DI binding does not change the dependency graph's meaning. If a lower module
+needs behavior that lives in `impl`, an interface in the lower module plus a
+binding in `impl` still hides a wrong edge unless that interface is the lower
+module's own contract. Apply the Dependency Edge Verification in
+[`module-layout.md`](module-layout.md).
 
 Example:
 
@@ -182,3 +212,23 @@ Do not:
   repo baseline
 - add Metro beside Hilt without a repo-level migration plan and equivalence test
 
+## Verification
+
+Verify build-logic changes in this order:
+
+1. Compile the included build-logic build first (for example
+   `./gradlew :build-logic:<convention-module>:compileKotlin`, using the repo's
+   actual included-build path).
+2. Then compile or test one representative module per plugin family whose
+   plugin changed (application, library, Compose library, Kotlin library, Hilt,
+   test), using the repo's flavor-qualified task names where flavors exist.
+3. Do not use a full app build or `clean` as the first or only check.
+
+Done means:
+
+- every plugin id resolves to its `implementationClass`, and each plugin's
+  package matches its path
+- no plugin id, task, or helper remains without a caller
+- each repeated setup block has one owner
+- the included build compiles, and each affected plugin family's
+  representative module compiles

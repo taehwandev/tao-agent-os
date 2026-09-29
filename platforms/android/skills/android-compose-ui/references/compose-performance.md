@@ -6,10 +6,15 @@ type: human-reviewed-needed
 
 # Compose Performance And Stability
 
-Use when the task names jank, recomposition, stability, lazy-list scrolling, startup, or a measured regression. Not needed to author or move a composable.
+Read when a task reports or measures jank, excess recomposition, stability
+problems, slow lazy-list scrolling, startup cost, or another Compose
+performance regression. This file is the measure-first diagnosis procedure.
 
-Split out of `current-guidance.md`, which keeps the Compose
-authoring contract every UI change applies.
+The authoring rules every composable follows by default (modifier order,
+deferred reads, lazy `key`/`contentType`, `Modifier.Node`, animation API
+choice, effect keys, `rememberUpdatedState`) are in
+[Authoring Rules](current-guidance.md#authoring-rules), not here. When a
+diagnosis finds one of them violated, fix it as that section describes.
 
 ## Compose Performance Gate
 
@@ -43,110 +48,7 @@ Performance claims should use release-like evidence whenever practical:
   are diagnostics; the task still needs a user-visible path, bottleneck
   category, and verification evidence that matches the claim.
 
-### Stability And Strong Skipping
-
-- Check the Kotlin and Compose compiler versions before changing stability
-  policy. Newer Kotlin/Compose toolchains may enable strong skipping by
-  default; do not add configuration without verifying the current behavior.
-- Stability annotations are contracts. Use `@Immutable` or `@Stable` only for
-  owned types whose public properties, equality behavior, and mutation rules are
-  defensible.
-- Prefer immutable collections or stable UI wrappers before adding a stability
-  configuration entry. Stability config is a codebase-wide promise, not a local
-  patch.
-- Pure Kotlin/data modules that need Compose stability markers should use the
-  official runtime annotation artifact or an approved repo-local marker pattern
-  without depending on the full Compose runtime.
-- `Flow`, channels, repositories, platform objects, and mutable collections are
-  not stable UI state. Collect, map, or wrap them before they enter composable
-  parameters.
-- Use `@NonSkippableComposable`, `@DontMemoize`, or similar escape hatches only
-  with a nearby reason and measured need.
-
-### State Reads And Effects
-
-- Use `remember { derivedStateOf { ... } }` only when inputs change more often
-  than the derived output or the calculation is meaningfully expensive. Include
-  changing non-state captures in the `remember` key list.
-- Prefer upstream `distinctUntilChanged`, `conflate`, or state mapping for
-  chatty flows. Do not wrap `collectAsStateWithLifecycle()` output in
-  `derivedStateOf` just to appear safe.
-- Do not pass `Flow<T>` as a composable parameter. Collect lifecycle-aware at
-  the route/holder boundary and pass values, state holders, or callbacks down.
-- Choose the smallest side-effect API: `SideEffect` to publish after successful
-  recomposition, `DisposableEffect` for register/unregister work,
-  `LaunchedEffect` for keyed suspending work, `rememberCoroutineScope` for
-  user-event launched work, and `snapshotFlow` for Compose state reads that
-  drive Flow-based side effects.
-- Key long-lived effects by the semantic lifecycle that should restart the
-  work. Avoid `Unit` or a whole `UiState` key when individual inputs determine
-  the lifecycle.
-- Use `rememberUpdatedState` only to provide the latest callback or value to a
-  long-lived effect without restarting it. Do not read it eagerly inside
-  `remember { ... }`.
-- A long-lived effect is not the trigger by itself; a callback that can change
-  while it runs is. Show what changes before wrapping. A bound method reference
-  such as `viewModel::onEvent` is equal across recompositions when its receiver
-  is, and strong skipping memoizes lambdas passed to composables, so neither
-  has anything to update. Wrapping anyway is noise the next reader must
-  disprove, and in a sample it teaches the habit.
-- Never use a remembered boolean event flag as a one-off effect queue. Emit a
-  callback, command, event flow, or route effect from the state holder.
-
-### Lazy Layouts And Subcomposition
-
-- Every domain-backed lazy item should have a stable key from server/domain data
-  rather than an index, random value, or mutable `hashCode`.
-- Use `contentType` for heterogeneous lazy lists so item composition can be
-  reused by shape.
-- `Modifier.animateItem()` requires stable keys and stable item identity.
-- Hoist expensive item allocations, painters, shapes, formatters, and mappers
-  out of lazy item lambdas when measurement shows churn. Do not blindly
-  `remember` cheap modifier chains.
-- Avoid nested lazy layouts, `BoxWithConstraints`, nested `Scaffold`, and other
-  subcomposition-heavy containers inside repeated lazy items unless the
-  behavior requires them and the cost is measured.
-- Configure lazy prefetch only for a real scroll bottleneck and verify with a
-  release-like scroll measurement.
-
-### Modifiers, Slots, Focus, And Animation
-
-- Build modifier chains as one fluent value. Avoid mutable modifier variables
-  and avoid hiding parent layout decisions inside leaf components.
-- New custom modifiers should prefer `Modifier.Node` over legacy
-  `Modifier.composed` unless the repo's Compose version or API surface prevents
-  it.
-- Pick the smallest animation API: `animate*AsState` for one value,
-  `updateTransition`/`rememberTransition` for synchronized values,
-  `AnimatedVisibility` when the subtree should mount/unmount, and alpha or draw
-  changes when the subtree should remain mounted. Use `contentKey` for
-  `AnimatedContent` by visual shape.
-- Focusable controls should have explicit focus targets, stable ids in lazy
-  lists, and tests for keyboard/D-pad/key input when focus behavior changes.
-
-## Stability And Recomposition
-
-Compose performance starts with stable inputs. Treat stability annotations as a
-model contract, not an optimization trick:
-
-- In Compose-aware UI modules, annotate screen `UiState`, UI display models,
-  component-default holders, and design-system token holders with `@Immutable`
-  when all public properties are immutable.
-- Annotate sealed marker interfaces with `@Stable` only when all implementations
-  are stable or immutable. Annotate leaf implementations with `@Immutable`.
-- Do not add Compose annotations to pure domain, repository, or shared model
-  modules just for the UI. Keep those types free of Compose runtime and map them
-  into annotated UI models at the feature or design-system boundary.
-- Use immutable collections for state that enters Compose. Prefer
-  `ImmutableList` and persistent collection builders when the repo already uses
-  `kotlinx.collections.immutable`.
-- Avoid mutable properties, mutable collections, raw platform objects,
-  repositories, flows, channels, and callbacks inside `UiState`.
-- Keep painter, icon, resource, `Color`, `Dp`, and typography decisions in UI
-  display models or design-system tokens, not domain models.
-- If state can refresh while showing stale content, model that explicitly
-  instead of layering `isLoading`, `error`, and nullable data in contradictory
-  combinations.
+## Recomposition Triage
 
 When a screen still recomposes too broadly, inspect first instead of guessing:
 
@@ -165,9 +67,69 @@ Triage recomposition spikes on unchanged lazy items in this order:
 2. Cross-row measurement reads, before assuming parameter stability.
 3. Per-frame growth during scroll or animation means a deferred-read
    violation: a high-frequency value read in composition instead of a
-   layout/draw or provider lambda.
+   layout/draw or provider lambda (see
+   [Deferred State Reads](current-guidance.md#deferred-state-reads)).
 4. Only when skipping genuinely fails, diagnose parameter stability with
    compiler reports, one transition at a time, remeasuring after each fix.
+
+## Diagnosed Fixes
+
+### State Reads And Flows
+
+- Use `remember { derivedStateOf { ... } }` only when inputs change more often
+  than the derived output or the calculation is meaningfully expensive. Include
+  changing non-state captures in the `remember` key list.
+- Prefer upstream `distinctUntilChanged`, `conflate`, or state mapping for
+  chatty flows. Do not wrap `collectAsStateWithLifecycle()` output in
+  `derivedStateOf` just to appear safe.
+
+### Lazy Layouts And Subcomposition
+
+- Hoist expensive item allocations, painters, shapes, formatters, and mappers
+  out of lazy item lambdas when measurement shows churn. Do not blindly
+  `remember` cheap modifier chains.
+- Remove nested lazy layouts, `BoxWithConstraints`, nested `Scaffold`, and other
+  subcomposition-heavy containers from repeated lazy items unless the behavior
+  requires them and the cost is measured.
+- Configure lazy prefetch only for a real scroll bottleneck and verify with a
+  release-like scroll measurement.
+
+### Focus
+
+- Focusable controls should have explicit focus targets, stable ids in lazy
+  lists, and tests for keyboard/D-pad/key input when focus behavior changes.
+
+## Stability And Strong Skipping
+
+Compose performance starts with stable inputs. Treat stability annotations as a
+model contract, not an optimization trick.
+
+- Check the Kotlin and Compose compiler versions before changing stability
+  policy. Newer Kotlin/Compose toolchains enable strong skipping by default; do
+  not add configuration without verifying the current behavior.
+- Stability annotations are contracts. Use `@Immutable` or `@Stable` only for
+  owned types whose public properties, equality behavior, and mutation rules are
+  defensible.
+- In Compose-aware UI modules, annotate screen `UiState`, UI display models,
+  component-default holders, and design-system token holders with `@Immutable`
+  when all public properties are immutable.
+- Annotate sealed marker interfaces with `@Stable` only when all implementations
+  are stable or immutable. Annotate leaf implementations with `@Immutable`.
+- Do not add Compose annotations to pure domain, repository, or shared model
+  modules just for the UI. Map them into annotated UI models at the feature or
+  design-system boundary. Pure Kotlin modules that need markers use the
+  official runtime annotation artifact or an approved repo-local marker.
+- Use immutable collections for state that enters Compose. Prefer
+  `ImmutableList` and persistent collection builders when the repo already uses
+  `kotlinx.collections.immutable`.
+- `Flow`, channels, repositories, platform objects, mutable collections and
+  callbacks are not stable UI state. Collect, map, or wrap them before they
+  enter `UiState` or composable parameters.
+- If state can refresh while showing stale content, model that explicitly
+  instead of layering `isLoading`, `error`, and nullable data in contradictory
+  combinations.
+- Use `@NonSkippableComposable`, `@DontMemoize`, or similar escape hatches only
+  with a nearby reason and measured need.
 
 ## Advanced Stability Options
 
@@ -185,3 +147,10 @@ recomposition or performance issue:
   separate architecture task with its own evidence.
 - Do not call feature-specific state, copy, routing, analytics, or permission
   policy a performance optimization by hiding it inside a shared component.
+
+## Report
+
+- Bottleneck category, user-visible path, and the measurement tool used.
+- Variant, device, compilation mode, iterations, and before/after numbers, or
+  an explicit note that the evidence is diagnostic only.
+- The one cause fixed per iteration and the remeasurement after it.
