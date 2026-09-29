@@ -106,6 +106,10 @@ python3 scripts/figma-handoff/figma-handoff.py \
   --max-flow-depth 0 --scale 1
 ```
 
+An individual node fetch keeps its prototype links in the summary but does not
+fetch linked destinations. To extract a connected prototype journey, opt in with
+`--max-flow-depth 4` (or the depth needed for that journey).
+
 ## Option Contract
 
 | Option | Default | Description |
@@ -116,7 +120,7 @@ python3 scripts/figma-handoff/figma-handoff.py \
 | `--out` | `<cwd>/.figma-handoff-work` | Git-ignored local bundle workspace |
 | `--format` | `png` | Frame render format: png, jpg, svg, pdf |
 | `--scale` | `2.0` | png/jpg render scale; Figma allows 0.01-4 |
-| `--max-flow-depth` | `4` | Depth of prototype transitions to follow |
+| `--max-flow-depth` | `0` | Depth of prototype transitions to follow; linked destinations are fetched only when requested |
 | `--no-images` | off | Fetch JSON only, skip frame renders |
 | `--include-image-fills` | off | Also collect the file-level image-fill URL map |
 | `--export-assets` | off | Render vectors as SVG and image fills as PNG individually |

@@ -120,6 +120,11 @@ python3 "$HANDOFF_CLI" \
   --export-assets
 ```
 
+When the request supplies separate frame URLs, extract each named frame directly.
+The default preserves its prototype links as metadata without fetching linked
+screens. Add `--max-flow-depth` only when the requested deliverable includes a
+connected prototype journey; do not expand every frame just to inspect its UI.
+
 Large SECTION splits, JSON-only runs, asset caps, and scale choices follow the
 tool contract. Without `--out`, bundles land in `.figma-handoff-work/`, a
 hidden workspace never added to Git. Create deliverable handoffs only in a
