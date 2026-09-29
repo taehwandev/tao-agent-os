@@ -19,11 +19,16 @@ MAX_TAKEAWAY_CHARS = 400
 DOC_TAKEAWAY_FILE = "doc-takeaway.json"
 
 
-def required_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
+def required_doc_reuse(
+    preflight_path: Path, *, require_takeaway: bool = True
+) -> dict[str, list[str]]:
     """Partition required docs into proven same-session reuse and unread docs.
 
     This is display-only evidence. Any malformed, missing, cross-session, or
-    changed record fails closed and leaves the document in ``unread``.
+    changed record fails closed and leaves the document in ``unread``. The
+    notice an agent reads requires the prior run's takeaway; commit-ready's
+    automatic re-attestation of an already reviewed diff acts on no document,
+    so it asks only whether the same session held them.
     """
 
     unread: list[str] = []
@@ -46,8 +51,9 @@ def required_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
                 prior_records = set(_doc_records(prior).values())
             except (ValueError, TypeError):
                 continue
-            if prior_records & wanted:
-                _add_takeaway(takeaways, prior_path)
+            credited = _credit(prior_records, wanted, prior_path, takeaways)
+            if not credited and (require_takeaway or not prior_records & wanted):
+                continue
             reusable_records.update(prior_records)
             if wanted <= reusable_records:
                 break
@@ -88,8 +94,8 @@ def project_route_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
                 prior_records = set(_project_records(prior).values())
             except (ValueError, TypeError):
                 continue
-            if prior_records & wanted:
-                _add_takeaway(takeaways, prior_path)
+            if not _credit(prior_records, wanted, prior_path, takeaways):
+                continue
             reusable.update(prior_records)
             if wanted <= reusable:
                 break
@@ -159,21 +165,30 @@ def record_doc_takeaway(evidence_path: Path, text: str) -> None:
     temporary.replace(path)
 
 
-def _add_takeaway(takeaways: list[str], prior_path: Path) -> None:
-    """Keep the prior run's recorded takeaways for replay.
+def _credit(
+    prior_records: set[tuple[str, str, int]],
+    wanted: set[tuple[str, str, int]],
+    prior_path: Path,
+    takeaways: list[str],
+) -> bool:
+    """Whether a prior run may prove these docs were read, keeping its takeaways.
 
-    A reuse notice cannot know whether the reading survived a context
-    compaction. The takeaway the agent recorded when it read those docs is the
-    bounded substitute that lets it continue without rereading them whole. It
-    is keyed by the documents that run read, not by its route, so a commit run
-    reusing a document replays what an earlier run of any route recorded.
+    A completed run that listed a document proves only that the document was
+    required, not that it was read, and a reuse notice with nothing to replay
+    after a context compaction told the agent to trust a reading it no longer
+    had. So a run counts only when it recorded what it took from its docs; one
+    that recorded nothing leaves them unread. The takeaways are keyed by the
+    documents a run read, not by its route, so a commit run reusing a document
+    replays what an earlier run of any route recorded.
     """
 
-    for text in (_source_docs_takeaway(prior_path), _review_takeaway(prior_path)):
-        if len(takeaways) >= MAX_TAKEAWAYS:
-            return
-        if text and text not in takeaways:
+    if not prior_records & wanted:
+        return False
+    recorded = [text for text in (_source_docs_takeaway(prior_path), _review_takeaway(prior_path)) if text]
+    for text in recorded:
+        if len(takeaways) < MAX_TAKEAWAYS and text not in takeaways:
             takeaways.append(text)
+    return bool(recorded)
 
 
 def _source_docs_takeaway(prior_path: Path) -> str:

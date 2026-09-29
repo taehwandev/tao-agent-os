@@ -60,7 +60,7 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
     current.continue_from = ""
     current.reuse_inputs = ""
     try:
-        if required_doc_reuse(current.evidence)["unread"]:
+        if required_doc_reuse(current.evidence, require_takeaway=False)["unread"]:
             print("Compact completion deferred: required knowledge lacks matching history evidence. "
                   "Reuse unchanged readings retained in context; read only missing knowledge. "
                   "Continue this existing run with review and finish; do not start again.")

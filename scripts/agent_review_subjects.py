@@ -230,7 +230,7 @@ def empty_review_scope_invocation_failure_details(
         "invoke this hook with --review-scope commit-range, --review-base, and --review-head",
     ]
     if suggested_range:
-        details.append(f"committed branch: rerun the same review with {suggested_range}")
+        details.append(f"committed branch, rerun the same review with {suggested_range}")
     details.append(
         "review did not start, so no lifecycle checkpoint failed and repair-verify is not required"
     )

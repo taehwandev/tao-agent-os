@@ -25,6 +25,7 @@ class RequiredDocReuseTests(unittest.TestCase):
         *,
         prior_session: str = "session-one",
         prior_hash: str = "a" * 64,
+        takeaway: str = "prior run applied the operating contract",
     ) -> Path:
         tao = root / ".tao"
         prior_id = "a" * 32
@@ -82,6 +83,8 @@ class RequiredDocReuseTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        if takeaway:
+            record_doc_takeaway(prior, takeaway)
         (tao / "run-registry.json").write_text(
             json.dumps(
                 {
@@ -174,7 +177,7 @@ class RequiredDocReuseTests(unittest.TestCase):
     def test_reuse_replays_the_prior_runs_recorded_source_docs_takeaway(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            current = self._fixture(root)
+            current = self._fixture(root, takeaway="")
             ledger = root / ".tao/runs" / ("a" * 32) / "gate-evidence.json"
             ledger.write_text(json.dumps({"entries": [
                 {"gate": "source docs", "status": "SUCCESS",
@@ -185,16 +188,46 @@ class RequiredDocReuseTests(unittest.TestCase):
 
             self.assertEqual(["stage before review; one lifecycle per task"], reuse["takeaways"])
 
-    def test_no_takeaway_without_a_successful_source_docs_record(self) -> None:
+    def test_a_run_that_recorded_no_takeaway_proves_no_reading(self) -> None:
+        """Listing a document proves it was required, not read; after a
+        compaction a takeaway-less reuse notice pointed at a lost reading."""
+
         for entries in ([], [{"gate": "source docs", "status": "FAIL", "fields": {"takeaway": "x"}}]):
             with self.subTest(entries=entries), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                current = self._fixture(root)
+                current = self._fixture(root, takeaway="")
                 ledger = root / ".tao/runs" / ("a" * 32) / "gate-evidence.json"
                 ledger.write_text(json.dumps({"entries": entries}))
                 reuse = required_doc_reuse(current)
-                self.assertTrue(reuse["reused"])
+                self.assertEqual([], reuse["reused"])
+                self.assertIn("common/skills/agent-operating-skill/SKILL.md", reuse["unread"])
                 self.assertNotIn("takeaways", reuse)
+
+    def test_commit_ready_proof_needs_history_not_a_takeaway(self) -> None:
+        """Commit-ready re-attests an already reviewed diff and reads no doc."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            current = self._fixture(Path(directory), takeaway="")
+            reuse = required_doc_reuse(current, require_takeaway=False)
+            self.assertEqual(["common/skills/agent-operating-skill/SKILL.md"], reuse["reused"])
+            self.assertNotIn("takeaways", reuse)
+
+    def test_project_docs_from_a_takeaway_less_run_stay_unread(self) -> None:
+        document = {"path": ".agents/shared/llm-skills/commit-and-push/SKILL.md",
+                    "sha256": "e" * 64, "size_bytes": 900}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root, takeaway="")
+            prior = root / ".tao/runs" / ("a" * 32) / "preflight.json"
+            for path in (prior, current):
+                payload = json.loads(path.read_text())
+                payload["project_route_docs"] = [document]
+                path.write_text(json.dumps(payload))
+
+            reuse = project_route_doc_reuse(current)
+
+            self.assertEqual([], reuse["reused"])
+            self.assertEqual([document["path"]], reuse["unread"])
 
     def test_project_route_docs_reuse_unchanged_records_only(self) -> None:
         document = {"path": ".agents/shared/llm-skills/commit-and-push/SKILL.md",
@@ -216,7 +249,7 @@ class RequiredDocReuseTests(unittest.TestCase):
 
             self.assertEqual([document["path"]], reuse["reused"])
             self.assertEqual([changed["path"]], reuse["unread"])
-            self.assertNotIn("takeaways", reuse)
+            self.assertEqual(["prior run applied the operating contract"], reuse["takeaways"])
 
     def test_review_takeaway_replays_for_routes_without_source_docs(self) -> None:
         """A commit run has no source-docs gate; its review takeaway is the record."""
@@ -225,7 +258,7 @@ class RequiredDocReuseTests(unittest.TestCase):
                     "sha256": "e" * 64, "size_bytes": 900}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            current = self._fixture(root)
+            current = self._fixture(root, takeaway="")
             prior = root / ".tao/runs" / ("a" * 32) / "preflight.json"
             for path in (prior, current):
                 payload = json.loads(path.read_text())

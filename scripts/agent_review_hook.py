@@ -1094,9 +1094,10 @@ def suggested_commit_range(project: Path, run_command: CommandRunner) -> str:
     base_sha, head_sha = base["stdout"].strip(), head["stdout"].strip()
     if not base_sha or not head_sha or base_sha == head_sha:
         return ""
+    # The arguments end the line so they can be pasted as they are.
     return (
-        f"--review-scope commit-range --review-base {base_sha} --review-head {head_sha} "
-        f"(merge-base with {base_ref})"
+        f"(merge-base with {base_ref}): --review-scope commit-range "
+        f"--review-base {base_sha} --review-head {head_sha}"
     )
 
 

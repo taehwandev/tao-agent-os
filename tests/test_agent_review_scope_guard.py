@@ -1012,10 +1012,11 @@ class ReviewScopeGuardTests(unittest.TestCase):
             suggestion = agent_review_hook.suggested_commit_range(ROOT, git)
 
         self.assertEqual(
-            f"--review-scope commit-range --review-base {base} --review-head {head} "
-            "(merge-base with origin/develop)",
+            "(merge-base with origin/develop): "
+            f"--review-scope commit-range --review-base {base} --review-head {head}",
             suggestion,
         )
+        self.assertTrue(suggestion.endswith(head), "the arguments end the line")
         answers[("merge-base", "HEAD", "origin/develop")] = head
         with patch("agent_review_hook.BASE_DRIFT_CANDIDATE_REFS", ("origin/develop",)):
             self.assertEqual("", agent_review_hook.suggested_commit_range(ROOT, git))
