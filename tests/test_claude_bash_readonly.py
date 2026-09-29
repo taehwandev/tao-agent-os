@@ -872,6 +872,35 @@ class InspectionIsNotMutationTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual("mutating", git_command_kind(command.split()))
 
+    def test_a_single_key_config_read_is_read_only(self) -> None:
+        """Commit procedures check identity with `git config user.name`.
+
+        Only `--get` was recognised, so the documented bare form was refused
+        before every commit and had to be retried.
+        """
+
+        from claude_bash_git import git_command_kind
+
+        for command in (
+            "git config user.name",
+            "git config --global user.email",
+            "git config --show-origin core.hooksPath",
+            "git config get user.name",
+            "git config list",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", git_command_kind(command.split()))
+        for command in (
+            "git config user.name someone",
+            "git config --unset user.name",
+            "git config --add remote.origin.fetch x",
+            "git config --file /tmp/config user.name",
+            "git config --replace-all user.name x",
+            "git config -e",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual("mutating", git_command_kind(command.split()))
+
 
 class TheWorktreeLifecycleIsOneThingTests(unittest.TestCase):
     """Making a worktree and removing it are the same routine step.

@@ -201,6 +201,7 @@ def _review_scope_verdict(
     finish_with_result: FinishWithResult,
     on_invocation_error: Callable[[], None] | None,
     *,
+    run_command: CommandRunner,
     status_before: dict[str, Any],
     full_status_before: dict[str, Any],
     status_before_lines: list[str],
@@ -247,7 +248,9 @@ def _review_scope_verdict(
         return finish_with_result(
             "review",
             False,
-            empty_review_scope_invocation_failure_details(scope_failure, review_scope),
+            empty_review_scope_invocation_failure_details(
+                scope_failure, review_scope, suggested_commit_range(args.project, run_command)
+            ),
             args.output,
             checks,
             args.repair_cycle,
@@ -570,6 +573,7 @@ def review_hook(
         failures,
         finish_with_result,
         on_invocation_error,
+        run_command=run_command,
         status_before=status_before,
         full_status_before=tree["full_status_before"],
         status_before_lines=status_before_lines,
@@ -1069,6 +1073,31 @@ def resolve_base_ref(project: Path, run_command: CommandRunner) -> str:
         if verified["returncode"] == 0 and verified["stdout"].strip():
             return candidate
     return ""
+
+
+def suggested_commit_range(project: Path, run_command: CommandRunner) -> str:
+    """The commit-range arguments that review a clean, already-committed branch.
+
+    A working-tree review of a committed or rebased branch finds nothing to
+    review, and the refusal used to name the flags without their values, so the
+    next call went looking for the base. The merge-base with the integration
+    ref is the range the branch itself contributes.
+    """
+
+    base_ref = resolve_base_ref(project, run_command)
+    if not base_ref:
+        return ""
+    base = run_command(["git", "merge-base", "HEAD", base_ref], project)
+    head = run_command(["git", "rev-parse", "HEAD"], project)
+    if base["returncode"] != 0 or head["returncode"] != 0:
+        return ""
+    base_sha, head_sha = base["stdout"].strip(), head["stdout"].strip()
+    if not base_sha or not head_sha or base_sha == head_sha:
+        return ""
+    return (
+        f"--review-scope commit-range --review-base {base_sha} --review-head {head_sha} "
+        f"(merge-base with {base_ref})"
+    )
 
 
 def record_review_base_drift(

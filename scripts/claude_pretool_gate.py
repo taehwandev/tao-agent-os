@@ -67,7 +67,8 @@ try:  # The gate must never fail to load; the import is only used for a message.
     )
     from claude_command_effect import command_effect, unknown_recovery
     from claude_scratch_checkout import scratch_command, scratch_script_command, throwaway_checkout
-    from claude_bash_syntax import resolve_target, scratch_write_target
+    from claude_bash_syntax import command_segments, resolve_target, scratch_write_target, shell_keyword_command
+    from claude_bash_readonly import simple_command_kind
     from claude_worktree_gate import (
         BASH_TOOLS,
         MAIN_CHECKOUT_OVERRIDE_ENV,
@@ -92,6 +93,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         NAMED_TARGET,
         AUTHORING_GIT,
         UNREADABLE_SYNTAX,
+        UNREAD_STEP,
         WORKFLOW_START_REMEDY,
         WORKFLOW_START_TARGET,
     )
@@ -190,9 +192,20 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
     NAMED_TARGET = "named_target"
     AUTHORING_GIT = "authoring_git"
     UNREADABLE_SYNTAX = "unreadable_syntax"
+    UNREAD_STEP = "unread_step"
     WORKFLOW_START_TARGET = "workflow_start_target"
     WORKFLOW_START_REMEDY = ""
     CHAINED_START_REMEDY = ""
+
+    def command_segments(tokens: list[str]) -> "list[list[str]] | None":
+        # A broken install splits nothing, so no refusal names a step.
+        return None
+
+    def shell_keyword_command(segment: list[str]) -> list[str]:
+        return segment
+
+    def simple_command_kind(command: list[str]) -> "str | None":
+        return "mutating"
 
     def git_subcommand(tokens: list[str]) -> tuple[str | None, list[str]]:
         # A broken install is not a policy violation, and the stubs around this
@@ -1546,6 +1559,23 @@ def _protected_path_named(
     return ""
 
 
+def _first_unread_step(tokens: list[str]) -> str:
+    """The program of the first compound step that is not a recognised read.
+
+    Empty when the line cannot be split into plain steps (a write redirection,
+    for one), or when every step reads -- the generic sentence then stands.
+    """
+
+    segments = command_segments(tokens) if tokens else None
+    if not segments or len(segments) < 2:
+        return ""
+    for segment in segments:
+        command = shell_keyword_command(segment)
+        if command and simple_command_kind(command) != "read_only":
+            return Path(command[0]).name
+    return ""
+
+
 def _worktree_reason_naming_its_cause(
     roots: list[Path],
     fallback: str | None,
@@ -1600,6 +1630,11 @@ def _worktree_reason_naming_its_cause(
         if cause == UNREADABLE_SYNTAX and contains_workflow_start(tokens)
         else ""
     )
+    unread_step = ""
+    if cause == UNREADABLE_SYNTAX and not remedy:
+        unread_step = _first_unread_step(tokens)
+        if unread_step:
+            cause = UNREAD_STEP
     reason = next(
         (
             refusal
@@ -1609,7 +1644,7 @@ def _worktree_reason_naming_its_cause(
                     cause,
                     _protected_path_named(payload, tokens, command_cwd, root)
                     if cause == NAMED_TARGET
-                    else "",
+                    else unread_step,
                     remedy=remedy,
                 )
                 for root in roots
@@ -2121,6 +2156,11 @@ def _workflow_start_verdict(
     moving the shell changes that.
     """
 
+    if ("-h" in tokens or "--help" in tokens) and tokens.count("start") == 1:
+        # argparse prints usage and exits before start touches any project, so
+        # asking for help cannot claim the protected checkout it names. A line
+        # carrying a second start keeps the ordinary verdict.
+        return allow()
     target_root = workflow_start_target_root(tokens, effective_cwd)
     if target_root is None:
         return deny(worktree_reason, "workflow_start_worktree") if worktree_reason else allow()

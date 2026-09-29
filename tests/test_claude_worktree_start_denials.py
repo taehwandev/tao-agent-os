@@ -137,6 +137,20 @@ class WorkflowStartDenialTests(unittest.TestCase):
     def test_a_start_bound_to_a_linked_worktree_is_allowed(self) -> None:
         self.assertEqual("", self._verdict(self._start(self.worktree)))
 
+    def test_asking_start_for_help_is_allowed_in_the_protected_checkout(self) -> None:
+        """argparse exits before start binds anything; the help call was refused."""
+
+        for flag in ("--help", "-h"):
+            with self.subTest(flag=flag):
+                self.assertEqual("", self._verdict(f"{self.launcher} start {flag}"))
+                self.assertEqual(
+                    "", self._verdict(f"{self.launcher} start --project {self.main} {flag}")
+                )
+
+    def test_help_on_one_start_does_not_admit_a_second_chained_start(self) -> None:
+        command = f"{self.launcher} start --help && {self._start(self.main)}"
+        self.assertNotEqual("", self._verdict(command))
+
     def _main_start(self, route: str, *extra: str) -> str:
         return (
             f"{self.launcher} start --project {self.main} --rules {self.main} "

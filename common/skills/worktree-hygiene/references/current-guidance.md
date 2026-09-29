@@ -162,7 +162,9 @@ only an interpreter. Each rule has exactly `argv_prefix` and boolean
 `publishes: false` rule can exclude a check-only form from its publishing
 parent, but it does not certify that command as read-only or make it runnable
 without an active workflow. A `publishes: true` match waits for finish and may
-then use that same fresh finish. Undeclared interpreter calls remain unknown.
+then use that same fresh finish; a `publishes: false` match is admitted by the
+same fresh finish receipt, so the check that guards a publication still runs
+after finish. Undeclared interpreter calls remain unknown.
 Declare the literal argv the repository's documented tool uses; provider names
 and account details stay in the target repository, not Tao.
 

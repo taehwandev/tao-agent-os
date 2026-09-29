@@ -375,6 +375,16 @@ CHAINED_START_REMEDY = (
 # file, because the sentence above names no path at all.
 NAMED_TARGET_PATH = "Cause: protected path named: `{named}`. "
 
+# A pipeline of recognised readers is admitted, so "chains and pipes are not
+# accepted" was false for the line that actually got refused: one step (awk,
+# `uniq -c`, a script) was not a recognised read. The reader split a working
+# pipeline apart instead of replacing that one step.
+UNREAD_STEP = "unread_step"
+UNREAD_STEP_CAUSE = (
+    "Cause: use one literal command; chains, pipes, and multiline input are "
+    "not accepted. Readers may pipe; `{named}` is not one. "
+)
+
 
 def named_target_cause(named: str = "") -> str:
     """The named-target sentence, carrying the path when one is known."""
@@ -394,11 +404,12 @@ def worktree_deny_reason(
         if require_linked_worktree and (root / ".git").is_dir()
         else f"protected branch `{branch}`"
     )
-    explanation = (
-        named_target_cause(named)
-        if cause == NAMED_TARGET
-        else DENIAL_CAUSES.get(cause, "")
-    )
+    if cause == NAMED_TARGET:
+        explanation = named_target_cause(named)
+    elif cause == UNREAD_STEP:
+        explanation = UNREAD_STEP_CAUSE.format(named=named)
+    else:
+        explanation = DENIAL_CAUSES.get(cause, "")
     if remedy:
         # A caller that knows what the command was asking for says so itself.
         # Everything below is advice about where the shell stands, which is the
