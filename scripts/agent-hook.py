@@ -63,7 +63,7 @@ from agent_work_cards import settle_from_evidence as settle_work_card
 from agent_work_cards import start_lines as work_card_start_lines
 from agent_review_hook import required_review_evidence_flags, review_hook
 from agent_review_reuse import ReviewReuse
-from agent_required_doc_reuse import required_doc_reuse
+from agent_required_doc_reuse import project_route_doc_reuse, required_doc_reuse
 from agent_repair_verification import create_repair_receipt
 from agent_repair_ledger import (
     CONFLICT as REPAIR_REBIND_CONFLICT,
@@ -433,6 +433,24 @@ def _publication_continuity_guidance() -> str:
     )
 
 
+def _project_route_doc_lines(path: Path, payload: dict) -> list[str]:
+    if not payload.get("project_route_docs"):
+        return []
+    reuse = {"reused": [], "unread": [str(item.get("path")) for item in payload["project_route_docs"]]}
+    if _isolated_run_preflight(path, payload):
+        reuse = project_route_doc_reuse(path)
+    lines: list[str] = []
+    if reuse["reused"]:
+        lines.append(f"Project route docs ({len(reuse['reused'])} unchanged since a completed "
+                     "same-session run; reuse retained readings):")
+        lines.extend(f"  {doc}" for doc in reuse["reused"])
+    if reuse["unread"]:
+        lines.append(f"Project route docs ({len(reuse['unread'])} declared by the project for "
+                     "this route; read these instead of following project pointer chains):")
+        lines.extend(f"  {doc}" for doc in reuse["unread"])
+    return lines
+
+
 def _hook_summary_from_preflight(path: Path) -> list[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -468,6 +486,13 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
                 f"({len(reuse['reused'])} unchanged required docs; reuse retained readings):"
             )
             lines.extend(f"  {doc}" for doc in reuse["reused"])
+            if reuse.get("takeaways"):
+                lines.append(
+                    "Recorded takeaways from those readings (after a context compaction, "
+                    "continue from these instead of rereading; open a doc only for a "
+                    "question they leave unresolved):"
+                )
+                lines.extend(f"  {text}" for text in reuse["takeaways"])
         if reuse["unread"]:
             lines.append(f"Required knowledge ({len(reuse['unread'])} required docs; "
                          "no matching history proof, not proof of unread context):")
@@ -481,6 +506,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         )
         lines.append(f"Checkpoint input: objective max {MAX_TEXT} Unicode characters; "
                      "checkpoint --work-template prints minimal JSON.")
+    lines.extend(_project_route_doc_lines(path, payload))
     if route.get("command") == "analysis":
         lines.append(
             "Analysis transition: finish this read-only run before starting a writing route "

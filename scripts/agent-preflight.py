@@ -13,6 +13,7 @@ from typing import Any
 
 from agent_execution_capsule import create_preflight_snapshot
 from agent_execution_capsule_state import atomic_write_json
+from agent_project_route_docs import project_route_docs
 from agent_route_state import request_fingerprint
 from agent_block_lessons import recurring_lines
 from agent_global_lessons import lesson_summary, state_home
@@ -524,6 +525,12 @@ def effective_read_only(command: str, requested: bool) -> bool:
     return requested or route_minimum_effect(command) == "read"
 
 
+def _attach_project_route_docs(preflight: dict, project: Path, route: dict) -> None:
+    project_docs = project_route_docs(project, str(route.get("command") or ""))
+    if project_docs:
+        preflight["project_route_docs"] = project_docs
+
+
 def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
     project = args.project.resolve()
     rules = args.rules.resolve()
@@ -597,6 +604,7 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
                 route_payload,
                 preflight.get("request_intake") or {},
             )
+            _attach_project_route_docs(preflight, project, route_payload)
             write_json(evidence_path, preflight)
             reset_and_record_preflight_gate(evidence_path, preflight)
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:

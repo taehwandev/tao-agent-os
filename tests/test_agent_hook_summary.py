@@ -289,6 +289,38 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("source.py", summary)
         self.assertIn("Do not search, reopen, or manually review", summary)
 
+    def test_summary_replays_takeaways_and_lists_project_route_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / ("a" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text(json.dumps({
+                "project": str(project),
+                "rules": str(project),
+                "route": {"command": "commit", "required_docs": ["reused.md"]},
+                "project_route_docs": [
+                    {"path": ".agents/commit/SKILL.md", "sha256": "e" * 64, "size_bytes": 9},
+                    {"path": ".agents/pr/SKILL.md", "sha256": "f" * 64, "size_bytes": 9},
+                ],
+            }), encoding="utf-8")
+            with (
+                patch.object(agent_hook, "required_doc_reuse", return_value={
+                    "reused": ["reused.md"], "unread": [],
+                    "takeaways": ["stage before review"],
+                }),
+                patch.object(agent_hook, "project_route_doc_reuse", return_value={
+                    "reused": [".agents/commit/SKILL.md"], "unread": [".agents/pr/SKILL.md"],
+                }),
+            ):
+                summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+
+        self.assertIn("Recorded takeaways from those readings", summary)
+        self.assertIn("  stage before review", summary)
+        self.assertIn("Project route docs (1 unchanged", summary)
+        self.assertIn("  .agents/commit/SKILL.md", summary)
+        self.assertIn("Project route docs (1 declared by the project", summary)
+        self.assertIn("  .agents/pr/SKILL.md", summary)
+
     def test_commit_summary_keeps_required_docs_when_reuse_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

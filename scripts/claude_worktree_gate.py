@@ -43,8 +43,10 @@ WORKTREE_POLICY_OPTIONAL_KEYS = frozenset(
         "product_path_prefixes",
         "product_file_names",
         "product_suffixes",
+        "route_docs",
     }
 )
+ROUTE_DOCS_COMMAND = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
 MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
 
@@ -129,8 +131,40 @@ def worktree_policy(root: Path) -> dict | None:
         )
         and _publication_commands_are_valid(parsed)
         and _ticket_policy_is_valid(parsed)
+        and _route_docs_are_valid(parsed)
     )
     return parsed if valid else default_worktree_policy()
+
+
+def _route_docs_are_valid(policy: dict) -> bool:
+    """Validate project docs declared per route command.
+
+    Paths are project-relative files a route should read. They are reading
+    guidance recorded for reuse; they never grant authority or waive a gate.
+    """
+
+    if "route_docs" not in policy:
+        return True
+    routes = policy["route_docs"]
+    if not isinstance(routes, dict) or len(routes) > 16:
+        return False
+    for command, paths in routes.items():
+        if not ROUTE_DOCS_COMMAND.fullmatch(command):
+            return False
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 8:
+            return False
+        for path in paths:
+            if (
+                not isinstance(path, str)
+                or not path
+                or len(path) > 512
+                or path.startswith("/")
+                or ".." in Path(path).parts
+            ):
+                return False
+        if len(set(paths)) != len(paths):
+            return False
+    return True
 
 
 def _publication_commands_are_valid(policy: dict) -> bool:

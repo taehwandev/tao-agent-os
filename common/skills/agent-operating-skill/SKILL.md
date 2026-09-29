@@ -30,7 +30,7 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
    workflow stage. PR metadata work does not itself require module-design rules;
    module creation needs the applicable platform's module rules. Read selected
    instructions once; reuse retained readings across goal iterations and runs.
-   Read only changed/new or lost guidance, including after compaction.
+   Read only changed/new or lost guidance; after compaction use takeaways.
    Deduplicate paths; topic links are not all mandatory reads.
 5. Make only changes needed for the authorized outcome. An incidental finding
    is not permission for cleanup, redesign or environment changes. If required
