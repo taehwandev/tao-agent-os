@@ -120,11 +120,14 @@ python3 "$HANDOFF_CLI" \
   --export-assets
 ```
 
-When the request supplies separate frame URLs, extract each named frame with
-`--max-flow-depth 0`. This preserves its prototype links as metadata without
-fetching linked screens. Omit that flag for a connected prototype journey, which
-uses the CLI's default breadth-first traversal through depth 4. Do not expand
-every frame just to inspect its UI.
+When the request supplies separate frame URLs, first extract each named frame
+with `--max-flow-depth 0`, then inspect `flowEdges` and `flowInteractions` across
+the bundles. This pass discovers links but does not fetch their destinations.
+Fetch a linked destination separately when the requested behavior depends on it
+and it was not among the supplied frames. For a connected prototype journey,
+omit the flag to use the CLI's default breadth-first traversal through depth 4.
+Do not treat a depth-0 bundle as verification of a linked destination, and do
+not expand every frame when only selected destinations are relevant.
 
 Large SECTION splits, JSON-only runs, asset caps, and scale choices follow the
 tool contract. Without `--out`, bundles land in `.figma-handoff-work/`, a
