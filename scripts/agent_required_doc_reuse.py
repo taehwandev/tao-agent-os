@@ -14,6 +14,9 @@ MAX_PREFLIGHT_BYTES = 8 * 1024 * 1024
 MAX_RUNS = 100
 MAX_TAKEAWAYS = 3
 MAX_TAKEAWAY_CHARS = 400
+# Written beside a run's preflight by `review --doc-takeaway`, for routes such
+# as commit that have no source-docs gate to carry a takeaway.
+DOC_TAKEAWAY_FILE = "doc-takeaway.json"
 
 
 def required_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
@@ -79,16 +82,23 @@ def project_route_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
             return {"reused": [], "unread": unread}
         wanted = set(current_records.values())
         reusable: set[tuple[str, str, int]] = set()
-        for _prior_path, prior in _same_session_priors(preflight_path, current):
+        takeaways: list[str] = []
+        for prior_path, prior in _same_session_priors(preflight_path, current):
             try:
-                reusable.update(_project_records(prior).values())
+                prior_records = set(_project_records(prior).values())
             except (ValueError, TypeError):
                 continue
+            if prior_records & wanted:
+                _add_takeaway(takeaways, prior_path)
+            reusable.update(prior_records)
             if wanted <= reusable:
                 break
         reused = [doc for doc, record in current_records.items() if record in reusable]
         reused_set = set(reused)
-        return {"reused": reused, "unread": [doc for doc in unread if doc not in reused_set]}
+        result = {"reused": reused, "unread": [doc for doc in unread if doc not in reused_set]}
+        if reused and takeaways:
+            result["takeaways"] = takeaways
+        return result
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return {"reused": [], "unread": unread}
 
@@ -137,32 +147,62 @@ def _same_session_priors(preflight_path: Path, current: dict[str, Any]):
         yield prior_path, prior
 
 
+def record_doc_takeaway(evidence_path: Path, text: str) -> None:
+    """Store the agent's takeaway from this run's docs beside its preflight."""
+
+    normalized = _normalize(text)
+    if not normalized:
+        return
+    path = evidence_path.parent / DOC_TAKEAWAY_FILE
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"takeaway": normalized}), encoding="utf-8")
+    temporary.replace(path)
+
+
 def _add_takeaway(takeaways: list[str], prior_path: Path) -> None:
-    """Keep the prior run's recorded source-docs takeaway for replay.
+    """Keep the prior run's recorded takeaways for replay.
 
     A reuse notice cannot know whether the reading survived a context
     compaction. The takeaway the agent recorded when it read those docs is the
-    bounded substitute that lets it continue without rereading them whole.
+    bounded substitute that lets it continue without rereading them whole. It
+    is keyed by the documents that run read, not by its route, so a commit run
+    reusing a document replays what an earlier run of any route recorded.
     """
 
-    if len(takeaways) >= MAX_TAKEAWAYS:
-        return
+    for text in (_source_docs_takeaway(prior_path), _review_takeaway(prior_path)):
+        if len(takeaways) >= MAX_TAKEAWAYS:
+            return
+        if text and text not in takeaways:
+            takeaways.append(text)
+
+
+def _source_docs_takeaway(prior_path: Path) -> str:
     try:
         ledger = _read(prior_path.parent / "gate-evidence.json", MAX_PREFLIGHT_BYTES)
     except (OSError, ValueError, json.JSONDecodeError):
-        return
+        return ""
     entries = ledger.get("entries")
     if not isinstance(entries, list):
-        return
+        return ""
     for entry in reversed(entries):
         if not isinstance(entry, dict) or entry.get("gate") != "source docs":
             continue
         if entry.get("status") != "SUCCESS":
-            return
-        text = " ".join(str((entry.get("fields") or {}).get("takeaway") or "").split())
-        if text and text not in takeaways:
-            takeaways.append(text[:MAX_TAKEAWAY_CHARS])
-        return
+            return ""
+        return _normalize((entry.get("fields") or {}).get("takeaway"))
+    return ""
+
+
+def _review_takeaway(prior_path: Path) -> str:
+    try:
+        record = _read(prior_path.parent / DOC_TAKEAWAY_FILE, MAX_TAKEAWAY_CHARS * 8)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return ""
+    return _normalize(record.get("takeaway"))
+
+
+def _normalize(value: Any) -> str:
+    return " ".join(str(value or "").split())[:MAX_TAKEAWAY_CHARS]
 
 
 def _read(path: Path, limit: int) -> dict[str, Any]:

@@ -433,7 +433,28 @@ def _publication_continuity_guidance() -> str:
     )
 
 
-def _project_route_doc_lines(path: Path, payload: dict) -> list[str]:
+def _takeaway_lines(takeaways: list[str], shown: list[str]) -> list[str]:
+    fresh = [text for text in takeaways if text not in shown]
+    shown.extend(fresh)
+    if not fresh:
+        return []
+    return [
+        "Recorded takeaways from those readings (after a context compaction, continue "
+        "from these instead of rereading; open a doc only for a question they leave "
+        "unresolved):",
+        *(f"  {text}" for text in fresh),
+    ]
+
+
+def _doc_takeaway_prompt_lines(route: dict) -> list[str]:
+    gates = route.get("gates") or []
+    if "review hook" not in gates or "source docs" in gates:
+        return []
+    return ["Doc takeaway: add review --doc-takeaway \"<rules you applied from this route's "
+            "docs>\" so a later start that reuses them can replay it after compaction."]
+
+
+def _project_route_doc_lines(path: Path, payload: dict, shown: list[str]) -> list[str]:
     if not payload.get("project_route_docs"):
         return []
     reuse = {"reused": [], "unread": [str(item.get("path")) for item in payload["project_route_docs"]]}
@@ -444,6 +465,7 @@ def _project_route_doc_lines(path: Path, payload: dict) -> list[str]:
         lines.append(f"Project route docs ({len(reuse['reused'])} unchanged since a completed "
                      "same-session run; reuse retained readings):")
         lines.extend(f"  {doc}" for doc in reuse["reused"])
+        lines.extend(_takeaway_lines(reuse.get("takeaways") or [], shown))
     if reuse["unread"]:
         lines.append(f"Project route docs ({len(reuse['unread'])} declared by the project for "
                      "this route; read these instead of following project pointer chains):")
@@ -474,6 +496,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "route only for a changed project, authority, effect ceiling or external target."
         )
     docs = route.get("required_docs") or []
+    shown_takeaways: list[str] = []
     if docs:
         reuse = {"reused": [], "unread": list(docs)}
         if _isolated_run_preflight(path, payload):
@@ -486,13 +509,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
                 f"({len(reuse['reused'])} unchanged required docs; reuse retained readings):"
             )
             lines.extend(f"  {doc}" for doc in reuse["reused"])
-            if reuse.get("takeaways"):
-                lines.append(
-                    "Recorded takeaways from those readings (after a context compaction, "
-                    "continue from these instead of rereading; open a doc only for a "
-                    "question they leave unresolved):"
-                )
-                lines.extend(f"  {text}" for text in reuse["takeaways"])
+            lines.extend(_takeaway_lines(reuse.get("takeaways") or [], shown_takeaways))
         if reuse["unread"]:
             lines.append(f"Required knowledge ({len(reuse['unread'])} required docs; "
                          "no matching history proof, not proof of unread context):")
@@ -506,7 +523,8 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
         )
         lines.append(f"Checkpoint input: objective max {MAX_TEXT} Unicode characters; "
                      "checkpoint --work-template prints minimal JSON.")
-    lines.extend(_project_route_doc_lines(path, payload))
+    lines.extend(_project_route_doc_lines(path, payload, shown_takeaways))
+    lines.extend(_doc_takeaway_prompt_lines(route))
     if route.get("command") == "analysis":
         lines.append(
             "Analysis transition: finish this read-only run before starting a writing route "
@@ -1532,6 +1550,14 @@ def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
             "responsibility splits were reviewed; new runtime package boundaries must "
             "use explicit labels: owner: ..., allowed imports: ..., forbidden imports: ..., "
             "callers/tests: ..., verification: ..."
+        ),
+    )
+    review.add_argument(
+        "--doc-takeaway",
+        default="",
+        help=(
+            "optional rules applied from this route's docs; a later same-session start "
+            "that reuses those docs replays it so a compacted context need not reread them"
         ),
     )
     review.add_argument(

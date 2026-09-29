@@ -321,6 +321,42 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("Project route docs (1 declared by the project", summary)
         self.assertIn("  .agents/pr/SKILL.md", summary)
 
+    def test_project_doc_takeaways_are_not_repeated_after_required_doc_takeaways(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / ("a" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text(json.dumps({
+                "project": str(project),
+                "rules": str(project),
+                "route": {"command": "commit", "required_docs": ["reused.md"],
+                          "gates": ["request intake", "review hook", "commit readiness"]},
+                "project_route_docs": [
+                    {"path": ".agents/commit/SKILL.md", "sha256": "e" * 64, "size_bytes": 9},
+                ],
+            }), encoding="utf-8")
+            with (
+                patch.object(agent_hook, "required_doc_reuse", return_value={
+                    "reused": ["reused.md"], "unread": [], "takeaways": ["shared rule"],
+                }),
+                patch.object(agent_hook, "project_route_doc_reuse", return_value={
+                    "reused": [".agents/commit/SKILL.md"], "unread": [],
+                    "takeaways": ["shared rule", "push with a literal branch"],
+                }),
+            ):
+                summary = "\n".join(agent_hook._hook_summary_from_preflight(evidence))
+
+        self.assertEqual(1, summary.count("  shared rule"))
+        self.assertIn("  push with a literal branch", summary)
+        self.assertIn("review --doc-takeaway", summary)
+
+    def test_doc_takeaway_prompt_only_where_no_source_docs_gate_records_one(self) -> None:
+        self.assertEqual([], agent_hook._doc_takeaway_prompt_lines(
+            {"gates": ["source docs", "review hook"]}))
+        self.assertEqual([], agent_hook._doc_takeaway_prompt_lines({"gates": ["tests"]}))
+        self.assertTrue(agent_hook._doc_takeaway_prompt_lines(
+            {"gates": ["request intake", "review hook", "commit readiness"]}))
+
     def test_commit_summary_keeps_required_docs_when_reuse_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

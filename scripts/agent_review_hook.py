@@ -27,6 +27,7 @@ from agent_review_doc_references import doc_reference_failures
 from agent_review_removals import removal_notice
 from agent_review_structure import REVIEW_ADDED_LINE_LIMIT, structure_review
 from agent_repair_ledger import failure_signature, record_failure_checkpoints
+from agent_required_doc_reuse import record_doc_takeaway
 from agent_review_subjects import (  # noqa: F401
     REPO_HYGIENE_CONCERNS,
     SETTLED_RUN_STATES,
@@ -462,6 +463,7 @@ def _review_verdict(
                     review_scope,
                 )
                 record_review_gate(args, checks, git_states)
+                record_doc_takeaway(evidence_path, getattr(args, "doc_takeaway", "") or "")
                 if reuse is not None and not checks.get("reported_findings"):
                     # Findings never become reusable proof for a later commit.
                     reuse.publish(checks)

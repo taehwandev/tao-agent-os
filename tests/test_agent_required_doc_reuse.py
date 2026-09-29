@@ -14,7 +14,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 
-from agent_required_doc_reuse import project_route_doc_reuse, required_doc_reuse
+from agent_required_doc_reuse import project_route_doc_reuse, record_doc_takeaway, required_doc_reuse
 import agent_required_doc_reuse as reuse_module
 
 
@@ -137,7 +137,7 @@ class RequiredDocReuseTests(unittest.TestCase):
                 with patch.object(reuse_module, '_read', wraps=reuse_module._read) as reads:
                     result = required_doc_reuse(current)
                 self.assertEqual([], result['unread'])
-                self.assertEqual(4, reads.call_count, 'current, registry, latest match and its ledger')
+                self.assertEqual(5, reads.call_count, 'current, registry, latest match, its ledger and review takeaway')
 
     def test_history_scan_remains_bounded_without_a_match(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -216,6 +216,40 @@ class RequiredDocReuseTests(unittest.TestCase):
 
             self.assertEqual([document["path"]], reuse["reused"])
             self.assertEqual([changed["path"]], reuse["unread"])
+            self.assertNotIn("takeaways", reuse)
+
+    def test_review_takeaway_replays_for_routes_without_source_docs(self) -> None:
+        """A commit run has no source-docs gate; its review takeaway is the record."""
+
+        document = {"path": ".agents/shared/llm-skills/commit-and-push/SKILL.md",
+                    "sha256": "e" * 64, "size_bytes": 900}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = self._fixture(root)
+            prior = root / ".tao/runs" / ("a" * 32) / "preflight.json"
+            for path in (prior, current):
+                payload = json.loads(path.read_text())
+                payload["project_route_docs"] = [document]
+                path.write_text(json.dumps(payload))
+            record_doc_takeaway(prior, "fetch twice;\n  rebase alone, no autostash")
+
+            self.assertEqual(
+                ["fetch twice; rebase alone, no autostash"],
+                project_route_doc_reuse(current)["takeaways"],
+            )
+            self.assertEqual(
+                ["fetch twice; rebase alone, no autostash"],
+                required_doc_reuse(current)["takeaways"],
+            )
+
+    def test_review_takeaway_is_bounded_and_blank_is_not_written(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "preflight.json"
+            record_doc_takeaway(evidence, "   ")
+            self.assertFalse((Path(directory) / reuse_module.DOC_TAKEAWAY_FILE).exists())
+            record_doc_takeaway(evidence, "x" * 1000)
+            stored = json.loads((Path(directory) / reuse_module.DOC_TAKEAWAY_FILE).read_text())
+            self.assertEqual(reuse_module.MAX_TAKEAWAY_CHARS, len(stored["takeaway"]))
 
 
 
