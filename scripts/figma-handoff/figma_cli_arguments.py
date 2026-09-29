@@ -64,7 +64,7 @@ class FigmaCliArguments:
         parser.add_argument("--token-env", default="FIGMA_TOKEN")
         parser.add_argument("--format", default="png", choices=["png", "jpg", "svg", "pdf"])
         parser.add_argument("--scale", default=2.0, type=float)
-        parser.add_argument("--max-flow-depth", default=0, type=int)
+        parser.add_argument("--max-flow-depth", default=4, type=int)
         parser.add_argument("--timeout", default=60, type=int)
         parser.add_argument("--no-images", action="store_true")
         parser.add_argument("--include-image-fills", action="store_true")

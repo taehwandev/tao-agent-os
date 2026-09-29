@@ -55,7 +55,7 @@ class StandaloneCliTests(unittest.TestCase):
             plan = json.loads(result.stdout)
             self.assertEqual(plan["fileKey"], "FILE_KEY")
             self.assertEqual(plan["startNodeId"], "1:2")
-            self.assertEqual(plan["maxFlowDepth"], 0)
+            self.assertEqual(plan["maxFlowDepth"], 4)
             self.assertEqual(
                 Path(plan["outputDir"]).resolve(),
                 (Path(tmp) / ".figma-handoff-work" / "portable-screen").resolve(),
@@ -175,7 +175,7 @@ class StandaloneCliTests(unittest.TestCase):
                 "--max-assets",
                 "7",
                 "--max-flow-depth",
-                "4",
+                "0",
                 "--dry-run",
             ],
             capture_output=True,
@@ -187,7 +187,7 @@ class StandaloneCliTests(unittest.TestCase):
         plan = json.loads(result.stdout)
         self.assertEqual(plan["timeout"], 12)
         self.assertEqual(plan["maxAssets"], 7)
-        self.assertEqual(plan["maxFlowDepth"], 4)
+        self.assertEqual(plan["maxFlowDepth"], 0)
 
 
 if __name__ == "__main__":
