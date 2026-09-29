@@ -4204,6 +4204,16 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
         self.assertNotIn("without another workflow start", _reason(out))
         self.assertIn("Enter its scoped writable route once", _reason(out))
 
+    def test_adb_install_after_finish_requires_a_new_verification_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+
+            code, out = self._decide(project, "adb -s device-serial install -r app.apk")
+
+        self.assertEqual(0, code)
+        self.assertIn("run the workflow start hook", _reason(out))
+        self.assertNotIn("Tao command effect: unknown", _reason(out))
+
     def test_finish_does_not_authorize_an_undeclared_python_tool(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))

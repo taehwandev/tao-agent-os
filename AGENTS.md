@@ -71,12 +71,15 @@ For low-risk local corrections with one owner and at most four changed files,
 select `small-change` using `common/skills/agent-operating-skill/references/small-change.md`. Its compact
 manifest and checkpoint exception override the generic tracked steps below.
 
-For a repo-owned development app rebuild, relaunch, or restart that only
+For a repo-owned development app rebuild, install, relaunch, or restart that only
 verifies the current checkout without changing tracked source, docs, or
 configuration, select the `test` verification route. A local build wrapper
 compiling an app does not by itself make this a `build` implementation task.
 Verify the generated bundle and exact running process, not an unrelated
 commit-range diff. A requested source change follows its own code route.
+After an implementation run has finished, bind a new `test` run to the existing
+task worktree before installing its APK. Reuse the user's same-device approval;
+the finished run's publication allowance does not cover a device install.
 
 For tracked work:
 
