@@ -16,6 +16,7 @@ from agent_execution_capsule_state import (
     read_json_object,
 )
 from agent_worktree_fingerprint import git_output
+from agent_review_commit_range import split_integrated_paths
 from agent_route_state import route_fingerprint
 from agent_review_rules_inputs import review_rules_inputs
 
@@ -382,7 +383,22 @@ def _commit_subject_paths(project: Path, subject: dict[str, str]) -> list[str]:
         head_sha,
         "--",
     )
-    return [path for path in output.split("\0") if path]
+    changed = [path for path in output.split("\0") if path]
+    # The review hook attests what the range authored, not what a merge brought
+    # in, so this must split the range by the same rule or a merge never matches.
+    authored, _integrated = split_integrated_paths(
+        project, base_sha, head_sha, changed, _git_result
+    )
+    return authored
+
+
+def _git_result(command: list[str], cwd: Path) -> dict[str, Any]:
+    """Answer `split_integrated_paths` from `git_output`, which raises on failure."""
+
+    try:
+        return {"returncode": 0, "stdout": git_output(cwd, *command[1:])}
+    except RuntimeError:
+        return {"returncode": 1, "stdout": ""}
 
 
 def _current_subject_failures(project: Path, record: dict[str, Any]) -> list[str]:

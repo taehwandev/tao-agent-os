@@ -127,6 +127,85 @@ class ReviewAttestationTests(unittest.TestCase):
         self.assertEqual([], failures)
         self.assertTrue(diagnostics["review_attestation"]["valid"])
 
+    def _git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-c", "user.name=Tao Tests", "-c", "user.email=tao@example.invalid", *args],
+            cwd=self.project, check=True, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        ).stdout.strip()
+
+    def _merged_range(self, *, authored: bool) -> tuple[str, str]:
+        """A range whose merge brings `integrated.txt` in from another line."""
+
+        base = self._git("rev-parse", "HEAD")
+        branch = self._git("rev-parse", "--abbrev-ref", "HEAD")
+        self._git("checkout", "-q", "-b", "side")
+        (self.project / "integrated.txt").write_text("from the other line\n", encoding="utf-8")
+        self._git("add", "integrated.txt")
+        self._git("commit", "-q", "-m", "change made on the other line")
+        self._git("checkout", "-q", branch)
+        if authored:
+            (self.project / "tracked.txt").write_text("authored here\n", encoding="utf-8")
+            self._git("add", "tracked.txt")
+            self._git("commit", "-q", "-m", "change authored on this branch")
+        self._git("merge", "-q", "--no-ff", "-m", "merge the other line", "side")
+        return base, self._git("rev-parse", "HEAD")
+
+    def _record_commit_range(
+        self, base: str, head: str, paths: list[str]
+    ) -> dict[str, object]:
+        preflight = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        return ReviewAttestation.record(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            preflight=preflight,
+            review_scope=f"commit-range: {base}..{head}",
+            review_paths=paths,
+            changed_path_count=len(paths),
+            checks={
+                "review_outcome": "pass",
+                "workflow_validate": {"returncode": 0},
+                "diff_check": {"returncode": 0},
+                "vibeguard": {"returncode": 0, "overall": "Ready"},
+            },
+            review_subject={"kind": "commit-range", "base_sha": base, "head_sha": head},
+        )
+
+    def _failures_for(self, attestation: dict[str, object]) -> list[str]:
+        return ReviewAttestation.failures(
+            project=self.project,
+            rules=self.project,
+            evidence_path=self.evidence_path,
+            route=self.route,
+            ledger_fields=ReviewAttestation.ledger_fields(attestation),
+            ledger_source="review",
+        )
+
+    def test_a_merged_range_is_attested_by_what_it_authored(self) -> None:
+        """Observed: the review hook recorded only the authored paths while this
+        check recomputed the raw diff, so a range holding a merge from develop
+        failed with "paths do not match the exact Git diff" however it was written."""
+
+        base, head = self._merged_range(authored=True)
+
+        attestation = self._record_commit_range(base, head, ["tracked.txt"])
+
+        self.assertEqual([], self._failures_for(attestation))
+
+    def test_a_range_that_only_merged_another_line_attests_no_paths(self) -> None:
+        base, head = self._merged_range(authored=False)
+
+        attestation = self._record_commit_range(base, head, [])
+
+        self.assertEqual([], self._failures_for(attestation))
+
+    def test_an_attestation_cannot_claim_paths_a_merge_only_brought_in(self) -> None:
+        base, head = self._merged_range(authored=True)
+
+        with self.assertRaisesRegex(ValueError, "do not match the exact Git diff"):
+            self._record_commit_range(base, head, ["integrated.txt", "tracked.txt"])
+
     def test_commit_range_subject_is_bound_to_attestation_and_ledger(self) -> None:
         (self.project / "tracked.txt").write_text("second\n", encoding="utf-8")
         subprocess.run(["git", "add", "tracked.txt"], cwd=self.project, check=True)

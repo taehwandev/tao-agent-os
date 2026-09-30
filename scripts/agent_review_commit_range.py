@@ -57,7 +57,7 @@ def resolve_commit_range_subject(
     changed_paths = _nul_paths(str(discovery.get("stdout") or ""))
     if not changed_paths:
         raise ValueError("commit-range has no changed paths")
-    authored, integrated = _split_integrated_paths(
+    authored, integrated = split_integrated_paths(
         project, resolved["base"], resolved["head"], changed_paths, run_command
     )
     return {
@@ -74,7 +74,7 @@ def resolve_commit_range_subject(
     }
 
 
-def _split_integrated_paths(
+def split_integrated_paths(
     project: Path,
     base: str,
     head: str,
