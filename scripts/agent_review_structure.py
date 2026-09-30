@@ -141,6 +141,36 @@ BRACE_TYPE_BLOCK_RE = re.compile(
 STYLE_BLOCK_RE = re.compile(r"^\s*[^@{}][^{}]*\{\s*$")
 
 
+def android_action_delta_failures(project, path, lines, metadata, run_command):
+    """Block new violations; report violations on unchanged baseline lines."""
+    current = AndroidActionBoundary.failures(path, "\n".join(lines))
+    if not current or metadata.get("status") == "A":
+        return current, []
+    previous_path = str(metadata.get("previous_path") or path.as_posix())
+    previous = run_command(["git", "show", f"HEAD:{previous_path}"], project)
+    if previous.get("returncode") != 0:
+        return current, []
+    previous_lines = previous.get("stdout", "").splitlines()
+    prior = AndroidActionBoundary.failures(path, "\n".join(previous_lines))
+    unchanged = {}
+    for block in SequenceMatcher(None, previous_lines, lines, autojunk=False).get_matching_blocks():
+        unchanged.update((block.a + offset + 1, block.b + offset + 1)
+                         for offset in range(block.size))
+    inherited = set()
+    for finding in prior:
+        match = re.match(r"^.*?:(\d+): (.*)$", finding)
+        if match and int(match[1]) in unchanged:
+            inherited.add((unchanged[int(match[1])], match[2]))
+    failures, warnings = [], []
+    for finding in current:
+        match = re.match(r"^.*?:(\d+): (.*)$", finding)
+        if match and (int(match[1]), match[2]) in inherited:
+            warnings.append("unchanged baseline violation: " + finding)
+        else:
+            failures.append(finding)
+    return failures, warnings
+
+
 def structure_review(
     project: Path,
     max_file_lines: int,
@@ -214,7 +244,11 @@ def structure_review(
             result,
             max_added_lines=max_added_lines,
         )
-        result["failures"].extend(AndroidActionBoundary.failures(relative, "\n".join(lines)))
+        action_failures, action_warnings = android_action_delta_failures(
+            project, relative, lines, metadata, subject_run_command,
+        )
+        result["failures"].extend(action_failures)
+        result["warnings"].extend(action_warnings)
         block_failures, block_warnings = large_block_findings(
             source_root,
             relative,
