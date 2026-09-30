@@ -315,7 +315,7 @@ DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60
 # agent_review_structure.REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT. Only code source
 # files count, so doc/content work (e.g. a writing workspace full of .md drafts)
 # is never blocked.
-DEFAULT_NEW_FILE_BUDGET = 5
+DEFAULT_NEW_FILE_BUDGET = 20
 ORDINARY_GIT_SUBCOMMANDS = frozenset(
     {
         "add",

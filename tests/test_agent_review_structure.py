@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_review_structure import (
     REVIEW_ADDED_LINE_LIMIT,
+    REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT,
     REVIEW_TEST_ADDED_LINE_LIMIT,
     REVIEW_TEST_FILE_LINE_LIMIT,
     changed_source_paths,
@@ -883,7 +884,8 @@ class AgentReviewStructureTests(unittest.TestCase):
         # A small task spread across many new files must be justified: the
         # structure review warns, and the review gate turns that warning into a
         # required-evidence failure when no structure-review evidence is given.
-        added_files = [f"src/layer{index}/thing{index}.py" for index in range(6)]
+        over_limit = REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT + 1
+        added_files = [f"src/layer{index}/thing{index}.py" for index in range(over_limit)]
 
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -913,9 +915,9 @@ class AgentReviewStructureTests(unittest.TestCase):
 
             result = structure_review(project, 500, 120, run_command)
 
-        self.assertEqual(6, result["new_source_file_count"])
+        self.assertEqual(over_limit, result["new_source_file_count"])
         self.assertTrue(
-            any("6 new development source files" in warning for warning in result["warnings"])
+            any(f"{over_limit} new development source files" in warning for warning in result["warnings"])
         )
         # Missing structure-review evidence must escalate the warning to a failure.
         self.assertTrue(structure_evidence_failures(result, ""))

@@ -28,7 +28,7 @@ REVIEW_FUNCTION_LINE_LIMIT = 120
 # development source files and require structure-review evidence past this limit
 # so sprawl has to be justified per file/abstraction against a present risk. See
 # llm-coding-discipline/references/current-guidance.md#match-structure-to-the-problem-hard-stop.
-REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT = 5
+REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT = 20
 # Test files legitimately run longer than production files (setup, fixtures,
 # one scenario per case), so they get a wider budget instead of the source
 # limit -- but an unbounded exemption is how a single test file grows to

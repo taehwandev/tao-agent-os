@@ -2444,18 +2444,23 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _write_preflight(project)
-            for index in range(5):
+            for index in range(gate.DEFAULT_NEW_FILE_BUDGET):
                 code, out = self._write_new_source(project, "sp", f"src/file{index}.py")
                 self.assertEqual(0, code)
                 self.assertEqual("", out, f"file{index} should be allowed")
+
+    def test_gate_budget_matches_the_review_time_limit(self) -> None:
+        from agent_review_structure import REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT
+
+        self.assertEqual(REVIEW_NEW_SOURCE_FILE_PRESSURE_LIMIT, gate.DEFAULT_NEW_FILE_BUDGET)
 
     def test_new_source_file_past_budget_is_denied(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _write_preflight(project)
-            for index in range(5):
+            for index in range(gate.DEFAULT_NEW_FILE_BUDGET):
                 self._write_new_source(project, "sp", f"src/file{index}.py")
-            code, out = self._write_new_source(project, "sp", "src/file5.py")
+            code, out = self._write_new_source(project, "sp", "src/one_too_many.py")
         self.assertEqual(0, code)
         decision = json.loads(out)["hookSpecificOutput"]
         self.assertEqual(STOP_DECISION, decision["permissionDecision"])
@@ -2465,12 +2470,12 @@ class ClaudePreToolGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))
             _write_preflight(project)
-            for index in range(5):
+            for index in range(gate.DEFAULT_NEW_FILE_BUDGET):
                 self._write_new_source(project, "sp", f"src/file{index}.py")
             ack = project / ".tao" / "claude-pretool-gate" / "sp.sprawl-ack"
             ack.parent.mkdir(parents=True, exist_ok=True)
             ack.write_text("each file owns a distinct platform adapter\n", encoding="utf-8")
-            code, out = self._write_new_source(project, "sp", "src/file5.py")
+            code, out = self._write_new_source(project, "sp", "src/one_too_many.py")
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
@@ -2491,7 +2496,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             existing.parent.mkdir(parents=True, exist_ok=True)
             existing.write_text("value = 1\n", encoding="utf-8")
             # Fill the budget with new files, then overwrite the existing one.
-            for index in range(5):
+            for index in range(gate.DEFAULT_NEW_FILE_BUDGET):
                 self._write_new_source(project, "sp", f"src/new{index}.py")
             code, out = self._write_new_source(project, "sp", "src/existing.py")
         self.assertEqual(0, code)
@@ -2506,7 +2511,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 project = _opt_in_project(Path(tmp))
                 _write_preflight(project)
-                for index in range(20):
+                for index in range(gate.DEFAULT_NEW_FILE_BUDGET + 5):
                     code, out = self._write_new_source(project, "sp", f"src/file{index}.py")
                     self.assertEqual("", out)
         finally:
