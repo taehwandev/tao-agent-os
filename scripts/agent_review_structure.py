@@ -1185,8 +1185,9 @@ def block_record(path: Path, start_index: int, label: str, span: int) -> dict[st
 def block_failure(record: dict[str, Any], max_block_lines: int) -> str:
     return (
         f"{record['path']}:{record['line']} block `{record['label']}` spans {record['span']} lines; "
-        f"limit is {max_block_lines}; split responsibilities until the block is within the "
-        "limit, or use an explicitly reviewed project-specific max-function-lines limit; "
+        f"limit is {max_block_lines}; extract a cohesive private step with a focused check "
+        "until the block is within the limit, or use an explicitly reviewed "
+        "project-specific max-function-lines limit; "
         "structure-review prose alone does not bypass this hard gate"
     )
 

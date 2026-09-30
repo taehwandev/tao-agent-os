@@ -629,6 +629,7 @@ class AgentReviewStructureTests(unittest.TestCase):
         failures = large_block_failures(Path("DeepLinkHandler.kt"), lines, 120)
 
         self.assertTrue(any("private fun handle" in failure for failure in failures))
+        self.assertTrue(any("extract a cohesive private step with a focused check" in failure for failure in failures))
         self.assertTrue(any("prose alone does not bypass this hard gate" in failure for failure in failures))
 
     def test_preexisting_oversized_function_growth_still_fails(self) -> None:

@@ -284,7 +284,9 @@ def top_level_declaration_failures(
             f"{path} declares {len(public_owners)} public/exported top-level owners "
             f"({format_declarations(public_owners)}); "
             f"limit is {MAX_PUBLIC_TOP_LEVEL_OWNERS}; split runtime files so one file owns one "
-            "public contract, component, handler, service, or implementation"
+            "public contract, component, handler, service, or implementation; "
+            "for a legacy multi-owner file, keep existing exports and place the new helper "
+            "in a purpose-named module"
         )
     if declaration_limit_failed(visible_owners, previous_visible_owners, MAX_TOP_LEVEL_OWNERS):
         failures.append(

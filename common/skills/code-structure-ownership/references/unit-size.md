@@ -126,6 +126,15 @@ belong in separate purpose-named files. Tiny private helpers may stay near the
 owner they support; independent importable functions should not share a file
 only because the language does not use classes.
 
+For a stateful audit or statistics accumulator, plan its public surface before
+writing separate `create`, `add`, and `finish` exports. Each exported operation
+is a callable top-level owner even when the operations share one state shape.
+One accumulator owner can keep state and expose those operations as methods;
+related TypeScript types can stay with that owner under the referenced-type
+rule above. Keep the data-source or transport adapter in a separate file when
+it has a different side effect and verification path. Avoid tiny forwarding
+files made only to reduce an owner count.
+
 For Kotlin, extension functions on the same exact receiver may form one owner
 cluster when the file has one responsibility name and the functions share one
 caller contract and reason to change. Do not count that cohesive receiver family
