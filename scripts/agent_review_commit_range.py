@@ -57,13 +57,70 @@ def resolve_commit_range_subject(
     changed_paths = _nul_paths(str(discovery.get("stdout") or ""))
     if not changed_paths:
         raise ValueError("commit-range has no changed paths")
+    authored, integrated = _split_integrated_paths(
+        project, resolved["base"], resolved["head"], changed_paths, run_command
+    )
     return {
         "kind": "commit-range",
         "base_sha": resolved["base"],
         "head_sha": resolved["head"],
-        "changed_paths": changed_paths,
+        "changed_paths": authored,
+        "integrated_paths": integrated,
+        # A range that only merged another line authored nothing. It is still a
+        # subject the review can attest, bound to these exact commits, rather
+        # than one it refuses: refusing left the merge unpublishable.
+        "integration_only": not authored,
         "path_discovery": discovery,
     }
+
+
+def _split_integrated_paths(
+    project: Path,
+    base: str,
+    head: str,
+    changed_paths: list[str],
+    run_command: CommandRunner,
+) -> tuple[list[str], list[str]]:
+    """Separate what this range authored from what a merge only brought in.
+
+    Merging another line, such as develop into a feature branch, lands every
+    path that line changed inside `base..head`, and none of it was written
+    here. Reviewing it as this run's change flags code the branch never
+    touched. A path counts as integrated when its content at head is what a
+    merge's non-first parent holds; a path edited after the merge, or resolved
+    differently from that parent, still differs and stays under review.
+    """
+
+    merges = run_command(
+        ["git", "rev-list", "--merges", "--parents", f"{base}..{head}"], project
+    )
+    if merges.get("returncode") != 0:
+        raise ValueError("commit-range merge discovery failed")
+    sources: list[str] = []
+    for line in str(merges.get("stdout") or "").splitlines():
+        sources.extend(line.split()[2:])
+    authored = set(changed_paths)
+    for source in dict.fromkeys(sources):
+        differing = run_command(
+            [
+                "git",
+                "diff",
+                "--name-only",
+                "-z",
+                "--diff-filter=ACDMRTUXB",
+                source,
+                head,
+                "--",
+            ],
+            project,
+        )
+        if differing.get("returncode") != 0:
+            raise ValueError("commit-range integrated path discovery failed")
+        authored &= set(_nul_paths(str(differing.get("stdout") or "")))
+    return (
+        [path for path in changed_paths if path in authored],
+        [path for path in changed_paths if path not in authored],
+    )
 
 
 def create_commit_snapshot(

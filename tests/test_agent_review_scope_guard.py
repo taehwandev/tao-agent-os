@@ -16,6 +16,7 @@ from agent_review_hook import (
     clean_repo_hygiene_review,
     clean_restored_pathspec_review,
     clean_task_setup_pathspec_review,
+    diff_check_command,
     resolve_commit_range_subject,
     review_hook,
 )
@@ -799,6 +800,190 @@ class ReviewScopeGuardTests(unittest.TestCase):
                 resolve_commit_range_subject(project, head, head, run_command)
             with self.assertRaisesRegex(ValueError, "does not resolve"):
                 resolve_commit_range_subject(project, base, "missing-ref", run_command)
+
+    def _integration_repository(
+        self, project: Path, *, authored: bool, integrated_text: str = "value = 2\n"
+    ) -> tuple[str, str]:
+        """A branch that merges another line: `integrated.py` arrives by the merge."""
+
+        def git(*args: str) -> None:
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=Tao Agent OS Tests",
+                    "-c", "user.email=tao-agent@example.invalid", *args,
+                ],
+                cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=project, check=True)
+        (project / "authored.py").write_text("value = 1\n", encoding="utf-8")
+        (project / "integrated.py").write_text("value = 1\n", encoding="utf-8")
+        base = commit(project, "base")
+        git("checkout", "-q", "-b", "side")
+        (project / "integrated.py").write_text(integrated_text, encoding="utf-8")
+        commit(project, "change made on the other line")
+        git("checkout", "-q", "main")
+        if authored:
+            (project / "authored.py").write_text("value = 2\n", encoding="utf-8")
+            commit(project, "change authored on this branch")
+        git("merge", "-q", "--no-ff", "-m", "merge the other line", "side")
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=project, check=True, text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        return base, head
+
+    def test_commit_range_review_scope_excludes_paths_a_merge_brought_in(self) -> None:
+        """Observed: merging develop into a branch made every develop file this
+        run's change, so the review flagged code nobody on this branch wrote."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            base, head = self._integration_repository(project, authored=True)
+
+            resolved = resolve_commit_range_subject(project, base, head, run_command)
+
+        self.assertEqual(["authored.py"], resolved["changed_paths"])
+        self.assertEqual(["integrated.py"], resolved["integrated_paths"])
+
+    def test_commit_range_keeps_an_integrated_path_edited_after_the_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            base, _merged = self._integration_repository(project, authored=True)
+            (project / "integrated.py").write_text("value = 3\n", encoding="utf-8")
+            head = commit(project, "edit after the merge")
+
+            resolved = resolve_commit_range_subject(project, base, head, run_command)
+
+        self.assertEqual(["authored.py", "integrated.py"], resolved["changed_paths"])
+
+    def test_diff_check_ignores_whitespace_in_content_a_merge_brought_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            base, head = self._integration_repository(
+                project, authored=True, integrated_text="value = 2   \n"
+            )
+            subject = resolve_commit_range_subject(project, base, head, run_command)
+            unfiltered = run_command(
+                ["git", "diff", "--check", base, head, "--"], project
+            )
+            checked = run_command(
+                diff_check_command(subject["changed_paths"], subject), project
+            )
+
+        # The whitespace fault is real, but it sits in a path only the merge owns.
+        self.assertNotEqual(0, unfiltered["returncode"])
+        self.assertEqual(0, checked["returncode"])
+
+    def test_diff_check_keeps_the_whole_range_when_nothing_was_integrated(self) -> None:
+        subject = {
+            "kind": "commit-range", "base_sha": "b" * 40, "head_sha": "c" * 40,
+            "changed_paths": ["a.py"], "integrated_paths": [],
+        }
+
+        self.assertEqual(
+            ["git", "diff", "--check", "b" * 40, "c" * 40, "--"],
+            diff_check_command(["a.py"], subject),
+        )
+
+    def test_commit_range_of_only_integrated_content_is_a_subject_with_nothing_authored(self) -> None:
+        """Refusing it left a clean merge of develop with no way to be published."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            base, head = self._integration_repository(project, authored=False)
+
+            resolved = resolve_commit_range_subject(project, base, head, run_command)
+
+        self.assertEqual([], resolved["changed_paths"])
+        self.assertEqual(["integrated.py"], resolved["integrated_paths"])
+        self.assertTrue(resolved["integration_only"])
+
+    def _commit_range_review(
+        self, project: Path, base: str, head: str
+    ) -> tuple[int, list[dict[str, object]]]:
+        outputs: list[dict[str, object]] = []
+
+        def git_status(path: Path) -> tuple[dict[str, object], list[str]]:
+            result = run_command(["git", "status", "--short", "--untracked-files=all"], path)
+            return result, [line for line in str(result["stdout"]).splitlines() if line]
+
+        def finish_with_result(
+            name: str, success: bool, details: list[str], output: Path | None,
+            payload: dict[str, object], repair_cycle: int, invocation_error: bool = False,
+        ) -> int:
+            outputs.append({"success": success, "details": details, "payload": payload})
+            return 0 if success else 1
+
+        args = SimpleNamespace(
+            project=project, rules=ROOT, evidence=None, review_path=[],
+            review_scope="commit-range", review_base=base, review_head=head,
+            review_outcome="pass",
+            code_review_evidence="reviewed the exact immutable commit diff",
+            docs_freshness_evidence="no durable docs impact",
+            structure_review_evidence="",
+            boundary_plan_evidence="owned the exact commit range",
+            side_effect_audit_evidence="checked exact commit diff and side effects",
+            allow_vibeguard_review="", max_changed_paths=25, max_source_file_lines=500,
+            max_function_lines=120, max_added_lines=300, output=None, repair_cycle=0,
+        )
+
+        def successful_validation(_a: object, checks: dict[str, object], _f: list[str]) -> None:
+            checks["workflow_validate"] = {"returncode": 0}
+
+        def successful_vibeguard(
+            _a: object, _r: object, _c: object, _p: object, _paths: object,
+            checks: dict[str, object], _f: list[str], audit_project: Path | None = None,
+        ) -> None:
+            checks["vibeguard"] = {"returncode": 0, "overall": "Ready"}
+
+        with (
+            patch("agent_review_hook.record_review_prerequisite_readiness"),
+            patch("agent_review_hook.record_review_workflow_validation",
+                  side_effect=successful_validation),
+            patch("agent_review_hook.record_review_vibeguard", side_effect=successful_vibeguard),
+            patch("agent_review_hook.record_successful_review_workflow_validation"),
+            patch("agent_review_hook.record_review_gate"),
+        ):
+            result = review_hook(
+                args, run_command, git_status,
+                lambda _project, _rules: ["vibeguard", "audit", "."],
+                lambda output: "Ready" if "Ready" in output else "unknown",
+                finish_with_result,
+            )
+        return result, outputs
+
+    def test_review_hook_attests_a_merge_that_only_integrated_another_line(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            base, head = self._integration_repository(project, authored=False)
+
+            result, outputs = self._commit_range_review(project, base, head)
+
+        self.assertEqual(0, result, outputs)
+        payload = outputs[0]["payload"]
+        self.assertTrue(payload["integration_only_scope"]["accepted"])
+        self.assertEqual(0, payload["changed_path_count"])
+        # Nothing was authored, so neither check may look at the merged content.
+        self.assertEqual(["git", "diff", "--check", head, head, "--"], payload["diff_check"]["command"])
+        self.assertEqual({}, payload["structure_review"]["discovery"]["path_metadata"])
+
+    def test_review_hook_reviews_only_what_the_branch_authored_after_a_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            base, head = self._integration_repository(
+                project, authored=True, integrated_text="value = 2   \n"
+            )
+
+            result, outputs = self._commit_range_review(project, base, head)
+
+        self.assertEqual(0, result, outputs)
+        payload = outputs[0]["payload"]
+        self.assertEqual(1, payload["changed_path_count"])
+        self.assertEqual(
+            {"authored.py"}, set(payload["structure_review"]["discovery"]["path_metadata"])
+        )
+        self.assertEqual(0, payload["diff_check"]["returncode"])
 
     def test_review_hook_runs_commit_range_checks_from_a_clean_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

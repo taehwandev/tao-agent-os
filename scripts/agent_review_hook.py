@@ -145,6 +145,7 @@ def _review_working_tree(
         "clean_restored_scope": clean_restored_scope,
         "clean_task_setup_scope": clean_task_setup_scope,
         "clean_repo_hygiene_scope": clean_repo_hygiene_scope,
+        "clean_integration_scope": bool(review_subject.get("integration_only")),
     }
 
 
@@ -194,6 +195,54 @@ def _review_may_start(
     return None
 
 
+def _accepted_clean_scope(
+    *,
+    local_config_scope: bool,
+    clean_integration_scope: bool,
+    clean_repo_hygiene_scope: bool,
+    clean_restored_scope: bool,
+    clean_task_setup_scope: bool,
+) -> tuple[str, str]:
+    """Which clean-scope rule made an empty diff acceptable, and why.
+
+    The first rule that applies wins; a read-only run is what remains.
+    """
+
+    for applies, key, reason in (
+        (
+            local_config_scope,
+            "local_config_scope",
+            "explicit Git-ignored local agent configuration is bound by current file hashes",
+        ),
+        (
+            clean_integration_scope,
+            "integration_only_scope",
+            "the range only merged another line, so it authored no change to review",
+        ),
+        (
+            clean_repo_hygiene_scope,
+            "repo_hygiene_clean_scope",
+            "destructive branch/worktree cleanup was reviewed from a clean checkout",
+        ),
+        (
+            clean_restored_scope,
+            "clean_restoration_scope",
+            "explicit preflight-dirty paths were restored to committed bytes",
+        ),
+        (
+            clean_task_setup_scope,
+            "task_setup_clean_scope",
+            "task setup inspected its explicit workflow policy on a clean protected checkout",
+        ),
+    ):
+        if applies:
+            return key, reason
+    return (
+        "read_only_clean_scope",
+        "read-only run inspected explicit existing pathspecs on a clean checkout",
+    )
+
+
 def _review_scope_verdict(
     args: Any,
     checks: dict[str, Any],
@@ -211,6 +260,7 @@ def _review_scope_verdict(
     clean_restored_scope: bool,
     clean_task_setup_scope: bool,
     clean_repo_hygiene_scope: bool,
+    clean_integration_scope: bool = False,
 ) -> int | None:
     """Decide whether this scope can be reviewed at all.
 
@@ -227,6 +277,7 @@ def _review_scope_verdict(
         or clean_restored_scope
         or clean_task_setup_scope
         or clean_repo_hygiene_scope
+        or clean_integration_scope
         or local_config_scope
     )
     if status_before["returncode"] != 0 and not status_before.get("review_only"):
@@ -257,33 +308,14 @@ def _review_scope_verdict(
             invocation_error=True,
         )
     elif not status_before_lines and not status_before.get("review_only"):
-        clean_scope_key = "local_config_scope" if local_config_scope else (
-            "repo_hygiene_clean_scope" if clean_repo_hygiene_scope else (
-                "clean_restoration_scope" if clean_restored_scope else (
-                    "task_setup_clean_scope" if clean_task_setup_scope else "read_only_clean_scope"
-                )
-            )
+        clean_scope_key, clean_scope_reason = _accepted_clean_scope(
+            local_config_scope=local_config_scope,
+            clean_integration_scope=clean_integration_scope,
+            clean_repo_hygiene_scope=clean_repo_hygiene_scope,
+            clean_restored_scope=clean_restored_scope,
+            clean_task_setup_scope=clean_task_setup_scope,
         )
-        checks[clean_scope_key] = {
-            "accepted": True,
-            "reason": (
-                "explicit Git-ignored local agent configuration is bound by current file hashes"
-                if local_config_scope
-                else (
-                    "destructive branch/worktree cleanup was reviewed from a clean checkout"
-                    if clean_repo_hygiene_scope
-                    else (
-                        "explicit preflight-dirty paths were restored to committed bytes"
-                        if clean_restored_scope
-                        else (
-                            "task setup inspected its explicit workflow policy on a clean protected checkout"
-                            if clean_task_setup_scope
-                            else "read-only run inspected explicit existing pathspecs on a clean checkout"
-                        )
-                    )
-                )
-            ),
-        }
+        checks[clean_scope_key] = {"accepted": True, "reason": clean_scope_reason}
         failures = []
     elif len(status_before_lines) > args.max_changed_paths:
         scope_failure = (
@@ -352,12 +384,10 @@ def _run_review_checks(
                     args.project, args.max_source_file_lines,
                     args.max_function_lines,
                     run_command,
-                    None if review_subject["kind"] == "commit-range" else review_paths,
+                    _structure_review_paths(review_subject, review_paths),
                     max_added_lines=getattr(args, "max_added_lines", REVIEW_ADDED_LINE_LIMIT),
                     source_project=source_project,
-                    review_commits=(review_subject["base_sha"], review_subject["head_sha"])
-                    if review_subject["kind"] == "commit-range"
-                    else None,
+                    review_commits=_structure_review_commits(review_subject),
                 )
     except (OSError, RuntimeError, ValueError) as error:
         failures.append(f"commit snapshot materialization failed: {error}")
@@ -583,6 +613,7 @@ def review_hook(
         clean_restored_scope=tree["clean_restored_scope"],
         clean_task_setup_scope=tree["clean_task_setup_scope"],
         clean_repo_hygiene_scope=tree["clean_repo_hygiene_scope"],
+        clean_integration_scope=tree["clean_integration_scope"],
     )
     if scope_result is not None:
         return scope_result
@@ -1475,19 +1506,41 @@ def git_status_for_review(
     return result, lines
 
 
+def _structure_review_paths(
+    review_subject: dict[str, Any], review_paths: list[str]
+) -> list[str] | None:
+    """The pathspec the structure review is limited to, or None for the whole range.
+
+    A merge brings in content this range did not author, so a range that merged
+    another line looks only at what it authored. A range without one keeps the
+    whole diff.
+    """
+
+    if review_subject["kind"] != "commit-range":
+        return review_paths
+    return review_paths if review_subject.get("integrated_paths") else None
+
+
+def _structure_review_commits(review_subject: dict[str, Any]) -> tuple[str, str] | None:
+    if review_subject["kind"] != "commit-range":
+        return None
+    base, head = str(review_subject["base_sha"]), str(review_subject["head_sha"])
+    # A range that only merged another line authored nothing: its authored delta
+    # is empty, which is head against itself.
+    return (head, head) if review_subject.get("integration_only") else (base, head)
+
+
 def diff_check_command(
     review_paths: list[str],
     review_subject: dict[str, Any] | None = None,
 ) -> list[str]:
     if (review_subject or {}).get("kind") == "commit-range":
-        return [
-            "git",
-            "diff",
-            "--check",
-            str(review_subject["base_sha"]),
-            str(review_subject["head_sha"]),
-            "--",
-        ]
+        base, head = _structure_review_commits(review_subject)
+        command = ["git", "diff", "--check", base, head, "--"]
+        # A merge brings in content this range did not author; check what it did.
+        if review_subject.get("integrated_paths"):
+            command.extend(review_paths)
+        return command
     if not review_paths:
         return ["git", "diff", "--check"]
     return ["git", "diff", "--check", "--", *review_paths]
