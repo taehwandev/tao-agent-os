@@ -152,6 +152,23 @@ class WorkContinuityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-cancelled"):
             self.continuation()
 
+    def test_wrong_rules_root_names_exact_recovery_without_admitting_the_action(self):
+        self.target.rules = self.project
+        original = self.source.evidence.read_bytes()
+        with self.assertRaises(ValueError) as caught:
+            self.continuation()
+        self.assertIn(f"--rules {self.rules}", str(caught.exception))
+        self.assertIn("rules root", str(caught.exception))
+        self.assertEqual(original, self.source.evidence.read_bytes())
+
+    def test_foreign_session_does_not_get_rules_recovery_hint(self):
+        self.target.rules = self.project
+        self.target.continue_from = self.source_id
+        with patch("agent_work_continuity.runtime_session", return_value={"runtime": "codex", "session_id": "other"}):
+            with self.assertRaises(ValueError) as caught:
+                WorkContinuity(self.target)
+        self.assertNotIn("--rules", str(caught.exception))
+
     def test_resumed_source_is_still_this_sessions_work(self):
         # A resume re-stamps the source binding with its generation. The same
         # session continuing from it was refused as "a different session".

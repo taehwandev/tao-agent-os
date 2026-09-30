@@ -548,6 +548,12 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
                 "Stage exactly these paths, then call review once; it will validate "
                 "current staged scope and drift. Any mismatch falls back to full review."
             )
+        else:
+            lines.append(
+                "Publication review reuse: unavailable for this current scope; "
+                "do not search old attestations to manufacture coverage. Stage the intended "
+                "unit and review it once in this run; retain separately valid test evidence."
+            )
         lines.append(
             "Commit reuse: reuse unchanged rules and verification for the exact covered diff, "
             "with no separate inventory call; freshly check staged scope, review binding, "
@@ -555,6 +561,13 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
             "prior approval does not authorize new external writes."
         )
         lines.extend(_publication_scope_lines(route))
+        lines.append(
+            "Push audit reuse: inspect the enabled pre-push hook once. If it runs the required "
+            "strict audit and propagates failure before remote updates, rely on its actual push "
+            "verdict instead of also running a standalone identical audit. Otherwise audit "
+            "the exact publication inputs with --strict before push; never disable the hook."
+        )
+    lines.extend(_same_run_commit_lines(route))
     lines.extend(_continuation_summary_lines(route.get("command", "")))
     if required:
         lines.append(f"Required hooks: {required}")
@@ -603,6 +616,21 @@ def _publication_scope_lines(route: dict[str, Any]) -> list[str]:
             "external_write; finish cannot add them later."
         )
     return lines
+
+
+def _same_run_commit_lines(route: dict) -> list[str]:
+    if route.get("command") in {"commit", "git_commit"} or "review hook" not in (route.get("gates") or []):
+        return []
+    envelope = (route.get("request_classification") or {}).get("intent_envelope") or {}
+    if envelope.get("effective_effect") not in {"git_write", "external_write"}:
+        return []
+    return [
+        "Same-run local commit: when this exact commit is already authorized, stage "
+        "before final review and include repository/remote/visibility and safety readiness. "
+        "After finish, verify the same session, target, HEAD and staged bytes, then commit; "
+        "no second commit start/review/finish. Changed scope or missing readiness uses "
+        "the commit route. Push and PR still require their matching route and authority."
+    ]
 
 
 def _continuation_summary_lines(command: str) -> list[str]:
@@ -1726,6 +1754,10 @@ def _add_gate_arguments(parser: argparse.ArgumentParser) -> None:
 
 class _HookArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
+        if message.startswith("argument --rules:"):
+            self.exit(2, f"{self.prog}: error: {message}\n"
+                      f"Use the runtime rules root: --rules {ROOT}, or omit --rules to use "
+                      "this launcher's default. Project AGENTS.md is read separately.\n")
         self.exit(2, f"{self.prog}: error: {message}\nUse --help for command options.\n")
 
 

@@ -48,10 +48,14 @@ class WorkContinuity:
                     self.prior.get("runtime_session"), session,
                     resume_generation=int(records[0].get("resume_generation") or 0))
                 or self.prior.get("project") != str(args.project.resolve())
-                or self.prior.get("rules") != str(args.rules.resolve())
                 or self.prior.get("agent_run_id") != self.source_id
                 or records[0].get("evidence_name", "preflight.json") != "preflight.json"):
             raise ValueError("continuation project, rules, session or registered source differs")
+        if self.prior.get("rules") != str(args.rules.resolve()):
+            raise ValueError(
+                "continuation rules root differs; retry with "
+                f"--rules {self.prior.get('rules')}. Project instructions are not the runtime rules root."
+            )
         if getattr(args, "evidence", None) and args.evidence.resolve() == self.source:
             raise ValueError("continuation keeps source evidence immutable; omit --evidence")
 

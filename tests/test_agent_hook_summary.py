@@ -36,6 +36,39 @@ agent_hook = _load_agent_hook()
 
 class AgentHookSummaryTests(unittest.TestCase):
 
+    def test_publication_without_reuse_proof_does_not_invite_evidence_inventory(self):
+        payload = {"route": {"command": "commit"}}
+        with patch.object(Path, "read_text", return_value=json.dumps(payload)) as read:
+            summary = "\n".join(agent_hook._hook_summary_from_preflight(Path("manifest.json")))
+        read.assert_called_once()
+        self.assertIn("Publication review reuse: unavailable", summary)
+        self.assertIn("do not search old attestations", summary)
+        self.assertIn("enabled pre-push hook", summary)
+        self.assertIn("propagates failure", summary)
+
+    def test_work_route_explains_same_run_commit_only_with_bound_git_authority(self):
+        for effect in ("read", "local_write", "git_write", "external_write"):
+            payload = {"route": {"command": "small-change", "gates": ["review hook"],
+                "request_classification": {"intent_envelope": {"effective_effect": effect}}}}
+            with self.subTest(effect=effect), patch.object(Path, "read_text", return_value=json.dumps(payload)):
+                summary = "\n".join(agent_hook._hook_summary_from_preflight(Path("manifest.json")))
+            self.assertEqual(effect in {"git_write", "external_write"}, "Same-run local commit:" in summary)
+            if effect in {"git_write", "external_write"}:
+                self.assertIn("stage before final review", summary)
+                self.assertIn("no second commit start/review/finish", summary)
+                self.assertIn("same session, target, HEAD and staged bytes", summary)
+
+    def test_rules_file_error_names_the_installed_default_without_help_lookup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "AGENTS.md"
+            path.write_text("project instructions")
+            result = subprocess.run([sys.executable, str(SCRIPTS / "agent-hook.py"),
+                "start", "--rules", str(path)], capture_output=True, text=True)
+        self.assertEqual(2, result.returncode)
+        self.assertIn(f"--rules {ROOT}", result.stderr)
+        self.assertIn("omit --rules", result.stderr)
+        self.assertNotIn("Use --help", result.stderr)
+
     def test_cleanup_omits_inapplicable_review_procedure_but_preserves_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             evidence = Path(directory) / "preflight.json"
