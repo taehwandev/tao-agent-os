@@ -2390,6 +2390,51 @@ class ClaudePreToolGateTests(unittest.TestCase):
             _, stale = _decide(payload)
             self.assertIn("older than the freshness window", _reason(stale))
 
+    def test_a_run_paused_by_a_turn_boundary_is_resumed_not_restarted(self) -> None:
+        """Observed: after a turn ended mid-task the edit was refused and told to
+        `start`, and a new start supersedes the paused run and drops its gates.
+        The run was only paused, and `resume` is what continues it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            payload = {"tool_name": "Write", "cwd": str(project), "session_id": "s1"}
+            _write_preflight(project, "s1")
+            evidence = resolve_runtime_evidence(
+                project, {"runtime": "claude", "session_id": "s1"}
+            )
+            run_id = evidence.parent.name
+
+            transition_run(project, evidence, "interrupted")
+            _, paused = _decide(payload)
+            reason = _reason(paused)
+
+        self.assertIn(f"run {run_id} was paused", reason)
+        self.assertIn(
+            f"resume --last --run-id {run_id} --project {project.resolve()}", reason
+        )
+        self.assertIn("would supersede the paused run", reason)
+        # Unrelated work still has its way in, and the freshness note is not
+        # offered for a run that is not stale.
+        self.assertIn("For unrelated new work", reason)
+        self.assertNotIn("freshness window", reason)
+
+    def test_another_sessions_paused_run_is_not_offered_for_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project, "someone-else")
+            other = resolve_runtime_evidence(
+                project, {"runtime": "claude", "session_id": "someone-else"}
+            )
+            transition_run(project, other, "interrupted")
+
+            _, denied = _decide(
+                {"tool_name": "Write", "cwd": str(project), "session_id": "s1"}
+            )
+
+        reason = _reason(denied)
+        self.assertNotIn("resume --last", reason)
+        self.assertIn("No exact registered preflight evidence", reason)
+
     def test_deny_reason_uses_resolved_absolute_launcher_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = _opt_in_project(Path(tmp))

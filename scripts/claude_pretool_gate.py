@@ -654,6 +654,29 @@ def governed_because(root: Path, cwd_roots: "list[Path] | None") -> str:
     )
 
 
+def paused_run_reason(
+    root: Path, evidence: Path, tool: str, cwd_roots: "list[Path] | None"
+) -> str:
+    """The denial for a session whose own run a turn boundary paused.
+
+    The run is intact, so the remedy is `resume`. A new `start` would supersede
+    it and drop its recorded gates, which is what the generic message invited.
+    """
+
+    run_id = evidence.parent.name
+    launcher = stable_launcher_path()
+    action, retry = stopped_action(tool)
+    return (
+        f"Tao Agent OS: this session's run {run_id} was paused when the last turn "
+        f"ended, so it no longer covers {action}. To continue that task run "
+        f"`{launcher} resume --last --run-id {run_id} --project {root} --rules "
+        f"<TAO_ROOT>`, then {retry}; a new start would supersede the paused run "
+        f"and drop its gates. For unrelated new work, run `{launcher} start "
+        f"--project {root} --rules <TAO_ROOT> --command <route> --request "
+        f"\"<user request>\"`.{governed_because(root, cwd_roots)}"
+    )
+
+
 def deny_reason(
     root: Path,
     session_id: str = "",
@@ -667,6 +690,9 @@ def deny_reason(
     file. Each cause has a different fix, so each gets its own sentence.
     """
     evidence = session_evidence(root, session_id)
+    paused = paused_session_evidence(root, session_id) if evidence is None else None
+    if paused is not None:
+        return paused_run_reason(root, paused, tool, cwd_roots)
     if evidence is None:
         cause = (
             "No exact registered preflight evidence is bound to this runtime session. "
@@ -745,6 +771,27 @@ def session_evidence(root: Path, session_id: str) -> Path | None:
     return reader.resolve_runtime_evidence(
         root,
         {"runtime": runtime_name(), "session_id": session_id},
+    )
+
+
+def paused_session_evidence(root: Path, session_id: str) -> Path | None:
+    """Evidence of this session's run that a turn boundary paused, if any.
+
+    The Stop hook moves an open run to `interrupted` when a turn ends, so the
+    next turn's first edit finds no active binding although the run is intact.
+    Only the session's own paused runs count, and the newest wins.
+    """
+
+    if not session_id:
+        return None
+    reader = _run_evidence_reader()
+    if reader is None:
+        return None
+    return reader.resolve_runtime_evidence(
+        root,
+        {"runtime": runtime_name(), "session_id": session_id},
+        frozenset({"interrupted", "blocked"}),
+        latest_of_several=True,
     )
 
 
