@@ -16,7 +16,6 @@ from agent_verification_command import (
     resolve_verification_target,
     run_verification_command,
     verification_command,
-    verification_target_is_changed,
     verification_workdir,
 )
 
@@ -50,13 +49,9 @@ def validate_repair_receipt(
     if resolved_target is None or not resolved_target[0].is_file():
         return ["--repair-target must name an existing file under project or rules root"]
     target_path, target_scope, target_relative, target_root = resolved_target
-    if not verification_target_is_changed(
-        target_root,
-        target_path,
-        preflight=preflight,
-        target_relative=target_relative,
-    ):
-        failures.append("repair target is no longer changed in the bound worktree")
+    # Creation already attests that the target changed. A later commit of
+    # identical bytes must not invalidate that evidence; the hash and live
+    # verification below still reject changed or failing repair inputs.
     expected = {
         "schema_version": SCHEMA_VERSION,
         "checkpoint": checkpoint.strip(),

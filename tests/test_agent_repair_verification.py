@@ -262,6 +262,30 @@ class AgentRepairVerificationTests(unittest.TestCase):
             self.assertTrue(changed["created"])
             self.assertEqual("SUCCESS", changed["status"])
 
+    def test_existing_receipt_survives_identical_content_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            evidence_path, preflight = self._prepared_repair(project)
+            target = project / "target.py"
+            target.write_text("VALUE = 1\n", encoding="utf-8")
+            receipt = create_repair_receipt(
+                project=project, rules=ROOT, evidence_path=evidence_path,
+                preflight=preflight, target="target.py", checkpoint="tests",
+                verification_kind="py_compile",
+            )
+            self.assertTrue(receipt["created"])
+            subprocess.run(["git", "add", "target.py"], cwd=project, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "repair"], cwd=project, check=True)
+            arguments = dict(
+                project=project, rules=ROOT, evidence_path=evidence_path,
+                preflight=preflight, target="target.py", checkpoint="tests",
+                receipt_path=Path(receipt["receipt_path"]),
+            )
+            self.assertEqual([], validate_repair_receipt(**arguments))
+            # A commit never licenses different bytes under the same receipt.
+            target.write_text("VALUE = 2\n", encoding="utf-8")
+            self.assertTrue(validate_repair_receipt(**arguments))
+
     def test_unittest_verification_runs_from_target_owner_root(self) -> None:
         project = Path("/tmp/project")
         rules = Path("/tmp/rules")
