@@ -136,7 +136,7 @@ from agent_context_store import (
 )
 from support.global_state import ensure_local_only_state_dir
 from support.git_read_scope import git_read_scope
-from workflow_catalog import CONCERNS, PLATFORM_CONCERNS
+from workflow_catalog import COMMANDS, CONCERNS, PLATFORM_CONCERNS
 from support.stage_timing import append_recorded_stages, set_timing_sink, stage
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -2127,6 +2127,14 @@ def _materialize_compact_start_authority(
         parser.error(
             "compact start authority cannot be combined with --intent-envelope or "
             "--approval-record"
+        )
+    # A route missing from the catalog has no declared effect floor, so below it
+    # would surface only as a demand for external_write approval. Without compact
+    # authority the preflight parser already names the invalid choice.
+    if args.command not in COMMANDS and canonical_route_command(args.command) == args.command:
+        parser.error(
+            f"unknown route `{args.command}`; no approval changes this. "
+            f"Choose one of: {', '.join(sorted(COMMANDS))}"
         )
     problems: list[str] = []
     if not intent or not target:

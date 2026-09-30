@@ -150,6 +150,23 @@ class CompactStartAuthorityTests(unittest.TestCase):
         self.assertIn("--approved-effect local_write is unnecessary", message)
         self.assertIn("required only from `git_write` up", message)
 
+    def test_an_unknown_route_is_named_not_answered_with_an_approval_demand(self) -> None:
+        """Observed: `start --command drive` was refused for `external_write`, so
+        the caller asked for a permission the request never needed."""
+
+        message = self._refusal(command="drive")
+        self.assertIn("unknown route `drive`", message)
+        self.assertIn("bugfix", message)
+        self.assertNotIn("external_write", message)
+
+    def test_known_routes_and_the_pr_alias_are_not_unknown(self) -> None:
+        for command in ("task", "feature", "pr", "pull-request"):
+            with self.subTest(command=command):
+                try:
+                    self._materialize(command=command, approved_effect="external_write")
+                except _Refused as refused:
+                    self.assertNotIn("unknown route", str(refused))
+
     def test_missing_or_insufficient_approval_is_rejected(self) -> None:
         self.assertIn("--approved-effect", self._refusal(command="commit"))
         self.assertIn("below", self._refusal(
