@@ -729,16 +729,108 @@ class NoChangeCancellationTests(unittest.TestCase):
         self.assertIn("active in another session", output)
         self.assertEqual("running", source["state"])
 
-    def test_a_dead_foreign_owner_keeps_the_existing_refusal(self) -> None:
+    def test_a_run_whose_owner_is_provably_dead_is_settled(self) -> None:
+        """Observed as a stranded run no other session could close.
+
+        A dead owner can never settle its own run, yet it was held to the
+        ownership rule a live idle owner is excused from, and the refusal was
+        reported as an unclean checkout. The empty start token is the shape the
+        live registry record had.
+        """
+
+        for token in ("gone", ""):
+            with self.subTest(token=token), TransferFixture(True, "same request") as fixture:
+                fixture.hold_source_by_another_live_process(pid=999999, token=token)
+                fixture.set_source_state("reconcile_required")
+                code, output = fixture.cancel_no_change()
+                source = registered_run(fixture.source, fixture.source_evidence)
+                receipt_written = (
+                    fixture.source_evidence.parent / CANCEL_RECEIPT_NAME
+                ).exists()
+
+                self.assertEqual(0, code, output)
+                self.assertEqual("cancelled", source["state"])
+                self.assertTrue(receipt_written)
+
+    def test_a_dead_owners_run_that_recorded_changes_is_refused(self) -> None:
         with TransferFixture(True, "same request") as fixture:
             fixture.hold_source_by_another_live_process(pid=999999)
-            fixture.age_source_activity(31 * 60)
+            fixture.packet_scope = [{"path": "tracked.txt", "role": "edited"}]
             code, output = fixture.cancel_no_change()
             source = registered_run(fixture.source, fixture.source_evidence)
 
         self.assertEqual(1, code)
-        self.assertNotIn("active in another session", output)
+        self.assertIn("recorded 1 changed path(s)", output)
         self.assertEqual("running", source["state"])
+
+    def test_a_dead_owners_dirty_checkout_is_refused(self) -> None:
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process(pid=999999)
+            (fixture.source / "tracked.txt").write_text("edited\n", encoding="utf-8")
+            code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertIn("stopped being clean", output)
+        self.assertEqual("running", source["state"])
+
+    def test_a_dead_owner_rechecks_its_death_inside_the_transaction(self) -> None:
+        """A reused pid makes the owner live again; the waiver must not survive."""
+
+        with TransferFixture(True, "same request") as fixture:
+            fixture.hold_source_by_another_live_process(pid=999999)
+            original = transfer_cancel.cancel_run
+
+            def revive_then_cancel(*args, **kwargs):
+                with patch.object(transfer_cancel, "owner_death_is_proven", return_value=False):
+                    return original(*args, **kwargs)
+
+            with patch.object(transfer_cancel, "cancel_run", side_effect=revive_then_cancel):
+                code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertIn("no longer provably gone", output)
+        self.assertNotIn("stopped being clean", output)
+        self.assertEqual("running", source["state"])
+        self.assertNotIn("cancellation", source)
+
+    def test_an_owner_mismatch_is_not_reported_as_an_unclean_checkout(self) -> None:
+        """The registry refused on ownership, so advising a rerun could never help."""
+
+        with TransferFixture(True, "same request") as fixture:
+            original = transfer_cancel.cancel_run
+
+            def rebind_then_cancel(*args, **kwargs):
+                fixture.hold_source_by_another_live_process()
+                return original(*args, **kwargs)
+
+            with patch.object(transfer_cancel, "cancel_run", side_effect=rebind_then_cancel):
+                code, output = fixture.cancel_no_change()
+            source = registered_run(fixture.source, fixture.source_evidence)
+
+        self.assertEqual(1, code)
+        self.assertIn("owned by another runtime process", output)
+        self.assertNotIn("stopped being clean", output)
+        self.assertEqual("running", source["state"])
+
+    def test_a_missing_packet_is_not_proof_of_no_change(self) -> None:
+        """A pruned run directory leaves no packet; that is no record, not an empty one."""
+
+        for owner_pid in (None, 999999):
+            with self.subTest(owner_pid=owner_pid), TransferFixture(True, "same request") as fixture:
+                if owner_pid is not None:
+                    fixture.hold_source_by_another_live_process(pid=owner_pid)
+                fixture.packet_scope = None
+                code, output = fixture.cancel_no_change()
+                source = registered_run(fixture.source, fixture.source_evidence)
+
+                self.assertEqual(1, code)
+                self.assertIn("missing or unreadable", output)
+                self.assertEqual("running", source["state"])
+                self.assertFalse(
+                    (fixture.source_evidence.parent / CANCEL_RECEIPT_NAME).exists()
+                )
 
     def test_a_foreign_owned_transfer_is_still_refused(self) -> None:
         with TransferFixture(True, "same request") as fixture:
@@ -770,15 +862,21 @@ class NoChangeCancellationTests(unittest.TestCase):
         with patch("agent_continuation_store.read_continuation_packet", return_value=ok):
             self.assertEqual(2, recorded_changed_scope(Path("/nowhere"), "a" * 32))
 
-    def test_an_unreadable_packet_reports_no_recorded_change(self) -> None:
-        """A run that never checkpointed recorded nothing, which is not a claim
-        that nothing happened -- the clean checkout is what carries that half."""
-
-        refused = {"status": "local_boundary_failed", "packet": None}
-        with patch(
-            "agent_continuation_store.read_continuation_packet", return_value=refused
-        ):
+    def test_the_changed_scope_reader_counts_an_empty_scope_as_zero(self) -> None:
+        ok = {"status": "ok", "packet": {"work": {"changed_scope": []}}}
+        with patch("agent_continuation_store.read_continuation_packet", return_value=ok):
             self.assertEqual(0, recorded_changed_scope(Path("/nowhere"), "a" * 32))
+
+    def test_a_missing_or_unreadable_packet_reports_no_answer(self) -> None:
+        """Start writes a packet for every per-run directory, so its absence is
+        no record at all -- not the empty scope a real record would carry."""
+
+        for status in ("not_found", "invalid_packet", "local_boundary_failed"):
+            with self.subTest(status=status), patch(
+                "agent_continuation_store.read_continuation_packet",
+                return_value={"status": status, "packet": None},
+            ):
+                self.assertIsNone(recorded_changed_scope(Path("/nowhere"), "a" * 32))
 
 
 class CancelInvocationTests(unittest.TestCase):
@@ -874,6 +972,9 @@ class TransferFixture:
     ):
         self._temporary = tempfile.TemporaryDirectory()
         self.root = Path(self._temporary.name)
+        # What the source run's continuation packet records as changed; None
+        # stands for a run whose packet is missing.
+        self.packet_scope: list[dict] | None = []
         self.source = self.root / "source"
         self.replacement = self.root / "replacement"
         self.rules = self.root / "rules"
@@ -972,8 +1073,15 @@ class TransferFixture:
             output=None,
             repair_cycle=0,
         )
+        packet = (
+            {"status": "not_found", "packet": None}
+            if self.packet_scope is None
+            else {"status": "ok", "packet": {"work": {"changed_scope": self.packet_scope}}}
+        )
         output = io.StringIO()
-        with redirect_stdout(output):
+        with patch(
+            "agent_continuation_store.read_continuation_packet", return_value=packet
+        ), redirect_stdout(output):
             code = cancel_no_change_run(args)
         return code, output.getvalue()
 
@@ -1015,7 +1123,9 @@ class TransferFixture:
                 self.git("config", "user.name", "Test User", cwd=self.rules)
             self.git("commit", "--allow-empty", "-m", message, cwd=self.rules)
 
-    def hold_source_by_another_live_process(self, pid: int = 1) -> None:
+    def hold_source_by_another_live_process(
+        self, pid: int = 1, token: str | None = None
+    ) -> None:
         """Record pid 1 -- alive, and never this test's launcher -- as owner.
 
         Its real start token keeps it provably alive; any other pid given here
@@ -1024,11 +1134,19 @@ class TransferFixture:
 
         from agent_run_owner import _process_start_token
 
-        token = _process_start_token(pid) if pid == 1 else "gone"
+        if token is None:
+            token = _process_start_token(pid) if pid == 1 else "gone"
         registry = self.source / ".tao" / "run-registry.json"
         payload = json.loads(registry.read_text(encoding="utf-8"))
         for run in payload["runs"]:
             run["owner"] = {"pid": pid, "start_token": token}
+        registry.write_text(json.dumps(payload), encoding="utf-8")
+
+    def set_source_state(self, state: str) -> None:
+        registry = self.source / ".tao" / "run-registry.json"
+        payload = json.loads(registry.read_text(encoding="utf-8"))
+        for run in payload["runs"]:
+            run["state"] = state
         registry.write_text(json.dumps(payload), encoding="utf-8")
 
     def age_source_activity(self, seconds: int) -> None:

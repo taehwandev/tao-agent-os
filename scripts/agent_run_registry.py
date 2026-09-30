@@ -260,8 +260,9 @@ def cancel_run(
     """Atomically settle one still-owned, non-terminal transferred run.
 
     ``require_owner=False`` is for a no-change close of a run whose live
-    foreign owner has gone idle. Its run-aware precondition must revalidate
-    current activity, identity and empty recorded scope under these locks.
+    foreign owner has gone idle or whose recorded owner is provably dead. Its
+    run-aware precondition must revalidate current activity or owner death,
+    identity and empty recorded scope under these locks.
 
     ``precondition`` is evaluated inside the registry lock and immediately
     before the state write. A caller that checked the world first and then

@@ -12,8 +12,13 @@ from typing import Any
 
 from agent_execution_capsule_state import atomic_write_json
 from agent_hook_runtime import finish_with_result
-from agent_run_owner import is_recorded_owner, owner_is_gone, process_owner
-from agent_run_registry import cancel_run, registered_run
+from agent_run_owner import (
+    is_recorded_owner,
+    owner_death_is_proven,
+    owner_is_gone,
+    process_owner,
+)
+from agent_run_registry import TRANSFER_CANCELLABLE_RUN_STATES, cancel_run, registered_run
 from agent_runtime_session import (
     SETTLED_SUFFIX,
     recorded_session_id,
@@ -291,19 +296,12 @@ def cancel_no_change_run(args: Any) -> int:
             args.repair_cycle,
             invocation_error=True,
         )
-    changed = recorded_changed_scope(args.project, str(run.get("run_id") or ""))
-    if changed:
+    scope_refusal = _recorded_scope_refusal(
+        recorded_changed_scope(args.project, str(run.get("run_id") or ""))
+    )
+    if scope_refusal is not None:
         return finish_with_result(
-            "cancel",
-            False,
-            [
-                f"this run recorded {changed} changed path(s), so it is not a "
-                "no-change run",
-                "complete the review hook and finish instead of cancelling",
-            ],
-            args.output,
-            {},
-            args.repair_cycle,
+            "cancel", False, scope_refusal, args.output, {}, args.repair_cycle,
             invocation_error=True,
         )
     idle = foreign_live_owner_is_idle(args.project, evidence, run)
@@ -322,14 +320,21 @@ def cancel_no_change_run(args: Any) -> int:
             args.repair_cycle,
             invocation_error=True,
         )
+    # A provably dead owner can never finish or cancel the run itself, so
+    # requiring it would strand the run for good. It is waived on the same proof
+    # as an idle live owner, and the proof is taken again inside the lock.
+    owner_dead = foreign_owner_death_is_proven(run)
+
     def unchanged_no_change_run(current: dict) -> str | None:
         identity_fields = ("owner", "started_at", "resume_generation", "request_fingerprint")
         if any(current.get(field) != run.get(field) for field in identity_fields):
             return "source run was rebound after validation"
-        if recorded_changed_scope(args.project, str(current["run_id"])):
+        if recorded_changed_scope(args.project, str(current["run_id"])) != 0:
             return "source run recorded changes after validation"
         if idle is True and foreign_live_owner_is_idle(args.project, evidence, current) is not True:
             return "source run is no longer idle"
+        if owner_dead and not foreign_owner_death_is_proven(current):
+            return "source run's recorded owner is no longer provably gone"
         return None
 
     receipt = {
@@ -350,18 +355,46 @@ def cancel_no_change_run(args: Any) -> int:
             "the run's continuation packet records no changed scope",
             "run settled as cancelled with no change; existing evidence was preserved",
         ],
-        require_owner=not idle,
+        require_owner=not (idle or owner_dead),
         run_precondition=unchanged_no_change_run,
     )
+
+
+def _recorded_scope_refusal(changed: int | None) -> list[str] | None:
+    """Why the run's own record does not show a no-change run, or None."""
+
+    if changed is None:
+        return [
+            "this run's continuation packet is missing or unreadable, so nothing "
+            "proves it recorded no change (a pruned run directory, or evidence "
+            "kept outside a per-run directory, leaves no packet)",
+            "complete the review hook and finish, or reclaim the run with the "
+            "stale-run maintenance sweep",
+        ]
+    if changed:
+        return [
+            f"this run recorded {changed} changed path(s), so it is not a "
+            "no-change run",
+            "complete the review hook and finish instead of cancelling",
+        ]
+    return None
+
+
+def foreign_owner_death_is_proven(run: dict) -> bool:
+    """True when another process recorded as owner is proven to have exited."""
+
+    owner = run.get("owner")
+    return owner != process_owner() and owner_death_is_proven(owner)
 
 
 def foreign_live_owner_is_idle(project: Path, evidence: Path, run: dict) -> bool | None:
     """None unless another live process holds the run; then whether it is idle.
 
-    A run owned by this session, unowned, or held by a provably dead owner
-    keeps the registry's ordinary owner handling. Only a live foreign owner
-    whose run shows no activity for the idle window may be settled around:
-    before that, it may simply not have recorded its changes yet.
+    A run owned by this session or unowned keeps the registry's ordinary owner
+    handling, and one held by a provably dead owner is settled around by
+    `foreign_owner_death_is_proven` instead. Only a live foreign owner whose
+    run shows no activity for the idle window may be settled around: before
+    that, it may simply not have recorded its changes yet.
     """
 
     owner = run.get("owner")
@@ -388,21 +421,24 @@ def foreign_live_owner_is_idle(project: Path, evidence: Path, run: dict) -> bool
     return bool(stamps) and time.time() - max(stamps) >= FOREIGN_OWNER_IDLE_SECONDS
 
 
-def recorded_changed_scope(project: Path, run_id: str) -> int:
-    """How many paths this run recorded changing, as its own packet reports it.
+def recorded_changed_scope(project: Path, run_id: str) -> int | None:
+    """How many paths this run recorded changing, or None when it cannot tell.
 
-    A run with no readable packet recorded nothing, which is the same answer a
-    packet with an empty changed scope gives. Both are only half the proof; the
-    clean-checkout precondition is the other half.
+    Start writes an initial packet for every run kept in a per-run directory,
+    and the mutation checkpoints add each changed path to it, so an empty
+    changed scope is a record that nothing changed. A missing or unreadable
+    packet is no record at all -- a pruned run directory looks exactly like
+    that -- so it answers None rather than the 0 a real empty scope gives. Even
+    0 is only half the proof; the clean-checkout precondition is the other half.
     """
 
     if not run_id:
-        return 0
+        return None
     from agent_continuation_store import continuation_path, read_continuation_packet
 
     result = read_continuation_packet(project, continuation_path(project, run_id))
     if result["status"] != "ok":
-        return 0
+        return None
     work = (result["packet"] or {}).get("work") or {}
     scope = work.get("changed_scope")
     return len(scope) if isinstance(scope, list) else 0
@@ -441,6 +477,11 @@ def _settle_cancellation(
     """Take the clean-checkout observation and the transition in one transaction."""
 
     receipt_path = evidence.parent / CANCEL_RECEIPT_NAME
+    # The registry reports only that it refused, so each precondition keeps its
+    # own reason here. Without them an owner mismatch was reported as a checkout
+    # that stopped being clean, and the rerun it advised could never succeed.
+    refusals: list[str] = []
+
     # The clean-checkout test is only true at the instant it runs, and no
     # placement makes it simultaneous with the write. Running it as a
     # precondition inside the registry lock is what keeps the check and the
@@ -450,17 +491,29 @@ def _settle_cancellation(
     def source_checkout_is_still_clean() -> str | None:
         status = git(args.project, "status", "--porcelain=v1", "--untracked-files=all")
         if status.returncode != 0:
-            return "source checkout Git status could not be verified"
+            refusals.append("source checkout Git status could not be verified")
+            return refusals[-1]
         if status.stdout.strip():
-            return "source checkout changed after validation"
+            refusals.append(
+                "source checkout stopped being clean before the cancellation "
+                "transition: Git reports tracked or untracked changes; clean it "
+                "and rerun the cancellation"
+            )
+            return refusals[-1]
         receipt["verified_worktree_signature"] = hashlib.sha256(
             status.stdout.encode("utf-8")
         ).hexdigest()
         return None
 
-    # Only a no-change close of a run whose live foreign owner has gone idle
-    # waives ownership; its proof is the in-lock clean checkout plus the empty
-    # recorded scope.
+    def run_is_unchanged(current: dict) -> str | None:
+        reason = run_precondition(current)
+        if reason is not None:
+            refusals.append(reason)
+        return reason
+
+    # Only a no-change close waives ownership, for a run whose live foreign
+    # owner has gone idle or whose recorded owner is provably dead; its proof is
+    # the in-lock clean checkout plus the empty recorded scope.
     transitioned = cancel_run(
         args.project,
         evidence,
@@ -468,17 +521,29 @@ def _settle_cancellation(
         precondition=source_checkout_is_still_clean,
         cancellation=receipt,
         require_owner=require_owner,
-        **({"run_precondition": run_precondition} if run_precondition is not None else {}),
+        **({"run_precondition": run_is_unchanged} if run_precondition is not None else {}),
     )
     if transitioned is None:
-        current = registered_run(args.project, evidence)
-        state = str((current or {}).get("state") or "")
-        refusal = (
-            f"source run is {state}, which cannot be cancelled"
-            if state in {"completed", "cancelled"}
-            else "source run changed or the checkout stopped being clean before the "
-            "cancellation transition; rerun the cancellation"
-        )
+        current = registered_run(args.project, evidence) or {}
+        state = str(current.get("state") or "")
+        owner = current.get("owner")
+        if refusals:
+            refusal = refusals[-1]
+        elif state in {"completed", "cancelled"}:
+            refusal = f"source run is {state}, which cannot be cancelled"
+        elif state and state not in TRANSFER_CANCELLABLE_RUN_STATES:
+            refusal = f"source run is {state}, which cannot be cancelled yet"
+        elif require_owner and is_recorded_owner(owner) and owner != process_owner():
+            refusal = (
+                "source run is owned by another runtime process, not this session; "
+                "the checkout was not the obstacle, so a rerun from here will not "
+                "help -- settle it from the session that holds it"
+            )
+        else:
+            refusal = (
+                "source run changed before the cancellation transition; rerun the "
+                "cancellation"
+            )
         return finish_with_result(
             "cancel",
             False,

@@ -280,9 +280,11 @@ two are mutually exclusive: a transfer says another run did the work, and this
 says the work was correctly not done. It is proven rather than asserted, by two
 observations -- the checkout is clean, and the run's own continuation packet
 records no changed scope. The second is what covers a run that changed files and
-committed them, which a clean checkout alone would not catch. A file written
-outside the governed path leaves no record in either place; preventing that is
-the pretool gate's job.
+committed them, which a clean checkout alone would not catch. A missing or
+unreadable packet proves nothing and is refused. Another session may settle
+the run only when its recorded owner is provably dead or has been idle for 30
+minutes. A file written outside the governed path leaves no record in either
+place; preventing that is the pretool gate's job.
 
 Reach for it when an investigation route ends in "no change needed": the review
 hook refuses every scope with `no changed paths` and cannot attest a clean
