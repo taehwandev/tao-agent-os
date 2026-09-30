@@ -219,6 +219,24 @@ export interface Tail { id: string }
         self.assertTrue(top_level_declaration_failures(path, current))
         self.assertEqual([], top_level_declaration_failures(path, current, previous))
 
+    def test_kotlin_four_owner_file_requires_new_helper_extraction(self) -> None:
+        path = Path("src/InputSurface.kt")
+        source = """
+internal fun InputSurface() = Unit
+internal fun resolveSurfaceTint() = Unit
+internal fun resolveEditorPadding() = Unit
+internal fun shouldCollapseInput() = Unit
+"""
+        previous = declarations(source, path)
+        helper = "internal fun resolveReplyInset() = Unit"
+        current = declarations(source + helper, path)
+        self.assertEqual([], top_level_declaration_failures(path, previous))
+        self.assertTrue(top_level_declaration_failures(path, current, previous))
+        # Extracting the added helper preserves the established surface owners.
+        self.assertEqual([], top_level_declaration_failures(path, previous, previous))
+        helper_path = Path("src/InputLayoutPolicy.kt")
+        self.assertEqual([], top_level_declaration_failures(helper_path, declarations(helper, helper_path)))
+
     def test_kotlin_internal_type_and_factory_are_not_public_owners(self) -> None:
         current = declarations(
             """
