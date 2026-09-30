@@ -93,7 +93,10 @@ class ClassifierTests(unittest.TestCase):
             "/opt/homebrew/bin/python3.14 -I -m json.tool package.json",
             "/opt/homebrew/bin/vibeguard audit .",
         ):
-            if Path(command.split()[0]).exists():
+            # Only tools the trust boundary accepts keep the contract. An install
+            # that is a link into a home checkout, as a developer's own build of
+            # a tool is, is refused on purpose, so existing is not the test.
+            if _trusted_installed_executable(command.split()[0]):
                 with self.subTest(command=command):
                     self.assertEqual("read_only", effect(command)[0])
         for command in (
@@ -104,6 +107,26 @@ class ClassifierTests(unittest.TestCase):
             if Path(command.split()[0]).exists():
                 with self.subTest(command=command):
                     self.assertNotEqual("read_only", effect(command)[0])
+
+    def test_a_link_out_of_the_installed_roots_is_not_trusted(self) -> None:
+        """Observed: `/opt/homebrew/bin/vibeguard` links to a checkout under $HOME."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            installed, checkout = root / "installed", root / "checkout"
+            installed.mkdir()
+            checkout.mkdir()
+            built = checkout / "vibeguard"
+            built.write_text("#!/bin/sh\n")
+            built.chmod(0o755)
+            link = installed / "vibeguard"
+            link.symlink_to(built)
+            plain = installed / "cat"
+            plain.write_text("#!/bin/sh\n")
+            plain.chmod(0o755)
+
+            self.assertFalse(_trusted_installed_executable(str(link), roots=(installed,)))
+            self.assertTrue(_trusted_installed_executable(str(plain), roots=(installed,)))
 
     def test_absolute_project_executable_and_symlink_target_are_not_trusted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -201,7 +224,7 @@ class GateTests(unittest.TestCase):
             "/opt/homebrew/bin/python3.14 -I -m json.tool package.json",
             "/opt/homebrew/bin/vibeguard audit .",
         ):
-            if Path(command.split()[0]).exists():
+            if _trusted_installed_executable(command.split()[0]):
                 with self.subTest(command=command):
                     _, out = self.decide(command)
                     self.assertNotEqual("deny", self.decision(out)[0])
