@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import claude_bash_readonly as bash_readonly
+import claude_bash_syntax as bash_syntax
 import claude_worktree_gate as worktree_gate
 
 
@@ -244,6 +245,39 @@ class CompoundShellCommandTests(unittest.TestCase):
         self.assertEqual(self._kind("git fetch --receive-pack=/bin/sh"), "mutating")
         self.assertEqual(self._kind("git fetch --exec=/bin/sh"), "mutating")
         self.assertEqual(self._configured_fetch_kind("git fetch origin"), "bootstrap")
+
+    def test_a_stderr_merge_is_not_read_as_a_fetch_remote(self) -> None:
+        """Observed: `git fetch -q 2>&1 | tail -1` was refused in a protected checkout.
+
+        The descriptor duplication arrived as a word, so fetch took it for the
+        remote, found no `remote.2>&1.fetch`, and called the command a write.
+        It opens no file, and the same fetch without it was bootstrap already.
+        """
+
+        for command in (
+            "git fetch -q 2>&1",
+            "git fetch -q 2>&1 | tail -1",
+            "git fetch origin 2>&1",
+            "git fetch --prune origin 2>&1 | tail -3",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self._configured_fetch_kind(command), "bootstrap")
+        # What the stripped token must never hide: a fetch that runs a program,
+        # and a redirection that names a file.
+        self.assertEqual(self._kind("git fetch --upload-pack=/bin/sh 2>&1"), "mutating")
+        self.assertEqual(self._configured_fetch_kind("git fetch origin > out.txt"), "mutating")
+        self.assertEqual(self._configured_fetch_kind("git fetch origin 2> err.txt"), "mutating")
+        self.assertEqual(self._kind("git fetch origin 2>& out.txt"), "mutating")
+
+    def test_only_a_descriptor_operand_is_dropped_from_the_tokens(self) -> None:
+        strip = bash_syntax.without_fd_duplications
+
+        self.assertEqual(["git", "fetch", "-q"], strip(["git", "fetch", "-q", "2", ">&", "1"]))
+        self.assertEqual(["a"], strip(["a", "1", "<&", "-"]))
+        # A filename operand is a write, so the tokens that show it stay.
+        self.assertEqual(["a", "2", ">&", "out.txt"], strip(["a", "2", ">&", "out.txt"]))
+        self.assertEqual(["a", "2", ">&"], strip(["a", "2", ">&"]))
+        self.assertEqual(["git", "fetch", "origin"], strip(["git", "fetch", "origin"]))
 
     def test_git_config_injection_is_not_a_read(self) -> None:
         """`-c` can hand a read-shaped Git command a program to run.

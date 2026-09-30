@@ -13,6 +13,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from claude_bash_syntax import without_fd_duplications
+
 
 UNSAFE_GIT_OPTIONS = frozenset(
     {
@@ -335,6 +337,11 @@ def _fetch_kind(prefix: list[str], args: list[str], cwd: Path | None) -> str:
                 "--recurse-submodules=true", "--recurse-submodules=false", "--no-auto-maintenance", "--no-auto-gc"}
     value_options = {"--depth", "--deepen", "--shallow-since", "--shallow-exclude",
                      "--negotiation-tip", "--jobs", "-j", "--refmap"}
+    # `2>&1` arrives as `2`, `>&`, `1`, and `2` would be taken for the remote,
+    # which has no configuration and so reads as a write. It duplicates a
+    # descriptor and opens nothing; a redirection that names a file is judged
+    # before this, and `without_fd_duplications` keeps a filename operand.
+    args = without_fd_duplications(args)
     flags, words, index = set(), [], 0
     tags_override = None
     recursion_options = []

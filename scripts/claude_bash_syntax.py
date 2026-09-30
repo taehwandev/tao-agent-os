@@ -551,6 +551,32 @@ def shell_keyword_command(tokens: list[str]) -> list[str] | None:
     return command
 
 
+def without_fd_duplications(tokens: list[str]) -> list[str]:
+    """The tokens with each `N>&M`, `N<&M` and `N>&-` removed.
+
+    The lexer splits `2>&1` into `2`, `>&`, `1`, and a command that judges its
+    operands as words reads `2` as a name. The operand rule is the one
+    `unmodelled_operator` applies, so a duplication with a filename is kept and
+    stays a write.
+    """
+
+    kept: list[str] = []
+    index = 0
+    while index < len(tokens):
+        operand = tokens[index + 2] if index + 2 < len(tokens) else ""
+        if (
+            tokens[index].isdigit()
+            and index + 1 < len(tokens)
+            and tokens[index + 1] in FD_DUPLICATIONS
+            and FD_OPERAND_RE.fullmatch(operand)
+        ):
+            index += 3
+            continue
+        kept.append(tokens[index])
+        index += 1
+    return kept
+
+
 def unmodelled_operator(tokens: list[str]) -> bool:
     """Whether any token is an operator this module does not model.
 
