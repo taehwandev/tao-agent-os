@@ -15,6 +15,18 @@ from agent_mailbox_reference import ReferenceMailboxStore
 from agent_runtime_session import runtime_session
 
 
+def _held_elsewhere(store, runtime: str):
+    """Skip messages another session was handed by the delivery hook."""
+    from datetime import datetime, timezone
+
+    from agent_mailbox_delivery import leased_elsewhere
+
+    session_id = str(runtime_session().get("session_id") or "")
+    lease_dir = store.lease_dir(runtime)
+    now = datetime.now(timezone.utc)
+    return lambda packet: leased_elsewhere(lease_dir, packet, session_id, now)
+
+
 class AgentMailbox:
     """Exchange references, or explicitly bind a handoff to execution evidence."""
 
@@ -50,10 +62,14 @@ class AgentMailbox:
         )
 
     def receive(self, runtime: str, *, limit: int = 8) -> list[dict[str, object]]:
-        packets = MailboxStore(self.project).consume(runtime, limit=limit)
+        run_store = MailboxStore(self.project)
+        packets = run_store.consume(runtime, limit=limit, skip=_held_elsewhere(run_store, runtime))
         with _preserve_delivery(packets):
             if len(packets) < limit:
-                packets.extend(ReferenceMailboxStore(self.project).consume(runtime, limit=limit - len(packets)))
+                reference = ReferenceMailboxStore(self.project)
+                packets.extend(reference.consume(
+                    runtime, limit=limit - len(packets), skip=_held_elsewhere(reference, runtime)
+                ))
         return packets
 
     def status(self, runtime: str) -> dict[str, int | str]:

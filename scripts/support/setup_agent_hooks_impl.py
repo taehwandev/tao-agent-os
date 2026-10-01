@@ -12,7 +12,11 @@ from pathlib import Path
 from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
 from support.codex_permissions import merge_codex_worktree_roots, reset_tao_permission_default
-from support.codex_setup import merge_codex_pre_tool_gate, merge_codex_stop_gate
+from support.codex_setup import (
+    merge_codex_mailbox_delivery,
+    merge_codex_pre_tool_gate,
+    merge_codex_stop_gate,
+)
 from support.codex_statusline_setup import merge_codex_status_line
 from support.graphify_setup import (
     CANONICAL_SKILL_PATH,
@@ -371,6 +375,11 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         "codex-stop-gate"
     )
     stop_status = merge_codex_stop_gate(hooks_target, stop_command, dry_run)
+    mailbox_command = (
+        f"TAO_HOOK_SOFT_FAIL=1 {quote(str(stable_launcher_path()))} "
+        "mailbox-hook deliver --runtime codex"
+    )
+    mailbox_status = merge_codex_mailbox_delivery(hooks_target, mailbox_command, dry_run)
     config_target = Path.home() / ".codex" / "config.toml"
     status_line_status = merge_codex_status_line(config_target, dry_run)
     permissions_status = merge_codex_worktree_roots(
@@ -402,6 +411,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
             "tool": "codex",
             "hook": "Stop_finish_gate",
             "status": stop_status,
+            "path": str(hooks_target),
+        },
+        {
+            "tool": "codex",
+            "hook": "UserPromptSubmit_mailbox_delivery",
+            "status": mailbox_status,
             "path": str(hooks_target),
         },
         {

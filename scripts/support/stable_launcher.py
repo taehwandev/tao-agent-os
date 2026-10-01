@@ -171,6 +171,7 @@ SCRIPT_ALIASES = {
     "agent-os-watchdog": "agent-os-watchdog.py",
     "agent-os-maintenance": "agent-os-maintenance.py",
     "agent-mailbox": "agent-mailbox.py",
+    "mailbox-hook": "agent_mailbox_hook.py",
     "project-memory": "agent_project_memory.py",
     "work-cards": "agent_work_cards.py",
     "workflow-dispatch": "workflow_dispatch.py",

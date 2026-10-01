@@ -9,7 +9,38 @@ from support.setup_config_files import read_json, write_json
 
 MANAGED_PRETOOL_ALIAS = "codex-pretool-gate"
 MANAGED_STOP_ALIAS = "codex-stop-gate"
+MANAGED_MAILBOX_ALIAS = "mailbox-hook deliver"
 CODEX_PRETOOL_MATCHER = "Edit|Write|MultiEdit|ApplyPatch|Bash"
+
+
+def merge_codex_mailbox_delivery(target: Path, command: str, dry_run: bool) -> str:
+    """Install mailbox delivery as a UserPromptSubmit hook beside user hooks.
+
+    It belongs in hooks.json, not config.toml: a launcher such as cmux injects
+    its own `-c hooks.UserPromptSubmit=...` per invocation, which replaces the
+    config.toml key but runs alongside hooks.json entries.
+    """
+
+    config = read_json(target)
+    hooks = config.get("hooks")
+    if not isinstance(hooks, dict):
+        hooks = {}
+    groups = hooks.get("UserPromptSubmit")
+    if not isinstance(groups, list):
+        groups = []
+    managed = [str(hook.get("command") or "") for group in groups if isinstance(group, dict)
+               for hook in group.get("hooks") or [] if isinstance(hook, dict)
+               and MANAGED_MAILBOX_ALIAS in str(hook.get("command") or "")]
+    if managed == [command]:
+        return "ok"
+    if dry_run:
+        return "would_update" if managed else "missing"
+    cleaned = _without_managed_hooks(groups, MANAGED_MAILBOX_ALIAS)
+    cleaned.append({"hooks": [{"type": "command", "command": command, "timeout": 5}]})
+    hooks["UserPromptSubmit"] = cleaned
+    config["hooks"] = hooks
+    write_json(target, config)
+    return "installed"
 
 
 def merge_codex_pre_tool_gate(target: Path, command: str, dry_run: bool) -> str:

@@ -33,6 +33,7 @@ _EDIT_TOOL_MATCHER = "Edit|Write|MultiEdit|NotebookEdit"
 _PRETOOL_GATE_MATCHER = f"{_EDIT_TOOL_MATCHER}|Bash"
 _PRETOOL_GATE_ALIAS = "claude-pretool-gate"
 _STOP_GATE_ALIAS = "claude-stop-gate"
+_MAILBOX_HOOK_ALIAS = "mailbox-hook"
 _STATUSLINE_ALIAS = "claude-statusline"
 # Identify the managed status line by a token nothing else would open with.
 # The alias alone is not that token: the terminal integration that already held
@@ -87,6 +88,12 @@ def configure_claude(
     else:
         status = _remove_claude_user_prompt_submit(target, dry_run)
     results.append({"tool": "claude", "hook": "UserPromptSubmit_spill_bridge", "status": status, "path": str(target)})
+
+    mailbox_cmd = (
+        f"TAO_HOOK_SOFT_FAIL=1 {quote(str(launcher_path))} {_MAILBOX_HOOK_ALIAS} deliver --runtime claude"
+    )
+    status = _merge_claude_mailbox_delivery(target, mailbox_cmd, dry_run)
+    results.append({"tool": "claude", "hook": "UserPromptSubmit_mailbox_delivery", "status": status, "path": str(target)})
 
     gate_cmd = (
         f"TAO_HOOK_SOFT_FAIL=1 {quote(str(launcher_path))} {_PRETOOL_GATE_ALIAS}"
@@ -229,6 +236,37 @@ def _merge_claude_user_prompt_submit(target: Path, command: str, dry_run: bool) 
         groups,
         _is_managed_claude_spill_bridge_command,
     )
+    cleaned.append({
+        "matcher": ".*",
+        "hooks": [{"type": "command", "command": command, "timeout": 5}],
+    })
+    hooks["UserPromptSubmit"] = cleaned
+    config["hooks"] = hooks
+    write_json(target, config)
+    return "installed"
+
+
+def _is_managed_claude_mailbox_command(command: str) -> bool:
+    return f"{_MAILBOX_HOOK_ALIAS} deliver" in command
+
+
+def _merge_claude_mailbox_delivery(target: Path, command: str, dry_run: bool) -> str:
+    """Install mailbox delivery beside, never in place of, other prompt hooks."""
+    config = read_json(target)
+    hooks = config.get("hooks", {})
+    if not isinstance(hooks, dict):
+        hooks = {}
+    groups = hooks.get("UserPromptSubmit", [])
+    if not isinstance(groups, list):
+        groups = []
+    commands = [hook.get("command", "") for group in groups if isinstance(group, dict)
+                for hook in group.get("hooks", []) if isinstance(hook, dict)]
+    managed = [entry for entry in commands if _is_managed_claude_mailbox_command(entry)]
+    if managed == [command]:
+        return "ok"
+    if dry_run:
+        return "would_update" if managed else "missing"
+    cleaned = _remove_managed_hook_objects(groups, _is_managed_claude_mailbox_command)
     cleaned.append({
         "matcher": ".*",
         "hooks": [{"type": "command", "command": command, "timeout": 5}],

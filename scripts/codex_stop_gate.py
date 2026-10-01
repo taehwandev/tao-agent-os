@@ -124,9 +124,20 @@ def main() -> int:
         payload = json.loads(raw)
         if not isinstance(payload, dict):
             return allow()
+        _acknowledge_mailbox(payload)
         return decide(payload)
     except Exception:
         return allow()
+
+
+def _acknowledge_mailbox(payload: dict) -> None:
+    """Commit mailbox messages this turn was shown; never affects the verdict."""
+    try:
+        from agent_mailbox_hook import acknowledge
+
+        acknowledge(payload, "codex")
+    except Exception:  # noqa: BLE001 - an unacknowledged message is offered again
+        pass
 
 
 if __name__ == "__main__":

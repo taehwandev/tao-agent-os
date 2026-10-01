@@ -68,7 +68,7 @@ class ReferenceMailboxStore:
             atomic_write_json(inbox / f"{packet['message_id']}.json", packet)
         return packet
 
-    def consume(self, recipient: str, *, limit: int = 8) -> list[dict[str, object]]:
+    def consume(self, recipient: str, *, limit: int = 8, skip=None) -> list[dict[str, object]]:
         recipient = _runtime(recipient)
         if limit < 1 or limit > 8:
             raise ValueError("mailbox receive limit must be between 1 and 8")
@@ -77,33 +77,31 @@ class ReferenceMailboxStore:
             return []
         self._writable()
         consumed = []
-        with _preserve_delivery(consumed), state_lock(self.root / ".mailbox"):
+        with _preserve_delivery(consumed), state_lock(self.lock_path):
             # Validate the whole selection before acknowledging any packet, so
             # an unreadable packet can never discard already-deleted messages.
-            ready = []
-            for path in self._paths("inbox", recipient):
-                packet = self._readable(path, recipient)
-                if packet is None:
-                    continue
-                receipt = self.root / "acked" / recipient / path.name
-                self._check_path(receipt)
-                if _expired(packet, self._clock()) or receipt.exists():
-                    path.unlink()
-                    continue
-                ready.append((path, receipt, packet))
-                if len(ready) == limit:
-                    break
+            ready = [entry for entry in self.pending(recipient)
+                     if skip is None or not skip(entry[2])][:limit]
             for path, receipt, packet in ready:
-                atomic_write_json(receipt, {
-                    "schema_version": 2, "message_id": packet["message_id"],
-                    "repository_id": self.repository_id, "recipient": recipient,
-                    "consumed_at": _aware(self._clock()).isoformat(),
-                })
-                consumed.append(packet)
-                path.unlink()
-                for stale in self._paths("acked", recipient)[:-_MAX_ACKS]:
-                    stale.unlink()
+                self.commit(path, receipt, packet, committed=consumed)
         return consumed
+
+    @property
+    def lock_path(self) -> Path:
+        return self.root / ".mailbox"
+
+    def lease_dir(self, recipient: str) -> Path:
+        directory = self.root / "leases" / _runtime(recipient)
+        self._check_path(directory)
+        return directory
+
+    def pending(self, recipient: str) -> list[tuple[Path, Path, dict[str, object]]]:
+        """Deliverable packets, oldest first; the caller holds `lock_path`."""
+        return _deliverable(self, recipient)
+
+    def commit(self, path: Path, receipt: Path, packet: dict[str, object], *, committed=None) -> None:
+        """Record delivery and remove the packet; the caller holds `lock_path`."""
+        _commit(self, path, receipt, packet, committed)
 
     def status(self, recipient: str) -> dict[str, int | str]:
         recipient = _runtime(recipient)
@@ -135,6 +133,43 @@ class ReferenceMailboxStore:
     def _read(self, path: Path, recipient: str) -> dict[str, object]:
         self._check_path(path)
         return _read_reference_packet(path, self.repository_id, recipient)
+
+
+def _deliverable(store: ReferenceMailboxStore, recipient: str) -> list[tuple[Path, Path, dict[str, object]]]:
+    """Valid, unexpired, unreceipted packets; quarantine and prune the rest."""
+    store._check_path(store.root)
+    if not store.root.exists():
+        return []
+    store._writable()
+    ready = []
+    for path in store._paths("inbox", recipient):
+        packet = store._readable(path, recipient)
+        if packet is None:
+            continue
+        receipt = store.root / "acked" / recipient / path.name
+        store._check_path(receipt)
+        if _expired(packet, store._clock()) or receipt.exists():
+            path.unlink()
+            continue
+        ready.append((path, receipt, packet))
+    return ready
+
+
+def _commit(store: ReferenceMailboxStore, path: Path, receipt: Path,
+            packet: dict[str, object], committed: list | None) -> None:
+    """The receipt commits delivery, so the packet joins `committed` before any
+    cleanup that could still fail."""
+    recipient = str(packet["recipient"])
+    atomic_write_json(receipt, {
+        "schema_version": 2, "message_id": packet["message_id"],
+        "repository_id": store.repository_id, "recipient": recipient,
+        "consumed_at": _aware(store._clock()).isoformat(),
+    })
+    if committed is not None:
+        committed.append(packet)
+    path.unlink(missing_ok=True)
+    for stale in store._paths("acked", recipient)[:-_MAX_ACKS]:
+        stale.unlink()
 
 
 def _read_reference_packet(path: Path, repository_id: str, recipient: str) -> dict[str, object]:

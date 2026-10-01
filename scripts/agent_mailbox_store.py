@@ -92,7 +92,8 @@ class MailboxStore:
             atomic_write_json(inbox / f"{packet['message_id']}.json", packet)
         return packet
 
-    def consume(self, recipient: str, *, limit: int = 8) -> list[dict[str, object]]:
+    def consume(self, recipient: str, *, limit: int = 8,
+                skip: Callable[[dict[str, object]], bool] | None = None) -> list[dict[str, object]]:
         recipient = _runtime(recipient)
         if limit < 1 or limit > 8:
             raise ValueError("mailbox receive limit must be between 1 and 8")
@@ -100,36 +101,32 @@ class MailboxStore:
             return []
         _require_local_path(self.project, self.root)
         consumed: list[dict[str, object]] = []
-        with _preserve_delivery(consumed), state_lock(self.root / ".mailbox"):
+        with _preserve_delivery(consumed), state_lock(self.lock_path):
             # Validate every selected packet before acknowledging any, so an
             # unreadable packet can never discard messages already deleted.
-            ready: list[tuple[Path, Path, dict[str, object]]] = []
-            for path, run_id in _pending_paths(self.project, self.root, recipient):
-                try:
-                    packet = _read_packet(path, self.project, run_id, recipient)
-                except ValueError:
-                    rejected = self.root / "runs" / run_id / "rejected" / recipient
-                    quarantine_packet(self.project, path, rejected)
-                    continue
-                if _expired(packet, self._clock()):
-                    path.unlink()
-                    continue
-                receipt = _receipt_path(self.root, run_id, recipient, str(packet["message_id"]))
-                _require_local_path(self.project, receipt.parent)
-                if receipt.exists():
-                    path.unlink()
-                    continue
-                ready.append((path, receipt, packet))
-                if len(ready) == limit:
-                    break
+            ready = [entry for entry in self.pending(recipient)
+                     if skip is None or not skip(entry[2])][:limit]
             for path, receipt, packet in ready:
-                atomic_write_json(receipt, _acknowledgement(packet, self._clock()))
-                # A receipt commits delivery even if subsequent cleanup fails.
-                consumed.append(packet)
-                path.unlink()
-                for stale_receipt in _json_files(receipt.parent)[:-_MAX_ACKS]:
-                    stale_receipt.unlink()
+                self.commit(path, receipt, packet, committed=consumed)
         return consumed
+
+    @property
+    def lock_path(self) -> Path:
+        return self.root / ".mailbox"
+
+    def lease_dir(self, recipient: str) -> Path:
+        directory = self.root / "leases" / _runtime(recipient)
+        _require_local_path(self.project, directory)
+        return directory
+
+    def pending(self, recipient: str) -> list[tuple[Path, Path, dict[str, object]]]:
+        """Deliverable packets, oldest first; the caller holds `lock_path`."""
+        return _deliverable(self.project, self.root, recipient, self._clock())
+
+    def commit(self, path: Path, receipt: Path, packet: dict[str, object], *,
+               committed: list[dict[str, object]] | None = None) -> None:
+        """Record delivery and remove the packet; the caller holds `lock_path`."""
+        _commit(path, receipt, packet, self._clock(), committed)
 
     def status(self, recipient: str) -> dict[str, int | str]:
         recipient = _runtime(recipient)
@@ -152,6 +149,43 @@ class MailboxStore:
             "acked": len(_ack_paths(self.project, self.root, recipient)),
             "rejected": rejected,
         }
+
+
+def _deliverable(
+    project: Path, root: Path, recipient: str, now: datetime
+) -> list[tuple[Path, Path, dict[str, object]]]:
+    """Valid, unexpired, unreceipted packets; quarantine and prune the rest."""
+    if not root.exists():
+        return []
+    ready: list[tuple[Path, Path, dict[str, object]]] = []
+    for path, run_id in _pending_paths(project, root, recipient):
+        try:
+            packet = _read_packet(path, project, run_id, recipient)
+        except ValueError:
+            quarantine_packet(project, path, root / "runs" / run_id / "rejected" / recipient)
+            continue
+        if _expired(packet, now):
+            path.unlink()
+            continue
+        receipt = _receipt_path(root, run_id, recipient, str(packet["message_id"]))
+        _require_local_path(project, receipt.parent)
+        if receipt.exists():
+            path.unlink()
+            continue
+        ready.append((path, receipt, packet))
+    return ready
+
+
+def _commit(path: Path, receipt: Path, packet: dict[str, object], now: datetime,
+            committed: list[dict[str, object]] | None) -> None:
+    """The receipt commits delivery, so the packet joins `committed` before any
+    cleanup that could still fail."""
+    atomic_write_json(receipt, _acknowledgement(packet, now))
+    if committed is not None:
+        committed.append(packet)
+    path.unlink(missing_ok=True)
+    for stale_receipt in _json_files(receipt.parent)[:-_MAX_ACKS]:
+        stale_receipt.unlink()
 
 
 @contextmanager
