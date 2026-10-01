@@ -44,7 +44,7 @@ def _policy_signature(payload: dict) -> str:
 
 
 class OperatorReview:
-    CODES = frozenset({"ticketed_product_branch", "unreadable_command_effect"})
+    CODES = frozenset({"ticketed_product_branch", "unreadable_command_effect", "paused_run_refused"})
     MAX_AGE = 900
 
     @staticmethod

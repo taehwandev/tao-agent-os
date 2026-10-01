@@ -42,6 +42,15 @@ class CodexOperatorReviewTests(unittest.TestCase):
         self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
         self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
 
+    def test_operator_codes_match_the_gate_and_paused_run_can_be_approved(self):
+        from claude_pretool_gate import OPERATOR_DECIDES
+        self.assertEqual(OPERATOR_DECIDES, OperatorReview.CODES)
+        approved, message = OperatorReview.request(self.payload, "paused run", "paused_run_refused")
+        self.assertFalse(approved)
+        request_id = re.search(r"--request-id ([a-f0-9]{64})", message).group(1)
+        OperatorReview.resolve(request_id, "approve", "codex-session")
+        self.assertTrue(OperatorReview.request(self.payload, "paused run", "paused_run_refused")[0])
+
     def test_always_reuses_exact_scope_across_turns_and_sessions_then_revokes(self):
         request_id = self.pending()
         OperatorReview.resolve(request_id, "always", "codex-session")

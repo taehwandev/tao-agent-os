@@ -3357,6 +3357,31 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
         self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
         self.assertIn("read-only", _reason(out))
 
+    def test_paused_entry_question_preserves_payload_and_consumes_explicit_answer(self) -> None:
+        import re
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}
+        ), patch.object(gate, "paused_session_evidence", return_value=Path(tmp) / "preflight.json"), patch.object(
+            gate, "deny_reason", return_value="paused run refused"
+        ), patch.object(gate, "ticketed_product_branch_denial", return_value=None), patch.object(
+            gate, "sprawl_deny", return_value=None
+        ), patch.object(gate, "session_evidence", return_value=None):
+            project = _opt_in_project(Path(tmp))
+            for entered in (False, True):
+                payload = {"tool_name": "Write", "cwd": str(project), "session_id": "paused-operator",
+                           "tool_input": {"file_path": str(project / "file.py"), "content": str(entered)}}
+                with self.subTest(entered=entered), patch.object(gate, "workflow_entry_allows", return_value=entered):
+                    with redirect_stdout(io.StringIO()) as output:
+                        gate._isolated_checkout_verdict(payload, "Write", project, project)
+                    reason = _reason(output.getvalue())
+                    self.assertIn("Ask the user", reason)
+                    request_id = re.search(r"--request-id ([a-f0-9]{64})", reason).group(1)
+                    OperatorReview.resolve(request_id, "approve", "paused-operator")
+                    with redirect_stdout(io.StringIO()) as output:
+                        result = gate._isolated_checkout_verdict(payload, "Write", project, project)
+                    self.assertEqual((0, ""), (result, output.getvalue()))
+                    self.assertEqual("consumed", OperatorReview._read(OperatorReview._path(request_id))["status"])
+
     def test_approval_state_error_stays_blocked(self) -> None:
         with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}), patch.object(
             OperatorReview, "request", side_effect=OSError("unavailable")

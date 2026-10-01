@@ -844,6 +844,8 @@ def entry_denial(
     tool: str,
     cwd_roots: "list[Path] | None" = None,
     suffix: str = "",
+    *,
+    payload: dict,
 ) -> int:
     """Refuse a call that has no workflow entry, or ask about a paused run."""
 
@@ -851,6 +853,7 @@ def entry_denial(
     return deny_or_ask(
         deny_reason(root, session_id, tool, cwd_roots) + suffix,
         "paused_run_refused" if paused else "workflow_entry_missing",
+        payload,
     )
 
 
@@ -1415,7 +1418,7 @@ def _isolated_checkout_verdict(
             " This command publishes: when the user's request authorizes it, start "
             "that run with --approved-effect external_write so its finish admits it."
             if publishes else ""
-        ))
+        ), payload=payload)
     if finish_authorized:
         return _approve(
             "This is a publication command that a successful finish "
@@ -1432,7 +1435,7 @@ def _isolated_checkout_verdict(
         # The active claim can disappear between the workflow-entry check and
         # the mutation checkpoint. Do not turn that registry race into an
         # uncheckpointed edit.
-        return entry_denial(root, session_id, tool)
+        return entry_denial(root, session_id, tool, payload=payload)
     if (
         runtime_name() == "claude"
         and tool in EDIT_TOOLS
@@ -1601,7 +1604,7 @@ def _worktree_policy_verdict(
         )
         if unentered is not None:
             return entry_denial(
-                unentered, str(payload.get("session_id") or ""), tool, cwd_roots
+                unentered, str(payload.get("session_id") or ""), tool, cwd_roots, payload=payload
             )
     # The routine tier answers for the checkout, and publishing asks a second
     # question it never asked: whether anything has attested the work. Reaching

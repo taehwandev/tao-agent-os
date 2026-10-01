@@ -27,6 +27,7 @@ import claude_bash_readonly as bash_readonly
 import claude_pretool_gate as pretool
 import claude_worktree_gate as gate
 from claude_bash_syntax import bash_invocation
+from support.global_state import STATE_HOME_ENV
 
 
 class WorkflowStartDenialTests(unittest.TestCase):
@@ -34,7 +35,9 @@ class WorkflowStartDenialTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name).resolve()
-        environment = patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}, clear=True)
+        environment = patch.dict(os.environ, {
+            "TAO_PRETOOL_RUNTIME": "codex", STATE_HOME_ENV: str(self.base / "state")
+        }, clear=True)
         environment.start()
         self.addCleanup(environment.stop)
         self.launcher = str(gate.stable_launcher_path())
@@ -209,6 +212,12 @@ class WorkflowStartDenialTests(unittest.TestCase):
 
         self.assertIn("use one literal command", reason)
         self.assertNotIn("alone, as the only command on the line", reason)
+
+    def test_operator_request_is_written_only_to_the_temporary_state_home(self) -> None:
+        self._verdict(f"touch {self.main}/one ; touch {self.main}/two")
+        records = list((self.base / "state/codex-operator-review").glob("*.json"))
+        self.assertEqual(1, len(records))
+        self.assertEqual("start-denial", json.loads(records[0].read_text())["session_id"])
 
     def test_the_rules_root_is_a_place_a_hook_reads(self) -> None:
         """The Notmid refusal named the Tao checkout, which `--rules` is the
