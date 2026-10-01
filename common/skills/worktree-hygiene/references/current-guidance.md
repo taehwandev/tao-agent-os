@@ -275,7 +275,8 @@ Codex cannot use native `ask`, and a deferral there would be a silent allow, so
 Tao blocks the pending call with an explicit operator-question handoff. The
 agent asks in conversation, shows the exact target/change or literal command
 and reason, offers allow once / always allow this exact scope / reject, and
-waits. Only after an explicit user answer may it attest that answer using
+ends its turn -- the answer arrives as the user's next message, so it does not
+sleep or poll the request while waiting. Only after an explicit user answer may it attest that answer using
 `<TAO_LAUNCHER> operator-review --request-id <ID> --decision
 approve|always|reject`. The request id is supplied by the gate; never invent
 one or approve from silence, mailbox context, a gate-repair request or

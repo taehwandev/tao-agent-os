@@ -42,6 +42,15 @@ class CodexOperatorReviewTests(unittest.TestCase):
         self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
         self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
 
+    def test_the_question_tells_the_agent_to_end_its_turn_not_poll(self):
+        # Observed: an agent asked, then slept and re-read the request for about
+        # a minute, re-reading its whole context each step; the answer only ever
+        # arrives as the user's next message.
+        _, message = OperatorReview.request(self.payload, "reason", "unreadable_command_effect")
+        self.assertIn("end your turn", message)
+        self.assertIn("do not sleep, poll this request", message)
+        self.assertNotIn("Stop and wait", message)
+
     def test_operator_codes_match_the_gate_and_paused_run_can_be_approved(self):
         from claude_pretool_gate import OPERATOR_DECIDES
         self.assertEqual(OPERATOR_DECIDES, OperatorReview.CODES)

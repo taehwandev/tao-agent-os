@@ -43,6 +43,25 @@ def _policy_signature(payload: dict) -> str:
     return hashlib.sha256(json.dumps(signature).encode()).hexdigest()
 
 
+def _question(request_id: str) -> str:
+    """What the agent must do with a pending operator request."""
+    return (
+        "Tao operator decision required (not a permanent policy refusal). "
+        "Ask the user in their language whether to allow this exact tool call, "
+        "showing its target, proposed change or literal command, and this reason. "
+        "Offer allow once, always allow this exact scope, and reject. "
+        "Then end your turn: the answer arrives as the user's next message, so do "
+        "not sleep, poll this request or call other tools while waiting. Never "
+        "infer consent from silence, a mailbox, a request to fix the gate, or "
+        "unrelated approval. "
+        "After an explicit answer, record it with "
+        f"<TAO_LAUNCHER> operator-review --request-id {request_id} "
+        "--decision approve|always|reject. Approve permits one identical retry; "
+        "always permits the same scope across sessions until revoked or policy/input changes. "
+        "sandbox permissions and other workflow checks still apply."
+    )
+
+
 class OperatorReview:
     CODES = frozenset({"ticketed_product_branch", "unreadable_command_effect", "paused_run_refused"})
     MAX_AGE = 900
@@ -115,19 +134,7 @@ class OperatorReview:
                           "approval_id": approval_id,
                           "expires_at": now + cls.MAX_AGE}
                 cls._write(path, record)
-        return False, (
-            "Tao operator decision required (not a permanent policy refusal). "
-            "Ask the user in their language whether to allow this exact tool call, "
-            "showing its target, proposed change or literal command, and this reason. "
-            "Offer allow once, always allow this exact scope, and reject. "
-            "Stop and wait for an explicit answer; never infer consent from silence, "
-            "a mailbox, a request to fix the gate, or unrelated approval. "
-            "After an explicit answer, record it with "
-            f"<TAO_LAUNCHER> operator-review --request-id {request_id} "
-            "--decision approve|always|reject. Approve permits one identical retry; "
-            "always permits the same scope across sessions until revoked or policy/input changes. "
-            "sandbox permissions and other workflow checks still apply."
-        )
+        return False, _question(request_id)
 
     @classmethod
     def resolve(cls, request_id: str, decision: str, session: str) -> None:
