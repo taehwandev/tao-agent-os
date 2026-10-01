@@ -10,63 +10,51 @@ Use when routed to `common/skills/agent-operating-skill/SKILL.md` or when work n
 
 ## Need-Driven Reading Contract
 
-Apply this contract to reading, investigation and edits in every Tao runtime.
-Tao supports the agent's task judgment; its catalog does not expand the request.
+Apply to every Tao runtime. The catalog never expands the request.
 
-1. Preserve confirmed outcome, target and authority. Do not turn a settled
-   correction into redesign or ask for repetition; use contextual judgment.
-2. Read applicable instructions and the route's `required_docs`; preserve explicit
-   safety and verification dependencies. Other documents are candidates, not a
-   reading queue. A platform name, graph neighbor or spare budget is insufficient.
-   Before the first branch/worktree setup or edit, resolve the target repo's
-   required isolation location and branch naming rules. Do not postpone that
-   check until commit/PR preparation or assume a temporary directory is valid.
-   Reuse a correctly bound existing worktree; this adds no setup to read-only work.
-3. Additional investigation needs an unresolved in-scope decision and a source
-   that can resolve it. Start at the owner and nearest test; expand only for
-   missing evidence, contradictions, applicable requirements or failed checks.
-   Empty searches justify neither repetition nor expansion without a new lead.
-4. Load optional procedures when the action needs them, not for every later
-   workflow stage. PR metadata work does not itself require module-design rules;
-   module creation needs the applicable platform's module rules. Read selected
-   instructions once; reuse retained readings across goal iterations and runs.
-   Read only changed/new or lost guidance; after compaction use takeaways.
-   Deduplicate paths; topic links are not all mandatory reads.
-5. Make only changes needed for the authorized outcome. An incidental finding
-   is not permission for cleanup, redesign or environment changes. If required
-   selection is excessive, report the conflict and repair its owner only with
-   authority; never silently waive an applicable requirement.
-6. Once evidence supports the requested outcome and applicable verification is
-   complete, stop. More possible checks are not by themselves a reason to keep
-   working. Keep any expansion rationale in existing work context; add no new
-   plan, per-read receipt, gate, hook or approval round merely to apply this rule.
+1. Preserve confirmed outcome, target and authority; do not request repetition
+   or turn a settled correction into redesign.
+2. Read applicable instructions, required_docs and explicit safety/verification
+   dependencies. Resolve repo isolation location and branch naming before any
+   setup/edit; reuse a correctly bound worktree. Read-only work needs no setup.
+3. Investigate only an unresolved in-scope decision. Start at its owner and
+   nearest test; expand for missing/contradictory evidence, applicable rules or
+   failed checks. An empty search needs a new lead before further searching.
+4. Read optional procedures only for the action: PR metadata needs no module
+   design cards; module creation needs platform module rules. Reuse unchanged
+   readings across iterations/runs. Read only new, changed or lost guidance;
+   after compaction use takeaways. Deduplicate paths; links and spare selection
+   budget do not require reads. An entrypoint that answers the decision needs
+   no additional reference. Platform names and graph neighbors alone select none.
+5. Change only what the authorized outcome needs. Incidental findings grant no
+   cleanup, redesign or environment authority. Excess required selection is a
+   conflict to report; repair its owner only with authority, never waive it.
+6. Stop when outcome and required verification are complete. Extra checks need
+   evidence; keep expansion rationale in existing context, with no new plan,
+   read receipt, gate, hook or approval round for this contract.
 
 ## Execution Round Trips
 
-Batch independent, bounded reads in one native tool invocation; inspect every
-result before using it. Keep dependent actions, mutations and approval boundaries
-sequential. A batch is not a shell chain and must not hide a failed prerequisite.
-Prepare already-known arguments and simultaneously-ready gate evidence together
-instead of spending a separate model/tool round on each field or status lookup.
+Batch independent bounded reads in one native invocation and inspect every
+result. Keep dependent actions, mutations and approvals sequential; never hide
+failed prerequisites in a batch or shell chain. Prepare known arguments and
+simultaneously-ready gate evidence together.
 
-Wait on the handle returned by a running command rather than launching it again.
-Choose a wait appropriate to its observed duration; avoid repeated short polls
-for hooks, network Git or builds. Do not add sleeps between ready steps. A pending
-user decision remains pending; elapsed time never supplies approval.
+Wait on the returned handle; do not relaunch a running command or repeatedly
+poll hooks, network Git or builds with short waits. Add no sleeps between ready
+steps. Elapsed time never answers a pending user decision.
 
-When investigating slow execution, separate tool call-to-result time from
-result-to-next-call gaps. A gap alone does not identify model reasoning, service
-queueing, approval waiting or session interruption. Reduce evidenced redundant
-rounds without claiming a measured speedup until a comparable run confirms it.
+For slow execution, separate tool duration from gaps between result and next
+call; gaps do not identify reasoning, queueing, approval or interruption. Remove
+evidenced redundant rounds; claim speedup only from a comparable measurement.
 
 ## Applying Hook Guidance At The Decision Point
 
-Use the active route's manifest, advertised evidence fields and hook results
-to guide execution. Hooks own mechanical admission and validation; the agent
-owns scope, evidence truth and the next authorized action. Do not reproduce
-hook checks as a manual checklist or read validator implementations preemptively.
-Read required instructions before the governed action; open an additional
-reference only when the supplied guidance leaves a concrete decision unresolved.
+Use the active manifest, advertised evidence fields and hook results. Hooks own
+mechanical admission/validation; the agent owns scope, truthful evidence and the
+next authorized action. Do not duplicate hook checks as manual checklists or
+read validators preemptively. Read required instructions before the action;
+open references only for a concrete decision the supplied guidance leaves open.
 
 ## Read
 
