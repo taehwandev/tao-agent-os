@@ -505,11 +505,15 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
 
 
 # Denials the operator decides instead of the gate. A ticketless branch cannot
-# be repaired by the agent, and a command the gate cannot read is the gate's
-# own limit rather than a proven violation; a hard deny there leaves nothing to
-# do, so Claude asks and the operator reads the literal command. Codex rejects
-# `ask` and would turn it into a silent allow, so Codex keeps the deny.
-OPERATOR_DECIDES = frozenset({"ticketed_product_branch", "unreadable_command_effect"})
+# be repaired by the agent, a command the gate cannot read is the gate's own
+# limit rather than a proven violation, and a session's own paused run that its
+# automatic resume could not reclaim (drift, a live owner) needs a judgement the
+# gate cannot make; a hard deny there leaves nothing to do, so Claude asks and
+# the operator reads the reason. Codex rejects `ask` and would turn it into a
+# silent allow, so Codex keeps the deny.
+OPERATOR_DECIDES = frozenset(
+    {"ticketed_product_branch", "unreadable_command_effect", "paused_run_refused"}
+)
 
 
 def deny_or_ask(reason: str, code: str) -> int:
@@ -679,6 +683,20 @@ def paused_run_reason(
     run_id = evidence.parent.name
     launcher = stable_launcher_path()
     action, retry = stopped_action(tool)
+    refusal = _RESUME_REFUSALS.get(run_id)
+    if refusal:
+        return (
+            f"Tao Agent OS: this session's run {run_id} was paused when the last "
+            f"turn ended, and resuming it automatically was refused: {refusal}. "
+            f"Approve to continue {action} without that run, or reconcile it with "
+            f"`{launcher} checkpoint --checkpoint-kind reconcile --phase acting "
+            f"--work-stdin` and `{launcher} resume --last --run-id {run_id} "
+            f"--project {root} --rules <TAO_ROOT>`, then {retry}; a new start "
+            f"would supersede the paused run and drop its gates. For unrelated new "
+            f"work, run `{launcher} start --project {root} --rules <TAO_ROOT> "
+            f"--command <route> --request \"<user request>\"`."
+            f"{governed_because(root, cwd_roots)}"
+        )
     return (
         f"Tao Agent OS: this session's run {run_id} was paused when the last turn "
         f"ended, so it no longer covers {action}. To continue that task run "
@@ -735,7 +753,8 @@ def deny_reason(
 def workflow_entry_allows(root: Path, session_id: str) -> bool:
     """Gate 1: the workflow ``start`` hook must have run this session.
 
-    The gate only reads. ``start`` stamps its own session into the preflight
+    The gate only reads, except that it reclaims this session's own paused run
+    through ``resume_paused_run``. ``start`` stamps its own session into the preflight
     evidence, so proof of workflow entry has exactly one writer. Two earlier
     designs failed because the gate wrote that proof itself: first by promoting
     any fresh evidence into a session marker (which let a previous session's
@@ -752,7 +771,57 @@ def workflow_entry_allows(root: Path, session_id: str) -> bool:
         # would reopen the original bypass on any payload missing a session.
         return False
     evidence = session_evidence(root, session_id)
+    if evidence is None and resume_paused_run(root, session_id):
+        evidence = session_evidence(root, session_id)
     return evidence is not None and evidence_is_fresh(evidence)
+
+
+# Why the last automatic resume of a paused run was refused, keyed by run id,
+# so the refusal names it instead of telling the reader to run `resume` again.
+_RESUME_REFUSALS: dict[str, str] = {}
+
+
+def resume_paused_run(root: Path, session_id: str) -> bool:
+    """Reclaim this session's own run that a turn boundary paused.
+
+    This is the one write `workflow_entry_allows` makes, and it is not proof
+    the gate forges: it goes through the same generation-checked claim the
+    `resume` hook makes, so another session's run is still refused. A refusal
+    is kept for `paused_run_reason` and the call is then decided as before.
+    """
+
+    paused = paused_session_evidence(root, session_id)
+    if paused is None:
+        return False
+    try:
+        from agent_paused_run_resume import resume_own_paused_run
+
+        result = resume_own_paused_run(root, paused)
+    except Exception:  # noqa: BLE001 - a failed resume falls back to the refusal
+        return False
+    if result.get("result") == "ready":
+        return True
+    signals = ", ".join(result.get("changed_signals") or [])
+    _RESUME_REFUSALS[paused.parent.name] = str(result.get("result") or "refused") + (
+        f" (changed: {signals})" if signals else ""
+    )
+    return False
+
+
+def entry_denial(
+    root: Path,
+    session_id: str,
+    tool: str,
+    cwd_roots: "list[Path] | None" = None,
+    suffix: str = "",
+) -> int:
+    """Refuse a call that has no workflow entry, or ask about a paused run."""
+
+    paused = paused_session_evidence(root, session_id) is not None
+    return deny_or_ask(
+        deny_reason(root, session_id, tool, cwd_roots) + suffix,
+        "paused_run_refused" if paused else "workflow_entry_missing",
+    )
 
 
 def _run_evidence_reader() -> "ModuleType | None":
@@ -1307,7 +1376,7 @@ def _isolated_checkout_verdict(
         publishes = tool in BASH_TOOLS and publication_hold(
             bash_command(payload), root=governed, cwd=effective_cwd or cwd
         ) == "publishes"
-        return deny(deny_reason(governed, session_id, tool, cwd_roots) + (
+        return entry_denial(governed, session_id, tool, cwd_roots, (
             " This command publishes: when the user's request authorizes it, start "
             "that run with --approved-effect external_write so its finish admits it."
             if publishes else ""
@@ -1328,7 +1397,7 @@ def _isolated_checkout_verdict(
         # The active claim can disappear between the workflow-entry check and
         # the mutation checkpoint. Do not turn that registry race into an
         # uncheckpointed edit.
-        return deny(deny_reason(root, session_id, tool))
+        return entry_denial(root, session_id, tool)
     if (
         runtime_name() == "claude"
         and tool in EDIT_TOOLS
@@ -1496,13 +1565,8 @@ def _worktree_policy_verdict(
             payload, tool, roots, cwd_roots, tokens, syntax_is_simple=syntax_is_simple
         )
         if unentered is not None:
-            return deny(
-                deny_reason(
-                    unentered,
-                    str(payload.get("session_id") or ""),
-                    tool,
-                    cwd_roots,
-                )
+            return entry_denial(
+                unentered, str(payload.get("session_id") or ""), tool, cwd_roots
             )
     # The routine tier answers for the checkout, and publishing asks a second
     # question it never asked: whether anything has attested the work. Reaching

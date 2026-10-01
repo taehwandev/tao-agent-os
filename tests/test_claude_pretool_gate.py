@@ -2407,6 +2407,12 @@ class ClaudePreToolGateTests(unittest.TestCase):
             _, paused = _decide(payload)
             reason = _reason(paused)
 
+        # This fixture has no continuation packet, so the automatic resume is
+        # refused; the operator is asked with the refusal named.
+        self.assertEqual(
+            "ask", json.loads(paused)["hookSpecificOutput"]["permissionDecision"]
+        )
+        self.assertIn("resuming it automatically was refused: invalid_packet", reason)
         self.assertIn(f"run {run_id} was paused", reason)
         self.assertIn(
             f"resume --last --run-id {run_id} --project {project.resolve()}", reason
@@ -2433,6 +2439,36 @@ class ClaudePreToolGateTests(unittest.TestCase):
         reason = _reason(denied)
         self.assertNotIn("resume --last", reason)
         self.assertIn("No exact registered preflight evidence", reason)
+
+    def test_own_paused_run_is_resumed_by_the_next_edit(self) -> None:
+        """The same session continuing its own task is not an interruption, so
+        the next turn's first edit reclaims the run instead of being refused."""
+
+        import agent_paused_run_resume
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project, "s1")
+            evidence = resolve_runtime_evidence(
+                project, {"runtime": "claude", "session_id": "s1"}
+            )
+            transition_run(project, evidence, "interrupted")
+            claimed = []
+
+            def resume(root, paused):
+                claimed.append(paused.parent.name)
+                transition_run(project, evidence, "running")
+                return {"result": "ready"}
+
+            with patch.object(agent_paused_run_resume, "resume_own_paused_run", resume):
+                _, out = _decide({
+                    "tool_name": "Write", "cwd": str(project), "session_id": "s1",
+                    "tool_input": {"file_path": str(project / "notes.md")},
+                })
+
+        self.assertEqual([evidence.parent.name], claimed)
+        self.assertNotIn("was paused", out)
+        self.assertNotIn("No exact registered preflight evidence", out)
 
     def test_deny_reason_uses_resolved_absolute_launcher_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

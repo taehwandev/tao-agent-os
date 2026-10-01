@@ -355,6 +355,16 @@ hazard as `--last`, arriving without anyone asking, and the owner check does
 not cover it -- that check refuses a live owner, while two sessions that both
 stopped leave two free packets.
 
+The Claude pre-tool gate resumes the same way within a living session. The Stop
+hook pauses an open run at every turn boundary, and the same session's next
+mutating call then reclaims that run by name (`resume_paused_run`, through
+`agent_paused_run_resume.resume_own_paused_run`) instead of being refused until
+someone runs `resume` by hand. Only the session's own run is a candidate, the
+claim keeps its generation check, and a refusal (`drift_refused`,
+`live_owner_refused`, an invalid packet) is not resumed silently: Claude asks
+the operator with the refusal named (`paused_run_refused`), and Codex keeps the
+deny because it turns `ask` into a silent allow.
+
 Concurrent sessions sharing one checkout still share one worktree. Another
 session's uncommitted bytes drift every packet in it, and resume answers that
 with `drift_refused` and reconciliation rather than resuming across a state the

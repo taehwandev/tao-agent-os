@@ -298,7 +298,9 @@ def block_reason(root: Path) -> str:
         "--review-scope working-tree --review-outcome <pass|findings> ...` and "
         f"`{launcher} finish --project {root} --rules <TAO_ROOT>`. "
         "If finish reports failures, repair them instead of reporting completion. "
-        "Set TAO_CLAUDE_STOP_GATE=0 to disable this gate."
+        "If review or finish cannot run (a permission was refused, or the work "
+        "is blocked on the user), stop and report the work as unfinished with "
+        "that reason; this gate does not block the same edits twice."
     )
 
 
