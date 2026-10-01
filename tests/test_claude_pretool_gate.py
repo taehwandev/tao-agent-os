@@ -889,8 +889,8 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "git am patch",
                 "git mv a b",
                 "git rm old.py",
-                # A compound line is read as one command and carries anything
-                # after the part that was read.
+                # A compound line cannot be read as one command, so the
+                # operator is asked instead.
                 "git branch -D x && rm -rf build",
                 "npm install && rm -rf build",
             ):
@@ -905,7 +905,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     )
                     self.assertEqual(0, code)
                     self.assertEqual(
-                        STOP_DECISION,
+                        "ask" if "&&" in command else STOP_DECISION,
                         json.loads(out)["hookSpecificOutput"]["permissionDecision"],
                         command,
                     )
@@ -1320,13 +1320,12 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertEqual("", out, command)
 
-    def test_a_command_the_gate_cannot_read_keeps_its_refusal(self) -> None:
-        """A prompt cannot describe what computed text will do.
+    def test_a_command_the_gate_cannot_read_asks_the_operator(self) -> None:
+        """What the gate cannot read is its own limit, not a proven violation.
 
-        `eval $(echo rm -rf build)` parses as one simple command line and says
-        nothing about the command that actually runs, so asking about it offers
-        the operator a decision they have no way to make. This is the same
-        fail-closed reading the rest of the gate uses for what it cannot read.
+        A hard deny there leaves nothing to do, so Claude asks and the operator
+        reads the literal command; Codex keeps the deny because it turns `ask`
+        into a silent allow.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1349,7 +1348,7 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     )
                     self.assertEqual(0, code)
                     self.assertEqual(
-                        STOP_DECISION,
+                        "ask",
                         json.loads(out)["hookSpecificOutput"]["permissionDecision"],
                         command,
                     )
@@ -2602,7 +2601,7 @@ class EveryGovernedProjectNeedsItsOwnEntryTests(unittest.TestCase):
             f"git clone https://example.invalid/r.git {target}", self.started
         )
 
-        self.assertEqual("deny", verdict["permissionDecision"],
+        self.assertEqual("ask", verdict["permissionDecision"],
                          "the write into the unstarted project was allowed")
         self.assertIn(str(self.other), verdict["permissionDecisionReason"])
 
@@ -3239,6 +3238,40 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
         self.assertIsNone(product_reason)
         self.assertIsNone(docs_reason)
 
+    def _verdict(self, code: str, runtime: str) -> dict:
+        buffer = io.StringIO()
+        with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": runtime}), redirect_stdout(
+            buffer
+        ):
+            gate.deny_or_ask("reason", code)
+        return json.loads(buffer.getvalue())["hookSpecificOutput"]
+
+    def test_ticketless_branch_asks_on_claude(self) -> None:
+        decision = self._verdict("ticketed_product_branch", "claude")
+
+        self.assertEqual("ask", decision["permissionDecision"])
+
+    def test_ticketless_branch_stays_denied_on_codex(self) -> None:
+        # Codex rejects `ask` and would turn it into a silent allow.
+        decision = self._verdict("ticketed_product_branch", "codex")
+
+        self.assertEqual("deny", decision["permissionDecision"])
+
+    def test_unreadable_command_asks_on_claude(self) -> None:
+        decision = self._verdict("unreadable_command_effect", "claude")
+
+        self.assertEqual("ask", decision["permissionDecision"])
+
+    def test_unreadable_command_stays_denied_on_codex(self) -> None:
+        decision = self._verdict("unreadable_command_effect", "codex")
+
+        self.assertEqual("deny", decision["permissionDecision"])
+
+    def test_agent_repairable_denial_stays_denied_on_claude(self) -> None:
+        decision = self._verdict("workflow_entry_missing", "claude")
+
+        self.assertEqual("deny", decision["permissionDecision"])
+
 
 class CodexRuntimePreToolGateTests(unittest.TestCase):
     def test_codex_review_request_defers_to_native_permissions(self) -> None:
@@ -3288,7 +3321,10 @@ class CodexRuntimePreToolGateTests(unittest.TestCase):
                     "tool_name": "Bash", "cwd": str(project), "session_id": "s",
                     "tool_input": {"command": f"{gate.stable_launcher_path()} start --project {project} {suffix}"},
                 })
-                self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+                self.assertEqual(
+                    "ask" if "&&" in suffix else "deny",
+                    json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                )
 
     def test_active_administrative_run_does_not_allow_main_source_edits(self) -> None:
         for runtime in ("claude", "codex"):
@@ -4403,7 +4439,7 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
                 command + " && touch changed", command + " > output",
             ):
                 with self.subTest(command=forbidden), patch.dict(os.environ, _isolated_env(), clear=True):
-                    self.assertIn("deny", self._bash(project, forbidden)[1])
+                    self.assertIn('"ask"', self._bash(project, forbidden)[1])
         with tempfile.TemporaryDirectory() as tmp:
             project = self._read_run(Path(tmp))
             command = f"{launcher} agent-mailbox receive --runtime codex --project {project}"
@@ -4526,7 +4562,7 @@ class ProjectMemoryIsAgentWrittenTests(unittest.TestCase):
                     code, out = self._decide(project, command)
                     self.assertEqual(0, code)
                     self.assertEqual("", out)
-                    self.assertIn("deny", self._decide(project, command + " && touch changed")[1])
+                    self.assertIn('"ask"', self._decide(project, command + " && touch changed")[1])
             self.assertFalse((project / ".tao/runs").exists())
             self.assertEqual("", self._decide(
                 project, f"{launcher} project-memory --project {project} recall --scope task")[1])

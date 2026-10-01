@@ -102,7 +102,7 @@ class PretoolExecutionTests(unittest.TestCase):
 
     def test_unknown_is_diagnosed_and_valid_read_retry_needs_no_task_state(self):
         denied = self.decision(["curl", "https://example.invalid"])
-        self.assertEqual("deny", denied["permissionDecision"])
+        self.assertEqual("ask", denied["permissionDecision"])
         self.assertIn("effect: unknown", denied["permissionDecisionReason"])
         self.assertIn("put -q first", denied["permissionDecisionReason"])
         self.assertIsNone(self.decision(["curl", "-q", "https://example.invalid"]))
@@ -116,7 +116,9 @@ class PretoolExecutionTests(unittest.TestCase):
                         'cat AGENTS.md\ncat AGENTS.md > result',
                         'cat $\\\n(touch result)'):
             with self.subTest(command=command):
-                self.assertEqual('deny', self.decision(command)['permissionDecision'])
+                # A substitution split across lines cannot be read, so it asks.
+                expected = 'ask' if '$\\\n(' in command else 'deny'
+                self.assertEqual(expected, self.decision(command)['permissionDecision'])
 
     def test_deployment_status_read_needs_no_run_or_new_start(self):
         endpoint = 'repos/example/project/commits/abc123/status'
@@ -127,4 +129,5 @@ class PretoolExecutionTests(unittest.TestCase):
         self.assertFalse((self.project / '.tao' / 'runs').exists())
         for args in (['--method', 'POST'], ['-f', 'state=success'], ['--cache', '1h'],
                      ['--method', 'GET', '--input', 'payload.json']):
-            self.assertEqual('deny', self.decision(['gh', 'api', endpoint, *args])['permissionDecision'])
+            with self.subTest(args=args):
+                self.assertEqual('ask', self.decision(['gh', 'api', endpoint, *args])['permissionDecision'])

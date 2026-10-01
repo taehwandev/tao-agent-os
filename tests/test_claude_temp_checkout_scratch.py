@@ -165,7 +165,9 @@ class PublicationStaysGovernedTests(_Fixture):
             f"git -C {self.bench} branch -D main",
         ):
             with self.subTest(command=command):
-                self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+                # A tag's effect is not read here, so it asks instead.
+                expected = "ask" if " tag " in command else "deny"
+                self.assertEqual(self._bash(command, cwd=self.bench), expected)
 
     def test_a_file_write_chained_to_a_commit_stays_governed(self) -> None:
         probe = self.bench / "docs" / "probe.txt"
@@ -256,7 +258,9 @@ class CodeRunsInTheTempCheckoutTests(_Fixture):
             "cd docs | echo changed > notes.txt",
         ):
             with self.subTest(command=command):
-                self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+                # A disguised `git` whose effect is not read asks instead.
+                expected = "ask" if "worktree remove" in command else "deny"
+                self.assertEqual(self._bash(command, cwd=self.bench), expected)
         self.assertEqual(
             self._bash("cd docs && echo changed > probe.txt", cwd=self.bench),
             "allow",
@@ -396,7 +400,11 @@ class CommandsNamingARealProjectKeepTheirVerdictTests(_Fixture):
         ]
         for command in commands:
             self._assert_unexempted(command)
-            self.assertEqual(self._bash(command, cwd=self.bench), "deny")
+            with self.subTest(command=command):
+                # Running code whose effect is not read asks; a visible copy
+                # into the other project stays refused.
+                expected = "deny" if command.startswith("cp ") else "ask"
+                self.assertEqual(self._bash(command, cwd=self.bench), expected)
         _write_preflight(other, "temp-checkout-scratch")
         for command in commands:
             self._assert_unexempted(command)

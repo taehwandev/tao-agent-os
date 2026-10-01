@@ -113,7 +113,12 @@ class ProjectWorktreePolicyTests(unittest.TestCase):
                         self.assertEqual("", output.getvalue())
                     else:
                         decision = json.loads(output.getvalue())["hookSpecificOutput"]
-                        self.assertEqual("deny", decision["permissionDecision"])
+                        # A start line the gate cannot read as one command asks.
+                        unreadable = " && touch " in command or " > " in command
+                        self.assertEqual(
+                            "ask" if unreadable else "deny",
+                            decision["permissionDecision"],
+                        )
 
     def edit(self, source: Path, target: Path) -> str:
         output = io.StringIO()

@@ -130,7 +130,11 @@ class NodeTestAndLookupClassification(_Fixture):
             f"sample 1 5 -file {self.project / 'sample.txt'}",
         ):
             with self.subTest(command=command):
-                self.assertEqual("deny", self._bash(command, cwd=self.bench))
+                # The compound line cannot be read, so it asks instead.
+                self.assertEqual(
+                    "ask" if "&&" in command else "deny",
+                    self._bash(command, cwd=self.bench),
+                )
 
     def test_gate_scope_reads_the_measured_commands_as_read_only(self) -> None:
         """The gate allows a read_only scope before any run or worktree check."""

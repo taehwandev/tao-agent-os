@@ -46,7 +46,8 @@ ADMITTED = {
     "link target": "readlink -f a.txt",
 }
 
-# Project code keeps its fail-closed verdict, now with the one-line remedy.
+# Project code whose effect the gate cannot read asks the operator, with the
+# one-line remedy in the prompt.
 PROJECT_CODE = {
     "inline python": "python3 -c 'print(1)'",
     "python script": "python3 .agents/skills/aura/aura_verify.py --files a.ts",
@@ -76,6 +77,15 @@ STILL_REFUSED = {
     "redirected listing": "pgrep -fl vite > pids.txt",
     "chained write": "node --check a.js && rm -rf build",
     "unittest behind -c": "python3 -c 'x' -m unittest",
+}
+
+# The neighbours whose effect is unreadable ask instead of being refused.
+ASKED_NEIGHBOURS = {
+    "node evaluation",
+    "node check plus option",
+    "json.tool unknown option",
+    "isolated json.tool output file",
+    "unittest behind -c",
 }
 
 
@@ -234,7 +244,7 @@ class GateTests(unittest.TestCase):
         executable.write_text("#!/bin/sh\ntouch unexpected\n")
         executable.chmod(0o755)
         _, out = self.decide(f"{executable} AGENTS.md")
-        self.assertEqual("deny", self.decision(out)[0])
+        self.assertEqual("ask", self.decision(out)[0])
         self.assertFalse((self.project / "unexpected").exists())
 
     def test_project_code_is_denied_with_one_remedy(self) -> None:
@@ -242,7 +252,7 @@ class GateTests(unittest.TestCase):
             with self.subTest(family=family):
                 _, out = self.decide(command)
                 verdict, reason = self.decision(out)
-                self.assertEqual("deny", verdict)
+                self.assertEqual("ask", verdict)
                 self.assertIn("Tao command effect: unknown", reason)
                 self.assertIn("runs project code", reason)
                 self.assertIn("do not retry reworded or split variants", reason)
@@ -253,7 +263,10 @@ class GateTests(unittest.TestCase):
         for family, command in STILL_REFUSED.items():
             with self.subTest(family=family):
                 _, out = self.decide(command)
-                self.assertEqual("deny", self.decision(out)[0])
+                self.assertEqual(
+                    "ask" if family in ASKED_NEIGHBOURS else "deny",
+                    self.decision(out)[0],
+                )
 
 
 if __name__ == "__main__":

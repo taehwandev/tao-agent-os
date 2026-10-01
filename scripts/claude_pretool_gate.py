@@ -472,13 +472,12 @@ def _learn_block(code: str) -> None:
 
 
 def deny(reason: str, code: str = "workflow_entry_missing") -> int:
-    """Stop a policy violation without turning it into an operator prompt.
+    """Stop a policy violation the agent can repair without the operator.
 
-    ``ask`` makes Claude request confirmation for every gated Edit, Write, and
-    Bash call.  These failures have deterministic remedies -- enter the
-    workflow, move to a permitted worktree, or reduce/justify the edit -- so the
-    agent should apply the remedy instead of delegating every decision to the
-    operator.
+    Use it only where the agent has a remedy of its own -- enter the workflow,
+    move to a permitted worktree, or reduce/justify the edit. When the remedy is
+    the operator's decision or the gate cannot read the command, call
+    ``deny_or_ask`` with a code in ``OPERATOR_DECIDES`` instead, so Claude asks.
 
     ``code`` names which denial branch fired, as a fixed slug for the lesson
     store; it never alters the decision printed here.
@@ -503,6 +502,20 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
     if runtime_name() == "codex" or (tokens and _is_git_deletion(tokens)):
         return allow()
     return _emit({"permissionDecision": "ask", "permissionDecisionReason": reason})
+
+
+# Denials the operator decides instead of the gate. A ticketless branch cannot
+# be repaired by the agent, and a command the gate cannot read is the gate's
+# own limit rather than a proven violation; a hard deny there leaves nothing to
+# do, so Claude asks and the operator reads the literal command. Codex rejects
+# `ask` and would turn it into a silent allow, so Codex keeps the deny.
+OPERATOR_DECIDES = frozenset({"ticketed_product_branch", "unreadable_command_effect"})
+
+
+def deny_or_ask(reason: str, code: str) -> int:
+    if code in OPERATOR_DECIDES and runtime_name() != "codex":
+        return ask(reason)
+    return deny(reason, code)
 
 
 def max_age_seconds() -> int:
@@ -1238,7 +1251,7 @@ def _isolated_checkout_verdict(
         for governed in governed_roots or [root]:
             ticket_reason = ticketed_product_branch_denial(governed, target)
             if ticket_reason:
-                return deny(ticket_reason, "ticketed_product_branch")
+                return deny_or_ask(ticket_reason, "ticketed_product_branch")
     # Every governed project, for the same reason the mutation and worktree
     # checks already use all of them: a command writing into a second project
     # is governed by that project's workflow entry too, and reading only the
@@ -1288,7 +1301,7 @@ def _isolated_checkout_verdict(
                 "publication_after_finish_mismatch")
         if unknown_reason:
             after_finish = finished_evidence_is_fresh(finished_session_evidence(governed, session_id))
-            return deny(unknown_recovery(unknown_reason, after_finish=after_finish)
+            return deny_or_ask(unknown_recovery(unknown_reason, after_finish=after_finish)
                         + governed_because(governed, cwd_roots),
                         "unreadable_command_effect")
         publishes = tool in BASH_TOOLS and publication_hold(
@@ -1532,7 +1545,8 @@ def _worktree_policy_verdict(
             "if that is what you meant.",
             tokens=tokens,
         )
-    return deny(
+    unreadable = tool in BASH_TOOLS and not (syntax_is_simple and readable)
+    return deny_or_ask(
         _worktree_reason_naming_its_cause(
             roots,
             worktree_reason,
@@ -1544,7 +1558,7 @@ def _worktree_policy_verdict(
             tokens=tokens,
             command_cwd=command_cwd,
         ),
-        "worktree_isolation",
+        "unreadable_command_effect" if unreadable else "worktree_isolation",
     )
 
 
@@ -2277,7 +2291,7 @@ def _decide(payload: dict) -> int:
         roots, str(payload.get("session_id") or ""), bash_kind
     )
     if read_denial:
-        return deny(
+        return deny_or_ask(
             unknown_recovery(scope.unknown_reason) if scope.unknown_reason else read_denial,
             "unreadable_command_effect" if scope.unknown_reason else "read_only_run_mutation",
         )

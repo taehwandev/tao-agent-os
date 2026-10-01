@@ -72,7 +72,12 @@ class ScratchHelperScripts(_Fixture):
             f"python3 {pad}/hello.py | tee {self.spill}/x",
         ):
             with self.subTest(command=command):
-                self.assertEqual("deny", self._bash(command, cwd=self.spill))
+                # A visible write into the project stays refused; running code
+                # whose effect the gate cannot read asks instead.
+                writes = ">" in command or "| tee" in command
+                self.assertEqual(
+                    "deny" if writes else "ask", self._bash(command, cwd=self.spill)
+                )
 
     def test_predicate_needs_an_existing_scratch_file(self) -> None:
         def admitted(command: str) -> bool:

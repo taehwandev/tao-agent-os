@@ -256,7 +256,20 @@ user-approved exception only; it is never a default and never set by tooling.
 Claude can express a native permission request as `permissionDecision: ask`.
 Codex rejects that value (and explicit `allow`), so its adapter defers with a
 successful empty response instead. Deferral never grants sandbox permission or
-represents user approval; deterministic policy violations still emit `deny`.
+represents user approval.
+
+Ask, do not deny, when the gate is not sure. On Claude, the gate answers `ask`
+whenever the remedy is the operator's decision (a product edit on a ticketless
+branch) or the gate cannot read what the command will do (chains, pipes,
+heredocs, computed text, an unreadable effect in the protected checkout). A
+hard `deny` there leaves the agent and the operator with nothing to do, and the
+operator can read the literal command in the prompt. `deny` is kept for Codex,
+where `ask` would become a silent allow, and for states only the agent itself
+can fix. The verdicts that ask are listed in `OPERATOR_DECIDES` in
+`scripts/claude_pretool_gate.py`; add a code there rather than adding a new
+hard deny. This has regressed once already: `507bf58` moved stops to `ask`
+and `cd670be` turned them back into prompt-free denies that blocked a plain
+branch update. Do not convert these paths back to `deny`.
 
 If an older session already opened a clean main-checkout run before relocating,
 settle it with `tao-hook cancel --evidence <SOURCE> --replacement-evidence
