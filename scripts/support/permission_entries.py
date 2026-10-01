@@ -28,6 +28,7 @@ EXECUTABLE_ENTRYPOINTS = (
     "check_android_external_skill_manifest.py",
     "check_react_rn_external_skill_manifest.py",
     "claude_pretool_gate.py",
+    "codex_operator_review.py",
     "migrate_skill_bundles.py",
     "project-discover.py",
     "run_smoke_checks.py",

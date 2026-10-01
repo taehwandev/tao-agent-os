@@ -241,6 +241,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
             return discovery_kind
         if writes_output:
             return "mutating"
+        if tokens[1] == "operator-review":
+            return RUNTIME_CONTROL_KIND
         if tokens[1] == "agent-mailbox":
             return _mailbox_intake_kind(tokens[2:])
         if tokens[1] == "project-memory":
@@ -285,6 +287,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     here = Path(__file__).resolve()
     if script in {here.with_name("project-discover.py"), here.with_name("agent-entry.py")}:
         return discovery_command_kind(script.stem, tokens[2:])
+    if script == here.with_name("codex_operator_review.py"):
+        return RUNTIME_CONTROL_KIND if not writes_output else "mutating"
     if script == here.with_name("agent-mailbox.py"):
         return "mutating" if writes_output else _mailbox_intake_kind(tokens[2:])
     if script == here.with_name("agent_project_memory.py"):

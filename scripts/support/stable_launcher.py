@@ -181,6 +181,7 @@ SCRIPT_ALIASES = {
     "claude-stop-gate": "claude_stop_gate.py",
     "codex-pretool-gate": "codex_pretool_gate.py",
     "codex-stop-gate": "codex_stop_gate.py",
+    "operator-review": "codex_operator_review.py",
     "agy-statusline": "agy_statusline.py",
 }
 HOOK_ALIASES = {

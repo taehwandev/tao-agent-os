@@ -504,22 +504,37 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
     return _emit({"permissionDecision": "ask", "permissionDecisionReason": reason})
 
 
-# Denials the operator decides instead of the gate. A ticketless branch cannot
-# be repaired by the agent, a command the gate cannot read is the gate's own
-# limit rather than a proven violation, and a session's own paused run that its
-# automatic resume could not reclaim (drift, a live owner) needs a judgement the
-# gate cannot make; a hard deny there leaves nothing to do, so Claude asks and
-# the operator reads the reason. Codex rejects `ask` and would turn it into a
-# silent allow, so Codex keeps the deny.
+# Claude uses native ask. Codex pauses and delegates the question to its
+# conversation runtime; only a separately attested user answer permits replay.
 OPERATOR_DECIDES = frozenset(
     {"ticketed_product_branch", "unreadable_command_effect", "paused_run_refused"}
 )
 
 
-def deny_or_ask(reason: str, code: str) -> int:
-    if code in OPERATOR_DECIDES and runtime_name() != "codex":
+def deny_or_ask(reason: str, code: str, payload: dict | None = None,
+                *, continue_on_approval: bool = False) -> int | None:
+    if code not in OPERATOR_DECIDES:
+        return deny(reason, code)
+    if runtime_name() != "codex":
         return ask(reason)
-    return deny(reason, code)
+    try:
+        from codex_operator_review import OperatorReview
+        approved, question = OperatorReview.request(payload or {}, reason, code)
+    except Exception:
+        # Approval-state failure must not reach decide's general fail-open path.
+        return deny(reason + " Operator approval state is unavailable; stop for repair.", code)
+    if approved:
+        return None if continue_on_approval else allow()
+    return deny(reason + " " + question, code)
+
+
+def _read_only_operator_verdict(payload: dict, reason: str, unknown_reason: str) -> int:
+    verdict = deny_or_ask(
+        unknown_recovery(unknown_reason) if unknown_reason else reason,
+        "unreadable_command_effect" if unknown_reason else "read_only_run_mutation",
+        payload, continue_on_approval=True,
+    )
+    return deny(reason, "read_only_run_mutation") if verdict is None else verdict
 
 
 def max_age_seconds() -> int:
@@ -1320,7 +1335,10 @@ def _isolated_checkout_verdict(
         for governed in governed_roots or [root]:
             ticket_reason = ticketed_product_branch_denial(governed, target)
             if ticket_reason:
-                return deny_or_ask(ticket_reason, "ticketed_product_branch")
+                verdict = deny_or_ask(ticket_reason, "ticketed_product_branch", payload,
+                                      continue_on_approval=True)
+                if verdict is not None:
+                    return verdict
     # Every governed project, for the same reason the mutation and worktree
     # checks already use all of them: a command writing into a second project
     # is governed by that project's workflow entry too, and reading only the
@@ -1370,9 +1388,11 @@ def _isolated_checkout_verdict(
                 "publication_after_finish_mismatch")
         if unknown_reason:
             after_finish = finished_evidence_is_fresh(finished_session_evidence(governed, session_id))
-            return deny_or_ask(unknown_recovery(unknown_reason, after_finish=after_finish)
+            verdict = deny_or_ask(unknown_recovery(unknown_reason, after_finish=after_finish)
                         + governed_because(governed, cwd_roots),
-                        "unreadable_command_effect")
+                        "unreadable_command_effect", payload, continue_on_approval=True)
+            if verdict is not None:
+                return verdict
         publishes = tool in BASH_TOOLS and publication_hold(
             bash_command(payload), root=governed, cwd=effective_cwd or cwd
         ) == "publishes"
@@ -1623,6 +1643,7 @@ def _worktree_policy_verdict(
             command_cwd=command_cwd,
         ),
         "unreadable_command_effect" if unreadable else "worktree_isolation",
+        payload,
     )
 
 
@@ -2355,10 +2376,7 @@ def _decide(payload: dict) -> int:
         roots, str(payload.get("session_id") or ""), bash_kind
     )
     if read_denial:
-        return deny_or_ask(
-            unknown_recovery(scope.unknown_reason) if scope.unknown_reason else read_denial,
-            "unreadable_command_effect" if scope.unknown_reason else "read_only_run_mutation",
-        )
+        return _read_only_operator_verdict(payload, read_denial, scope.unknown_reason)
     if tool in BASH_TOOLS and bash_kind == SCRATCH_SCRIPT_KIND:
         return allow()
     if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:

@@ -32,6 +32,7 @@ from support.claude_setup import (
     _merge_claude_pre_tool_gate,
 )
 from support.global_state import STATE_HOME_ENV
+from codex_operator_review import OperatorReview
 from support.setup_config_files import read_json
 from agent_continuation_checkpoint import write_continuation_checkpoint
 from agent_execution_capsule_state import PREFLIGHT_SNAPSHOT_SCHEMA_VERSION
@@ -3287,8 +3288,8 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
 
         self.assertEqual("ask", decision["permissionDecision"])
 
-    def test_ticketless_branch_stays_denied_on_codex(self) -> None:
-        # Codex rejects `ask` and would turn it into a silent allow.
+    def test_ticketless_branch_pauses_on_codex_without_bound_request(self) -> None:
+        # A question cannot be recorded without the pending invocation/session.
         decision = self._verdict("ticketed_product_branch", "codex")
 
         self.assertEqual("deny", decision["permissionDecision"])
@@ -3298,7 +3299,7 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
 
         self.assertEqual("ask", decision["permissionDecision"])
 
-    def test_unreadable_command_stays_denied_on_codex(self) -> None:
+    def test_unreadable_command_pauses_on_codex_without_bound_request(self) -> None:
         decision = self._verdict("unreadable_command_effect", "codex")
 
         self.assertEqual("deny", decision["permissionDecision"])
@@ -3307,6 +3308,64 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
         decision = self._verdict("workflow_entry_missing", "claude")
 
         self.assertEqual("deny", decision["permissionDecision"])
+
+
+    def test_codex_operator_question_then_attested_answer_allows_once(self) -> None:
+        payload = {"session_id": "operator-test", "cwd": "/project", "tool_name": "Bash",
+                   "tool_input": {"command": "git status && git fetch"}}
+        with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                gate.deny_or_ask("reason", "unreadable_command_effect", payload)
+            reason = json.loads(buffer.getvalue())["hookSpecificOutput"]["permissionDecisionReason"]
+            self.assertIn("Ask the user", reason)
+            import re
+            request_id = re.search(r"--request-id ([a-f0-9]{64})", reason).group(1)
+            OperatorReview.resolve(request_id, "approve", "operator-test")
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = gate.deny_or_ask("reason", "unreadable_command_effect", payload)
+            self.assertEqual((0, ""), (code, buffer.getvalue()))
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                gate.deny_or_ask("reason", "unreadable_command_effect", payload)
+            self.assertEqual("deny", json.loads(buffer.getvalue())["hookSpecificOutput"]["permissionDecision"])
+
+    def test_codex_operator_approval_does_not_override_read_only_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}
+        ), patch.object(gate, "_read_run_mutation_denial", return_value="read-only run"), patch.object(
+            OperatorReview, "request", return_value=(True, "")
+        ):
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            _, out = _decide({"tool_name": "Bash", "cwd": str(project), "session_id": "s",
+                              "tool_input": {"command": "git status && git add file.py"}})
+        self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+        self.assertIn("read-only", _reason(out))
+
+    def test_approval_state_error_stays_blocked(self) -> None:
+        with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}), patch.object(
+            OperatorReview, "request", side_effect=OSError("unavailable")
+        ), redirect_stdout(io.StringIO()) as output:
+            gate.deny_or_ask("reason", "unreadable_command_effect", {})
+        self.assertEqual("deny", json.loads(output.getvalue())["hookSpecificOutput"]["permissionDecision"])
+
+    def test_codex_ticket_exception_still_requires_workflow_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}
+        ), patch.object(gate, "ticketed_product_branch_denial", return_value="ticketless"), patch.object(
+            OperatorReview, "request", return_value=(True, "")
+        ):
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            payload = {"tool_name": "Write", "cwd": str(project), "session_id": "s",
+                       "tool_input": {"file_path": str(project / "file.py"), "content": "x"}}
+            with patch.object(gate, "workflow_entry_allows", return_value=False), redirect_stdout(io.StringIO()) as output:
+                gate._isolated_checkout_verdict(payload, "Write", project, project)
+            out = output.getvalue()
+        self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+        self.assertIn("workflow", _reason(out).lower())
 
 
 class CodexRuntimePreToolGateTests(unittest.TestCase):

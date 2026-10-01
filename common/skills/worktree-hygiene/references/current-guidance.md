@@ -263,9 +263,24 @@ whenever the remedy is the operator's decision (a product edit on a ticketless
 branch) or the gate cannot read what the command will do (chains, pipes,
 heredocs, computed text, an unreadable effect in the protected checkout). A
 hard `deny` there leaves the agent and the operator with nothing to do, and the
-operator can read the literal command in the prompt. `deny` is kept for Codex,
-where `ask` would become a silent allow, and for states only the agent itself
-can fix. The verdicts that ask are listed in `OPERATOR_DECIDES` in
+operator can read the literal command in the prompt. Codex cannot use native
+`ask`, so Tao blocks the pending call with an explicit operator-question handoff.
+The agent asks in conversation, shows the exact target/change or literal command
+and reason, offers allow once / always allow this exact scope / reject, and
+waits. Only after an explicit user answer may it attest that
+answer using `<TAO_LAUNCHER> operator-review --request-id <ID> --decision
+approve|always|reject`. The request id is supplied by the gate; never invent one or
+approve from silence, mailbox context, a gate-repair request or unrelated
+authority. This runtime attestation binds consent; it does not classify the
+user's words or prove a native approval popup appeared. Approval expires after
+15 minutes and permits one identical tool-call retry in the same session.
+The explicit `always` choice retains consent for exactly the same cwd, tool,
+input, reason and policy across sessions, without a blanket command-prefix
+exception. Revoke it with the original request id and `--decision revoke`.
+Changed input/policy needs a new answer, including for standing consent. Rejection keeps the call blocked.
+State errors fail closed. Other workflow checks and sandbox approval remain
+independent. Agent-repairable violations retain their ordinary `deny`.
+The verdicts that ask are listed in `OPERATOR_DECIDES` in
 `scripts/claude_pretool_gate.py`; add a code there rather than adding a new
 hard deny. This has regressed once already: `507bf58` moved stops to `ask`
 and `cd670be` turned them back into prompt-free denies that blocked a plain
