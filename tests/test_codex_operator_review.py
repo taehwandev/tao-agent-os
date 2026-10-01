@@ -60,6 +60,37 @@ class CodexOperatorReviewTests(unittest.TestCase):
         OperatorReview.resolve(request_id, "approve", "codex-session")
         self.assertTrue(OperatorReview.request(self.payload, "paused run", "paused_run_refused")[0])
 
+    def test_inspection_bundle_gets_recovery_before_the_operator_question(self):
+        helper = Path.home() / "Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
+        self.payload["tool_input"]["command"] = (
+            f'node "{helper}" --label codex --task-type debugging --stage analysis\n'
+            "command -v ffmpeg\n"
+            "ffprobe -v error -show_format -show_streams /tmp/report.mp4\n"
+            "rg --files -g '*Portfolio*'"
+        )
+        reason = "Cause: use one literal command; chains, pipes, and multiline input are not accepted."
+        approved, message = OperatorReview.request(self.payload, reason, "unreadable_command_effect")
+        self.assertFalse(approved, "the rejected bundle is never silently allowed")
+        self.assertLess(message.index("Before asking"), message.index("Ask the user"))
+        self.assertIn("independently gated tool calls", message)
+        self.assertIn("unsupported constituent still needs the question below", message)
+        self.assertIn("opaque project code", message)
+        request_id = re.search(r"--request-id ([a-f0-9]{64})", message).group(1)
+        self.assertEqual("pending", OperatorReview._read(OperatorReview._path(request_id))["status"])
+        self.assertIn("end your turn", message)
+
+    def test_project_code_and_policy_refusals_do_not_offer_composition_recovery(self):
+        for code, reason in (
+            ("unreadable_command_effect", "interpreter or script effects are not declared"),
+            ("ticketed_product_branch", "Cause: use one literal command"),
+            ("paused_run_refused", "paused run"),
+        ):
+            with self.subTest(code=code):
+                approved, message = OperatorReview.request(self.payload, reason, code)
+                self.assertFalse(approved)
+                self.assertNotIn("Before asking", message)
+                self.assertIn("Ask the user", message)
+
     def test_always_reuses_exact_scope_across_turns_and_sessions_then_revokes(self):
         request_id = self.pending()
         OperatorReview.resolve(request_id, "always", "codex-session")

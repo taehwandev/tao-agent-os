@@ -24,7 +24,8 @@ def _policy_signature(payload: dict) -> str:
     scripts = Path(__file__).parent
     paths = {scripts / name for name in (
         "codex_operator_review.py", "claude_pretool_gate.py",
-        "claude_worktree_gate.py", "claude_command_effect.py", "claude_bash_readonly.py")}
+        "claude_worktree_gate.py", "claude_command_effect.py", "claude_bash_readonly.py",
+        "claude_bash_inspection.py")}
     bases = [Path(str(payload.get("cwd") or ".")).resolve()]
     body = payload.get("tool_input")
     if isinstance(body, dict):
@@ -43,9 +44,23 @@ def _policy_signature(payload: dict) -> str:
     return hashlib.sha256(json.dumps(signature).encode()).hexdigest()
 
 
-def _question(request_id: str) -> str:
+def _question(request_id: str, reason: str, code: str) -> str:
     """What the agent must do with a pending operator request."""
-    return (
+    recovery = ""
+    if code == "unreadable_command_effect" and "use one literal command" in reason:
+        recovery = (
+            "Before asking, check whether this is only a composition error in a lookup bundle. "
+            "A recognized local-context helper (such as label-only metering) and supported "
+            "read-only inspections can be submitted as separate, independently gated tool calls. "
+            "Keep the original targets, operands and conditional dependencies; explicitly "
+            "target the worktree where needed. Each unsupported constituent still needs the "
+            "question below for its own exact call. Do not split or reword opaque project code, "
+            "substitutions, pipes, redirections, writes or policy refusals to evade a denial. "
+            "If every constituent is independently admitted, continue the authorized task "
+            "without asking or recording approval for this rejected bundle. Otherwise use "
+            "the question below; never retry the bundle without explicit approval. "
+        )
+    return recovery + (
         "Tao operator decision required (not a permanent policy refusal). "
         "Ask the user in their language whether to allow this exact tool call, "
         "showing its target, proposed change or literal command, and this reason. "
@@ -134,7 +149,7 @@ class OperatorReview:
                           "approval_id": approval_id,
                           "expires_at": now + cls.MAX_AGE}
                 cls._write(path, record)
-        return False, _question(request_id)
+        return False, _question(request_id, reason, code)
 
     @classmethod
     def resolve(cls, request_id: str, decision: str, session: str) -> None:

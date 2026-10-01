@@ -78,6 +78,29 @@ def interpreter_probe_kind(command: list[str]) -> str | None:
     return "read_only" if operands <= 1 else None
 
 
+def _ffprobe_metadata_kind(arguments: list[str]) -> str | None:
+    """Local metadata to stdout, without output/report or format/protocol options."""
+    inputs = 0
+    index = 0
+    while index < len(arguments):
+        word = arguments[index]
+        if word in {"-show_format", "-show_streams"}:
+            pass
+        elif word in {"-v", "-of", "-show_entries"} and index + 1 < len(arguments):
+            index += 1
+            value = arguments[index]
+            if ((word == "-v" and value != "error")
+                    or (word == "-of" and value != "json")
+                    or (word == "-show_entries" and not re.fullmatch(r"[a-zA-Z0-9_=,:]+", value))):
+                return None
+        elif word and not word.startswith("-") and (word.startswith("/") or ":" not in word):
+            inputs += 1
+        else:
+            return None
+        index += 1
+    return "read_only" if inputs == 1 else None
+
+
 def inspection_command_kind(command: list[str]) -> str | None:
     """The read-only verdict for one exact inspection grammar, or None."""
 
@@ -88,6 +111,18 @@ def inspection_command_kind(command: list[str]) -> str | None:
     name = command[0]
     if name in INSPECTION_COMMANDS:
         return "read_only"
+    if name == "command":
+        arguments = command[1:]
+        return "read_only" if (len(arguments) >= 2 and arguments[0] in {"-v", "-V"}
+                               and _operands_only(arguments[1:])) else None
+    if name == "ffprobe":
+        return _ffprobe_metadata_kind(command[1:])
+    if name == "unzip":
+        # -p streams archive members to stdout; default extraction, combined
+        # switches and output-directory options must not inherit this contract.
+        arguments = command[1:]
+        return "read_only" if (len(arguments) >= 2 and arguments[0] == "-p"
+                               and _operands_only(arguments[1:])) else None
     if name == "tar":
         arguments = command[1:]
         if arguments and TAR_LIST_RE.fullmatch(arguments[0]) and _operands_only(arguments[1:]):

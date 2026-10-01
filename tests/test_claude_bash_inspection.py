@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -39,6 +40,16 @@ ADMITTED = {
     "process listing": "pgrep -fl vite",
     "open ports": "lsof -i :5173",
     "archive listing": "tar -tzf backup.tgz .tao/run-registry.json",
+    "archive stdout": "unzip -p animation-sources.jar commonMain/SharedElement.kt",
+    "video metadata": "ffprobe -v error -show_entries format=duration -show_entries stream=width,height -of json /tmp/report.mp4",
+    "video streams": "ffprobe -v error -show_format -show_streams /tmp/report.mp4",
+    "tool path lookup": "command -v ffmpeg",
+    "archive stdout pipeline": (
+        "unzip -p /tmp/animation-sources.jar commonMain/SharedElement.kt | rg -n -C 5 "
+        "'renderInOverlay|shouldRenderIn|drawInOverlay|onDetach|isEnabled'; "
+        "unzip -p /tmp/animation-sources.jar commonMain/SharedTransitionScope.kt | rg -n -C 4 "
+        "'SharedContentConfig|isEnabled|renderInOverlayDuringTransition|shouldRenderInOverlay|onDetach' | head -150"
+    ),
     "git reflog": "git reflog -5",
     "git reflog show": "git -C . reflog show --oneline main",
     "checksum": "shasum -a 256 package.json",
@@ -72,6 +83,19 @@ STILL_REFUSED = {
     "tar extract": "tar -xzf backup.tgz",
     "tar create": "tar -czf backup.tgz .tao",
     "tar list with program": "tar -tzf backup.tgz --to-command=sh",
+    "unzip extract": "unzip animation-sources.jar",
+    "unzip extraction directory": "unzip -p animation-sources.jar -d extracted",
+    "unzip mixed mode": "unzip -po animation-sources.jar",
+    "unzip missing archive": "unzip -p",
+    "unzip stdout redirected": "unzip -p animation-sources.jar SharedElement.kt > SharedElement.kt",
+    "unzip pipeline with writer": "unzip -p animation-sources.jar SharedElement.kt | tee SharedElement.kt",
+    "ffprobe output": "ffprobe -show_streams /tmp/report.mp4 -o metadata.json",
+    "ffprobe report": "ffprobe -report -show_streams /tmp/report.mp4",
+    "ffprobe filter input": "ffprobe -f lavfi -i 'movie=report.mp4'",
+    "ffprobe remote input": "ffprobe -show_streams https://example.com/report.mp4",
+    "ffprobe missing option value": "ffprobe -show_entries",
+    "command executes writer": "command touch unexpected",
+    "command path execution": "command -p touch unexpected",
     "reflog expire": "git reflog expire --all",
     "reflog delete": "git reflog delete HEAD@{1}",
     "redirected listing": "pgrep -fl vite > pids.txt",
@@ -86,6 +110,17 @@ DEFERRED_NEIGHBOURS = {
     "json.tool unknown option",
     "isolated json.tool output file",
     "unittest behind -c",
+    "unzip extract",
+    "unzip extraction directory",
+    "unzip mixed mode",
+    "unzip missing archive",
+    "ffprobe output",
+    "ffprobe report",
+    "ffprobe filter input",
+    "ffprobe remote input",
+    "ffprobe missing option value",
+    "command executes writer",
+    "command path execution",
 }
 
 
@@ -223,6 +258,13 @@ class GateTests(unittest.TestCase):
             spec.get("permissionDecisionReason") or spec.get("additionalContext", "")
         )
 
+    def protect_main_checkout(self) -> None:
+        (self.project / ".git").mkdir()
+        policy = self.project / ".agents/shared/worktree-policy.json"
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({"schema_version": 1, "require_linked_worktree": True,
+                                      "protected_branches": ["main", "develop"]}))
+
     def test_admitted_families_pass_without_a_run(self) -> None:
         for family, command in ADMITTED.items():
             with self.subTest(family=family):
@@ -241,6 +283,39 @@ class GateTests(unittest.TestCase):
                 with self.subTest(command=command):
                     _, out = self.decide(command)
                     self.assertNotEqual("deny", self.decision(out)[0])
+
+    def test_reported_archive_pipeline_passes_codex_without_operator_state(self) -> None:
+        self.protect_main_checkout()
+        with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}):
+            code, out = self.decide(ADMITTED["archive stdout pipeline"])
+        self.assertEqual((0, ""), (code, out))
+        self.assertFalse((Path(os.environ[STATE_HOME_ENV]) / "codex-operator-review").exists())
+
+    def test_archive_writes_still_pause_codex(self) -> None:
+        with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}):
+            for family, command in STILL_REFUSED.items():
+                if family.startswith("unzip"):
+                    with self.subTest(family=family):
+                        _, out = self.decide(command)
+                        self.assertEqual("deny", self.decision(out)[0])
+
+    def test_label_bundle_recovers_with_independently_admitted_calls(self) -> None:
+        self.protect_main_checkout()
+        home = Path(self._tmp.name) / "home"
+        helper = home / "Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("// identity fixture; never executed\n")
+        label = f'node "{helper}" --label codex --task-type debugging --stage plan --if-absent'
+        calls = [label, "command -v ffmpeg", ADMITTED["video metadata"], "rg --files feature app"]
+        with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": "codex"}), patch.object(Path, "home", return_value=home):
+            bundle = (f'if test -f "{helper}"; then {label}; fi\n' + "\n".join(calls[1:])
+                      + " | rg -i 'portfolio.*(detail|screen)|image.*(viewer|detail|zoom)'")
+            self.assertEqual((0, ""), self.decide(bundle))
+            for command in calls:
+                with self.subTest(command=command):
+                    code, out = self.decide(command)
+                    self.assertEqual((0, ""), (code, out))
+        self.assertFalse((Path(os.environ[STATE_HOME_ENV]) / "codex-operator-review").exists())
 
     def test_absolute_project_executable_remains_denied(self) -> None:
         executable = self.project / "cat"

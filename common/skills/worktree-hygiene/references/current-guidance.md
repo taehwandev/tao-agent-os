@@ -273,6 +273,15 @@ the rest.
 
 Codex cannot use native `ask`, and a deferral there would be a silent allow, so
 Tao blocks the pending call with an explicit operator-question handoff. The
+syntax-only `use one literal command` denial first permits the agent to recover
+a lookup bundle: submit recognized local-context helpers and supported inspections
+as separate calls, preserving targets, operands and conditional dependencies.
+Each call still passes its own gates. An unsupported constituent needs its own
+exact-call operator question. This is not permission to split or reword opaque
+project code, substitutions, pipes, redirections, writes or policy refusals.
+If every constituent is independently admitted, continue without approving or
+retrying the rejected bundle; its pending record grants no authority.
+When an operator decision remains necessary, the
 agent asks in conversation, shows the exact target/change or literal command
 and reason, offers allow once / always allow this exact scope / reject, and
 ends its turn -- the answer arrives as the user's next message, so it does not
