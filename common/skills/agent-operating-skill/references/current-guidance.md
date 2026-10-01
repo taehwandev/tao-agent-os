@@ -132,6 +132,17 @@ because a command was blocked. Preserve actual approval and isolation limits.
 Successful hooks validate their stated checks, not behavioral equivalence or
 the correctness of an agent's explanation of a failure.
 
+For an authorized external status transition, distinguish a blocked tool call
+from a command that ran and a remote state that actually changed. Retain an
+unfinished transition in the existing work context; a later dependent transition
+cannot assume it succeeded. Use the tool's verified resulting state or a bounded
+remote read before depending on it. If a guard reports an unexpected current
+state, reconcile the earlier result and current authority rather than removing
+the guard or substituting the expected state. Retry only after the reported
+blocking condition is resolved through the supported lifecycle or access path;
+otherwise report the exact blocker and unfinished action. Never bypass a denial
+or claim the whole requested outcome is complete while that action remains open.
+
 Later discovery is a normal correction point. Complete a missed check or repair
 an in-scope defect when it becomes known; do not restart valid earlier work just
 because it was found during review or verification. Record what was actually

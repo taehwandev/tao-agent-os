@@ -41,6 +41,24 @@ Tao supports the agent's task judgment; its catalog does not expand the request.
    working. Keep any expansion rationale in existing work context; add no new
    plan, per-read receipt, gate, hook or approval round merely to apply this rule.
 
+## Execution Round Trips
+
+Batch independent, bounded reads in one native tool invocation; inspect every
+result before using it. Keep dependent actions, mutations and approval boundaries
+sequential. A batch is not a shell chain and must not hide a failed prerequisite.
+Prepare already-known arguments and simultaneously-ready gate evidence together
+instead of spending a separate model/tool round on each field or status lookup.
+
+Wait on the handle returned by a running command rather than launching it again.
+Choose a wait appropriate to its observed duration; avoid repeated short polls
+for hooks, network Git or builds. Do not add sleeps between ready steps. A pending
+user decision remains pending; elapsed time never supplies approval.
+
+When investigating slow execution, separate tool call-to-result time from
+result-to-next-call gaps. A gap alone does not identify model reasoning, service
+queueing, approval waiting or session interruption. Reduce evidenced redundant
+rounds without claiming a measured speedup until a comparable run confirms it.
+
 ## Applying Hook Guidance At The Decision Point
 
 Use the active route's manifest, advertised evidence fields and hook results

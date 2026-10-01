@@ -96,6 +96,13 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   state, complete the staged-diff/readiness checks, and run one read-only
   finish; do not rerun the full implementation route or full test suite solely
   because the user asked to commit; and
+- resolve the destination-sync policy and perform any required, authorized
+  fetch/rebase before final staging, review and finish. Complete in-scope
+  integration fixes and affected verification first, then attest the final
+  inputs once. Do not review and finish an intermediate integration state only
+  to immediately reopen it for the already-known commit/PR action. If inputs
+  change after attestation, use the supported continuation and affected checks;
+  do not discard valid context or create independent starts for each phase;
 - after finish, run the attested add/commit/push/PR steps directly. A shell
   chain is allowed only when every segment is one of those publication steps
   or independently read-only. Never replace a blocked Git push with a provider
