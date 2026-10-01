@@ -94,7 +94,17 @@ def _decide(payload: dict) -> tuple[int, str]:
 
 
 def _reason(out: str) -> str:
-    return json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+    # A deferred verdict carries its reason to the agent as additionalContext.
+    output = json.loads(out)["hookSpecificOutput"]
+    return output.get("permissionDecisionReason") or output.get("additionalContext", "")
+
+
+def _decision_of(out: str) -> str:
+    """The verdict a hook answer gives: silent and deferred answers have none."""
+
+    if not out.strip():
+        return "allow"
+    return json.loads(out)["hookSpecificOutput"].get("permissionDecision", "defer")
 
 
 def _opt_in_project(base: Path) -> Path:
@@ -906,8 +916,8 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     )
                     self.assertEqual(0, code)
                     self.assertEqual(
-                        "ask" if "&&" in command else STOP_DECISION,
-                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                        "defer" if "&&" in command else STOP_DECISION,
+                        _decision_of(out),
                         command,
                     )
 
@@ -1321,11 +1331,12 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertEqual("", out, command)
 
-    def test_a_command_the_gate_cannot_read_asks_the_operator(self) -> None:
+    def test_a_command_the_gate_cannot_read_defers_to_the_runtime(self) -> None:
         """What the gate cannot read is its own limit, not a proven violation.
 
-        A hard deny there leaves nothing to do, so Claude asks and the operator
-        reads the literal command; Codex keeps the deny because it turns `ask`
+        A hard deny there leaves nothing to do and a hook `ask` overrides the
+        operator's allow rules, so Claude defers to its own permission flow
+        and the agent is told why; Codex keeps the deny because it turns `ask`
         into a silent allow.
         """
 
@@ -1348,11 +1359,8 @@ class ClaudePreToolGateTests(unittest.TestCase):
                         }
                     )
                     self.assertEqual(0, code)
-                    self.assertEqual(
-                        "ask",
-                        json.loads(out)["hookSpecificOutput"]["permissionDecision"],
-                        command,
-                    )
+                    self.assertEqual("defer", _decision_of(out), command)
+                    self.assertIn("Tao policy note", _reason(out), command)
 
     def test_reaching_into_the_protected_checkout_keeps_its_refusal(self) -> None:
         """Standing in it and reaching into it are different acts.
@@ -2409,10 +2417,8 @@ class ClaudePreToolGateTests(unittest.TestCase):
             reason = _reason(paused)
 
         # This fixture has no continuation packet, so the automatic resume is
-        # refused; the operator is asked with the refusal named.
-        self.assertEqual(
-            "ask", json.loads(paused)["hookSpecificOutput"]["permissionDecision"]
-        )
+        # refused; the call defers to the runtime's prompt with the refusal named.
+        self.assertEqual("defer", _decision_of(paused))
         self.assertIn("resuming it automatically was refused: invalid_packet", reason)
         self.assertIn(f"run {run_id} was paused", reason)
         self.assertIn(
@@ -2638,15 +2644,18 @@ class EveryGovernedProjectNeedsItsOwnEntryTests(unittest.TestCase):
             f"git clone https://example.invalid/r.git {target}", self.started
         )
 
-        self.assertEqual("ask", verdict["permissionDecision"],
-                         "the write into the unstarted project was allowed")
-        self.assertIn(str(self.other), verdict["permissionDecisionReason"])
+        # Deferred, not approved: the runtime's own prompt decides, and the
+        # agent is told which project lacks its entry.
+        self.assertNotEqual("allow", verdict.get("permissionDecision", "defer"),
+                            "the write into the unstarted project was approved")
+        self.assertIn(str(self.other), verdict["additionalContext"])
 
     def test_the_denial_says_the_project_is_not_where_the_command_runs(self):
         target = self.other / "clone"
-        reason = self._verdict(
+        verdict = self._verdict(
             f"git clone https://example.invalid/r.git {target}", self.started
-        )["permissionDecisionReason"]
+        )
+        reason = verdict.get("permissionDecisionReason") or verdict["additionalContext"]
 
         # The failure this replaces: the denial named a project the reader
         # never chose, with no hint that a path in the command put it there,
@@ -3283,10 +3292,13 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
             gate.deny_or_ask("reason", code)
         return json.loads(buffer.getvalue())["hookSpecificOutput"]
 
-    def test_ticketless_branch_asks_on_claude(self) -> None:
+    def test_ticketless_branch_defers_on_claude(self) -> None:
+        # No decision: allow rules and "don't ask again" keep working, and the
+        # agent still reads the policy reason.
         decision = self._verdict("ticketed_product_branch", "claude")
 
-        self.assertEqual("ask", decision["permissionDecision"])
+        self.assertNotIn("permissionDecision", decision)
+        self.assertEqual("Tao policy note: reason", decision["additionalContext"])
 
     def test_ticketless_branch_pauses_on_codex_without_bound_request(self) -> None:
         # A question cannot be recorded without the pending invocation/session.
@@ -3294,10 +3306,11 @@ class TicketedProductBranchPolicyTests(unittest.TestCase):
 
         self.assertEqual("deny", decision["permissionDecision"])
 
-    def test_unreadable_command_asks_on_claude(self) -> None:
+    def test_unreadable_command_defers_on_claude(self) -> None:
         decision = self._verdict("unreadable_command_effect", "claude")
 
-        self.assertEqual("ask", decision["permissionDecision"])
+        self.assertNotIn("permissionDecision", decision)
+        self.assertIn("reason", decision["additionalContext"])
 
     def test_unreadable_command_pauses_on_codex_without_bound_request(self) -> None:
         decision = self._verdict("unreadable_command_effect", "codex")
@@ -3417,8 +3430,8 @@ class CodexRuntimePreToolGateTests(unittest.TestCase):
                     "tool_input": {"command": f"{gate.stable_launcher_path()} start --project {project} {suffix}"},
                 })
                 self.assertEqual(
-                    "ask" if "&&" in suffix else "deny",
-                    json.loads(out)["hookSpecificOutput"]["permissionDecision"],
+                    "defer" if "&&" in suffix else "deny",
+                    _decision_of(out),
                 )
 
     def test_active_administrative_run_does_not_allow_main_source_edits(self) -> None:
@@ -4534,7 +4547,7 @@ class ReadOnlyRunCanStillEndItselfTests(unittest.TestCase):
                 command + " && touch changed", command + " > output",
             ):
                 with self.subTest(command=forbidden), patch.dict(os.environ, _isolated_env(), clear=True):
-                    self.assertIn('"ask"', self._bash(project, forbidden)[1])
+                    self.assertEqual("defer", _decision_of(self._bash(project, forbidden)[1]))
         with tempfile.TemporaryDirectory() as tmp:
             project = self._read_run(Path(tmp))
             command = f"{launcher} agent-mailbox receive --runtime codex --project {project}"
@@ -4657,7 +4670,8 @@ class ProjectMemoryIsAgentWrittenTests(unittest.TestCase):
                     code, out = self._decide(project, command)
                     self.assertEqual(0, code)
                     self.assertEqual("", out)
-                    self.assertIn('"ask"', self._decide(project, command + " && touch changed")[1])
+                    chained = self._decide(project, command + " && touch changed")[1]
+                    self.assertEqual("defer", _decision_of(chained))
             self.assertFalse((project / ".tao/runs").exists())
             self.assertEqual("", self._decide(
                 project, f"{launcher} project-memory --project {project} recall --scope task")[1])

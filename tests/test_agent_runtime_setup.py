@@ -278,7 +278,7 @@ class RuntimeSetupTests(unittest.TestCase):
         entry_list = codex_prefix_rule_entries(ROOT / "scripts")
         entries = "\n".join(entry_list)
 
-        self.assertEqual(20, len(EXECUTABLE_ENTRYPOINTS))
+        self.assertEqual(21, len(EXECUTABLE_ENTRYPOINTS))
         self.assertTrue(all((ROOT / "scripts" / name).is_file() for name in EXECUTABLE_ENTRYPOINTS))
         for name in EXECUTABLE_ENTRYPOINTS:
             self.assertIn(str(ROOT / "scripts" / name), entries)

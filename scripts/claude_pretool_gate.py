@@ -504,8 +504,14 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
     return _emit({"permissionDecision": "ask", "permissionDecisionReason": reason})
 
 
-# Claude uses native ask. Codex pauses and delegates the question to its
-# conversation runtime; only a separately attested user answer permits replay.
+# Denials the operator decides instead of the gate. A ticketless branch cannot
+# be repaired by the agent, a command the gate cannot read is the gate's own
+# limit rather than a proven violation, and a session's own paused run that its
+# automatic resume could not reclaim (drift, a live owner) needs a judgement the
+# gate cannot make; a hard deny there leaves nothing to do. Claude defers to its
+# own permission flow (see `deny_or_ask`). Codex pauses and delegates the
+# question to its conversation runtime; only a separately attested user answer
+# permits replay.
 OPERATOR_DECIDES = frozenset(
     {"ticketed_product_branch", "unreadable_command_effect", "paused_run_refused"}
 )
@@ -513,10 +519,19 @@ OPERATOR_DECIDES = frozenset(
 
 def deny_or_ask(reason: str, code: str, payload: dict | None = None,
                 *, continue_on_approval: bool = False) -> int | None:
+    """Refuse, or hand an operator decision to the runtime that owns it.
+
+    On Claude a hook `ask` overrides the operator's allow rules and its prompt
+    offers no "don't ask again", so forcing it asked again for work already
+    allowed and could never be answered once for good. Deferring lets an
+    allowed call through, prompts natively (with "always allow") for the rest,
+    and still tells the agent the policy reason.
+    """
+
     if code not in OPERATOR_DECIDES:
         return deny(reason, code)
     if runtime_name() != "codex":
-        return ask(reason)
+        return _emit({"additionalContext": f"Tao policy note: {reason}"})
     try:
         from codex_operator_review import OperatorReview
         approved, question = OperatorReview.request(payload or {}, reason, code)

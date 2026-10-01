@@ -130,9 +130,9 @@ class NodeTestAndLookupClassification(_Fixture):
             f"sample 1 5 -file {self.project / 'sample.txt'}",
         ):
             with self.subTest(command=command):
-                # The compound line cannot be read, so it asks instead.
+                # The compound line cannot be read, so it defers instead.
                 self.assertEqual(
-                    "ask" if "&&" in command else "deny",
+                    "defer" if "&&" in command else "deny",
                     self._bash(command, cwd=self.bench),
                 )
 

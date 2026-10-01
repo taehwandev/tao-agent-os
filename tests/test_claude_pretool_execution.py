@@ -101,10 +101,11 @@ class PretoolExecutionTests(unittest.TestCase):
         self.assertEqual([("GET", True), ("POST", False)], observed)
 
     def test_unknown_is_diagnosed_and_valid_read_retry_needs_no_task_state(self):
-        denied = self.decision(["curl", "https://example.invalid"])
-        self.assertEqual("ask", denied["permissionDecision"])
-        self.assertIn("effect: unknown", denied["permissionDecisionReason"])
-        self.assertIn("put -q first", denied["permissionDecisionReason"])
+        deferred = self.decision(["curl", "https://example.invalid"])
+        # Deferred to the runtime's own prompt, with the diagnosis for the agent.
+        self.assertNotIn("permissionDecision", deferred)
+        self.assertIn("effect: unknown", deferred["additionalContext"])
+        self.assertIn("put -q first", deferred["additionalContext"])
         self.assertIsNone(self.decision(["curl", "-q", "https://example.invalid"]))
         self.assertFalse((self.project / ".tao" / "runs").exists())
 
@@ -116,9 +117,10 @@ class PretoolExecutionTests(unittest.TestCase):
                         'cat AGENTS.md\ncat AGENTS.md > result',
                         'cat $\\\n(touch result)'):
             with self.subTest(command=command):
-                # A substitution split across lines cannot be read, so it asks.
-                expected = 'ask' if '$\\\n(' in command else 'deny'
-                self.assertEqual(expected, self.decision(command)['permissionDecision'])
+                # A substitution split across lines cannot be read, so it defers.
+                expected = 'defer' if '$\\\n(' in command else 'deny'
+                verdict = self.decision(command)
+                self.assertEqual(expected, verdict.get('permissionDecision', 'defer'))
 
     def test_deployment_status_read_needs_no_run_or_new_start(self):
         endpoint = 'repos/example/project/commits/abc123/status'
@@ -130,4 +132,6 @@ class PretoolExecutionTests(unittest.TestCase):
         for args in (['--method', 'POST'], ['-f', 'state=success'], ['--cache', '1h'],
                      ['--method', 'GET', '--input', 'payload.json']):
             with self.subTest(args=args):
-                self.assertEqual('ask', self.decision(['gh', 'api', endpoint, *args])['permissionDecision'])
+                verdict = self.decision(['gh', 'api', endpoint, *args])
+                self.assertEqual('defer', verdict.get('permissionDecision', 'defer'))
+                self.assertIn('additionalContext', verdict)

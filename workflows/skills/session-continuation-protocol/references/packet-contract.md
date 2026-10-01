@@ -361,9 +361,10 @@ mutating call then reclaims that run by name (`resume_paused_run`, through
 `agent_paused_run_resume.resume_own_paused_run`) instead of being refused until
 someone runs `resume` by hand. Only the session's own run is a candidate, the
 claim keeps its generation check, and a refusal (`drift_refused`,
-`live_owner_refused`, an invalid packet) is not resumed silently: Claude asks
-the operator with the refusal named (`paused_run_refused`), and Codex keeps the
-deny because it turns `ask` into a silent allow.
+`live_owner_refused`, an invalid packet) is not resumed silently: Claude defers
+the call to its own permission flow with the refusal named
+(`paused_run_refused`), and Codex keeps the deny because it turns `ask` into a
+silent allow.
 
 Concurrent sessions sharing one checkout still share one worktree. Another
 session's uncommitted bytes drift every packet in it, and resume answers that

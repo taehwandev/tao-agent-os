@@ -95,7 +95,8 @@ class _Fixture(unittest.TestCase):
         printed = output.getvalue().strip()
         if not printed:
             return "allow"
-        return json.loads(printed)["hookSpecificOutput"]["permissionDecision"]
+        # A deferred verdict names no decision: the runtime's own prompt decides.
+        return json.loads(printed)["hookSpecificOutput"].get("permissionDecision", "defer")
 
     def _bash(self, command: str, cwd: Path | None = None) -> str:
         return self._decision(
@@ -165,8 +166,8 @@ class PublicationStaysGovernedTests(_Fixture):
             f"git -C {self.bench} branch -D main",
         ):
             with self.subTest(command=command):
-                # A tag's effect is not read here, so it asks instead.
-                expected = "ask" if " tag " in command else "deny"
+                # A tag's effect is not read here, so it defers instead.
+                expected = "defer" if " tag " in command else "deny"
                 self.assertEqual(self._bash(command, cwd=self.bench), expected)
 
     def test_a_file_write_chained_to_a_commit_stays_governed(self) -> None:
@@ -221,7 +222,7 @@ class CodeRunsInTheTempCheckoutTests(_Fixture):
 
         ordinary = self.base / "home" / "wt"
         _git("worktree", "add", "--detach", str(ordinary), cwd=self.project)
-        rank = {"allow": 0, "ask": 1, "deny": 2}
+        rank = {"allow": 0, "defer": 1, "ask": 1, "deny": 2}
         for command in (
             "python3 -m unittest discover -s tests",
             "python3 -m unittest tests.test_x",
@@ -258,8 +259,8 @@ class CodeRunsInTheTempCheckoutTests(_Fixture):
             "cd docs | echo changed > notes.txt",
         ):
             with self.subTest(command=command):
-                # A disguised `git` whose effect is not read asks instead.
-                expected = "ask" if "worktree remove" in command else "deny"
+                # A disguised `git` whose effect is not read defers instead.
+                expected = "defer" if "worktree remove" in command else "deny"
                 self.assertEqual(self._bash(command, cwd=self.bench), expected)
         self.assertEqual(
             self._bash("cd docs && echo changed > probe.txt", cwd=self.bench),
@@ -401,9 +402,9 @@ class CommandsNamingARealProjectKeepTheirVerdictTests(_Fixture):
         for command in commands:
             self._assert_unexempted(command)
             with self.subTest(command=command):
-                # Running code whose effect is not read asks; a visible copy
+                # Running code whose effect is not read defers; a visible copy
                 # into the other project stays refused.
-                expected = "deny" if command.startswith("cp ") else "ask"
+                expected = "deny" if command.startswith("cp ") else "defer"
                 self.assertEqual(self._bash(command, cwd=self.bench), expected)
         _write_preflight(other, "temp-checkout-scratch")
         for command in commands:

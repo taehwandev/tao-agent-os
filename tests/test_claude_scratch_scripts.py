@@ -73,10 +73,10 @@ class ScratchHelperScripts(_Fixture):
         ):
             with self.subTest(command=command):
                 # A visible write into the project stays refused; running code
-                # whose effect the gate cannot read asks instead.
+                # whose effect the gate cannot read defers instead.
                 writes = ">" in command or "| tee" in command
                 self.assertEqual(
-                    "deny" if writes else "ask", self._bash(command, cwd=self.spill)
+                    "deny" if writes else "defer", self._bash(command, cwd=self.spill)
                 )
 
     def test_predicate_needs_an_existing_scratch_file(self) -> None:

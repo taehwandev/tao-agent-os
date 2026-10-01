@@ -360,17 +360,20 @@ def _nothing_written_since(previous: dict[str, Any], drift: dict[str, Any]) -> b
     mutation for that would make one declined prompt lock the session out of
     editing, with no in-band way back.
 
-    The pending record carries the project and rules state it was written
-    against, so "the tool never ran" is checkable rather than assumed: identical
+    The pending record carries the project state it was written against, so
+    "the tool never ran" is checkable rather than assumed: identical project
     state means no bytes moved and this pending describes a mutation that did
     not happen. Superseding it is then the same conclusion resume already draws
-    from the same evidence. Changed state is the opposite case and still raises,
-    because those bytes need reconciliation, not a fresh pending on top.
+    from the same evidence. Changed project state is the opposite case and still
+    raises, because those bytes need reconciliation, not a fresh pending on top.
+
+    Only the project is compared. The pending mutation names project-relative
+    paths, so it can only have written the project; the rules checkout moving
+    -- the operator editing the shared rules, another task landing on main --
+    says nothing about whether this tool ran, and comparing it locked every
+    later edit out with no in-band way back.
     """
-    return (
-        previous.get("project") == drift["project"]
-        and previous.get("rules") == drift["rules"]
-    )
+    return previous.get("project") == drift["project"]
 
 
 def _pending(

@@ -80,7 +80,8 @@ class _Fixture(unittest.TestCase):
         printed = output.getvalue().strip()
         if not printed:
             return ""
-        return json.loads(printed)["hookSpecificOutput"]["permissionDecisionReason"]
+        output = json.loads(printed)["hookSpecificOutput"]
+        return output.get("permissionDecisionReason") or output.get("additionalContext", "")
 
 
 class ScratchWriteTests(_Fixture):

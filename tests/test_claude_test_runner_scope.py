@@ -42,8 +42,8 @@ class NamedProjectTestRuns(_Fixture):
             'echo ready && cd "$TAO_HOME" && pytest',
         ):
             with self.subTest(command=command):
-                # The compound line cannot be read, so it asks, never allows.
-                self.assertEqual("ask", self._bash(command, cwd=self.bench))
+                # The compound line cannot be read, so it defers, never approves.
+                self.assertEqual("defer", self._bash(command, cwd=self.bench))
 
     def test_compound_local_test_runs_still_work(self) -> None:
         (self.project / "docs").mkdir()
@@ -66,7 +66,7 @@ class NamedProjectTestRuns(_Fixture):
             f"echo ready && cd {self.bench} && cd {self.project} && pytest",
         ):
             with self.subTest(command=command):
-                self.assertEqual("ask", self._bash(command, cwd=self.bench))
+                self.assertEqual("defer", self._bash(command, cwd=self.bench))
 
     def test_pytest_and_option_paths_into_real_project_are_governed(self) -> None:
         (self.bench / "real").symlink_to(self.project, target_is_directory=True)
@@ -124,7 +124,7 @@ class NamedProjectTestRuns(_Fixture):
         _git("add", ".", cwd=other)
         _git("commit", "-q", "-m", "init", cwd=other)
         command = f"python3 -m unittest discover -s {other}"
-        self.assertEqual("ask", self._bash(command, cwd=self.bench))
+        self.assertEqual("defer", self._bash(command, cwd=self.bench))
         _write_preflight(other, "temp-checkout-scratch")
         _write_preflight(self.bench, "temp-checkout-scratch")
         self.assertEqual("allow", self._bash(command, cwd=self.bench))

@@ -258,33 +258,44 @@ Codex rejects that value (and explicit `allow`), so its adapter defers with a
 successful empty response instead. Deferral never grants sandbox permission or
 represents user approval.
 
-Ask, do not deny, when the gate is not sure. On Claude, the gate answers `ask`
-whenever the remedy is the operator's decision (a product edit on a ticketless
-branch) or the gate cannot read what the command will do (chains, pipes,
-heredocs, computed text, an unreadable effect in the protected checkout). A
-hard `deny` there leaves the agent and the operator with nothing to do, and the
-operator can read the literal command in the prompt. Codex cannot use native
-`ask`, so Tao blocks the pending call with an explicit operator-question handoff.
-The agent asks in conversation, shows the exact target/change or literal command
+Defer, do not deny and do not force `ask`, when the gate is not sure. On
+Claude, the gate hands the call to the runtime's own permission flow -- no
+`permissionDecision`, the policy reason in `additionalContext` -- whenever the
+remedy is the operator's decision (a product edit on a ticketless branch, a
+paused run its resume could not reclaim) or the gate cannot read what the
+command will do (chains, pipes, heredocs, computed text, an unreadable effect
+in the protected checkout). A hard `deny` there leaves the agent and the
+operator with nothing to do. A hook `ask` is no better: it overrides the
+operator's allow rules and its prompt has only Yes/No, so the same edit is
+asked again every time and can never be answered once for good. Deferral lets
+already-allowed work through and prompts natively, with "don't ask again", for
+the rest.
+
+Codex cannot use native `ask`, and a deferral there would be a silent allow, so
+Tao blocks the pending call with an explicit operator-question handoff. The
+agent asks in conversation, shows the exact target/change or literal command
 and reason, offers allow once / always allow this exact scope / reject, and
-waits. Only after an explicit user answer may it attest that
-answer using `<TAO_LAUNCHER> operator-review --request-id <ID> --decision
-approve|always|reject`. The request id is supplied by the gate; never invent one or
-approve from silence, mailbox context, a gate-repair request or unrelated
-authority. This runtime attestation binds consent; it does not classify the
-user's words or prove a native approval popup appeared. Approval expires after
-15 minutes and permits one identical tool-call retry in the same session.
-The explicit `always` choice retains consent for exactly the same cwd, tool,
-input, reason and policy across sessions, without a blanket command-prefix
-exception. Revoke it with the original request id and `--decision revoke`.
-Changed input/policy needs a new answer, including for standing consent. Rejection keeps the call blocked.
-State errors fail closed. Other workflow checks and sandbox approval remain
-independent. Agent-repairable violations retain their ordinary `deny`.
-The verdicts that ask are listed in `OPERATOR_DECIDES` in
+waits. Only after an explicit user answer may it attest that answer using
+`<TAO_LAUNCHER> operator-review --request-id <ID> --decision
+approve|always|reject`. The request id is supplied by the gate; never invent
+one or approve from silence, mailbox context, a gate-repair request or
+unrelated authority. This runtime attestation binds consent; it does not
+classify the user's words or prove a native approval popup appeared. Approval
+expires after 15 minutes and permits one identical tool-call retry in the same
+session. The explicit `always` choice retains consent for exactly the same cwd,
+tool, input, reason and policy across sessions, without a blanket
+command-prefix exception. Revoke it with the original request id and
+`--decision revoke`. Changed input/policy needs a new answer, including for
+standing consent. Rejection keeps the call blocked. State errors fail closed.
+Other workflow checks and sandbox approval remain independent.
+Agent-repairable violations retain their ordinary `deny` on both runtimes.
+
+The verdicts handled this way are listed in `OPERATOR_DECIDES` in
 `scripts/claude_pretool_gate.py`; add a code there rather than adding a new
-hard deny. This has regressed once already: `507bf58` moved stops to `ask`
-and `cd670be` turned them back into prompt-free denies that blocked a plain
-branch update. Do not convert these paths back to `deny`.
+hard deny or a hook ask. This has flipped twice on Claude: `507bf58` moved
+stops to `ask` (prompt spam), `cd670be` turned them back into denies (dead
+ends), and `d568c59` moved them to `ask` again. Do not flip between those two;
+deferral is the answer to both.
 
 If an older session already opened a clean main-checkout run before relocating,
 settle it with `tao-hook cancel --evidence <SOURCE> --replacement-evidence

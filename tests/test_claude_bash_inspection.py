@@ -46,8 +46,8 @@ ADMITTED = {
     "link target": "readlink -f a.txt",
 }
 
-# Project code whose effect the gate cannot read asks the operator, with the
-# one-line remedy in the prompt.
+# Project code whose effect the gate cannot read defers to the runtime's own
+# prompt, with the one-line remedy for the agent.
 PROJECT_CODE = {
     "inline python": "python3 -c 'print(1)'",
     "python script": "python3 .agents/skills/aura/aura_verify.py --files a.ts",
@@ -79,8 +79,8 @@ STILL_REFUSED = {
     "unittest behind -c": "python3 -c 'x' -m unittest",
 }
 
-# The neighbours whose effect is unreadable ask instead of being refused.
-ASKED_NEIGHBOURS = {
+# The neighbours whose effect is unreadable defer instead of being refused.
+DEFERRED_NEIGHBOURS = {
     "node evaluation",
     "node check plus option",
     "json.tool unknown option",
@@ -218,7 +218,10 @@ class GateTests(unittest.TestCase):
         if not out.strip():
             return "defer", ""
         spec = json.loads(out)["hookSpecificOutput"]
-        return spec.get("permissionDecision", ""), spec.get("permissionDecisionReason", "")
+        # A deferred verdict names no decision and tells the agent why.
+        return spec.get("permissionDecision", "defer"), (
+            spec.get("permissionDecisionReason") or spec.get("additionalContext", "")
+        )
 
     def test_admitted_families_pass_without_a_run(self) -> None:
         for family, command in ADMITTED.items():
@@ -244,7 +247,9 @@ class GateTests(unittest.TestCase):
         executable.write_text("#!/bin/sh\ntouch unexpected\n")
         executable.chmod(0o755)
         _, out = self.decide(f"{executable} AGENTS.md")
-        self.assertEqual("ask", self.decision(out)[0])
+        verdict, reason = self.decision(out)
+        self.assertEqual("defer", verdict)
+        self.assertIn("Tao command effect: unknown", reason)
         self.assertFalse((self.project / "unexpected").exists())
 
     def test_project_code_is_denied_with_one_remedy(self) -> None:
@@ -252,7 +257,7 @@ class GateTests(unittest.TestCase):
             with self.subTest(family=family):
                 _, out = self.decide(command)
                 verdict, reason = self.decision(out)
-                self.assertEqual("ask", verdict)
+                self.assertEqual("defer", verdict)
                 self.assertIn("Tao command effect: unknown", reason)
                 self.assertIn("runs project code", reason)
                 self.assertIn("do not retry reworded or split variants", reason)
@@ -264,7 +269,7 @@ class GateTests(unittest.TestCase):
             with self.subTest(family=family):
                 _, out = self.decide(command)
                 self.assertEqual(
-                    "ask" if family in ASKED_NEIGHBOURS else "deny",
+                    "defer" if family in DEFERRED_NEIGHBOURS else "deny",
                     self.decision(out)[0],
                 )
 

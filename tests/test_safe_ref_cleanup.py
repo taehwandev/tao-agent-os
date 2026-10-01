@@ -104,7 +104,8 @@ def _decision(project: Path, command: str, session: str = "no-run") -> str:
     assert code == 0
     if not out:
         return "silent"
-    return json.loads(out)["hookSpecificOutput"]["permissionDecision"]
+    # A deferred verdict names no decision: the runtime's own prompt decides.
+    return json.loads(out)["hookSpecificOutput"].get("permissionDecision", "defer")
 
 
 SCENARIOS = ("plain", "protected_main", "linked", "linked_entry_required")
@@ -136,7 +137,7 @@ class SafeRefCleanupNeedsNoLifecycleTests(unittest.TestCase):
                     project = _scenario(Path(tmp), scenario)
                     # Unchanged: refused without a run, or put to the operator
                     # where a worktree hazard already asks about it.
-                    self.assertIn(_decision(project, command), {"deny", "ask"})
+                    self.assertIn(_decision(project, command), {"deny", "ask", "defer"})
 
     def test_protected_checkout_keeps_approving_merged_branch_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,14 +171,14 @@ class RemotePruneConfigurationTests(unittest.TestCase):
 
     def test_ordinary_prune_is_admitted_and_preserves_local_tag(self) -> None:
         self.assertEqual("bootstrap", git_command_kind(["git", "remote", "prune", "origin"], self.project))
-        self.assertNotIn(_decision(self.project, "git remote prune origin"), {"deny", "ask"})
+        self.assertNotIn(_decision(self.project, "git remote prune origin"), {"deny", "ask", "defer"})
         self.git("-C", str(self.project), "remote", "prune", "origin")
         self.assertEqual("local-only\n", self.git("-C", str(self.project), "tag", "--list"))
 
     def test_fetch_prune_checks_flags_config_and_explicit_refspecs(self) -> None:
         safe = ["git", "fetch", "--prune", "origin"]
         self.assertEqual("bootstrap", git_command_kind(safe, self.project))
-        self.assertNotIn(_decision(self.project, shlex.join(safe)), {"deny", "ask"})
+        self.assertNotIn(_decision(self.project, shlex.join(safe)), {"deny", "ask", "defer"})
         for args in (["--prune", "--prune-tags", "origin"],
                      ["--prune", "origin", "+refs/tags/*:refs/tags/*"],
                      ["--prune", "origin", "+refs/heads/*:refs/heads/*"],
@@ -185,19 +186,19 @@ class RemotePruneConfigurationTests(unittest.TestCase):
                      ["origin", "+refs/tags/*:refs/tags/*"]):
             with self.subTest(args=args):
                 self.assertEqual("mutating", git_command_kind(["git", "fetch", *args], self.project))
-                self.assertIn(_decision(self.project, shlex.join(["git", "fetch", *args])), {"deny", "ask"})
+                self.assertIn(_decision(self.project, shlex.join(["git", "fetch", *args])), {"deny", "ask", "defer"})
         self.config("--add", "remote.origin.fetch", "+refs/tags/*:refs/tags/*")
         self.assertEqual("mutating", git_command_kind(safe, self.project))
         self.config("remote.origin.prune", "true")
         self.assertEqual("mutating", git_command_kind(["git", "fetch", "origin"], self.project))
-        self.assertIn(_decision(self.project, "git fetch origin"), {"deny", "ask"})
+        self.assertIn(_decision(self.project, "git fetch origin"), {"deny", "ask", "defer"})
         self.git("-C", str(self.project), "fetch", "origin")
         self.assertEqual("", self.git("-C", str(self.project), "tag", "--list"))
 
     def test_tag_refspec_is_governed_and_really_deletes_local_tag(self) -> None:
         self.config("--add", "remote.origin.fetch", "+refs/tags/*:refs/tags/*")
         self.assertEqual("mutating", git_command_kind(["git", "remote", "prune", "origin"], self.project))
-        self.assertIn(_decision(self.project, "git remote prune origin"), {"deny", "ask"})
+        self.assertIn(_decision(self.project, "git remote prune origin"), {"deny", "ask", "defer"})
         self.git("-C", str(self.project), "remote", "prune", "origin")
         self.assertEqual("", self.git("-C", str(self.project), "tag", "--list"))
 
@@ -222,7 +223,7 @@ class RemotePruneConfigurationTests(unittest.TestCase):
                 self.git("-C", str(self.project), "fetch", *args)
                 self.assertEqual(base, self.git("-C", str(self.project), "rev-parse", "topic").strip())
                 self.assertEqual("mutating", git_command_kind(tokens, self.project))
-                self.assertIn(_decision(self.project, shlex.join(tokens)), {"deny", "ask"})
+                self.assertIn(_decision(self.project, shlex.join(tokens)), {"deny", "ask", "defer"})
 
     def test_configured_tag_fetch_cannot_hide_forced_tag_overwrite(self) -> None:
         base = self.git("-C", str(self.project), "rev-parse", "HEAD").strip()
@@ -243,9 +244,9 @@ class RemotePruneConfigurationTests(unittest.TestCase):
                                  git_command_kind(["git", *args], self.project))
                 decision = _decision(self.project, shlex.join(["git", *args]))
                 if overwritten:
-                    self.assertIn(decision, {"deny", "ask"})
+                    self.assertIn(decision, {"deny", "ask", "defer"})
                 else:
-                    self.assertNotIn(decision, {"deny", "ask"})
+                    self.assertNotIn(decision, {"deny", "ask", "defer"})
 
     def test_configured_all_fetch_checks_every_remote(self) -> None:
         self.git("-C", str(self.project), "remote", "add", "other", str(self.upstream))
@@ -258,7 +259,7 @@ class RemotePruneConfigurationTests(unittest.TestCase):
         self.git("-C", str(self.project), "fetch")
         self.assertEqual("", self.git("-C", str(self.project), "tag", "--list"))
         self.assertEqual("mutating", git_command_kind(["git", "fetch"], self.project))
-        self.assertIn(_decision(self.project, "git fetch"), {"deny", "ask"})
+        self.assertIn(_decision(self.project, "git fetch"), {"deny", "ask", "defer"})
 
     def test_recursive_fetch_requires_child_repository_checks(self) -> None:
         child = self.project / "nested"
@@ -270,7 +271,7 @@ class RemotePruneConfigurationTests(unittest.TestCase):
         self.git("-C", str(self.project), "update-index", "--add", "--cacheinfo", f"160000,{sha},nested")
         command = ["git", "fetch", "origin"]
         self.assertEqual("mutating", git_command_kind(command, self.project))
-        self.assertIn(_decision(self.project, shlex.join(command)), {"deny", "ask"})
+        self.assertIn(_decision(self.project, shlex.join(command)), {"deny", "ask", "defer"})
         self.assertEqual("bootstrap", git_command_kind(command + ["--no-recurse-submodules"], self.project))
         self.config("fetch.recurseSubmodules", "false")
         self.assertEqual("bootstrap", git_command_kind(command, self.project))
@@ -288,7 +289,7 @@ class RemotePruneConfigurationTests(unittest.TestCase):
             tokens = ["git", *selectors, "remote", "prune", "origin"]
             with self.subTest(selectors=selectors):
                 self.assertEqual("mutating", git_command_kind(tokens, self.base))
-                self.assertIn(_decision(self.project, shlex.join(tokens)), {"deny", "ask"})
+                self.assertIn(_decision(self.project, shlex.join(tokens)), {"deny", "ask", "defer"})
 
     def test_relative_git_directory_and_compound_cwd_cannot_select_safe_config(self) -> None:
         safe = _opt_in_project(self.base / "safe")
@@ -301,7 +302,7 @@ class RemotePruneConfigurationTests(unittest.TestCase):
                         f"cd {shlex.quote(relative)} && git remote prune origin",
                         f"git status && cd {shlex.quote(relative)} && git remote prune origin"):
             with self.subTest(command=command):
-                self.assertIn(_decision(safe, command), {"deny", "ask"})
+                self.assertIn(_decision(safe, command), {"deny", "ask", "defer"})
 
     def test_prune_tags_and_multiple_remotes_are_checked(self) -> None:
         self.git("-C", str(self.project), "remote", "add", "other", str(self.upstream))
@@ -319,7 +320,7 @@ class RemotePruneConfigurationTests(unittest.TestCase):
         for option in ("--dry-run", "-n"):
             tokens = ["git", "remote", "prune", option, "origin"]
             self.assertEqual("read_only", git_command_kind(tokens, self.project))
-            self.assertNotIn(_decision(self.project, shlex.join(tokens)), {"deny", "ask"})
+            self.assertNotIn(_decision(self.project, shlex.join(tokens)), {"deny", "ask", "defer"})
 
     def test_unavailable_config_does_not_grant_cleanup(self) -> None:
         self.assertEqual("mutating", git_command_kind(["git", "remote", "prune", "origin"], self.base))

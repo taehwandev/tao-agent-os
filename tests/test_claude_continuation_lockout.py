@@ -189,6 +189,20 @@ class ContinuationLockoutTests(unittest.TestCase):
         allowed, reason = _decide(self._payload())
         self.assertTrue(allowed, f"an unwritten pending must be superseded: {reason}")
 
+    def test_a_moved_rules_checkout_does_not_lock_out_later_edits(self) -> None:
+        # Observed: the operator edited the shared rules checkout after an edit
+        # was refused, and every later edit then failed mutation_already_pending.
+        # The pending names project paths; the rules moving is not proof it ran.
+        from agent_continuation_checkpoint import _nothing_written_since
+
+        pending = {"project": {"sha": "p1"}, "rules": {"sha": "r1"}}
+        self.assertTrue(
+            _nothing_written_since(pending, {"project": {"sha": "p1"}, "rules": {"sha": "r2"}})
+        )
+        self.assertFalse(
+            _nothing_written_since(pending, {"project": {"sha": "p2"}, "rules": {"sha": "r1"}})
+        )
+
     def test_an_open_pending_still_refuses_once_bytes_moved(self) -> None:
         # The negative control for the case above: same open pending, but the
         # tool did write. That needs reconciliation, not a fresh pending on top.
