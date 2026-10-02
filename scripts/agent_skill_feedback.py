@@ -97,12 +97,13 @@ def record_skill_feedback(
             f"observation status: {result.get('status', 'observed')}",
         ]
 
+    candidate = str(result.get("candidate_id") or "")
     curation, curation_details = record_skill_curation(
-        min_occurrences=CURRENT_TASK_REVIEW_THRESHOLD
+        min_occurrences=CURRENT_TASK_REVIEW_THRESHOLD,
+        focus_candidate_id=candidate,
     )
     result["curation"] = curation
     details.extend(curation_details)
-    candidate = str(result.get("candidate_id") or "")
     if candidate and candidate in set(curation.get("queued") or []):
         details.append(
             f"current skill candidate requires bounded review before finish: {candidate}"
@@ -156,7 +157,8 @@ def record_skill_draft(
 
 
 def record_skill_curation(
-    *, min_occurrences: int = DEFAULT_REVIEW_THRESHOLD
+    *, min_occurrences: int = DEFAULT_REVIEW_THRESHOLD,
+    focus_candidate_id: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     try:
         result = curate_observations(
@@ -179,7 +181,9 @@ def record_skill_curation(
             f"{result['legacy_unmapped_count']}"
         ),
     ]
-    details.extend(_declined_curation_details(result.get("not_queued") or []))
+    details.extend(_declined_curation_details(
+        result.get("not_queued") or [], focus_candidate_id=focus_candidate_id
+    ))
     return result, details
 
 
@@ -205,14 +209,26 @@ DECLINED_CURATION_REMEDIES = {
 }
 
 
-def _declined_curation_details(not_queued: list[dict[str, Any]]) -> list[str]:
+def _declined_curation_details(
+    not_queued: list[dict[str, Any]], *, focus_candidate_id: str = ""
+) -> list[str]:
     if not not_queued:
         return []
     details = [f"observations not queued for review: {len(not_queued)}"]
+    groups: dict[str, list[dict[str, Any]]] = {}
     for item in not_queued:
-        reason = str(item.get("reason") or "")
+        groups.setdefault(str(item.get("reason") or ""), []).append(item)
+    for reason, items in groups.items():
+        count = len(items)
+        if reason in {"closed_review_no_new_gap", "already_awaiting_review"}:
+            items = [next(
+                (item for item in items if item.get("candidate_id") == focus_candidate_id),
+                items[0],
+            )]
         remedy = DECLINED_CURATION_REMEDIES.get(reason, "no remedy is recorded for this reason")
-        details.append(f"    {item.get('candidate_id')}: {reason} -- {remedy}")
+        for item in items:
+            grouped = f" ({count} candidates total)" if count > 1 and len(items) == 1 else ""
+            details.append(f"    {item.get('candidate_id')}: {reason} -- {remedy}{grouped}")
     return details
 
 
