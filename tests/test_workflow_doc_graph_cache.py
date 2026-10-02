@@ -4,19 +4,22 @@ Every hook that validates a workflow builds this graph, and each hook is its
 own process, so the per-process ``lru_cache`` never helped the next one: a
 lifecycle paid the build once in ``start`` and again in ``review``.
 
-The key is the documents themselves -- their paths, sizes and modification
-times -- and deliberately not a worktree signature. Between a start and the
-review that follows it an agent has edited source, so a worktree key would miss
-every time it mattered.
+The key is the documents themselves -- their paths, identities, sizes and
+modification/change times -- and deliberately not a worktree signature.
+Between a start and the review that follows it an agent has edited source,
+so a worktree key would miss every time it mattered.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +60,7 @@ class DocGraphCacheTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_a_changed_document_is_rebuilt(self) -> None:
-        """Size and modification time are what the key reads."""
+        """A document's metadata changes when new graph input is written."""
 
         with tempfile.TemporaryDirectory() as directory:
             project = self._project(directory)
@@ -97,6 +100,100 @@ class DocGraphCacheTests(unittest.TestCase):
 
         self.assertEqual({"alpha.md"}, {edge["target"] for edge in first["other.md"]})
         self.assertEqual({"omega.md"}, {edge["target"] for edge in second["other.md"]})
+
+    def test_a_same_size_edit_with_restored_mtime_rebuilds_the_stored_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            (project / "alpha.md").write_text("# alpha\n", encoding="utf-8")
+            (project / "omega.md").write_text("# omega\n", encoding="utf-8")
+            document = project / "other.md"
+            document.write_text("[x](alpha.md)\n", encoding="utf-8")
+            first = build.build_doc_graph(project)
+            self.assertTrue(list(self._cache(project).glob("*.json")))
+            build.clear_doc_graph_cache()
+            before = document.stat()
+
+            # Some filesystems expose ctime at whole-second precision. Wait
+            # across that boundary so this is a real metadata change there too.
+            while time.time_ns() // 1_000_000_000 <= before.st_ctime_ns // 1_000_000_000:
+                time.sleep(0.01)
+            document.write_text("[x](omega.md)\n", encoding="utf-8")
+            os.utime(document, ns=(before.st_atime_ns, before.st_mtime_ns))
+            after = document.stat()
+            self.assertEqual(before.st_size, after.st_size)
+            self.assertEqual(before.st_mtime_ns, after.st_mtime_ns)
+            self.assertEqual(before.st_ino, after.st_ino)
+            self.assertNotEqual(before.st_ctime_ns, after.st_ctime_ns)
+            second = build.build_doc_graph(project)
+
+        self.assertEqual({"alpha.md"}, {edge["target"] for edge in first["other.md"]})
+        self.assertEqual({"omega.md"}, {edge["target"] for edge in second["other.md"]})
+
+    def test_an_atomic_replacement_with_matching_size_and_mtime_rebuilds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            (project / "alpha.md").write_text("# alpha\n", encoding="utf-8")
+            (project / "omega.md").write_text("# omega\n", encoding="utf-8")
+            document = project / "other.md"
+            document.write_text("[x](alpha.md)\n", encoding="utf-8")
+            first = build.build_doc_graph(project)
+            self.assertTrue(list(self._cache(project).glob("*.json")))
+            build.clear_doc_graph_cache()
+            before = document.stat()
+
+            replacement = project / "other.tmp"
+            replacement.write_text("[x](omega.md)\n", encoding="utf-8")
+            os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+            replacement.replace(document)
+            after = document.stat()
+            self.assertEqual(before.st_size, after.st_size)
+            self.assertEqual(before.st_mtime_ns, after.st_mtime_ns)
+            self.assertNotEqual(before.st_ino, after.st_ino)
+            second = build.build_doc_graph(project)
+
+        self.assertEqual({"alpha.md"}, {edge["target"] for edge in first["other.md"]})
+        self.assertEqual({"omega.md"}, {edge["target"] for edge in second["other.md"]})
+
+    def test_a_different_device_or_inode_invalidates_matching_timestamps(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            document = project / "other.md"
+            before = document.stat()
+            first = cache.document_key(project, {"other.md"})
+            original_stat = Path.stat
+            for identity in ("st_dev", "st_ino"):
+                with self.subTest(identity=identity):
+                    metadata = SimpleNamespace(
+                        st_size=before.st_size,
+                        st_mtime_ns=before.st_mtime_ns,
+                        st_ctime_ns=before.st_ctime_ns,
+                        st_dev=before.st_dev,
+                        st_ino=before.st_ino,
+                        st_mode=before.st_mode,
+                    )
+                    setattr(metadata, identity, getattr(metadata, identity) + 1)
+
+                    def stat(path: Path, *args: object, **kwargs: object) -> object:
+                        if path == document:
+                            return metadata
+                        return original_stat(path, *args, **kwargs)
+
+                    with patch.object(Path, "stat", stat):
+                        changed = cache.document_key(project, {"other.md"})
+                    self.assertNotEqual(first, changed)
+
+    def test_keying_unchanged_documents_does_not_open_their_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self._project(directory)
+            docs = build._markdown_docs(project)
+            # Versioning builder code is independent of corpus metadata.
+            cache._builder_digest()
+            with patch.object(Path, "open", side_effect=AssertionError("opened content")):
+                first = cache.document_key(project, docs)
+                second = cache.document_key(project, docs)
+
+        self.assertTrue(first)
+        self.assertEqual(first, second)
 
     def test_a_new_document_is_rebuilt(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
