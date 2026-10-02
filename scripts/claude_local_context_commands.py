@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import shlex
 import stat
 
 # The suffix both setup writers use (support/setup_config_files.BACKUP_SUFFIX,
@@ -96,6 +97,35 @@ def spill_label_kind(arguments: list[str]) -> str | None:
                for key in ("--task-type", "--stage")):
         return None
     return "runtime_control"
+
+
+def guarded_label_tokens(command: str) -> list[str] | None:
+    """Recognize only the installed label helper's existing-file guard.
+
+    Keep quote information: a single-quoted $HOME is literal project text,
+    while this double-quoted prefix denotes the runtime's home directory.
+    """
+    try:
+        lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|<>")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words = list(lexer)
+        if (len(words) < 12 or words[:3] != ["if", "[", "-f"]
+                or words[4:8] != ["]", ";", "then", "node"] or words[-2:] != [";", "fi"]
+                or words[3] != words[8]):
+            return None
+        raw = words[8]
+        path = shlex.split(raw)[0]
+        for prefix in ("$HOME/", "${HOME}/"):
+            if raw == '"' + path + '"' and path.startswith(prefix):
+                path = str(Path.home()) + "/" + path[len(prefix):]
+                break
+        if not Path(path).is_absolute() or any(marker in path for marker in ("$", "`", "\\")):
+            return None
+        arguments = [path, *shlex.split(" ".join(words[9:-2]))]
+    except (ValueError, IndexError):
+        return None
+    return ["node", *arguments] if spill_label_kind(arguments) is not None else None
 
 
 def local_context_kind(alias: str, arguments: list[str]) -> str | None:

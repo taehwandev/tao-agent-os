@@ -35,18 +35,20 @@ Apply to every Tao runtime. The catalog never expands the request.
 
 ## Execution Round Trips
 
-Batch independent bounded reads; inspect every result. Ready mechanical
-dependencies may share one native invocation: await and check success before
-each dependent action. Keep mutations and approvals sequential; retain gates.
-Return for semantic/user decisions, unexpected results, failures or pending
-handles. Prepare ready gate evidence together; never hide failed prerequisites.
+Batch bounded reads/ready gate evidence; inspect each result. Ready steps may
+share a call: await/check success before dependencies. Keep mutations/approvals
+sequential and gates intact. Return on decisions, surprises, failures or pending
+handles; never hide failed prerequisites.
 
-Wait on returned handles; never relaunch running commands or short-poll hooks,
-network Git or builds. Add no sleeps between ready steps; elapsed time never
-answers a user decision.
+Wait on handles; no relaunch, short-polling hooks/network Git/builds or idle
+sleeps. Silence never answers a decision.
 
-Separate tool duration from call gaps; gaps do not identify their cause. Remove
-evidenced redundant rounds; claim speedup only from comparable measurements.
+Measure tool time and gaps separately; gaps don't explain causes. Remove proven
+redundant rounds; claim speedup only from comparable measurements.
+
+Keep the selected parent profile. Resolved multi-step installation/procedural
+work uses a same-model `low` native worker per
+`references/runtime-collaboration.md`; short commands stay inline.
 
 ## Applying Hook Guidance At The Decision Point
 

@@ -23,7 +23,7 @@ from claude_bash_inspection import inspection_command_kind
 from claude_bash_local_tools import lookup_command_kind, node_test_kind
 from claude_discovery_command import discovery_command_kind
 from claude_project_bootstrap import project_directory_bootstrap
-from claude_local_context_commands import local_context_kind, spill_label_kind, tao_backup_removal
+from claude_local_context_commands import guarded_label_tokens, local_context_kind, spill_label_kind, tao_backup_removal
 from claude_bash_syntax import (
     DIRECTORY_CHANGERS,
     ENV_ASSIGNMENT_RE,
@@ -1392,6 +1392,9 @@ def bash_invocation(payload: dict, cwd: Path) -> tuple[Path, list[str], bool]:
     """
 
     command = bash_command(payload)
+    guarded = guarded_label_tokens(command)
+    if guarded is not None:
+        return cwd, guarded, True
     bodies = substitution_bodies(command)
     if not bodies:
         return _tokenise(payload, cwd)

@@ -15,6 +15,45 @@ from claude_bash_readonly import bash_invocation, bash_command_kind
 
 
 class LocalContextCommandTests(unittest.TestCase):
+    def test_observed_home_guard_admits_only_the_installed_helper(self):
+        from tests.test_claude_pretool_gate import _opt_in_project, _decide, _require_linked_worktree
+        with tempfile.TemporaryDirectory() as directory, patch.object(Path, "home", return_value=Path(directory)):
+            home = Path(directory)
+            helper = home / "Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
+            helper.parent.mkdir(parents=True)
+            helper.write_text("// fixture: classifier must never execute it\n")
+            project = _opt_in_project(home)
+            _require_linked_worktree(project)
+            relative = "$HOME/Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
+            valid = (
+                f'if [ -f "{relative}" ]; then node "{relative}" '
+                '--label codex --task-type code_generation --stage implement --if-absent; fi'
+            )
+            for runtime in ("codex", "claude"):
+                with self.subTest(runtime=runtime), patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": runtime}):
+                    for command in (valid, valid.replace("$HOME/", "${HOME}/"), valid.replace("$HOME", str(home))):
+                        payload = {"tool_name": "Bash", "cwd": str(project), "session_id": "guard-test",
+                                   "tool_input": {"command": command}}
+                        self.assertEqual((0, ""), _decide(payload))
+            invalid = (
+                valid.replace('"' + relative + '"', "'" + relative + "'"),
+                valid.replace("; fi", "; touch changed; fi"),
+                valid.replace("; fi", "; else touch changed; fi"),
+                valid.replace("--if-absent", "--if-absent > changed"),
+                valid.replace("then node", "then node -r evil.js"),
+                valid.replace("then node", "then HOME=/tmp node"),
+                valid.replace("then node", "then ./node"),
+                valid.replace("--stage implement", "--stage $(touch changed)"),
+                valid.replace("--if-absent", "--unknown"),
+                valid.replace("setup.mjs", "other.mjs"),
+                valid.replace("$HOME/Library", "$HOME/$(touch changed)/../Library"),
+                valid.replace("$HOME/Library", "$HOME/`touch changed`/../Library"),
+            )
+            for command in invalid:
+                with self.subTest(command=command):
+                    _, tokens, simple = bash_invocation({"tool_input": {"command": command}}, project)
+                    self.assertNotEqual("runtime_control", bash_command_kind(tokens, simple, project))
+
     def test_only_installed_label_mode_is_exempt_without_a_run(self):
         from tests.test_claude_pretool_gate import _opt_in_project, _decide, _require_linked_worktree
         with tempfile.TemporaryDirectory() as directory, patch.object(Path, "home", return_value=Path(directory)), \
