@@ -35,18 +35,18 @@ Apply to every Tao runtime. The catalog never expands the request.
 
 ## Execution Round Trips
 
-Batch independent bounded reads in one native invocation and inspect every
-result. Keep dependent actions, mutations and approvals sequential; never hide
-failed prerequisites in a batch or shell chain. Prepare known arguments and
-simultaneously-ready gate evidence together.
+Batch independent bounded reads; inspect every result. Ready mechanical
+dependencies may share one native invocation: await and check success before
+each dependent action. Keep mutations and approvals sequential; retain gates.
+Return for semantic/user decisions, unexpected results, failures or pending
+handles. Prepare ready gate evidence together; never hide failed prerequisites.
 
-Wait on the returned handle; do not relaunch a running command or repeatedly
-poll hooks, network Git or builds with short waits. Add no sleeps between ready
-steps. Elapsed time never answers a pending user decision.
+Wait on returned handles; never relaunch running commands or short-poll hooks,
+network Git or builds. Add no sleeps between ready steps; elapsed time never
+answers a user decision.
 
-For slow execution, separate tool duration from gaps between result and next
-call; gaps do not identify reasoning, queueing, approval or interruption. Remove
-evidenced redundant rounds; claim speedup only from a comparable measurement.
+Separate tool duration from call gaps; gaps do not identify their cause. Remove
+evidenced redundant rounds; claim speedup only from comparable measurements.
 
 ## Applying Hook Guidance At The Decision Point
 
