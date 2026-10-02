@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -11,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from support.claude_setup import _merge_claude_mailbox_delivery
-from support.codex_setup import merge_codex_mailbox_delivery, merge_codex_stop_gate
+from support.codex_setup import (
+    merge_codex_mailbox_delivery, merge_codex_pre_tool_gate, merge_codex_stop_gate,
+)
 
 
 class MailboxDeliverySetupTests(unittest.TestCase):
@@ -57,6 +60,28 @@ class MailboxDeliverySetupTests(unittest.TestCase):
 
 
 class CodexSetupTests(unittest.TestCase):
+    def test_pretool_refresh_adds_native_patch_without_replacing_other_hooks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "hooks.json"
+            command = "/stable/tao-hook codex-pretool-gate"
+            other = {"matcher": ".*", "hooks": [{"type": "command", "command": "other-hook"}]}
+            original = {"hooks": {"PreToolUse": [other, {
+                "matcher": "Edit|Write|MultiEdit|ApplyPatch|Bash",
+                "hooks": [{"type": "command", "command": command}],
+            }]}}
+            target.write_text(json.dumps(original))
+            self.assertEqual("would_update", merge_codex_pre_tool_gate(target, command, True))
+            self.assertEqual(original, json.loads(target.read_text()))
+            self.assertEqual("installed", merge_codex_pre_tool_gate(target, command, False))
+            self.assertEqual("ok", merge_codex_pre_tool_gate(target, command, False))
+            groups = json.loads(target.read_text())["hooks"]["PreToolUse"]
+            self.assertEqual(2, len(groups))
+            self.assertEqual(other, groups[0])
+            matcher = groups[1]["matcher"]
+            for tool in ("apply_patch", "ApplyPatch", "Edit", "Write", "MultiEdit", "Bash"):
+                self.assertIsNotNone(re.fullmatch(matcher, tool))
+            self.assertEqual(command, groups[1]["hooks"][0]["command"])
+
     def test_stop_gate_preserves_unmanaged_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "hooks.json"

@@ -10,7 +10,7 @@ from support.setup_config_files import read_json, write_json
 MANAGED_PRETOOL_ALIAS = "codex-pretool-gate"
 MANAGED_STOP_ALIAS = "codex-stop-gate"
 MANAGED_MAILBOX_ALIAS = "mailbox-hook deliver"
-CODEX_PRETOOL_MATCHER = "Edit|Write|MultiEdit|ApplyPatch|Bash"
+CODEX_PRETOOL_MATCHER = "Edit|Write|MultiEdit|ApplyPatch|apply_patch|Bash"
 
 
 def merge_codex_mailbox_delivery(target: Path, command: str, dry_run: bool) -> str:

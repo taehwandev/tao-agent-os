@@ -220,10 +220,16 @@ Claude additionally installs continuation hooks:
 - the existing `Stop` finish gate.
 
 Codex installs `codex-pretool-gate` for
-`Edit|Write|MultiEdit|ApplyPatch|Bash` and keeps `codex-stop-gate` for closeout.
+`Edit|Write|MultiEdit|ApplyPatch|apply_patch|Bash` and keeps `codex-stop-gate` for closeout.
 The thin Codex adapter reuses the policy engine while resolving evidence against
 the Codex runtime session, so the two runtimes enforce the same repository
 declarations without running duplicate project-local worktree guards.
+Native Codex `apply_patch` and legacy `ApplyPatch` share the edit-policy path.
+Patch bodies supplied directly or under `patch`, `input`, or `command` are
+resolved against the event's cwd. Every named file and move destination enters
+the existing worktree, read-only-run, and session-bound workflow-entry checks;
+an unrelated `file_path` cannot replace the patch's targets. A valid active run
+in a compliant worktree requires no additional operator decision.
 
 Setup also installs a managed `statusLine` entry, so where this session lives,
 the runtime's own remaining quota, and the run currently open stay on screen

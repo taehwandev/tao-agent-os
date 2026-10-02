@@ -287,7 +287,8 @@ def continuation_adapter():
     return __getattr__("ClaudeContinuationAdapter")
 
 
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "ApplyPatch"}
+PATCH_TOOLS = {"ApplyPatch", "apply_patch"}
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"} | PATCH_TOOLS
 GATED_TOOLS = EDIT_TOOLS | BASH_TOOLS
 # Only Write creates a file from nothing; Edit/MultiEdit require an existing
 # file, so new-file sprawl flows through Write.
@@ -1146,7 +1147,7 @@ def _patch_target_paths(payload: dict, cwd: Path) -> list[tuple[Path, bool]] | N
     """Read patch targets and whether the operation follows the final symlink."""
     body = payload.get("tool_input")
     if isinstance(body, dict):
-        candidates = [body[key] for key in ("patch", "input") if key in body]
+        candidates = [body[key] for key in ("patch", "input", "command") if key in body]
         if len(candidates) != 1:
             return None
         body = candidates[0]
@@ -2155,13 +2156,13 @@ SCRATCH_SCRIPT_KIND = "scratch_script"
 def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
     """Read the call once, so every verdict below reads the same answer."""
 
-    if tool == "ApplyPatch":
+    if tool in PATCH_TOOLS:
         targets = _patch_target_paths(payload, cwd)
         if targets is not None:
             roots = _edit_target_roots(targets)
             return _CallScope("", [], True, cwd, cwd, roots, list(roots))
     if tool not in BASH_TOOLS:
-        target = write_target_path(payload, cwd) if tool != "ApplyPatch" else None
+        target = write_target_path(payload, cwd) if tool not in PATCH_TOOLS else None
         if target is not None:
             found = _edit_target_roots([(target, True)])
         else:
@@ -2377,8 +2378,7 @@ def decide(payload: dict) -> int:
 def _queue_unread_required_docs(payload: dict) -> None:
     """Owe the model the run's unread required docs at its first file edit."""
 
-    # Codex names its file edits `apply_patch`, which EDIT_TOOLS does not list.
-    if payload.get("tool_name") not in EDIT_TOOLS | {"apply_patch"} or not gate_enabled():
+    if payload.get("tool_name") not in EDIT_TOOLS or not gate_enabled():
         return
     from agent_required_doc_delivery import delivery_text
 
