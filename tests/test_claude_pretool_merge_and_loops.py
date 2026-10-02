@@ -12,10 +12,12 @@ Split from `test_claude_pretool_gate.py`, which is over its size budget.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "tests") not in sys.path:
@@ -167,6 +169,41 @@ class LoopBodiesAreReadTests(unittest.TestCase):
                 with self.subTest(command=command):
                     _code, out = _run(project, command)
                     self.assertNotIn("still open", out, command)
+
+    def test_conditional_instruction_lookup_needs_no_run_or_operator_question(self) -> None:
+        for runtime in ("claude", "codex"):
+            with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as tmp:
+                project = _opt_in_project(Path(tmp))
+                _require_linked_worktree(project)
+                command = (
+                    f'pwd\nfor p in {project}/runtime-instruction.md '
+                    f'{project}/skills/branch-cleanup/SKILL.md '
+                    'common/skills/agent-operating-skill/SKILL.md '
+                    'common/skills/agent-interaction/references/current-guidance.md; '
+                    'do if [ -f "$p" ]; then echo "FILE $p"; cat "$p"; fi; done\n'
+                    'if [ -f .agents/AGENTS.md ]; then cat .agents/AGENTS.md; fi'
+                )
+                with patch.dict(os.environ, {"TAO_PRETOOL_RUNTIME": runtime}):
+                    result = _run(project, command)
+                self.assertEqual((0, ""), result)
+
+    def test_bracket_guard_keeps_conditional_writes_on_the_permission_path(self) -> None:
+        for runtime in ("claude", "codex"):
+            with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as tmp:
+                project = _opt_in_project(Path(tmp))
+                _require_linked_worktree(project)
+                for command in (
+                    'if [ -f AGENTS.md ]; then touch changed; fi',
+                    'if [ -f AGENTS.md ]; then cat AGENTS.md; else rm changed; fi',
+                ):
+                    with self.subTest(command=command), patch.dict(
+                        os.environ, {"TAO_PRETOOL_RUNTIME": runtime}
+                    ):
+                        code, out = _run(project, command)
+                    self.assertEqual(0, code)
+                    decision = json.loads(out)["hookSpecificOutput"].get("permissionDecision", "defer")
+                    self.assertEqual("deny" if runtime == "codex" else "defer", decision)
+                    self.assertIn("Tao worktree gate", _reason(out))
 
     def test_a_loop_body_that_publishes_is_held(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

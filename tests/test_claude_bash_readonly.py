@@ -775,6 +775,33 @@ class ShellKeywordSegmentTests(unittest.TestCase):
             self._kind('while true; do ls; done'), "read_only"
         )
 
+    def test_bracket_conditions_keep_file_inspection_read_only(self) -> None:
+        for command in (
+            '[ -f "AGENTS.md" ]',
+            '[ -d .agents ] && cat .agents/AGENTS.md',
+            '[ ! -s notes.txt ] || cat notes.txt',
+            'if [ -f "$p" ]; then cat "$p"; else cat fallback.md; fi',
+            'for p in AGENTS.md .agents/AGENTS.md; do '
+            'if [ -f "$p" ]; then echo "FILE $p"; cat "$p"; fi; done',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self._kind(command), "read_only")
+
+    def test_bracket_conditions_do_not_hide_writes_or_unknown_commands(self) -> None:
+        for command in (
+            'if [ -f "$p" ]; then touch changed; fi',
+            'if [ -f "$p" ]; then cat "$p"; else rm changed; fi',
+            'for p in AGENTS.md; do if [ -f "$p" ]; then cat "$p" > out; fi; done',
+            '[ -f "$(touch changed)" ] && cat AGENTS.md',
+            '[ -f "`touch changed`" ] && cat AGENTS.md',
+            'if [ -f AGENTS.md ]; then python3 -c "pass"; fi',
+            'if [ -f AGENTS.md ]; then "$reader" AGENTS.md; fi',
+            '[ -f AGENTS.md ] > out',
+            './[ -f AGENTS.md ]',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self._kind(command), "mutating")
+
     def test_a_write_inside_a_loop_body_still_decides(self) -> None:
         self.assertEqual(self._kind('for f in *; do rm "$f"; done'), "mutating")
         self.assertEqual(

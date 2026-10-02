@@ -107,6 +107,9 @@ RUNTIME_HOOK_ENV_ASSIGNMENTS = frozenset(
 # `rg --pre` and `vibeguard --fix` already were.
 READ_ONLY_COMMANDS = frozenset(
     {
+        # `[` is the shell's `test` spelling; it only inspects its operands.
+        # Branch bodies, substitutions and redirections are judged separately.
+        "[",
         "basename",
         "cat",
         # A bare `cd` only moves the shell; the write it could precede arrives
