@@ -16,6 +16,7 @@ from claude_bash_compile_check import (
     COMPILE_CHECK_MODULES, check_target_local, compile_check_kind,
     runner_target_local as _test_target_local,
 )
+from claude_bash_adb import adb_command_kind
 from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
@@ -1353,6 +1354,8 @@ def simple_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
         return git_command_kind(command, cwd)
     if executable == "gh":
         return gh_command_kind(command[1:])
+    if executable == "adb":
+        return adb_command_kind(command[1:])
     if executable == "vibeguard":
         args = command[1:]
         if args in (["evidence"], ["evidence", "."], ["evidence", "--json"],
