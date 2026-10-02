@@ -117,6 +117,12 @@ def local_context_kind(alias: str, arguments: list[str]) -> str | None:
             "receive": ({"--runtime", "--limit"}, {"--json"}, 0),
             "status": ({"--runtime"}, {"--json"}, 0),
         }
+    elif alias == "mailbox-hook":
+        operations = {
+            "authorize-task": ({"--runtime", "--evidence", "--message-id"}, set(), 0),
+            "pause-tasks": ({"--runtime"}, set(), 0),
+            "complete-task": ({"--runtime", "--message-id"}, set(), 0),
+        }
     else:
         return None
     operation, operands, index = "", 0, 0

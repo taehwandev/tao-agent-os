@@ -61,6 +61,11 @@ def deliver(payload: dict, runtime: str) -> int:
     delivery = _delivery(payload, runtime)
     if delivery is None:
         return 0
+    try:
+        from agent_mailbox_task import TaskContinuation
+        TaskContinuation(delivery.project, {"runtime": runtime, "session_id": delivery.session_id}).new_prompt()
+    except (ImportError, OSError, ValueError, RuntimeError):
+        pass  # Optional continuation must not suppress ordinary prompt delivery.
     # The previous turn has ended, so whatever it was shown has been read.
     delivery.acknowledge()
     packets = delivery.claim()
@@ -87,9 +92,36 @@ def acknowledge(payload: dict, runtime: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Deliver the local agent mailbox from runtime hooks.")
-    parser.add_argument("command", choices=("deliver", "ack"))
+    parser.add_argument("command", choices=("deliver", "ack", "authorize-task", "pause-tasks", "complete-task"))
     parser.add_argument("--runtime", required=True, choices=_RUNTIMES)
+    parser.add_argument("--project", type=Path)
+    parser.add_argument("--evidence", type=Path)
+    parser.add_argument("--message-id")
     args = parser.parse_args()
+    if args.command not in {"deliver", "ack"}:
+        from agent_mailbox_task import TaskContinuation
+        from agent_runtime_session import runtime_session
+        identity = runtime_session()
+        project = args.project.resolve() if args.project else _project(str(Path.cwd()))
+        if project is None or identity.get("runtime") != args.runtime:
+            parser.error("task decisions require the bound runtime session and project")
+        try:
+            tasks = TaskContinuation(project, identity)
+            if args.command == "authorize-task":
+                if args.evidence is None or not args.message_id:
+                    parser.error("authorize-task needs --evidence and --message-id")
+                tasks.authorize(args.evidence, args.message_id)
+            elif args.command == "complete-task":
+                if not args.message_id:
+                    parser.error("complete-task needs --message-id")
+                tasks.complete(args.message_id)
+            else:
+                tasks.pause()
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+            print(f"mailbox task decision failed: {error}", file=sys.stderr)
+            return 1
+        print("Mailbox task decision recorded for this session.")
+        return 0
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         if not isinstance(payload, dict):

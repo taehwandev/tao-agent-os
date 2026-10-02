@@ -23,6 +23,8 @@ Contract (Claude Code Stop hook):
   any further edit re-arms the gate.
 - Every unexpected error allows the stop. A gate that can trap a session is
   worse than one that misses a finish.
+- Explicit mailbox task enrollment adds one separately authorized continuation
+  per user turn; ordinary mailbox messages never trigger it.
 """
 
 from __future__ import annotations
@@ -318,6 +320,10 @@ def decide(payload: dict) -> int:
     session_id = str(payload.get("session_id") or "")
     if not session_id:
         return allow()
+    from agent_mailbox_task import continuation_reason
+    reason = continuation_reason(payload, "claude")
+    if reason:
+        return block(reason)
     for root in session_projects(session_id, find_project_root(cwd)):
         from agent_run_interruption import record_turn_boundary
         if record_turn_boundary(root, "claude", session_id):

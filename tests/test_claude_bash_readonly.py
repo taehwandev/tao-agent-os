@@ -115,6 +115,15 @@ class CompoundShellCommandTests(unittest.TestCase):
                         "python3 /tmp/agent_project_memory.py --project /repo retire abc"):
             self.assertEqual("mutating", self._kind(command))
 
+    def test_mailbox_task_decisions_have_only_the_local_metadata_contract(self) -> None:
+        entry = f"{worktree_gate.stable_launcher_path()} mailbox-hook"
+        for command in ("authorize-task --runtime codex --evidence /repo/.tao/run.json --message-id abc",
+                        "pause-tasks --runtime claude", "complete-task --runtime codex --message-id abc"):
+            self.assertEqual("runtime_control", self._kind(f"{entry} {command}"))
+            self.assertEqual("mutating", self._kind(f"{entry} {command} && touch changed"))
+            self.assertEqual("mutating", self._kind(f"{entry} {command} --output out"))
+        self.assertEqual("mutating", self._kind(f"{entry} authorize-task --allow-all"))
+
     def test_local_store_lookups_are_read_only_only_in_their_exact_grammar(self) -> None:
         launcher = worktree_gate.stable_launcher_path()
         for command in ("work-cards --project /repo list", "work-cards --project=/repo list --all",

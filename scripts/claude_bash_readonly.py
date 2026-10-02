@@ -247,6 +247,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
             return _mailbox_intake_kind(tokens[2:])
         if tokens[1] == "project-memory":
             return local_context_kind("project-memory", tokens[2:])
+        if tokens[1] == "mailbox-hook":
+            return local_context_kind("mailbox-hook", tokens[2:])
         if tokens[1] in LOCAL_STORE_LOOKUPS:
             return _local_store_lookup_kind(tokens[1], tokens[2:])
         # The installed launcher also accepts `agent-hook <subcommand>`.

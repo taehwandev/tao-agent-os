@@ -2,7 +2,8 @@
 """Versioned Codex Stop handling for an exact Tao runtime session.
 
 Version 2 retains unfinished work without forcing another turn or claiming
-completion. Legacy runs keep their original closeout request and bounded retry.
+completion by default. Explicitly enrolled mailbox tasks have a separate,
+bounded continuation. Legacy runs keep their closeout request and bounded retry.
 
 The gate deliberately does not inspect prompts, transcripts, diffs, or the last
 assistant message. Retrospective and reusable-skill decisions remain owned by
@@ -104,6 +105,10 @@ def decide(payload: dict) -> int:
     if evidence is None:
         return allow()
 
+    from agent_mailbox_task import continuation_reason
+    reason = continuation_reason(payload, "codex")
+    if reason:
+        return continue_closeout(reason)
     if record_turn_boundary is not None and record_turn_boundary(root, "codex", session_id, evidence):
         return allow()
 
