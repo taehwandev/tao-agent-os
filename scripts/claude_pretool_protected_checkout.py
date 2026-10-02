@@ -103,6 +103,25 @@ def is_git_deletion(tokens: list[str]) -> bool:
     return subcommand in {"clean", "prune"} or (subcommand == "reflog" and first in {"delete", "expire"}) or (subcommand == "gc" and "--prune" in flags)
 
 
+def deletes_protected_remote_branch(tokens: list[str], protected: frozenset[str] | None) -> bool:
+    """`git push <remote> --delete <protected>` or `git push <remote> :<protected>`.
+
+    Deletions otherwise stay with the runtime's own permission flow, but losing
+    a shared protected branch on the remote is not a local, recoverable discard.
+    """
+
+    if not protected or not is_git_deletion(tokens):
+        return False
+    subcommand, arguments = git_subcommand(tokens)
+    if subcommand != "push":
+        return False
+    words = [arg for arg in arguments if not arg.startswith("-")]
+    deleting = any(arg in {"-d", "--delete"} for arg in arguments)
+    refs = [word[1:] if word.startswith(":") else word for word in words[1:]
+            if deleting or word.startswith(":")]
+    return any(ref.removeprefix("refs/heads/") in protected for ref in refs)
+
+
 def protected_checkout_verdict(
     tokens: list[str], protected: frozenset[str] | None = None
 ) -> str:

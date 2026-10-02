@@ -209,9 +209,11 @@ class QuotedTextTests(_Fixture):
                 '2>&1 | grep -E "rror"; git log --oneline -1'
             )
 
-        # A checkout with its own isolation policy is refused under its name.
+        # A checkout with its own isolation policy is judged under its name.
+        # The compound line is now deferred as unresolved rather than denied
+        # (e35caf14); the attribution is what this test pins.
         protected = self._verdict(command(self.cli))
-        self.assertIn(f"write blocked in main checkout: {self.cli}.", protected)
+        self.assertIn(f"main checkout: {self.cli}.", protected)
         self.assertNotIn(str(self.tao), protected)
         # One without a policy is judged by the ordinary rules, never under the
         # name of the checkout its message happened to mention.

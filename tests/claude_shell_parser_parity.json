@@ -1323,8 +1323,8 @@
      "git"
     ],
     "simple": true,
-    "kind": "mutating",
-    "effect": "unknown",
+    "kind": "read_only",
+    "effect": "read_only",
     "syntax_segments": [
      [
       "command",

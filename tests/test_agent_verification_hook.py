@@ -74,6 +74,20 @@ class VerificationHookTests(unittest.TestCase):
         self.assertEqual("FAIL", self.entries()[-1]["status"])
         self.assertIn("exit=1", self.entries()[-1]["fields"]["result"])
 
+    def test_a_failure_records_the_checkpoint_repair_verify_needs(self):
+        """The failure output names repair-verify, which refused every checkpoint."""
+
+        from agent_repair_ledger import checkpoint_failure_signature, checkpoint_has_recorded_failure
+
+        route = self.preflight["route"]
+        self.write_test("self.fail('expected')")
+        self.assertEqual(1, self.run_hook())
+        self.assertTrue(checkpoint_has_recorded_failure(route=route, evidence_path=self.path, checkpoint="tests"))
+        first = checkpoint_failure_signature(route=route, evidence_path=self.path, checkpoint="tests")
+        self.assertEqual(1, self.run_hook())
+        # The same failure keeps its signature, so a recurrence is recognisable.
+        self.assertEqual(first, checkpoint_failure_signature(route=route, evidence_path=self.path, checkpoint="tests"))
+
     def test_zero_tests_does_not_pass(self):
         self.assertEqual(1, self.run_hook())
         self.assertIn("tests=0", self.entries()[-1]["fields"]["result"])

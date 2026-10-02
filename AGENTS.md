@@ -376,7 +376,11 @@ finish. A worker handoff does not satisfy the user-facing `handoff` gate.
 
 Plan new or substantially expanded development files to stay within the default
 review budget: at most 300 added lines, four top-level owners, and one
-public/exported top-level owner unless a stricter repo rule applies. Split
+public/exported top-level owner unless a stricter repo rule applies. An owner
+is a type or class, a declaration marked `export`/`public`/`pub`/`internal`,
+a capitalized component or `use*` hook, or any non-private Kotlin top-level
+declaration; plain lowercase functions in languages such as Python are not
+counted. Split
 independently nameable sections before review. Tests keep their separate wider
 budget.
 

@@ -443,12 +443,10 @@ The start hook performs classification, routing, and preflight. Read its `requir
 <TAO_LAUNCHER> workflow list
 <TAO_LAUNCHER> workflow classify "Change the button on home"
 <TAO_LAUNCHER> workflow route triage --request "Change the button on home"
-<TAO_LAUNCHER> workflow route product --request "<USER_REQUEST>" --platform web --concern security --concern ui
-<TAO_LAUNCHER> workflow route feature --request "<USER_REQUEST>" --platform kmp --concern compose --concern state
-<TAO_LAUNCHER> workflow route feature --request "<USER_REQUEST>" --platform flutter --concern widget --concern state
-<TAO_LAUNCHER> workflow route docs-review --request "<USER_REQUEST>" --concern wiki
 <TAO_LAUNCHER> workflow validate
 ```
+
+`triage` and `ambiguity` route without intake evidence. Every work route (`product`, `feature`, `docs-review`, and the rest) refuses a bare `workflow route` with "Work routes require a current, session-bound intent envelope"; to inspect one directly, pass the compatibility `--intent-envelope`, `--approval-record`, and `--runtime-session-id` arguments, or run `start` with the platform and concern flags shown above.
 
 Supported commands are `ambiguity`, `bugfix`, `cleanup`, `docs`, `docs-review`, `feature`, `multi-agent`, `planning`, `prd`, `product`, `refactor`, `release`, `retrospective`, `review`, `task`, and `triage`.
 
@@ -810,3 +808,46 @@ substantive entrypoints, and measure actual reads for the same task. Split broad
 guidance only if every surviving rule retains one owner. Lower selected bytes
 alone cannot justify removing required contracts. Carry F02–F04 forward until
 their proving checks pass or a source-backed decision closes them.
+
+### Audit: 2026-10-02, Feature QA
+
+Source baseline: `d074b64`. Environment: Claude Code, Python `3.9.6`, a detached
+checkout with temporary HOME/state directories. Ten feature areas (install,
+router, lifecycle, continuation, safety gate, doc delivery, collaboration,
+memory and cards, VibeGuard and release, runtime adapters) were each checked
+against README/AGENTS/reference promises by running CLIs, hooks or focused
+tests: 123 rows, 112 pass, 4 unverified, 9 fail. Each failure was reproduced
+again by an independent agent; one turned out to be a stale fixture rather than
+a product failure. After the repairs below, the full `discover -s tests` suite
+passed **3776 tests** (1 skipped).
+
+All resolved in this change except F11, which is docs-only by decision:
+
+- **F05** README's direct `workflow route product|feature|docs-review`
+  diagnostics needed an intent envelope. Examples now show only routes that run
+  bare, with the requirement stated.
+- **F06** The one-public-owner review budget does not count lowercase Python
+  functions. AGENTS.md now defines what an owner is.
+- **F07** A failed `verify` printed a repair-verify instruction but recorded no
+  failed checkpoint (`checkpoint_not_failed`). It now records `tests` with a
+  stable signature ([verification hook](scripts/agent_verification_hook.py)).
+- **F08** `git --version`, `-v`, `--help` and `git version` were denied in a
+  protected checkout as Git writes. They now count as reads; `--exec-path=<dir>` does not
+  ([classifier](scripts/claude_bash_git.py)).
+- **F09** Deleting a protected branch on the remote (`push --delete main`,
+  `:main`) got no hook question. It now asks, in the protected checkout and in
+  linked worktrees. Other deletions still defer to Claude's own prompt.
+- **F10** In a protected checkout, `rm`/`mv`/`sed -i` defer instead of being
+  denied, as designed. The safety-gate docs now say so.
+- **F11** On Codex, deferred commands pass silently because Codex has no native
+  ask. This behavior is kept by decision, and the docs describe it.
+- **F12** `setup-agent-hooks` run under a redirected HOME bootstrapped the
+  account's real `gui/<uid>` maintenance agent, pointing it at the sandbox
+  checkout. It now skips launchctl unless HOME is the account home
+  ([scheduler](scripts/support/maintenance_scheduler.py)).
+- **F13** Stale tests: the parser-parity fixture for `command -v git` and the
+  quoted-commit-message test that still expected a deny.
+
+Unverified in that run (permission classifier or gate refusals, not failures):
+`agent-os-status --validate`, the maintenance/watchdog CLIs, the
+mailbox/handoff/dispatch suites, and pre-commit audit reuse.

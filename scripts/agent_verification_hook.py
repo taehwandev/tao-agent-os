@@ -19,6 +19,7 @@ from agent_gate_evidence import record_many_gate_evidence
 from agent_gate_reuse import GateEvidenceReuse
 from agent_hook_gate_records import _gate_progress, preflight_evidence_path, record_hook_gate
 from agent_hook_runtime import finish_with_result
+from agent_repair_ledger import failure_signature, record_failure_checkpoints
 from agent_runtime_session import resolve_runtime_evidence, runtime_session
 
 
@@ -57,6 +58,14 @@ def verification_hook(args) -> int:
         if not success:
             after.pop("reuse_snapshot", None)
         record_many_gate_evidence(evidence_path=path, preflight=preflight, records=[after])
+        if not success:
+            # The failure output points at repair-verify, which only accepts a
+            # recorded failed checkpoint; without this the printed recovery
+            # path ended in `checkpoint_not_failed`.
+            # Elapsed time is left out so a recurring failure keeps its signature.
+            signature = failure_signature([f"verify exit={code}; tests={count}; inputs_unchanged={stable}"])
+            record_failure_checkpoints(evidence_path=path, preflight=preflight, checkpoints=["tests"],
+                                       signature=signature, checkpoint_signatures={"tests": signature})
         progress = _gate_progress(args)
         return finish_with_result(
             "verify", success,

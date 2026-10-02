@@ -337,8 +337,14 @@ workflow or worktree boundary without asking for every Edit, Write, or Bash call
 
 For a repository that requires linked worktrees, isolation governs writes, not
 visibility. The protected checkout remains readable through Claude's `Read`
-tool and through Bash commands the classifier proves read-only. An Edit, Write,
-or mutating Bash target in that checkout is denied. The generated project
+tool and through Bash commands the classifier proves read-only. An Edit or
+Write target in that checkout is denied, and so are Git commands that author
+there (commit, checkout, reset and the like) and a single `touch` naming a file
+there. Other mutating Bash commands with a readable target (`rm`, `mv`,
+`sed -i`, build or test scripts) are not refused by the hook, because a build
+or test may only read: on Claude they defer to Claude's own permission prompt,
+where standing allow rules still apply; on Codex, which has no native ask, the
+hook stays silent and Codex's sandbox and approval policy decide. The generated project
 permissions anchor `Read`, `Edit`, and `Write` at `/.tao/worktrees/**`, so a
 compliant linked worktree remains readable and writable even while the runtime
 is already inside its generated directory. A session launched from the
@@ -359,9 +365,16 @@ also match bundled `branch -vD`, and `git log *` can match `--output`. For a
 simple Git invocation inside a compliant linked worktree, the PreToolUse gate
 instead emits an explicit `allow` for ordinary work such as add, commit,
 checkout, merge, rebase, fetch, and non-forced push. A compound shell line is
-never covered by that approval. Operations that discard work, overwrite shared
-state, force or delete remote refs, change executable/config paths, prune
-recovery data, or use output/execution-capable Git options emit `ask`. This
+never covered by that approval. Operations that discard uncommitted work,
+force remote refs, change executable/config paths, or use
+output/execution-capable Git options emit `ask`. Deletions -- `branch -D`,
+`tag -d`, `clean`, `worktree remove`, `stash drop`, pruning, and deleting an
+unprotected remote branch -- emit no hook `ask`: a hook `ask` offers only
+yes/no every time, so they defer to Claude's own permission flow, where "always
+allow" persists. The one deletion still asked about is removing a protected
+branch (`protected_branches`, e.g. `main`, `develop`) from the remote with
+`push --delete` or a `:<branch>` refspec, which no local checkout can restore.
+On Codex every `ask` becomes a silent pass to Codex's own approval policy. This
 keeps the common development path prompt-free while preserving a meaningful
 operator decision for the rare dangerous path.
 
@@ -370,8 +383,9 @@ only when every command it executes is read-only; loop and branch keywords are
 syntax, but their conditions and bodies are still classified. `find`, `sort`,
 and `sed` may traverse, order, print, or substitute inspection output, while
 delete/exec actions, named output or temporary-file locations, external
-compression programs, in-place edits, and scripts that write or execute remain
-denied. Any shell or option shape the classifier cannot prove safe fails closed.
+compression programs, in-place edits, and scripts that write or execute are
+never classified as reads. Any shell or option shape the classifier cannot
+prove safe leaves the read-only fast path and is judged by the rules above.
 
 After a new parent `start` has atomically promoted its claim to `running`, it
 may self-heal same-session ambiguity by cancelling older active parent claims

@@ -72,6 +72,24 @@ class CompoundShellCommandTests(unittest.TestCase):
             })
             self.assertEqual((0, ""), (code, output))
 
+    def test_git_info_options_read_in_protected_checkout(self):
+        """`git --version` was refused as a Git write in the protected checkout."""
+
+        from claude_bash_git import git_command_kind
+        from tests.test_claude_pretool_gate import _decide, _opt_in_project, _require_linked_worktree
+        for command in ("git --version", "git -v", "git version", "git --help", "git --exec-path"):
+            with self.subTest(command=command):
+                self.assertEqual("read_only", git_command_kind(command.split()))
+        self.assertEqual("mutating", git_command_kind("git --exec-path=/tmp/x status".split()))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _opt_in_project(Path(tmp))
+            _require_linked_worktree(root)
+            code, output = _decide({
+                "tool_name": "Bash", "cwd": str(root),
+                "session_id": "info", "tool_input": {"command": "git --version"},
+            })
+            self.assertEqual((0, ""), (code, output))
+
     def test_read_only_pipeline_is_read_only(self) -> None:
         self.assertEqual(self._kind("grep -rn needle . | head -20"), "read_only")
         self.assertEqual(self._kind("ls -la | wc -l"), "read_only")

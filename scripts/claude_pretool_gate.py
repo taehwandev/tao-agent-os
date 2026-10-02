@@ -65,6 +65,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         shared_repository_hazard,
     )
     from claude_pretool_protected_checkout import (
+        deletes_protected_remote_branch,
         is_git_deletion as _is_git_deletion,
         protected_checkout_verdict,
     )
@@ -221,6 +222,9 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
     # With `git_subcommand` stubbed to read no subcommand, the hazard module
     # answered "nothing to report" for every command; these say the same.
     def _is_git_deletion(tokens: list[str]) -> bool:
+        return False
+
+    def deletes_protected_remote_branch(tokens: list[str], protected: "frozenset[str] | None") -> bool:
         return False
 
     def protected_checkout_verdict(tokens: list[str], protected: "frozenset[str] | None" = None) -> str:
@@ -500,6 +504,36 @@ def deny(reason: str, code: str = "workflow_entry_missing") -> int:
     _emit({"permissionDecision": "deny", "permissionDecisionReason": reason})
     _learn_block(code)
     return 0
+
+
+def _protected_remote_deletion_ask() -> int:
+    """The one deletion this hook still asks about: a protected branch on the remote."""
+
+    if runtime_name() == "codex":
+        return allow()
+    return _emit({"permissionDecision": "ask", "permissionDecisionReason": (
+        "This Git command deletes a protected branch on the remote, which other "
+        "people depend on and a local checkout cannot restore. Allow it only if "
+        "that is what you meant.")})
+
+
+def _entered_worktree_hazard_verdict(root: Path, tokens: list[str]) -> int | None:
+    """The question a shared-state Git hazard raises in a worktree whose entry is required.
+
+    `None` lets the command continue to workflow validation; deletions other
+    than a protected remote branch stay with the runtime's permission flow.
+    """
+
+    protected = protected_branch_names(root)
+    hazard = shared_repository_hazard(tokens, protected)
+    if hazard and deletes_protected_remote_branch(tokens, protected):
+        return _protected_remote_deletion_ask()
+    if hazard and not (_is_git_deletion(tokens) or discards_only_worktree_files(tokens)):
+        return ask(
+            "This worktree isolates ordinary file edits, but this Git command "
+            f"{hazard}. Allow it only if that is what you meant."
+        )
+    return None
 
 
 def ask(reason: str, tokens: list[str] | None = None) -> int:
@@ -1647,6 +1681,8 @@ def _worktree_policy_verdict(
                 ),
                 "publication_before_finish",
             )
+    if landing and deletes_protected_remote_branch(tokens, protected_branch_names(root)):
+        return _protected_remote_deletion_ask()
     if landing == "allow":
         return _approve(
             "This authors nothing in the protected checkout: it moves or "
@@ -2502,7 +2538,10 @@ def _decide(payload: dict) -> int:
             cwd_roots=cwd_roots,
         )
     if worktree_policy_satisfied(root) and not policy_requires_workflow_entry(root):
-        hazard = shared_repository_hazard(tokens, protected_branch_names(root))
+        protected = protected_branch_names(root)
+        hazard = shared_repository_hazard(tokens, protected)
+        if hazard and deletes_protected_remote_branch(tokens, protected):
+            return _protected_remote_deletion_ask()
         if hazard and discards_only_worktree_files(tokens):
             return allow()  # This worktree's own files: native permissions decide.
         if hazard:
@@ -2525,12 +2564,9 @@ def _decide(payload: dict) -> int:
     # Deletion deferral must still reach required workflow validation below.
     # Other shared-state hazards retain their existing permission request.
     if worktree_policy_satisfied(root):
-        hazard = shared_repository_hazard(tokens, protected_branch_names(root))
-        if hazard and not (_is_git_deletion(tokens) or discards_only_worktree_files(tokens)):
-            return ask(
-                "This worktree isolates ordinary file edits, but this Git command "
-                f"{hazard}. Allow it only if that is what you meant."
-            )
+        verdict = _entered_worktree_hazard_verdict(root, tokens)
+        if verdict is not None:
+            return verdict
     return _isolated_checkout_verdict(
         payload, tool, root, cwd, tokens, syntax_is_simple, roots, cwd_roots,
         scope.unknown_reason, effective_cwd,

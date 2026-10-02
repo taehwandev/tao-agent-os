@@ -742,6 +742,25 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual("ask", decision["permissionDecision"])
                     self.assertIn("worktree", decision["permissionDecisionReason"])
 
+    def test_deleting_a_protected_remote_branch_from_a_worktree_asks(self) -> None:
+        """QA: `git push origin --delete main` passed with no question at all."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+            for command, expected in (("git push origin --delete main", "ask"),
+                                      ("git push origin :develop", "ask"),
+                                      ("git push origin --delete topic", None)):
+                with self.subTest(command=command):
+                    code, out = _decide({"tool_name": "Bash", "cwd": str(project),
+                                         "session_id": "no-evidence", "tool_input": {"command": command}})
+                    self.assertEqual(0, code)
+                    decision = json.loads(out)["hookSpecificOutput"].get("permissionDecision") if out else None
+                    if expected:
+                        self.assertEqual(expected, decision)
+                    else:
+                        self.assertNotEqual("ask", decision)
+
     def test_ref_maintenance_is_a_question_not_a_dead_end(self) -> None:
         """Deleting a merged branch there had no route at all.
 
@@ -800,7 +819,10 @@ class ClaudePreToolGateTests(unittest.TestCase):
                 "git stash drop",
             ):
                 with self.subTest(command=command, tier="native deletion or forced push"):
-                    expected = "ask" if command == "git push --force origin main" else "silent"
+                    # Deleting a protected branch on the remote is the one
+                    # deletion still asked about (QA, 2026-10-02).
+                    expected = ("ask" if command in {"git push --force origin main", "git push origin --delete main"}
+                                else "silent")
                     self.assertEqual(expected, decision(command), command)
 
     def test_deletion_defers_without_granting_permission(self) -> None:
@@ -811,7 +833,6 @@ class ClaudePreToolGateTests(unittest.TestCase):
             for command in (
                 "git branch -D main",
                 "git tag --delete v1.0",
-                "git push origin :main",
                 "git worktree remove --force ../old",
                 "git clean -xfd",
                 "rm -rf ./old-output",
@@ -823,6 +844,15 @@ class ClaudePreToolGateTests(unittest.TestCase):
                         "tool_input": {"command": command},
                     })
                     self.assertEqual((0, ""), (code, out))
+            # The exception: a protected branch removed from the remote.
+            for command in ("git push origin :main", "git push origin --delete refs/heads/main", "git push -d origin develop"):
+                with self.subTest(command=command):
+                    code, out = _decide({
+                        "tool_name": "Bash", "cwd": str(project),
+                        "session_id": "deletion-regression",
+                        "tool_input": {"command": command},
+                    })
+                    self.assertEqual("ask", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
 
     def test_the_worktree_cycle_does_not_stop_to_ask(self) -> None:
         """Branch a worktree, work, remove it -- the loop this gate encourages.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import plistlib
+import pwd
 import subprocess
 import sys
 from pathlib import Path
@@ -29,8 +30,16 @@ def configure_maintenance_scheduler(root: Path, dry_run: bool) -> list[dict]:
     current = target.read_bytes() if target.is_file() else b""
     domain = f"gui/{os.getuid()}"
     service = f"{domain}/{LAUNCH_AGENT_LABEL}"
-    loaded = _launchctl(["print", service]).returncode == 0
     matches = current == expected
+    if Path.home().resolve() != _account_home().resolve():
+        # launchd has one domain per account, not per HOME. A setup run under a
+        # redirected HOME (a sandbox, a test) replaced the account's real agent
+        # with one pointing at the sandbox checkout under the same label.
+        if not dry_run and not matches:
+            _write_atomic(target, expected)
+        return [{"tool": "tao", "hook": "maintenance.launchd",
+                 "status": "skipped_isolated_home", "path": str(target)}]
+    loaded = _launchctl(["print", service]).returncode == 0
 
     if dry_run:
         status = "ok" if matches and loaded else "missing"
@@ -77,6 +86,12 @@ def _launch_agent_plist(root: Path) -> bytes:
         "Nice": 10,
     }
     return plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=False)
+
+
+def _account_home() -> Path:
+    """The account's own home directory, whatever HOME says."""
+
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
 def _launchctl(arguments: list[str]) -> subprocess.CompletedProcess[str]:

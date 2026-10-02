@@ -34,6 +34,7 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                 patch("support.maintenance_scheduler.sys.executable", "/usr/bin/python3"),
                 patch("support.maintenance_scheduler.Path.home", return_value=home),
                 patch("support.maintenance_scheduler.os.getuid", return_value=501),
+                patch("support.maintenance_scheduler._account_home", return_value=home),
                 patch("support.maintenance_scheduler.subprocess.run", side_effect=run_results) as run,
             ):
                 result = configure_maintenance_scheduler(root, dry_run=False)
@@ -70,6 +71,7 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                 patch("support.maintenance_scheduler.sys.executable", "/usr/bin/python3"),
                 patch("support.maintenance_scheduler.Path.home", return_value=home),
                 patch("support.maintenance_scheduler.os.getuid", return_value=501),
+                patch("support.maintenance_scheduler._account_home", return_value=home),
                 patch("support.maintenance_scheduler.subprocess.run", return_value=subprocess.CompletedProcess([], 1)),
             ):
                 self.assertEqual(
@@ -83,6 +85,7 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                 patch("support.maintenance_scheduler.sys.executable", "/usr/bin/python3"),
                 patch("support.maintenance_scheduler.Path.home", return_value=home),
                 patch("support.maintenance_scheduler.os.getuid", return_value=501),
+                patch("support.maintenance_scheduler._account_home", return_value=home),
                 patch(
                     "support.maintenance_scheduler.subprocess.run",
                     side_effect=[
@@ -98,12 +101,32 @@ class MaintenanceSchedulerTests(unittest.TestCase):
                 patch("support.maintenance_scheduler.sys.executable", "/usr/bin/python3"),
                 patch("support.maintenance_scheduler.Path.home", return_value=home),
                 patch("support.maintenance_scheduler.os.getuid", return_value=501),
+                patch("support.maintenance_scheduler._account_home", return_value=home),
                 patch("support.maintenance_scheduler.subprocess.run", return_value=subprocess.CompletedProcess([], 0)),
             ):
                 self.assertEqual(
                     "ok",
                     configure_maintenance_scheduler(root, dry_run=True)[0]["status"],
                 )
+
+    def test_a_redirected_home_never_touches_the_account_launchd_domain(self) -> None:
+        """A sandboxed setup replaced the account's real maintenance agent."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "sandbox-home"
+            root = Path(temp_dir) / "tao-agent-os"
+            (root / "scripts").mkdir(parents=True)
+            with (
+                patch("support.maintenance_scheduler.sys.platform", "darwin"),
+                patch("support.maintenance_scheduler.Path.home", return_value=home),
+                patch("support.maintenance_scheduler._account_home", return_value=Path(temp_dir) / "real"),
+                patch("support.maintenance_scheduler.subprocess.run") as run,
+            ):
+                result = configure_maintenance_scheduler(root, dry_run=False)
+
+            self.assertTrue((home / "Library/LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist").is_file())
+        self.assertEqual("skipped_isolated_home", result[0]["status"])
+        run.assert_not_called()
 
     def test_non_macos_setup_does_not_install_an_os_specific_scheduler(self) -> None:
         with patch("support.maintenance_scheduler.sys.platform", "linux"):

@@ -70,6 +70,7 @@ READ_ONLY_GIT_SUBCOMMANDS = frozenset(
         "var",
         "verify-commit",
         "verify-tag",
+        "version",
         "whatchanged",
     }
 )
@@ -95,6 +96,11 @@ TAG_WRITE_OPTIONS = frozenset(
     }
 )
 GIT_SAFE_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
+# Global options that print and exit. Exact spellings only: `--exec-path=<dir>`
+# sets the directory Git runs its programs from, so only the bare form reads.
+GIT_INFO_OPTIONS = frozenset(
+    {"--version", "-v", "--help", "-h", "--exec-path", "--html-path", "--info-path", "--man-path"}
+)
 # Scope selectors that leave a single-key `git config <key>` a read.
 CONFIG_READ_SCOPES = frozenset({"--global", "--local", "--system", "--worktree", "--show-origin", "--show-scope", "-z", "--null"})
 # The `git branch` options that only list. Kept as one classifier vocabulary so
@@ -448,6 +454,10 @@ def git_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
     index = 1
     while index < len(tokens) and tokens[index].startswith("-"):
         option = tokens[index]
+        if option in GIT_INFO_OPTIONS:
+            # Git prints and exits before any subcommand runs, so `git --version`
+            # read as a mutation and was refused as a write in a protected checkout.
+            return "read_only"
         name = option.split("=", 1)[0]
         if name in GIT_SAFE_VALUE_OPTIONS:
             index += 1 if "=" in option else 2
