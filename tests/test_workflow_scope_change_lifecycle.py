@@ -150,6 +150,10 @@ class ScopeChangeLifecycleTests(unittest.TestCase):
         )
 
         self.assertIn(
+            "platforms/android/skills/android-compose-ui/SKILL.md",
+            route["required_docs"],
+        )
+        self.assertNotIn(
             "platforms/android/skills/android-compose-ui/references/current-guidance.md",
             route["required_docs"],
         )

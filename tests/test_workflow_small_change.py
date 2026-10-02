@@ -60,7 +60,8 @@ class SmallChangeTests(unittest.TestCase):
 
         required = route['required_docs']
         self.assertGreater(len(required), 2)
-        self.assertIn(
+        self.assertIn('platforms/android/skills/android-compose-ui/SKILL.md', required)
+        self.assertNotIn(
             'platforms/android/skills/android-compose-ui/references/current-guidance.md',
             required,
         )

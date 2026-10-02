@@ -349,7 +349,9 @@ class ComposeCardSplitTests(unittest.TestCase):
                         "wear-compose.md", "official-source-surfaces.md"):
             with self.subTest(sibling=sibling):
                 self.assertNotIn(f"{base}/{sibling}", required)
-        self.assertIn(f"{base}/current-guidance.md", required)
+        # The core contract is required; its detailed reference is on demand.
+        self.assertIn("platforms/android/skills/android-compose-ui/SKILL.md", required)
+        self.assertNotIn(f"{base}/current-guidance.md", required)
 
     def test_the_split_kept_every_rule_it_did_not_explicitly_drop(self):
         """One distinctive sentence per moved section, each still present once."""

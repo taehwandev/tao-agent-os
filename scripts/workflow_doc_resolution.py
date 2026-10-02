@@ -113,10 +113,31 @@ def is_pointer_entrypoint(root: Path, path: str) -> bool:
     return digest == pointer
 
 
+_CORE_CONTRACT = re.compile(r"^required_contract:\s*core\s*$", re.M)
+
+
+def is_core_contract_entrypoint(root: Path, path: str) -> bool:
+    """True when an entrypoint declares itself the whole required contract.
+
+    A large reference behind such an entrypoint is detail to open for an
+    unresolved question, not required reading. Four Android references of
+    16-40 KB made one Codex bugfix route require 144 KB per run.
+    """
+
+    try:
+        text = (root / path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    frontmatter = _FRONTMATTER.match(text)
+    return bool(frontmatter and _CORE_CONTRACT.search(frontmatter.group(0)))
+
+
 def resolve_guidance_docs(root: Path, docs: list[str]) -> list[str]:
     """Replace pointer entrypoints with the reference that holds the real rules.
 
     * pointer entrypoint with a reference -> the reference replaces it
+    * core-contract entrypoint (`required_contract: core`) -> the entrypoint
+      alone; its reference stays on demand unless a route names it directly
     * substantive entrypoint with a reference -> both are kept, entrypoint first
     * entrypoint with no reference on disk -> the entrypoint is kept unchanged
     * anything that is not a `SKILL.md` -> passed through untouched
@@ -148,6 +169,9 @@ def resolve_guidance_docs(root: Path, docs: list[str]) -> list[str]:
             continue
         if is_pointer_entrypoint(root, doc):
             keep(reference)
+            continue
+        if is_core_contract_entrypoint(root, doc):
+            keep(doc)
             continue
         # The entrypoint carries content the reference does not repeat.
         keep(doc)

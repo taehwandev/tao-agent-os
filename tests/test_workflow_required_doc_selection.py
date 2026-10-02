@@ -118,6 +118,24 @@ class EntrypointResolutionTests(unittest.TestCase):
             resolve_guidance_docs(ROOT, [entrypoint]),
         )
 
+    def test_core_contract_entrypoint_leaves_its_reference_on_demand(self) -> None:
+        """`required_contract: core` makes the entrypoint the whole requirement."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entrypoint = "platforms/android/skills/sample/SKILL.md"
+            reference = "platforms/android/skills/sample/references/current-guidance.md"
+            (root / reference).parent.mkdir(parents=True)
+            (root / reference).write_text("# Detail\n\n" + "rule\n" * 4000, encoding="utf-8")
+            (root / entrypoint).write_text(
+                "---\nkeyflow_id: sys_sample\nstatus: review\ntype: ai-generated\n"
+                "required_contract: core\n---\n\n# Sample\n\n## Must\n\n- Keep the rule.\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual([entrypoint], resolve_guidance_docs(root, [entrypoint]))
+            self.assertEqual([entrypoint, reference],
+                             resolve_guidance_docs(root, [entrypoint, reference]))
+
     def test_non_skill_documents_pass_through_untouched(self) -> None:
         self.assertEqual(["AGENTS.md"], resolve_guidance_docs(ROOT, ["AGENTS.md"]))
 
@@ -187,7 +205,9 @@ class RequiredDocMembershipTests(unittest.TestCase):
         entry = "platforms/android/skills/android-compose-ui/SKILL.md"
         detail = entry.replace("/SKILL.md", "/references/current-guidance.md")
         selected = _select_within_budget("feature", [[entry]], [])
-        self.assertIn(detail, selected)
+        # A core-contract entrypoint is the platform requirement on its own.
+        self.assertIn(entry, selected)
+        self.assertNotIn(detail, selected)
         for command in ("feature", "build", "bugfix", "refactor"):
             required = route_required_docs(command, "web", ["security"], ())
             self.assertTrue(set(_named_concern_docs("web", ["security"])).issubset(required))
