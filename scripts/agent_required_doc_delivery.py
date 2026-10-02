@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 from agent_required_doc_reuse import required_doc_reuse
@@ -133,13 +134,18 @@ def _read_in_context(transcript: Path, rules: Path, docs: list[str]) -> set[str]
                     continue
                 named = calls.pop(call_id, named)
                 if not failed:
-                    for doc, span in _read_spans(named, texts, output).items():
+                    unchanged = {doc for doc in named if _modified(rules / doc) <= _stamp(row)}
+                    for doc, span in _read_spans(named, texts, output, unchanged).items():
                         covered.setdefault(doc, set()).update(span)
     return {doc for doc, span in covered.items() if len(span) == len(texts[doc])}
 
 
-def _read_spans(named: list[str], texts: dict[str, list[str]], output: str) -> dict[str, range]:
-    """Credit only exact current text; ambiguous slices remain unconfirmed."""
+def _read_spans(named: list[str], texts: dict[str, list[str]], output: str,
+                unchanged: set[str] = frozenset()) -> dict[str, range]:
+    """Credit only exact current text; ambiguous slices remain unconfirmed.
+
+    `unchanged` names docs whose file was not modified after this output.
+    """
 
     if output.startswith(("Chunk ID:", "Wall time:", "Process exited")):
         if re.search(r"Process exited with code [1-9]\d*", output):
@@ -149,6 +155,15 @@ def _read_spans(named: list[str], texts: dict[str, list[str]], output: str) -> d
     lines = [line for line in lines if line]
     if not named or not lines:
         return {}
+    # A compound read (`sed ...; cat doc`) prints other text around the doc.
+    # The whole current doc, unbroken, inside that output is still a full
+    # read -- unless the file changed since: an old version whose trailing
+    # rule was later deleted contains the current text unbroken too, and
+    # the text around it cannot tell that rule from another command's output.
+    whole = {doc: range(len(texts[doc])) for doc in named
+             if doc in unchanged and _contains_run(lines, texts[doc])}
+    if whole:
+        return whole
     if len(named) > 1:
         if lines == [line for doc in named for line in texts[doc]]:
             return {doc: range(len(texts[doc])) for doc in named}
@@ -159,6 +174,30 @@ def _read_spans(named: list[str], texts: dict[str, list[str]], output: str) -> d
     if len(starts) != 1:
         return {}
     return {doc: range(starts[0], starts[0] + len(lines))}
+
+
+def _modified(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return float("inf")
+
+
+def _stamp(row: dict) -> float:
+    """The row's timestamp; a row without one proves no ordering."""
+
+    try:
+        return datetime.fromisoformat(str(row.get("timestamp")).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return float("-inf")
+
+
+def _contains_run(lines: list[str], doc: list[str]) -> bool:
+    """Whether `doc` occurs in `lines` as one contiguous, exact block."""
+
+    first = doc[0]
+    return any(lines[index:index + len(doc)] == doc
+               for index in range(len(lines) - len(doc) + 1) if lines[index] == first)
 
 
 def _tool_events(row: dict, texts: dict[str, list[str]]):

@@ -226,6 +226,26 @@ class DeliveryTests(unittest.TestCase):
                      "stdout": body}}}])
         self.assertEqual("", self._deliver())
 
+    def test_a_doc_inside_a_compound_read_counts(self) -> None:
+        body = (self.rules / CORE).read_text()
+        self._transcript(("2099-01-01T00:00:00.000Z", CORE, f"## Other file\n- unrelated\n{body}trailing output\n"))
+        text = self._deliver()
+        self.assertNotIn(f"=== {CORE} ===", text)
+        self.assertIn(f"=== {OTHER} ===", text)
+
+    def test_a_compound_read_of_a_since_changed_doc_does_not_count(self) -> None:
+        """An old version whose trailing rule was deleted still holds the new text unbroken."""
+
+        (self.rules / CORE).write_text("## Rules\n- First rule.\n- Removed rule.\n")
+        self._transcript(("2026-10-02T02:00:00.000Z", CORE, "noise\n## Rules\n- First rule.\n- Removed rule.\n"))
+        (self.rules / CORE).write_text("## Rules\n- First rule.\n")
+        self.assertIn(f"=== {CORE} ===", self._deliver())
+
+    def test_a_line_inserted_inside_the_doc_breaks_a_compound_read(self) -> None:
+        self._transcript(("2099-01-01T00:00:00.000Z", CORE,
+                          "noise\n---\nkeyflow_id: k\n---\n## Must\n- An old rule.\n- Keep state immutable.\n"))
+        self.assertIn(f"=== {CORE} ===", self._deliver())
+
     def test_everything_read_delivers_nothing_but_still_marks_the_run(self) -> None:
         self._transcript(("2026-10-02T03:05:00.000Z", CORE), ("2026-10-02T03:06:00.000Z", OTHER))
         self.assertEqual("", self._deliver())
