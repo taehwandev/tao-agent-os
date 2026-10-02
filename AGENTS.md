@@ -295,6 +295,13 @@ not on checkout or commit. Stale or absent graphs fall back to direct evidence;
 an empty search is terminal without a new lead. A missing required document
 invalidates the manifest and stops work.
 
+## Tao Maintenance Audits
+
+For an explicit Tao health or efficiency audit, use the living checks and
+recorded findings in [README](README.md#tao-maintenance-audit). Extend that
+section with source evidence and verification. This reference is on demand;
+ordinary tasks gain no startup reads or additional gates.
+
 ## Automatic Project Memory
 
 `<TAO_LAUNCHER> project-memory` keeps agent-written project guidance under

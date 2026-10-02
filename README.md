@@ -651,3 +651,162 @@ python3 scripts/run_smoke_checks.py
 ```
 
 This runs E2E workflow checks (preflight initialization, constraint verification, gate ledger merges, and workflow search) in a temporary git repository sandbox.
+
+## Tao Maintenance Audit
+
+Use these checks for an explicit Tao audit of duplicate reading, memory reuse,
+cache freshness, or repeated workflow work. Keep the criteria and findings in
+this section so another agent can continue from the same repository evidence.
+This is an on-demand reference, not an extra startup read or workflow gate.
+[Project instructions](AGENTS.md) and current source contracts remain authoritative.
+
+Record the source revision, dirty paths, runtime, toolchain, and scope. Inspect
+the relevant owner and nearest falsifying check before widening the audit. Use
+the required lifecycle before edits; reuse the living task and existing authority.
+
+| ID | Check | What to verify | Owner and nearest tests |
+| --- | --- | --- | --- |
+| H01 | Document selection | Require command/owner contracts; keep optional links on demand. Count conditional follow-up reading too. | [Router](scripts/workflow_route.py), [selection tests](tests/test_workflow_required_doc_selection.py), [project docs tests](tests/test_agent_project_route_docs.py). |
+| H02 | Duplicate reads | Reuse complete unchanged reads before/after start, across worktrees, JSON outputs, split ranges, and compound commands. Count file opens separately from model delivery. | [Delivery](scripts/agent_required_doc_delivery.py), [reuse](scripts/agent_required_doc_reuse.py), [delivery tests](tests/test_agent_required_doc_delivery.py), [reuse tests](tests/test_agent_required_doc_reuse.py). |
+| H03 | Context freshness | Reject changed/deleted/reordered rules, failed or incomplete reads, and pre-compaction coverage. Takeaways must cover credited readings. | Delivery and reuse above; their negative cases. |
+| H04 | Memory | Prefer the request's scope; exclude expired, retired, replaced, malformed, and foreign-repository records. Skip oversized records without losing shorter useful ones. Memory never grants authority. | [Memory](scripts/agent_project_memory.py), [memory tests](tests/test_agent_project_memory.py). |
+| H05 | Cache validity | Invalidate changed source/rules/checker inputs; reuse identical inputs. Check same-status and preserved-metadata changes, staging, Unicode paths, and symlinks. | [Audit cache](scripts/agent_vibeguard_cache.py), [graph cache](scripts/workflow_doc_graph_cache.py), [audit tests](tests/test_agent_vibeguard_cache.py), [graph tests](tests/test_workflow_doc_graph_cache.py). |
+| H06 | Lifecycle work | Lookup creates no task state or index refresh. An unchanged action does not repeat start, passed checks, review, or finish. | [Lookup](scripts/agent_lookup_start.py), [lookup tests](tests/test_agent_lookup_start.py), [continuity tests](tests/test_agent_work_continuity_start.py), [E2E smoke](scripts/run_smoke_checks.py). |
+| H07 | Authority and isolation | Reuse scope-matched authority; protect exact repository/worktree/session/effect. Denied, foreign, diverged, and post-finish writes remain denied. | [Identity tests](tests/test_agent_worktree_identity.py), [finished integration tests](tests/test_finished_worktree_integration.py), [read-only tests](tests/test_read_only_lifecycle.py). |
+| H08 | Verification truth | Reproduce the actual condition, verify it after repair, and retain negative controls. Never report a failed wrapper or partial suite as passing. | [Verification contract](common/skills/verification-policy/references/current-guidance.md), affected owner tests, and smoke's rejection check. |
+| H09 | Runtime wiring | Resolved launcher/root and exact worktree targeting are correct; supported Claude/Codex payloads reach the protected boundary. Inspect without reinstalling. | Delivery tests above, [Codex cwd tests](tests/test_codex_exec_workdir.py), [continuation hook tests](tests/test_agent_hook_continuation.py). |
+| H10 | Measured efficiency | Separate selected bytes, actual reads/delivery, checker calls, and elapsed time. Compare identical inputs; do not estimate token or latency savings. | Owners above, [status snapshot](scripts/agent_observability.py), [snapshot tests](tests/test_agent_observability.py), controlled probes. |
+
+### Verification And Maintenance
+
+Run from the exact target checkout. The following selected suite was used for
+the initial audit; later changes use the affected owner's checks rather than
+automatically rerunning everything:
+
+```bash
+PYTHONPATH=tests:scripts python3 -m unittest \
+  test_workflow_required_doc_selection test_agent_project_route_docs \
+  test_agent_start_guidance test_agent_required_doc_delivery \
+  test_agent_required_doc_reuse test_agent_project_memory \
+  test_agent_vibeguard_cache test_workflow_doc_graph_cache \
+  test_agent_lookup_start test_read_only_lifecycle test_agent_observability \
+  test_codex_exec_workdir test_finished_worktree_integration \
+  test_agent_worktree_identity test_agent_hook_continuation \
+  test_agent_work_continuity_start
+```
+
+Use the [local E2E command above](#local-hook-testing) for lifecycle integration.
+It checks start, weak-evidence rejection, a valid gate batch, finish, and search.
+Keep fixture evidence outside the read-only source snapshot, such as in ignored
+`.tao/` state. Real source drift must still fail verification.
+
+Keep H01–H10 stable and extend the relevant row before adding a new failure
+class. Each finding needs an ID, priority, source owner, reproduction condition,
+observed/expected behavior, next proving check, and disposition. Retain before
+and after evidence when resolving it. Record each audit's revision and limits;
+carry untouched findings forward as historical evidence. Keep raw transcripts,
+secrets, local memory bodies, and run-state files untracked.
+
+Stop dependent work on a failed required gate, missing authority, unresolved
+owner, or missing required source. Follow the existing repair contract. Passing
+selected tests does not establish whole-system health or measured efficiency.
+
+### Audit: 2026-10-02
+
+Source baseline: `d074b64f9934587bd0593a2e153cc186e5be5556`. Environment:
+local macOS checkout, Codex, Python `3.9.6`. This agent-generated audit covers
+H01–H10 using selected source/test contracts, temporary probes, installed-root
+inspection, and E2E smoke. It is a focused audit, not the full repository suite
+or a live Claude session.
+
+- The 16-module command above passed **282 tests**, exit `0`, `99.532s`.
+- The follow-up documentation/routing suite passed **154 tests**, exit `0`,
+  most recently `9.767s`: `test_workflow_required_doc_selection`,
+  `test_agent_project_route_docs`, `test_agent_start_guidance`,
+  `test_workflow_doc_graph_cache`, `test_agent_lookup_start`, and
+  `test_read_only_lifecycle`, with the same `PYTHONPATH` and unittest runner.
+- E2E initially exited `1`; after F01's repair, all **5 stages passed**, exit `0`.
+- **4 temporary observational probes passed**, exit `0`, `0.195s`. They confirmed
+  the costs and edge case below; they are not acceptance tests closing F02/F03.
+- Documentation integration initially failed on two example targets treated as
+  real links; describing their target names removed those broken links. Final
+  validation passed **185 workflow references, 386 Markdown frontmatter/link
+  checks, and 28 route contracts**. Two focused document checks passed, including
+  **33 relative links** and the shared agent entrypoint.
+
+Selection profiles used `resolve_docs(command, None, [], surface_paths=owners,
+project_root=ROOT)`. These measure selection, not task admission. Byte totals
+are unique `required_docs` file sizes before history reuse and follow-up reads.
+
+| Command | Owner input | Required docs | Selected bytes |
+| --- | --- | ---: | ---: |
+| `small-change` | none | 2 | 6,705 |
+| `small-change` | `README.md` | 7 | 58,084 |
+| `small-change` | `scripts/agent_required_doc_delivery.py` | 8 | 74,507 |
+| `commit` | none | 2 | 6,803 |
+
+No comparison measured end-to-end latency, tool-call totals, token usage, or
+whether real recalled notes reduced exploration. H09 verified local root/cwd
+wiring and tested payload shapes; it did not verify a live Claude session.
+Results below retain these limits; tests passing does not close the findings.
+
+### F01: E2E Smoke Changed Its Read-Only Fixture
+
+P1 for the advertised smoke command; **resolved in this change**. Owner:
+[test_gate_validation_success](scripts/run_smoke_checks.py). At the baseline,
+`python3 scripts/run_smoke_checks.py` writes `smoke-gates.json` into the
+temporary source root after a read-only triage start. Finish rejects that
+untracked-file drift and the command exits `1`.
+
+The repair places the batch in the fixture's ignored `.tao/` directory. The
+same E2E command then passes all five stages with exit `0`, preserving source
+drift validation and the weak-evidence rejection control.
+
+### F02: Delivery Reopens Content It Already Has Or Can Skip
+
+P2 efficiency; **open**, H02/H10. Owner: `delivery_text`, `_read_in_context`,
+and `_render` in [delivery](scripts/agent_required_doc_delivery.py). Reproduce
+with [DeliveryTests](tests/test_agent_required_doc_delivery.py)'s existing
+empty transcript and two required documents. Count `Path.read_text` calls for
+those document paths while invoking `_deliver()`.
+
+Each unread document is opened **twice**, for transcript comparison and
+rendering. A second delivery opens neither document. Controlling
+`required_doc_reuse` to prove both documents reusable still opens each **once**,
+while delivering no text. This is local file I/O, not duplicate model context
+or a measured latency regression.
+
+Next check: exclude proven-reused documents from transcript verification and
+share a content buffer within delivery. Require one open per unread document,
+zero per proven-reused document, and zero after the marker, while preserving
+all freshness/span regressions.
+
+### F03: Restored Metadata Can Hide A Document-Graph Change
+
+P2 correctness edge; **open**, H05. Owner:
+[document_key](scripts/workflow_doc_graph_cache.py). In a temporary
+`.tao`-enabled fixture, build a graph from a Markdown link to `alpha.md`, replace
+its target with equal-length `omega.md`, and restore the original `st_mtime_ns`
+using `os.utime`. Clear only the in-process graph cache, then build again to exercise
+the persisted cache.
+
+The returned edge still points to **alpha.md**. Advancing the mtime and clearing
+the in-process cache rebuilds it with **omega.md**. The key measures document
+path/size/mtime, symlink identity, and builder content, rather than document
+contents. Next check: require the omega edge after preserved-metadata rewriting
+and retain unchanged-input cache hits. Measure stronger identity options before
+choosing a repair; do not discard the cache or hash the corpus without measuring.
+
+### F04: Small-Change Owner Guidance Still Has A Large Read Surface
+
+P3 optimization investigation; **open**, H01/H10. Owners: the
+[router](scripts/workflow_route.py), [surface rules](workflow-doc-surfaces.json),
+and selected guidance. The measured README and runtime-script profiles above
+select **58,084** and **74,507 bytes**. This does not establish irrelevance:
+verified owner contracts still apply and some readings may already be retained.
+
+Next check: inspect `required_doc_reasons`, include explicit dependencies and
+substantive entrypoints, and measure actual reads for the same task. Split broad
+guidance only if every surviving rule retains one owner. Lower selected bytes
+alone cannot justify removing required contracts. Carry F02–F04 forward until
+their proving checks pass or a source-backed decision closes them.

@@ -122,7 +122,7 @@ def test_gate_validation_success(temp_dir: str) -> None:
         }
         for data in gates_data
     ]
-    batch = Path(temp_dir) / "smoke-gates.json"
+    batch = Path(temp_dir) / ".tao" / "smoke-gates.json"
     batch.write_text(json.dumps(records), encoding="utf-8")
     result = run_command(
         [
