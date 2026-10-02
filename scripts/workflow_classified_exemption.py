@@ -36,7 +36,7 @@ MISSING_REQUEST_INTAKE_REASON = (
     "for a delegated worker whose parent left a ready and valid execution capsule; "
     "no such capsule was found, so the current request must be classified here. "
     'Pass --request "<USER_REQUEST>" with the real user request. '
-    "If the caller only needs the document listing and label context and is not "
+    "If the caller only needs the document listing and is not "
     "asserting request intake, use `--advisory` instead: it never satisfies a "
     "downstream gate."
 )

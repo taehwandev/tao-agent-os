@@ -192,7 +192,7 @@ def _add_route_parser(subparsers: argparse._SubParsersAction) -> None:
         "--advisory",
         action="store_true",
         help=(
-            "Print the document listing and label context without asserting request "
+            "Print the document listing without writing label context or asserting request "
             "intake. An advisory route satisfies no downstream gate."
         ),
     )
@@ -373,7 +373,7 @@ def print_route(args: argparse.Namespace) -> int:
         return 2
     project_root = Path(args.project).resolve() if args.project else None
     if advisory:
-        # An advisory route only lists documents and writes label context. It
+        # An advisory route only lists documents; it never writes label context. It
         # never claims the request was classified, so it must not reach the
         # intake decision at all.
         request_classification = None
@@ -750,14 +750,19 @@ def main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _resolve_auto_command(args)
-    task_type, stage = spill_label_for_args(args)
-    write_spill_label(task_type, stage)
-
-    if args.action == "list":
-        print_supported_values()
-        return 0
     try:
-        return _dispatch_action(args)
+        if args.action == "list":
+            print_supported_values()
+            result = 0
+        else:
+            result = _dispatch_action(args)
+        if result == 0 and not getattr(args, "advisory", False):
+            task_type, stage = spill_label_for_args(args)
+            write_spill_label(
+                task_type, stage,
+                if_absent=args.action in {"classify", "list", "query", "validate"},
+            )
+        return result
     except ValueError as error:
         # The bounded continuation-scope contract is enforced by raising, which
         # reached the terminal as a traceback. A caller that violates the bound

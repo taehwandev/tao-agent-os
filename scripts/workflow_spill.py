@@ -67,24 +67,20 @@ def has_spill_setup_helper() -> bool:
     return spill_setup_helper_path().is_file()
 
 
-def write_spill_label(task_type: str, stage: str) -> None:
-    """Hand the label to the metering helper without waiting for it.
+def write_spill_label(task_type: str, stage: str, *, if_absent: bool = False) -> None:
+    """Write safe context before returning; never record a usage event.
 
-    Nothing in this process reads the result: the label is context that a
-    later usage event picks up, and that event is a whole turn away. Waiting
-    for Node to start and exit put 72 ms of the 296 ms this prompt hook took --
-    41% of it -- in front of the user for an answer nobody here wants.
-
-    stdin is closed rather than inherited. The hook's payload arrives on this
-    process's stdin and is read for the session id and the prompt, so handing
-    the same pipe to a child is a race over who drains it.
+    Waiting for the bounded local write prevents an older detached classify
+    process from landing after a real task label. Discovery actions use
+    if_absent so they cannot replace an active task. Advisory routes do not
+    call this helper at all. stdin never inherits a runtime hook payload.
     """
 
     helper = spill_setup_helper_path()
     if not helper.is_file():
         return
     try:
-        subprocess.Popen(
+        subprocess.run(
             [
                 "node",
                 str(helper),
@@ -94,15 +90,15 @@ def write_spill_label(task_type: str, stage: str) -> None:
                 task_type,
                 "--stage",
                 stage,
+                *(["--if-absent"] if if_absent else []),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            # Detached, so the label still lands when this short-lived hook
-            # exits first, and so it never inherits the runtime's terminal.
-            start_new_session=True,
+            timeout=2,
+            check=False,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return
 
 

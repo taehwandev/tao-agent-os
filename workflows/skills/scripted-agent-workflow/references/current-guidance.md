@@ -76,7 +76,7 @@ then, the worker must present its current session-bound envelope. Free-text
 evidence, a parent capsule, and `--continuation-scope` never replace that
 envelope. Continuation scope supplies prior target context only; the runtime
 must put the resolved bounded target in the envelope. A caller that only needs
-the document listing and label context uses `--advisory`, which satisfies no
+the document listing uses `--advisory`, which writes no label context and satisfies no
 downstream gate. Its markdown is a compact listing of Read First documents, a
 reference-doc count, gates, notes, and any missing or blocking conditions, and
 its `required_docs` keep only core, command, and caller-named documents while

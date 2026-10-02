@@ -33,7 +33,7 @@ from agent_worker_evidence import (
 )
 from agent_workspace_policy import is_git_status_review_only, non_git_writing_workspace_note
 from support.global_state import project_scoped_state_error
-from workflow_catalog import COMMANDS, CONCERNS, PLATFORM_CONCERNS, PLATFORMS
+from workflow_catalog import COMMANDS, CONCERNS, PLATFORM_CONCERNS, PLATFORMS, SPILL_ROUTE_LABELS
 from workflow_common import unique
 from workflow_doc_surfaces import extract_request_surface_paths, git_status_surface_paths
 from workflow_classified_exemption import (
@@ -648,11 +648,18 @@ def run_preflight(args: argparse.Namespace, tao_root: Path) -> int:
         print(f"WARN: {warning}", file=sys.stderr)
     for failure in failures:
         print(f"FAIL: {failure}", file=sys.stderr)
+    return _preflight_result_with_label(failures, route_payload)
+
+
+def _preflight_result_with_label(failures: list[str], route: dict | None) -> int:
+    """Only an accepted preflight may replace runtime workflow context."""
+    if not failures and route:
+        task_type, stage = SPILL_ROUTE_LABELS[route["command"]]
+        write_spill_label(task_type, stage)
     return 1 if failures else 0
 
 
 def main() -> int:
-    write_spill_label("analysis", "classify")
     tao_root = Path(__file__).resolve().parents[1]
     parser = build_parser(tao_root)
     args = parser.parse_args()
