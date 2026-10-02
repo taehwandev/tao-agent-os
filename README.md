@@ -804,6 +804,15 @@ Metadata-only caching still cannot detect an in-place change that leaves every
 key field identical at the filesystem's timestamp precision; this is not a
 content-hash guarantee.
 
+For acceptance that must detect this case, compare the cached graph with a
+graph rebuilt directly from the document contents. The repeatable diagnostic
+below checks that comparison and includes a synthetic frozen-metadata
+counterexample: cached `alpha.md` remains stale, while an uncached rebuild and
+content hashing detect `omega.md`. Normal metadata still invalidates the entry.
+The default metadata cache is retained; a content hash on every lookup would
+read the whole corpus again. This diagnostic does not add a production strict
+mode or guarantee that every ordinary cached lookup verifies content.
+
 ### F04: Small-Change Owner Guidance Still Has A Large Read Surface
 
 P3 optimization investigation; **partially improved; broader investigation open**,
@@ -825,6 +834,63 @@ rule split. README's profile remains **7 docs / 58,084 bytes**; its applicable
 documentation/source/writing contracts were retained. These are selection
 measurements, not actual model reads or latency savings. Further splitting
 requires a source-backed owner and conditional-read accounting.
+
+#### Measured File Reads And Timing: 2026-10-02–03
+
+Reproduce with [the isolated benchmark](tests/benchmarks/document_loading.py):
+
+```sh
+python3 tests/benchmarks/document_loading.py --revision 95b02f5
+```
+
+The benchmark archives the same `95b02f5` document corpus into temporary
+directories and restores only delivery code and surface rules from `180bb39`
+in the baseline copy. Both variants therefore read identical guidance content.
+It makes no model or network calls and does not reset the live graph cache.
+Raw samples and counted paths are written to ignored
+`.tao/performance/health-measurements.json`; archive creation, fixture setup and
+marker removal are outside the timed actions. Read counters run separately
+from timing. The measured environment was macOS 27.0.1 arm64, Python 3.9.6,
+with warm OS file caches: 10 warmups and 200 samples per action, plus 20 fresh
+processes per variant. Corpus keying first warms the builder-code digest.
+The tables report the second run; the repeatable command stores its own latest
+samples, so subsequent runs need not reproduce the same timings.
+
+| Action | Content opens before → after | Bytes read before → after | Median before → after |
+| --- | ---: | ---: | ---: |
+| Deliver seven unread docs | 14 → 7 | 138,792 → 69,396 | 1.768 → 1.598 ms |
+| Seven docs with completed-run reuse proof | 7 → 0 | 69,396 → 0 | 1.255 → 0.642 ms |
+| Already delivered in this run | 0 → 0 | 0 → 0 | 0.027 → 0.028 ms |
+| Complete reads in transcript, without run-history reuse proof | 7 → 7 | 69,396 → 69,396 | 2.005 → 2.038 ms |
+| Warm routing plus complete selected-doc reads | 28 → 26 | 258,213 → 248,671 | 2.855 → 3.038 ms |
+| Fresh-process routing plus complete selected-doc reads | 187 → 185 | 468,902 → 459,360 | 52.272 → 52.603 ms |
+
+Routing counts include every observed Markdown/surface-map content read inside
+the resolver as well as explicitly reading each required document once. They
+are larger than the selected-doc count: repeated metadata/entrypoint reads
+remain, including four opens each for the scripted-workflow and lifecycle
+entrypoints on the warm path. File reads dropped, but F04 showed **no latency
+improvement** in this measurement. Fresh-process wall time including Python
+startup/imports was 151.781 → 151.046 ms. Selected files were 8 / 74,517 bytes
+before and 7 / 69,396 after; the older audit's byte totals used earlier guidance.
+
+A first independent run measured unread delivery at 1.758 → 1.269 ms and
+proven reuse at 1.268 → 0.640 ms, while fresh routing/read time was
+55.009 → 55.593 ms. Variation between runs matters at this scale; these are
+local subsystem observations, not a guaranteed speedup percentage.
+
+| F03 key strategy, same 386-document corpus | Corpus/map opens | Bytes read | Median / p95 |
+| --- | ---: | ---: | ---: |
+| Existing metadata key | 0 | 0 | 2.898 / 3.083 ms |
+| Counterfactual full-content hash on every key calculation | 387 | 2,304,078 | 23.964 / 26.132 ms |
+
+The hash comparison measures key construction, not graph rebuild time. The
+isolated persisted graph also matched an uncached source rebuild: 386 nodes,
+3,512 edges. F03's remaining metadata limit is explicitly reproduced rather
+than claimed fixed. F04's local file-read/timing gap is now measured; model
+context actually consumed, conditional guidance reads, tool transport, token
+usage and end-to-end session time remain unmeasured. Use source-backed evidence
+before removing more guidance or caching repeated resolver reads.
 
 The same follow-up fixes the hash-based fixture in
 [runs-prune tests](tests/test_runs_prune.py): `PYTHONHASHSEED=240` reproduced a
