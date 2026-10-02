@@ -115,6 +115,20 @@ class ProjectMemoryTests(unittest.TestCase):
         self.assertTrue(all("Guidance" in line for line in lines[1:]))
         self.assertEqual([], recall(self.project / "another-project", "task"))
 
+    def test_route_records_come_first_and_an_oversized_record_is_skipped(self) -> None:
+        def record(body: str, scope: str, days: int) -> dict:
+            review_on = (date.today() + timedelta(days=days)).isoformat()
+            return capture(self.project, body=body, source="note", scope=scope, review_on=review_on)
+
+        general = record("G" * 450, "all", 10)
+        task = record("T" * 450, "task", 40)
+        oversized = record("O" * 450, "all", 11)
+        short = record("Short guidance.", "all", 12)
+        lines = recall_lines(self.project, "task")[1:]
+        self.assertEqual([task["id"], general["id"], short["id"]],
+                         [json.loads(line[2:])["id"] for line in lines])
+        self.assertNotIn(oversized["id"], "".join(lines))
+
     def test_symlink_store_is_refused(self) -> None:
         outside = self.project / "outside"
         outside.mkdir()

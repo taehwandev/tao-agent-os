@@ -318,5 +318,65 @@ class RequiredDocReuseTests(unittest.TestCase):
 
 
 
+class ReuseAcrossRunsTests(unittest.TestCase):
+    """Readings carried across worktrees and past the takeaway display cap."""
+
+    DOC_A = "common/skills/agent-operating-skill/SKILL.md"
+    DOC_B = "workflows/skills/review-and-commit/SKILL.md"
+
+    def _run(self, root: Path, run_id: str, docs: list[str], takeaway: str = "") -> Path:
+        path = root / ".tao" / "runs" / run_id / "preflight.json"
+        path.parent.mkdir(parents=True)
+        records = [{"path": doc, "sha256": "a" * 64, "size_bytes": 10} for doc in docs]
+        path.write_text(json.dumps({
+            "agent_run_id": run_id, "project": str(root), "rules": str(root),
+            "runtime_session": {"runtime": "claude", "session_id": "s"},
+            "route": {"required_docs": docs}, "execution_snapshot": {"required_docs": records},
+        }), encoding="utf-8")
+        if takeaway:
+            record_doc_takeaway(path, takeaway)
+        return path
+
+    def _registry(self, root: Path, run_ids: list[str]) -> None:
+        (root / ".tao" / "run-registry.json").write_text(json.dumps({"runs": [
+            {"run_id": run_id, "state": "completed", "evidence_name": "preflight.json"}
+            for run_id in run_ids]}), encoding="utf-8")
+
+    def test_a_reading_in_another_worktree_of_the_repository_is_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            main = Path(directory).resolve() / "repo"
+            linked = Path(directory).resolve() / "repo-task"
+            admin = main / ".git" / "worktrees" / "task"
+            admin.mkdir(parents=True)
+            linked.mkdir()
+            (admin / "commondir").write_text("../..\n", encoding="utf-8")
+            (admin / "gitdir").write_text(f"{linked}/.git\n", encoding="utf-8")
+            (linked / ".git").write_text(f"gitdir: {admin}\n", encoding="utf-8")
+            self._run(main, "a" * 32, [self.DOC_A], "applied the operating contract")
+            self._registry(main, ["a" * 32])
+            current = self._run(linked, "b" * 32, [self.DOC_A])
+            self._registry(linked, ["b" * 32])
+
+            reuse = required_doc_reuse(current)
+
+            self.assertEqual([self.DOC_A], reuse["reused"])
+            self.assertEqual(["applied the operating contract"], reuse["takeaways"])
+
+    def test_runs_repeating_covered_docs_do_not_use_up_the_takeaway_slots(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            ids = [f"{index}" * 32 for index in range(1, 5)]
+            self._run(root, ids[0], [self.DOC_B], "review rules applied")
+            for index, run_id in enumerate(ids[1:]):
+                self._run(root, run_id, [self.DOC_A], f"operating contract pass {index}")
+            current = self._run(root, "f" * 32, [self.DOC_A, self.DOC_B])
+            self._registry(root, ids)
+
+            reuse = required_doc_reuse(current)
+
+            self.assertEqual([self.DOC_A, self.DOC_B], reuse["reused"])
+            self.assertEqual(["operating contract pass 2", "review rules applied"], reuse["takeaways"])
+
+
 if __name__ == "__main__":
     unittest.main()

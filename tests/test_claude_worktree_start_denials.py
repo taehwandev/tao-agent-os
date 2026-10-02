@@ -204,6 +204,7 @@ class WorkflowStartDenialTests(unittest.TestCase):
         reason = self._verdict(f"{self.launcher} checkpoint --project {self.worktree} --work-stdin <<'EOF'\n{{}}\nEOF")
         self.assertIn('heredoc input is unsupported', reason)
         self.assertIn('< input-file', reason)
+        self.assertIn('clears the syntax only', reason)
         self.assertIn('Keep the existing run', reason)
         self.assertNotIn('write blocked in main checkout', reason)
 

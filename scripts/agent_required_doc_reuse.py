@@ -12,6 +12,7 @@ RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 MAX_REGISTRY_BYTES = 4 * 1024 * 1024
 MAX_PREFLIGHT_BYTES = 8 * 1024 * 1024
 MAX_RUNS = 100
+MAX_SIBLING_WORKTREES = 8
 MAX_TAKEAWAYS = 3
 MAX_TAKEAWAY_CHARS = 400
 # Written beside a run's preflight by `review --doc-takeaway`, for routes such
@@ -51,7 +52,7 @@ def required_doc_reuse(
                 prior_records = set(_doc_records(prior).values())
             except (ValueError, TypeError):
                 continue
-            credited = _credit(prior_records, wanted, prior_path, takeaways)
+            credited = _credit(prior_records, wanted, prior_path, takeaways, reusable_records)
             if not credited and (require_takeaway or not prior_records & wanted):
                 continue
             reusable_records.update(prior_records)
@@ -94,7 +95,7 @@ def project_route_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
                 prior_records = set(_project_records(prior).values())
             except (ValueError, TypeError):
                 continue
-            if not _credit(prior_records, wanted, prior_path, takeaways):
+            if not _credit(prior_records, wanted, prior_path, takeaways, reusable):
                 continue
             reusable.update(prior_records)
             if wanted <= reusable:
@@ -110,10 +111,15 @@ def project_route_doc_reuse(preflight_path: Path) -> dict[str, list[str]]:
 
 
 def _same_session_priors(preflight_path: Path, current: dict[str, Any]):
-    """Yield completed same-session, same-project runs, newest first."""
+    """Yield completed same-session runs of this repository, newest first.
+
+    A session that moves to another worktree of the same repository reads the
+    same shared docs, so every worktree's registry is searched. Records match
+    by relative path, hash and size, which already proves identical content
+    whichever checkout or rules root served it.
+    """
 
     project = Path(current["project"]).resolve()
-    rules = Path(current["rules"]).resolve()
     run_dir = preflight_path.resolve().parent
     if (
         not RUN_ID.fullmatch(run_dir.name)
@@ -124,7 +130,16 @@ def _same_session_priors(preflight_path: Path, current: dict[str, Any]):
     session = _session(current)
     if session is None:
         return
-    registry = _read(project / ".tao" / "run-registry.json", MAX_REGISTRY_BYTES)
+    # Lazily, this checkout's newest runs first: callers stop at full coverage.
+    for root in _repository_roots(project):
+        yield from _completed_runs(root, run_dir.name, session)
+
+
+def _completed_runs(root: Path, current_run: str, session: tuple[str, str]):
+    try:
+        registry = _read(root / ".tao" / "run-registry.json", MAX_REGISTRY_BYTES)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return
     runs = registry.get("runs")
     if not isinstance(runs, list):
         return
@@ -136,21 +151,50 @@ def _same_session_priors(preflight_path: Path, current: dict[str, Any]):
         if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
             continue
         evidence_name = record.get("evidence_name", "preflight.json")
-        if evidence_name != "preflight.json" or run_id == run_dir.name:
+        if evidence_name != "preflight.json" or run_id == current_run:
             continue
-        prior_path = project / ".tao" / "runs" / run_id / evidence_name
+        prior_path = root / ".tao" / "runs" / run_id / evidence_name
         try:
             prior = _read(prior_path, MAX_PREFLIGHT_BYTES)
             if (
                 prior.get("agent_run_id") != run_id
-                or Path(prior["project"]).resolve() != project
-                or Path(prior["rules"]).resolve() != rules
+                or Path(prior["project"]).resolve() != root
                 or _session(prior) != session
             ):
                 continue
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
             continue
         yield prior_path, prior
+
+
+def _repository_roots(project: Path) -> list[Path]:
+    """This checkout first, then the repository's other worktrees, read from git's files."""
+
+    roots = [project]
+    try:
+        dot_git = project / ".git"
+        if dot_git.is_file():
+            gitdir = Path(dot_git.read_text(encoding="utf-8").split("gitdir:", 1)[1].strip())
+            gitdir = gitdir if gitdir.is_absolute() else (project / gitdir)
+            common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+        elif dot_git.is_dir():
+            common = dot_git.resolve()
+        else:
+            return roots
+        candidates = [common.parent] if common.name == ".git" else []
+        for link in sorted((common / "worktrees").glob("*/gitdir")):
+            candidates.append(Path(link.read_text(encoding="utf-8").strip()).parent)
+    except (OSError, IndexError):
+        return roots
+    siblings = []
+    for candidate in candidates:
+        registry = candidate.resolve() / ".tao" / "run-registry.json"
+        if registry.parents[1] not in roots and registry.is_file():
+            siblings.append((registry.stat().st_mtime, registry.parents[1]))
+    # A repository can hold dozens of worktrees; the recently active ones are
+    # where this session's earlier runs are.
+    siblings.sort(reverse=True)
+    return roots + [root for _, root in siblings[:MAX_SIBLING_WORKTREES]]
 
 
 def record_doc_takeaway(evidence_path: Path, text: str) -> None:
@@ -170,6 +214,7 @@ def _credit(
     wanted: set[tuple[str, str, int]],
     prior_path: Path,
     takeaways: list[str],
+    covered: set[tuple[str, str, int]] | None = None,
 ) -> bool:
     """Whether a prior run may prove these docs were read, keeping its takeaways.
 
@@ -184,14 +229,26 @@ def _credit(
 
     if not prior_records & wanted:
         return False
-    recorded = [text for text in (_source_docs_takeaway(prior_path), _review_takeaway(prior_path)) if text]
-    for text in recorded:
-        if len(takeaways) < MAX_TAKEAWAYS and text not in takeaways:
-            takeaways.append(text)
-    # Only a run whose takeaway the notice actually shows is credited. Past
-    # the display cap a run's documents would otherwise leave the unread list
-    # with nothing replayed for them -- the gap the takeaway rule closes.
-    return any(text in takeaways for text in recorded)
+    if covered is not None and not (prior_records & wanted) - covered:
+        # Nothing new to prove: spending a display slot here is what left a
+        # later run's documents unread once the cap filled.
+        return False
+    parts = list(dict.fromkeys(
+        text for text in (_source_docs_takeaway(prior_path), _review_takeaway(prior_path)) if text
+    ))
+    if not parts:
+        return False
+    # One slot per run: its source-docs and review takeaways are merged.
+    merged = " | ".join(parts)
+    if merged in takeaways or any(merged in text for text in takeaways):
+        return True
+    if len(takeaways) >= MAX_TAKEAWAYS:
+        # Only a run whose takeaway the notice actually shows is credited. Past
+        # the display cap a run's documents would otherwise leave the unread
+        # list with nothing replayed for them -- the gap the takeaway rule closes.
+        return False
+    takeaways.append(merged)
+    return True
 
 
 def _source_docs_takeaway(prior_path: Path) -> str:

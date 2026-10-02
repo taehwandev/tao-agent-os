@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -216,6 +217,7 @@ def _resume_target(root: Path, session_id: str) -> tuple[str, list[dict[str, Any
 
 
 LISTED_RUN_LIMIT = 8
+STALE_RUN_DAYS = 7
 
 
 def _unresumed_context(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -228,21 +230,42 @@ def _unresumed_context(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
 
     if not entries:
         return None
+    # Ids of week-old runs went into every session's opening context (35 of
+    # them, most abandoned bugfix runs), where none was ever the work at hand.
+    # They are counted, not named; `--list` still reports them all.
+    recent = [entry for entry in entries if not _stale(entry)]
+    older = len(entries) - len(recent)
+    tail = f"; {older} older than {STALE_RUN_DAYS} days" if older else ""
+    if not recent:
+        return _context(
+            f"Tao continuation: {older} unfinished runs in this checkout, all older than "
+            f"{STALE_RUN_DAYS} days; none was resumed. `tao-hook resume --list` reports them."
+        )
     listed = ", ".join(
         f"{entry['run_id']}({entry['route_command'] or 'unknown'})"
-        for entry in entries[:LISTED_RUN_LIMIT]
+        for entry in recent[:LISTED_RUN_LIMIT]
     )
     # A truncated list that does not say it was truncated reads as the whole
     # set, and the run the caller wants is then one it appears not to have.
-    dropped = len(entries) - LISTED_RUN_LIMIT
+    dropped = len(recent) - LISTED_RUN_LIMIT
     if dropped > 0:
         listed += f", and {dropped} more that `--list` reports"
     return _context(
         f"Tao continuation found {len(entries)} unfinished runs in this checkout and none "
-        f"bound to this session, so none was resumed: {listed}. Resume one by name with "
+        f"bound to this session, so none was resumed: {listed}{tail}. Resume one by name with "
         "`tao-hook resume --last --run-id <run-id>`; `tao-hook resume --list` reports what "
         "each one was doing."
     )
+
+
+def _stale(entry: dict[str, Any]) -> bool:
+    try:
+        updated = datetime.fromisoformat(str(entry.get("updated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - updated > timedelta(days=STALE_RUN_DAYS)
 
 
 # NotebookEdit names its target `notebook_path`; every other edit tool uses

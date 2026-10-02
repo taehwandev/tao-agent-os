@@ -47,11 +47,18 @@ class DeliveryTests(unittest.TestCase):
             "route": {"required_docs": docs},
         }), encoding="utf-8")
 
-    def _transcript(self, *calls: tuple[str, str]) -> None:
-        rows = [{"type": "assistant", "timestamp": stamp,
-                 "message": {"content": [{"type": "tool_use", "name": "Read",
-                                          "input": {"file_path": f"{self.rules}/{doc}"}}]}}
-                for stamp, doc in calls]
+    def _transcript(self, *calls, rows: list[dict] | None = None) -> None:
+        """Claude Read calls as (stamp, doc[, output, is_error]); output defaults to the doc."""
+
+        rows = list(rows or [])
+        for index, (stamp, doc, *rest) in enumerate(calls):
+            output = rest[0] if rest else (self.rules / doc).read_text(encoding="utf-8")
+            rows.append({"type": "assistant", "timestamp": stamp, "message": {"content": [
+                {"type": "tool_use", "id": f"t{index}", "name": "Read",
+                 "input": {"file_path": f"{self.rules}/{doc}"}}]}})
+            rows.append({"type": "user", "timestamp": stamp, "message": {"content": [
+                {"type": "tool_result", "tool_use_id": f"t{index}", "content": output,
+                 "is_error": bool(rest[1]) if len(rest) > 1 else False}]}})
         self.transcript.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
     def _deliver(self, evidence: Path | None = None) -> str:
@@ -69,11 +76,45 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual("", self._deliver())
         self.assertTrue((self.evidence.parent / MARKER).exists())
 
-    def test_a_doc_read_since_the_run_started_is_not_delivered(self) -> None:
+    def test_a_doc_read_before_the_run_started_still_counts(self) -> None:
         self._transcript(("2026-10-02T03:05:00.000Z", CORE), ("2026-10-02T02:00:00.000Z", OTHER))
+        # Both readings are still in context, whichever side of `start` they fell on.
+        self.assertEqual("", self._deliver())
+
+    def test_a_compaction_drops_earlier_readings(self) -> None:
+        self._transcript(("2026-10-02T02:00:00.000Z", CORE), ("2026-10-02T02:00:00.000Z", OTHER))
+        rows = [json.loads(line) for line in self.transcript.read_text(encoding="utf-8").splitlines()]
+        rows.insert(2, {"type": "system", "subtype": "compact_boundary"})
+        self.transcript.write_text("\n".join(json.dumps(row, separators=(",", ":")) for row in rows) + "\n",
+                                   encoding="utf-8")
+        text = self._deliver()
+        self.assertIn(f"=== {CORE} ===", text)
+        self.assertNotIn(f"=== {OTHER} ===", text)
+
+    def test_a_doc_changed_after_its_reading_is_delivered(self) -> None:
+        self._transcript(("2026-10-02T02:00:00.000Z", CORE))
+        (self.rules / CORE).write_text("## Must\n\n- Keep state immutable.\n- A newer rule.\n", encoding="utf-8")
+        self.assertIn("A newer rule.", self._deliver())
+
+    def test_a_partial_read_does_not_count(self) -> None:
+        self._transcript(("2026-10-02T02:00:00.000Z", CORE, "1\t---\n2\tkeyflow_id: k\n3\t---\n4\t## Must"))
+        self.assertIn(f"=== {CORE} ===", self._deliver())
+
+    def test_searches_failed_and_partial_reads_do_not_count(self) -> None:
+        self._transcript(("2026-10-02T02:00:00.000Z", CORE, "Found 1 file"),
+                         ("2026-10-02T02:00:00.000Z", OTHER, "File does not exist.", True))
+        text = self._deliver()
+        self.assertIn(f"=== {CORE} ===", text)
+        self.assertIn(f"=== {OTHER} ===", text)
+
+    def test_a_codex_command_read_counts(self) -> None:
+        body = (self.rules / CORE).read_text(encoding="utf-8")
+        self._transcript(rows=[{"timestamp": "2026-10-02T02:00:00.000Z", "type": "event_msg", "payload": {
+            "type": "item_completed", "item": {"type": "CommandExecution", "id": "e1", "status": "completed",
+                                               "command": ["/bin/zsh", "-lc", f"cat {self.rules}/{CORE}"],
+                                               "stdout": body}}}])
         text = self._deliver()
         self.assertNotIn(f"=== {CORE} ===", text)
-        # Read before this run started: the reading may be gone from context.
         self.assertIn(f"=== {OTHER} ===", text)
 
     def test_everything_read_delivers_nothing_but_still_marks_the_run(self) -> None:

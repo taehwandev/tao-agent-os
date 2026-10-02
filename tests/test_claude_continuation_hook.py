@@ -350,6 +350,27 @@ class ClaudeSessionResumeTests(unittest.TestCase):
         self.assertIn(entries[7]["run_id"], context)
         self.assertNotIn(entries[8]["run_id"], context)
 
+    def test_week_old_runs_are_counted_not_named(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        recent = {"run_id": "a" * 32, "route_command": "task",
+                  "updated_at": (now - timedelta(days=1)).isoformat()}
+        old = {"run_id": "b" * 32, "route_command": "bugfix",
+               "updated_at": (now - timedelta(days=14)).isoformat()}
+
+        def context(entries):
+            return claude_continuation_hook._unresumed_context(entries)[
+                "hookSpecificOutput"]["additionalContext"]
+
+        mixed = context([recent, old])
+        self.assertIn(recent["run_id"], mixed)
+        self.assertNotIn(old["run_id"], mixed)
+        self.assertIn("1 older than 7 days", mixed)
+        only_old = context([old])
+        self.assertNotIn(old["run_id"], only_old)
+        self.assertIn("all older than 7 days", only_old)
+
     def test_ready_context_reuses_bounded_analysis_and_successful_checks(self) -> None:
         result = {
             "checkpoint": "review",

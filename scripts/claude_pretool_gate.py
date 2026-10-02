@@ -1785,6 +1785,10 @@ def _worktree_reason_naming_its_cause(
             "This is not evidence of a write into the named repository. "
             "Next: save the literal input with the file-edit tool inside the authorized task scope, "
             "then run the command with `< input-file` from the explicit task directory. "
+            # Followed literally with an interpreter, this remedy was unresolved
+            # again: the redirect fixes the syntax, not an unclassified program.
+            "That clears the syntax only: a program the gate does not classify, such as "
+            "`python3`, stays unresolved and goes to the runtime's permission prompt. "
             "Keep the existing run and authority; changing worktrees or requesting broader permission "
             "does not resolve this syntax limitation."
         )

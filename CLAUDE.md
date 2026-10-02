@@ -6,4 +6,7 @@ type: ai-generated
 
 # Claude Entry
 
-Read `AGENTS.md` first and treat it as the canonical project instruction file.
+`AGENTS.md` is the canonical project instruction file. It is imported below so
+Claude loads it with this file instead of spending a read on it.
+
+@AGENTS.md

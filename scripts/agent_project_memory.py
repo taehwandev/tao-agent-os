@@ -187,7 +187,8 @@ def _recall(project: Path, scope: str, *, today: date | None = None) -> list[dic
         and record["scope"] in {scope, "all"}
         and date.fromisoformat(record["review_on"]) > today
     ]
-    eligible.sort(key=lambda item: (item["review_on"], item["id"]))
+    # Records written for this route come before the general ones.
+    eligible.sort(key=lambda item: (item["scope"] != scope, item["review_on"], item["id"]))
     return eligible
 
 
@@ -200,8 +201,11 @@ def recall_lines(project: Path, scope: str) -> list[str]:
             {key: record[key] for key in ("id", "body", "source", "review_on")},
             ensure_ascii=False,
         )
-        if len(lines) >= MAX_RECALL_ITEMS or size + len(payload) > MAX_RECALL_CHARS:
+        if len(lines) >= MAX_RECALL_ITEMS:
             break
+        if size + len(payload) > MAX_RECALL_CHARS:
+            # Skip the oversized record so a shorter one after it still fits.
+            continue
         lines.append(f"- {payload}")
         size += len(payload)
     if not lines:
