@@ -17,7 +17,8 @@ from agent_execution_capsule import capsule_path_for_evidence, read_execution_ca
 from agent_execution_capsule_state import read_json_object
 from agent_mailbox_store import _expired, _validate_packet, _require_local_path
 from agent_route_state import request_fingerprint
-from agent_runtime_session import resolve_runtime_evidence
+from agent_run_registry import ACTIVE_RUN_STATES, registered_run
+from agent_runtime_session import is_run_local_continuation_evidence, resolve_runtime_evidence, same_runtime_session
 from support.global_state import global_state_dir
 from workflow_effect_policy import route_minimum_effect
 
@@ -62,6 +63,30 @@ def validate_task(project: Path, identity: dict, packet: dict, binding: dict) ->
     if validate_execution_capsule(read_execution_capsule(capsule_path_for_evidence(source)), project,
                                   Path(preflight["rules"]), source, preflight["route"]):
         raise ValueError("message source capsule is invalid")
+
+
+def validate_completion_binding(project: Path, identity: dict, binding: dict) -> None:
+    """Validate a receipt against its enrolled run, without resuming that run."""
+    relative = Path(str(binding.get("evidence") or ""))
+    evidence = project / ".tao/runs" / relative
+    if (relative.is_absolute() or evidence.name != "preflight.json"
+            or not is_run_local_continuation_evidence(project, evidence)):
+        raise ValueError("task completion needs a valid run-local evidence binding")
+    _require_local_path(project, evidence)
+    run = registered_run(project, evidence)
+    if run is None or run.get("run_id") != evidence.parent.name:
+        raise ValueError("task completion bound run is missing")
+    if run.get("state") not in {*ACTIVE_RUN_STATES, "interrupted", "completed"}:
+        raise ValueError(f"task completion unavailable for bound run state: {run.get('state')}")
+    preflight = read_json_object(evidence)
+    if Path(str(preflight.get("project") or "")).resolve() != project.resolve():
+        raise ValueError("task completion project binding has changed")
+    if not same_runtime_session(preflight.get("runtime_session"), identity,
+                                resume_generation=int(run.get("resume_generation") or 0)):
+        raise ValueError("task completion session binding is missing or stale")
+    if (request_fingerprint(preflight.get("request_intake") or {}) != binding.get("request")
+            or run.get("request_fingerprint") != binding.get("request")):
+        raise ValueError("task completion request binding has changed")
 
 
 def stop_ready(payload: dict, identity: dict, project: Path) -> bool:

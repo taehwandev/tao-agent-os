@@ -14,7 +14,7 @@ from pathlib import Path
 
 from agent_execution_capsule_state import atomic_write_json, read_json_object
 from agent_mailbox_store import MailboxStore, _MESSAGE_ID, _require_local_path
-from agent_mailbox_task_binding import stop_ready, task_binding, validate_task
+from agent_mailbox_task_binding import stop_ready, task_binding, validate_completion_binding, validate_task
 from agent_runtime_session import resolve_runtime_evidence
 from agent_state_lock import state_lock
 
@@ -82,12 +82,13 @@ class TaskContinuation:
         path = self.path(message_id)
         with state_lock(self.root / ".tasks"):
             record = read_json_object(path)
-            evidence = resolve_runtime_evidence(self.project, self.identity,
-                        states=frozenset({"running", "paused", "resuming", "completed"}))
-            if (record.get("identity") != self.identity or record.get("status") != "continued"
-                    or evidence is None or evidence.relative_to(self.project / ".tao/runs").as_posix()
-                    != record["binding"]["evidence"]):
+            if not record:
+                raise ValueError("task completion record is missing")
+            if record.get("identity") != self.identity:
                 raise ValueError("only this task's bound session can attest completion")
+            if record.get("status") != "continued":
+                raise ValueError("task completion requires a continued task")
+            validate_completion_binding(self.project, self.identity, record["binding"])
             atomic_write_json(path, {**record, "status": "completed"})
 
     def continue_task(self, payload: dict) -> str | None:

@@ -100,6 +100,144 @@ class MailboxTaskTests(unittest.TestCase):
         self.tasks.complete(packet["message_id"])
         self.assertEqual("completed", json.loads(self.tasks.path(packet["message_id"]).read_text())["status"])
 
+    def test_cli_completion_after_real_codex_stop_preserves_interrupted_run(self):
+        packet = self.arm()
+        with redirect_stdout(output := io.StringIO()):
+            codex_stop_gate.decide(self.payload)
+        self.assertEqual("block", json.loads(output.getvalue())["decision"])
+        with redirect_stdout(io.StringIO()):
+            codex_stop_gate.decide({**self.payload, "stop_hook_active": True})
+        before = registry_path(self.project).read_bytes()
+        self.assertEqual("interrupted", json.loads(before)["runs"][0]["state"])
+        args = ["mailbox-hook", "complete-task", "--runtime", "codex", "--project", str(self.project),
+                "--message-id", packet["message_id"]]
+        with patch.object(sys, "argv", args), redirect_stdout(io.StringIO()):
+            self.assertEqual(0, hook.main())
+        self.assertEqual("completed", json.loads(self.tasks.path(packet["message_id"]).read_text())["status"])
+        self.assertEqual(before, registry_path(self.project).read_bytes())
+
+    def test_completion_after_real_claude_stop_preserves_interrupted_run(self):
+        self.identity["runtime"] = "claude"
+        self.refresh()
+        self.tasks = TaskContinuation(self.project, self.identity)
+        with patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "task-session", "CODEX_THREAD_ID": ""}):
+            packet = self.store.enqueue(sender="claude", recipient="claude", kind="task",
+                                        body="Finish the approved local task.", ttl_seconds=600)
+            self.tasks.authorize(self.evidence, packet["message_id"])
+            with redirect_stdout(output := io.StringIO()):
+                claude_stop_gate.decide(self.payload)
+            self.assertEqual("block", json.loads(output.getvalue())["decision"])
+            with redirect_stdout(io.StringIO()):
+                claude_stop_gate.decide({**self.payload, "stop_hook_active": True})
+            before = registry_path(self.project).read_bytes()
+            self.assertEqual("interrupted", json.loads(before)["runs"][0]["state"])
+            self.tasks.complete(packet["message_id"])
+            self.assertEqual("completed", json.loads(self.tasks.path(packet["message_id"]).read_text())["status"])
+            self.assertEqual(before, registry_path(self.project).read_bytes())
+
+    def test_completion_uses_enrolled_run_even_when_another_run_is_active(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        transition_run(self.project, self.evidence, "interrupted")
+        later = self.project / ".tao/runs" / ("a" * 32) / "preflight.json"
+        later.parent.mkdir(parents=True)
+        later.write_text(json.dumps(self.preflight))
+        register_run(self.project, later, self.route, self.intake)
+        before = registry_path(self.project).read_bytes()
+        self.tasks.complete(packet["message_id"])
+        self.assertEqual("completed", json.loads(self.tasks.path(packet["message_id"]).read_text())["status"])
+        self.assertEqual(before, registry_path(self.project).read_bytes())
+
+    def test_cancelled_run_cannot_attest_task_completion(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        transition_run(self.project, self.evidence, "cancelled")
+        before = self.tasks.path(packet["message_id"]).read_bytes()
+        with self.assertRaisesRegex(ValueError, "bound run state: cancelled"):
+            self.tasks.complete(packet["message_id"])
+        self.assertEqual(before, self.tasks.path(packet["message_id"]).read_bytes())
+
+    def test_completed_run_can_attest_its_task_without_reopening(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        transition_run(self.project, self.evidence, "completed")
+        before = registry_path(self.project).read_bytes()
+        self.tasks.complete(packet["message_id"])
+        self.assertEqual("completed", json.loads(self.tasks.path(packet["message_id"]).read_text())["status"])
+        self.assertEqual(before, registry_path(self.project).read_bytes())
+
+    def test_uncontinued_task_reports_task_state_instead_of_session_mismatch(self):
+        packet = self.arm()
+        with self.assertRaisesRegex(ValueError, "requires a continued task"):
+            self.tasks.complete(packet["message_id"])
+
+    def test_changed_request_cannot_attest_task_completion(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        self.intake["request"] = "publish an unrelated service"
+        self.evidence.write_text(json.dumps(self.preflight))
+        before = self.tasks.path(packet["message_id"]).read_bytes()
+        with self.assertRaisesRegex(ValueError, "request binding has changed"):
+            self.tasks.complete(packet["message_id"])
+        self.assertEqual(before, self.tasks.path(packet["message_id"]).read_bytes())
+
+    def test_missing_run_cannot_attest_task_completion(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        registry = json.loads(registry_path(self.project).read_text())
+        registry["runs"] = []
+        registry_path(self.project).write_text(json.dumps(registry))
+        with self.assertRaisesRegex(ValueError, "bound run is missing"):
+            self.tasks.complete(packet["message_id"])
+
+    def test_stale_resume_generation_cannot_attest_task_completion(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        registry = json.loads(registry_path(self.project).read_text())
+        registry["runs"][0]["resume_generation"] = 1
+        registry_path(self.project).write_text(json.dumps(registry))
+        with self.assertRaisesRegex(ValueError, "session binding is missing or stale"):
+            self.tasks.complete(packet["message_id"])
+
+    def test_current_resume_generation_still_names_the_same_session(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        registry = json.loads(registry_path(self.project).read_text())
+        registry["runs"][0]["resume_generation"] = 1
+        registry_path(self.project).write_text(json.dumps(registry))
+        self.preflight["runtime_session"] = {**self.identity, "resume_generation": 1}
+        self.evidence.write_text(json.dumps(self.preflight))
+        self.tasks.complete(packet["message_id"])
+        self.assertEqual("completed", json.loads(self.tasks.path(packet["message_id"]).read_text())["status"])
+
+    def test_rebound_session_cannot_attest_the_previous_sessions_task(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        self.preflight["runtime_session"] = {"runtime": "codex", "session_id": "other"}
+        self.evidence.write_text(json.dumps(self.preflight))
+        with self.assertRaisesRegex(ValueError, "session binding is missing or stale"):
+            self.tasks.complete(packet["message_id"])
+
+    def test_foreign_project_binding_cannot_attest_task_completion(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        self.preflight["project"] = str(self.root / "other-project")
+        self.evidence.write_text(json.dumps(self.preflight))
+        with self.assertRaisesRegex(ValueError, "project binding has changed"):
+            self.tasks.complete(packet["message_id"])
+
+    def test_invalid_evidence_path_cannot_attest_task_completion(self):
+        packet = self.arm()
+        self.assertIsNotNone(continuation_reason(self.payload, "codex"))
+        path = self.tasks.path(packet["message_id"])
+        record = json.loads(path.read_text())
+        for evidence in ("../preflight.json", str(self.evidence), "a" * 32 + "/other.json"):
+            with self.subTest(evidence=evidence):
+                record["binding"]["evidence"] = evidence
+                path.write_text(json.dumps(record))
+                with self.assertRaisesRegex(ValueError, "valid run-local evidence binding"):
+                    self.tasks.complete(packet["message_id"])
+
     def test_read_only_and_read_floor_routes_cannot_register(self):
         packet = self.send()
         for update in ({"execution_mode": {"read_only": True}}, {"route": {**self.route, "command": "analysis"}}):

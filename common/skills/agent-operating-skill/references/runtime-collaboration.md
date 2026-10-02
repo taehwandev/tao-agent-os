@@ -58,6 +58,11 @@ Delivery acknowledgement is separate from task completion. The enrolled packet
 is retained in the local task queue after normal mailbox acknowledgement. After
 actually verifying the subtask's outcome, attest it with `mailbox-hook
 complete-task --runtime <RUNTIME> --project <PROJECT> --message-id <ID>`.
+Completion is a receipt for the enrolled task, not permission to resume or finish
+its run. It checks that task's exact run, session and request binding, including
+an `interrupted` or already `completed` run. A later active run in the same
+session does not redirect the receipt. Cancelled or missing runs, foreign
+sessions and stale bindings reject completion with their own reason.
 A continuation attempt, delivery receipt or failed hook never completes work.
 Storage or validation failures allow the session to stop without granting
 authority. No provider process, polling loop, extra lifecycle or AGY hook is added.
