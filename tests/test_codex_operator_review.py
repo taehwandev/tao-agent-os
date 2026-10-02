@@ -51,6 +51,27 @@ class CodexOperatorReviewTests(unittest.TestCase):
         self.assertIn("do not sleep, poll this request", message)
         self.assertNotIn("Stop and wait", message)
 
+    def test_question_uses_contextual_answers_and_permitted_choices(self):
+        _, message = OperatorReview.request(self.payload, "reason", "unreadable_command_effect")
+        self.assertIn("structured choice tool if this runtime permits it for approvals", message)
+        self.assertIn("short numbered list", message)
+        self.assertIn("conversation runtime interprets", message)
+        self.assertIn("not through a keyword, phrase, or yes/no allowlist", message)
+        self.assertIn("do not demand a particular spelling", message)
+        self.assertIn("It does not imply always", message)
+
+    def test_user_words_in_a_tool_payload_never_record_consent(self):
+        # These are examples of real conversational answers, never a parser's
+        # vocabulary. Only the runtime's separate attestation grants consent.
+        for answer in ("y", "그래", "그냥 진행해줘"):
+            with self.subTest(answer=answer):
+                self.payload["user_answer"] = answer
+                self.payload["decision"] = "approve"
+                self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
+        request_id = self.pending()
+        OperatorReview.resolve(request_id, "approve", "codex-session")
+        self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
+
     def test_operator_codes_match_the_gate_and_paused_run_can_be_approved(self):
         from claude_pretool_gate import OPERATOR_DECIDES
         self.assertEqual(OPERATOR_DECIDES, OperatorReview.CODES)
@@ -61,7 +82,10 @@ class CodexOperatorReviewTests(unittest.TestCase):
         self.assertTrue(OperatorReview.request(self.payload, "paused run", "paused_run_refused")[0])
 
     def test_inspection_bundle_gets_recovery_before_the_operator_question(self):
-        helper = Path.home() / "Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
+        home = Path(self.temporary.name) / "home"
+        helper = home / "Library/Application Support/Spill/adapters/setup/spill-token-metering-setup.mjs"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("fixture for canonical label helper; never executed")
         self.payload["tool_input"]["command"] = (
             f'node "{helper}" --label codex --task-type debugging --stage analysis\n'
             "command -v ffmpeg\n"
@@ -69,15 +93,36 @@ class CodexOperatorReviewTests(unittest.TestCase):
             "rg --files -g '*Portfolio*'"
         )
         reason = "Cause: use one literal command; chains, pipes, and multiline input are not accepted."
-        approved, message = OperatorReview.request(self.payload, reason, "unreadable_command_effect")
+        with patch("claude_local_context_commands.Path.home", return_value=home):
+            approved, message = OperatorReview.request(self.payload, reason, "unreadable_command_effect")
         self.assertFalse(approved, "the rejected bundle is never silently allowed")
-        self.assertLess(message.index("Before asking"), message.index("Ask the user"))
+        self.assertIn("No new operator decision is needed", message)
         self.assertIn("independently gated tool calls", message)
-        self.assertIn("unsupported constituent still needs the question below", message)
         self.assertIn("opaque project code", message)
+        self.assertNotIn("operator-review --request-id", message)
+        self.assertEqual([], list(Path(self.temporary.name).rglob("*.json")))
+
+    def test_opaque_code_pipelines_redirection_and_other_effects_still_need_a_decision(self):
+        reason = "Cause: use one literal command; chains, pipes, and multiline input are not accepted."
+        for command in ("python3 -c 'print(1)' ; git status", "cat note | python3 opaque.py",
+                        "cat note > changed ; git status", "git status ; touch changed",
+                        "cat $(python3 opaque.py) ; git status", "git status ; git fetch",
+                        "cat note ; /tmp/node opaque.js", "cat note || git status"):
+            with self.subTest(command=command):
+                self.payload["tool_input"]["command"] = command
+                approved, message = OperatorReview.request(self.payload, reason, "unreadable_command_effect")
+                self.assertFalse(approved)
+                self.assertIn("operator-review --request-id", message)
+                self.assertNotIn("No new operator decision is needed", message)
+
+    def test_operator_rejection_is_checked_before_lookup_recovery(self):
+        self.payload["tool_input"]["command"] = "git status ; rg --files"
+        reason = "Cause: use one literal command"
+        with patch("codex_operator_review._lookup_recovery", return_value=""):
+            approved, message = OperatorReview.request(self.payload, reason, "unreadable_command_effect")
         request_id = re.search(r"--request-id ([a-f0-9]{64})", message).group(1)
-        self.assertEqual("pending", OperatorReview._read(OperatorReview._path(request_id))["status"])
-        self.assertIn("end your turn", message)
+        OperatorReview.resolve(request_id, "reject", "codex-session")
+        self.assertIn("rejected", OperatorReview.request(self.payload, reason, "unreadable_command_effect")[1])
 
     def test_project_code_and_policy_refusals_do_not_offer_composition_recovery(self):
         for code, reason in (
@@ -114,6 +159,35 @@ class CodexOperatorReviewTests(unittest.TestCase):
         with patch("codex_operator_review.Path.read_bytes", return_value=b"changed policy"):
             self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
         self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
+
+    def test_shell_output_size_and_yield_do_not_require_repeat_approval(self):
+        self.payload["tool_input"].update(yield_time_ms=1000, max_output_tokens=2000)
+        request_id = self.pending()
+        OperatorReview.resolve(request_id, "approve", "codex-session")
+        self.payload["tool_input"].update(yield_time_ms=10000, max_output_tokens=5000)
+        self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
+        self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
+        OperatorReview.resolve(request_id, "always", "codex-session")
+        self.payload["session_id"] = "later-session"
+        self.payload["tool_input"].pop("max_output_tokens")
+        self.payload["tool_input"]["yield_time_ms"] = 30000
+        self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
+
+    def test_process_execution_settings_and_other_tool_inputs_remain_exact(self):
+        request_id = self.pending()
+        OperatorReview.resolve(request_id, "always", "codex-session")
+        for name, value in (("workdir", "/other-project"), ("sandbox_permissions", "require_escalated"),
+                            ("login", False), ("tty", True), ("timeout", 1000)):
+            with self.subTest(name=name):
+                changed = copy.deepcopy(self.payload)
+                changed["tool_input"][name] = value
+                self.assertFalse(OperatorReview.request(changed, "reason", "unreadable_command_effect")[0])
+        self.payload["tool_name"] = "mcp__example__invoke"
+        self.payload["tool_input"]["max_output_tokens"] = 100
+        request_id = self.pending()
+        OperatorReview.resolve(request_id, "always", "codex-session")
+        self.payload["tool_input"]["max_output_tokens"] = 200
+        self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
 
     def test_launcher_records_explicit_always_answer_and_revocation(self):
         request_id = self.pending()

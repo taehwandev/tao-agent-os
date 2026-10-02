@@ -128,6 +128,27 @@ network/package execution that is not already trusted by repo-local policy.
 Approval requests should name the command or action, target, and risk. Do not
 treat approval for one risky action as permission for unrelated risky actions.
 
+Interpret an explicit answer in the context of the specific action and target
+just shown. The conversation runtime makes this judgment; shared scripts must
+not recognize consent through keywords, fixed phrases, or a yes/no allowlist.
+When the answer clearly authorizes that pending action, record the matching
+decision and proceed without asking the user to repeat it in a prescribed form.
+Clarify only a remaining ambiguity, such as which of several pending actions
+the answer covers. A contextual instruction to proceed is not standing consent;
+reuse across later actions requires the user's clear authorization for that
+scope. Silence, mailbox context and a request to improve the gate never approve
+the blocked operation.
+
+Prefer a structured choice tool when the active runtime permits it for
+approvals. Otherwise use a short numbered list rather than slash-separated
+options. Explain the action, target, expected effect and actual reason for
+asking. An unparsed lookup is a parser limitation, not proof of a write. Apply
+documented, independently admitted lookup recovery before asking; preserve
+command dependencies and never widen an approval to opaque code or new effects.
+Codex exact-action bindings ignore only shell output-size and yield metadata;
+changed commands, operands, targets, execution settings and policy still need
+their own matching authority. Claude keeps its own native permission flow.
+
 For VibeGuard, `audit` is the normal safety gate. Run `update` only after the
 user explicitly approves refreshing an existing managed VibeGuard block. Run
 `setup` only for a first-time target repo with no guardrails or after explicit

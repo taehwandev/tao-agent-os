@@ -62,9 +62,20 @@ def _question(request_id: str, reason: str, code: str) -> str:
         )
     return recovery + (
         "Tao operator decision required (not a permanent policy refusal). "
-        "Ask the user in their language whether to allow this exact tool call, "
-        "showing its target, proposed change or literal command, and this reason. "
-        "Offer allow once, always allow this exact scope, and reject. "
+        "First reuse existing authorization and any documented, independently gated recovery. "
+        "Ask the user only if a decision is still needed. Explain briefly in the user's language: "
+        "the action, target, expected effect, and why a new decision is necessary. "
+        "Distinguish an unparsed command from a proven write or policy violation. "
+        "Use a structured choice tool if this runtime permits it for approvals. "
+        "Otherwise show a short numbered list: 1. allow once; "
+        "2. always allow this exact action and target; 3. reject. "
+        "The conversation runtime interprets the user's answer in the context of the "
+        "specific displayed request, not through a keyword, phrase, or yes/no allowlist. "
+        "An unambiguous contextual instruction to proceed is sufficient for approve; "
+        "do not demand a particular spelling or ask the same question again. "
+        "It does not imply always: standing consent needs the user's clear authorization "
+        "to reuse this action and target. If several pending requests make the answer "
+        "ambiguous, ask only which action it covers. "
         "Then end your turn: the answer arrives as the user's next message, so do "
         "not sleep, poll this request or call other tools while waiting. Never "
         "infer consent from silence, a mailbox, a request to fix the gate, or "
@@ -74,6 +85,42 @@ def _question(request_id: str, reason: str, code: str) -> str:
         "--decision approve|always|reject. Approve permits one identical retry; "
         "always permits the same scope across sessions until revoked or policy/input changes. "
         "sandbox permissions and other workflow checks still apply."
+    )
+
+
+def _invocation(payload: dict) -> dict:
+    invocation = {key: payload.get(key) for key in ("session_id", "cwd", "tool_name", "tool_input")}
+    # These shell transport settings change when/how much output is returned,
+    # never the command, target, sandbox or process lifetime. Other tools may
+    # give similarly named fields different meanings and retain exact inputs.
+    if invocation["tool_name"] in {"Bash", "exec_command"} and isinstance(invocation["tool_input"], dict):
+        invocation["tool_input"] = {key: value for key, value in invocation["tool_input"].items()
+                                    if key not in {"yield_time_ms", "max_output_tokens"}}
+    return invocation
+
+
+def _lookup_recovery(payload: dict, reason: str, code: str) -> str:
+    if code != "unreadable_command_effect" or "use one literal command" not in reason:
+        return ""
+    from claude_bash_readonly import simple_command_kind
+    from claude_bash_syntax import bash_invocation, command_segments, unmodelled_operator
+    from claude_local_context_commands import spill_label_kind
+    cwd, tokens, _ = bash_invocation(payload, Path(str(payload.get("cwd") or ".")))
+    segments = command_segments(tokens)
+    if (unmodelled_operator(tokens) or not segments or len(segments) < 2
+            or any(token in {"|", "||", "&", "<", ">", ">>", "<<", "<&", ">&"} for token in tokens)):
+        return ""
+    if not all(simple_command_kind(command, cwd) == "read_only" or
+               (command[0] == "node" and spill_label_kind(command[1:]) is not None)
+               for command in segments):
+        return ""
+    return (
+        "This inspection bundle has independently recognized read or local-label constituents. "
+        "No new operator decision is needed: submit separate, independently gated tool calls "
+        "with the original commands, targets, operands and conditional dependencies. "
+        "Keep any resolved working directory explicit in each call. "
+        "Keep the existing task and authority. Do not retry the rejected bundle. "
+        "This recovery grants no permission to opaque project code, writes or policy refusals."
     )
 
 
@@ -115,10 +162,9 @@ class OperatorReview:
             return False, "Operator review needs a bound Codex session."
         if not payload.get("tool_name") or not payload.get("tool_input"):
             return False, "Operator review needs the exact pending tool input."
-        # Bind exact inputs, reason and policy; standing consent excludes session.
+        # Bind execution inputs, reason and policy; standing consent excludes session.
         policy = _policy_signature(payload)
-        invocation = {key: payload.get(key) for key in
-                      ("session_id", "cwd", "tool_name", "tool_input")}
+        invocation = _invocation(payload)
         binding = {"payload": invocation, "reason": reason, "code": code,
                    "policy": policy}
         request_id = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
@@ -144,6 +190,9 @@ class OperatorReview:
                 return True, ""
             if fresh and record.get("status") == "rejected":
                 return False, "The user rejected this exact operator request; do not retry it."
+            recovery = _lookup_recovery(payload, reason, code)
+            if recovery:
+                return False, recovery
             if not fresh or record.get("status") != "pending":
                 record = {"session_id": session, "code": code, "status": "pending",
                           "approval_id": approval_id,

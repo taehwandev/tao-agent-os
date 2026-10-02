@@ -15,6 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import claude_pretool_gate as pretool
 import claude_worktree_gate as gate
+from support.global_state import STATE_HOME_ENV
 
 
 class ProjectWorktreePolicyTests(unittest.TestCase):
@@ -22,7 +23,7 @@ class ProjectWorktreePolicyTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name).resolve()
-        environment = patch.dict(os.environ, {}, clear=True)
+        environment = patch.dict(os.environ, {STATE_HOME_ENV: str(self.base / "state")}, clear=True)
         environment.start()
         self.addCleanup(environment.stop)
 
@@ -40,6 +41,16 @@ class ProjectWorktreePolicyTests(unittest.TestCase):
         self.assertIn('cd "<worktree>" && <command>', reason)
         self.assertNotIn("restart the workflow", reason)
         self.assertIn("sandbox", reason)
+
+    def test_unparsed_commands_are_not_reported_as_proven_writes(self):
+        for cause in (gate.UNREADABLE_SYNTAX, gate.COMPUTED_TEXT, gate.UNREAD_STEP):
+            with self.subTest(cause=cause):
+                reason = gate.worktree_deny_reason(self.base, "main", cause, "python3")
+                self.assertIn("effect unresolved", reason)
+                self.assertNotIn("write blocked", reason)
+        for cause in (gate.NAMED_TARGET, gate.AUTHORING_GIT, gate.WORKFLOW_START_TARGET):
+            with self.subTest(cause=cause):
+                self.assertIn("write blocked", gate.worktree_deny_reason(self.base, "main", cause))
 
     def test_explicit_codex_worktree_command_targets_preserve_main_protection(self):
         os.environ["TAO_PRETOOL_RUNTIME"] = "codex"

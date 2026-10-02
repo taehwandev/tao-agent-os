@@ -410,11 +410,14 @@ def worktree_deny_reason(
         explanation = UNREAD_STEP_CAUSE.format(named=named)
     else:
         explanation = DENIAL_CAUSES.get(cause, "")
+    unresolved = cause in {UNREADABLE_SYNTAX, COMPUTED_TEXT, UNREAD_STEP}
+    outcome = "effect unresolved" if unresolved else "write blocked"
+    prefix = f"Tao worktree gate: {outcome} in {location}: {root}. "
     if remedy:
         # A caller that knows what the command was asking for says so itself.
         # Everything below is advice about where the shell stands, which is the
         # right answer for an edit and the wrong one for a workflow start.
-        return f"Tao worktree gate: write blocked in {location}: {root}. {explanation}{remedy}"
+        return prefix + explanation + remedy
     remedy = (
         "Next: use the task worktree and restart the workflow. If needed, run "
         "alone: `git worktree add <path> -b <branch> <base>`."
@@ -429,7 +432,7 @@ def worktree_deny_reason(
             "Reuse the bound task; create/start one only if none exists. "
             "Explicit targeting does not grant sandbox permission or allow writes to main."
         )
-    return f"Tao worktree gate: write blocked in {location}: {root}. {explanation}{remedy}"
+    return prefix + explanation + remedy
 
 
 def worktree_denial(
