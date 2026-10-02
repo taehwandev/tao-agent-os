@@ -217,6 +217,12 @@ def main():
 
     script_alias = sys.argv[1]
     passthrough_args = list(sys.argv[2:])
+    if script_alias in ("--help", "-h", "help"):
+        # Agents reach for --help first; an unsupported-alias error cost them a call.
+        print("usage: tao-hook <alias> [args]; tao-hook <alias> --help shows an alias's options")
+        print("lifecycle: " + ", ".join(sorted(HOOK_ALIASES)))
+        print("scripts: " + ", ".join(sorted(SCRIPT_ALIASES)))
+        return 0
     if script_alias in HOOK_ALIASES:
         script_name = "agent-hook.py"
         passthrough_args.insert(0, script_alias)

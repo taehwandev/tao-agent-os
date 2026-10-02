@@ -219,6 +219,10 @@ def strip_env_assignments(tokens: list[str]) -> list[str] | None:
     return tokens[index:]
 
 
+# The stable launcher only prints its alias list for these.
+LAUNCHER_HELP_ARGUMENTS = (["--help"], ["-h"], ["help"])
+
+
 def runtime_control_kind(tokens: list[str]) -> str | None:
     if tokens and (tokens[0] == "node" or (
         Path(tokens[0]).name == "node" and _trusted_installed_executable(tokens[0])
@@ -240,7 +244,8 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
     except (OSError, ValueError):
         return None
     if executable_path == stable_launcher_path().expanduser().resolve() and len(tokens) > 1:
-        discovery_kind = discovery_command_kind(tokens[1], tokens[2:])
+        discovery_kind = ("read_only" if tokens[1:] in LAUNCHER_HELP_ARGUMENTS
+                          else discovery_command_kind(tokens[1], tokens[2:]))
         if discovery_kind is not None:
             return discovery_kind
         if writes_output:

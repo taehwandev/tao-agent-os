@@ -2358,10 +2358,21 @@ def decide(payload: dict) -> int:
 
     _PENDING_WARNINGS.clear()
     try:
-        return _decide(payload)
+        return _decide(_with_codex_exec_workdir(payload))
     except Exception as error:  # noqa: BLE001 - the gate fails open, never silently
         _gate_internal_error(error, "the command was allowed")
         return allow()
+
+
+def _with_codex_exec_workdir(payload: dict) -> dict:
+    """Judge a Codex Bash call where it runs; the hook payload names only the session cwd."""
+
+    if runtime_name() != "codex" or payload.get("tool_name") not in BASH_TOOLS:
+        return payload
+    from codex_exec_workdir import exec_workdir
+
+    workdir = exec_workdir(payload)
+    return {**payload, "cwd": workdir} if workdir else payload
 
 
 def _decide(payload: dict) -> int:
