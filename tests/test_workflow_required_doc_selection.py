@@ -481,7 +481,7 @@ class RequiredDocMembershipTests(unittest.TestCase):
         self.assertEqual(
             [
                 "common/skills/verification-policy/references/current-guidance.md",
-                "common/skills/testing/references/current-guidance.md",
+                "common/skills/testing/SKILL.md",
                 "common/skills/scenario-driven-testing/references/current-guidance.md",
                 "common/skills/definition-of-done/references/current-guidance.md",
             ],
@@ -1151,7 +1151,8 @@ class InferredConcernTests(unittest.TestCase):
 class ConcernReferenceDocTests(unittest.TestCase):
     """A named concern requires its primary card; its companions stay on demand."""
 
-    TESTING = "common/skills/testing/references/current-guidance.md"
+    # The testing card is a core contract; its reference is on demand.
+    TESTING = "common/skills/testing/SKILL.md"
     COMPANIONS = (
         "common/skills/scenario-driven-testing/references/current-guidance.md",
         "common/skills/verification-policy/references/current-guidance.md",

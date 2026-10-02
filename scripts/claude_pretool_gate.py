@@ -379,6 +379,9 @@ def allow() -> int:
 
 # Warnings this call owes the agent, emitted with whatever verdict it reaches.
 _PENDING_WARNINGS: list[str] = []
+# Model-only context (unread required docs). Unlike a warning it is not shown
+# to the user, and Codex accepts it too (verified with codex-cli 0.160).
+_PENDING_CONTEXT: list[str] = []
 _EXCEPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 
 
@@ -399,10 +402,14 @@ def _emit(decision: "dict | None") -> int:
     output: dict = {}
     if decision is not None:
         output["hookSpecificOutput"] = {"hookEventName": "PreToolUse", **decision}
-    if warning and not codex:
+    context = [warning] if warning and not codex else []
+    context.extend(_PENDING_CONTEXT)
+    _PENDING_CONTEXT.clear()
+    if context:
         output.setdefault("hookSpecificOutput", {"hookEventName": "PreToolUse"})[
             "additionalContext"
-        ] = warning
+        ] = "\n\n".join(context)
+    if warning and not codex:
         output["systemMessage"] = warning
     if output:
         print(json.dumps(output), flush=True)
@@ -2357,11 +2364,37 @@ def decide(payload: dict) -> int:
     """
 
     _PENDING_WARNINGS.clear()
+    _PENDING_CONTEXT.clear()
     try:
-        return _decide(_with_codex_exec_workdir(payload))
+        payload = _with_codex_exec_workdir(payload)
+        _queue_unread_required_docs(payload)
+        return _decide(payload)
     except Exception as error:  # noqa: BLE001 - the gate fails open, never silently
         _gate_internal_error(error, "the command was allowed")
         return allow()
+
+
+def _queue_unread_required_docs(payload: dict) -> None:
+    """Owe the model the run's unread required docs at its first file edit."""
+
+    # Codex names its file edits `apply_patch`, which EDIT_TOOLS does not list.
+    if payload.get("tool_name") not in EDIT_TOOLS | {"apply_patch"} or not gate_enabled():
+        return
+    from agent_required_doc_delivery import delivery_text
+
+    session_id = str(payload.get("session_id") or "")
+    reader = _run_evidence_reader()
+    if not session_id or reader is None:
+        return
+    identity = {"runtime": runtime_name(), "session_id": session_id}
+    try:
+        # The reader directly, not `session_evidence`: the verdict's own
+        # lookups must stay exactly as they were without this delivery.
+        text = delivery_text(payload, lambda project: reader.resolve_runtime_evidence(project, identity))
+    except Exception:  # noqa: BLE001 - delivery is advisory and must never change a verdict
+        return
+    if text:
+        _PENDING_CONTEXT.append(text)
 
 
 def _with_codex_exec_workdir(payload: dict) -> dict:

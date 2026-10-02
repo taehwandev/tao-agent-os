@@ -87,12 +87,14 @@ class ScopeChangeLifecycleTests(unittest.TestCase):
 
         self.assertLess(total_bytes, 100_000)
 
-    def test_explicit_testing_concern_still_promotes_detailed_guidance(self) -> None:
+    def test_explicit_testing_concern_promotes_the_testing_contract(self) -> None:
         route = resolve_docs(
             "feature", None, ["testing"], request_classified=True
         )
 
-        self.assertIn(
+        # The core contract is promoted; its detailed reference stays on demand.
+        self.assertIn("common/skills/testing/SKILL.md", route["required_docs"])
+        self.assertNotIn(
             "common/skills/testing/references/current-guidance.md",
             route["required_docs"],
         )
