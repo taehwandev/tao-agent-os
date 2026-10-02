@@ -91,10 +91,56 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn(f"=== {CORE} ===", text)
         self.assertNotIn(f"=== {OTHER} ===", text)
 
+    def test_compaction_is_detected_independently_of_json_spacing(self) -> None:
+        for boundary in ({"type": "system", "subtype": "compact_boundary"},
+                         {"type": "compacted", "payload": {"message": "summary"}}):
+            for separators in (None, (",", ":")):
+                with self.subTest(boundary=boundary["type"], separators=separators):
+                    (self.evidence.parent / MARKER).unlink(missing_ok=True)
+                    self._transcript((STARTED, CORE), (STARTED, OTHER))
+                    rows = [json.loads(line) for line in self.transcript.read_text().splitlines()]
+                    rows.insert(2, boundary)
+                    self.transcript.write_text("\n".join(json.dumps(row, separators=separators)
+                                                        for row in rows) + "\n")
+                    text = self._deliver()
+                    self.assertIn(f"=== {CORE} ===", text)
+                    self.assertNotIn(f"=== {OTHER} ===", text)
+
     def test_a_doc_changed_after_its_reading_is_delivered(self) -> None:
         self._transcript(("2026-10-02T02:00:00.000Z", CORE))
         (self.rules / CORE).write_text("## Must\n\n- Keep state immutable.\n- A newer rule.\n", encoding="utf-8")
         self.assertIn("A newer rule.", self._deliver())
+
+    def test_deleting_or_reordering_rules_invalidates_an_old_read(self) -> None:
+        body = "## Rules\n- First rule.\n- Removed rule.\n- Last rule.\n"
+        for current in ("## Rules\n- First rule.\n- Last rule.\n",
+                        "## Rules\n- Last rule.\n- Removed rule.\n- First rule.\n"):
+            with self.subTest(current=current):
+                (self.evidence.parent / MARKER).unlink(missing_ok=True)
+                (self.rules / CORE).write_text(body)
+                self._transcript((STARTED, CORE))
+                (self.rules / CORE).write_text(current)
+                self.assertIn(f"=== {CORE} ===", self._deliver())
+
+    def test_complete_numbered_partial_reads_are_reused(self) -> None:
+        body = (self.rules / CORE).read_text().splitlines(keepends=True)
+        for numbered in (False, True):
+            with self.subTest(numbered=numbered):
+                (self.evidence.parent / MARKER).unlink(missing_ok=True)
+                lines = [f"{index + 1}\t{line}" if numbered else line
+                         for index, line in enumerate(body)]
+                self._transcript((STARTED, CORE, "".join(lines[:3])),
+                                 (STARTED, CORE, "".join(lines[3:])))
+                self.assertNotIn(f"=== {CORE} ===", self._deliver())
+
+    def test_a_compaction_resets_partial_read_coverage(self) -> None:
+        body = (self.rules / CORE).read_text().splitlines(keepends=True)
+        self._transcript((STARTED, CORE, "".join(body[:3])),
+                         (STARTED, CORE, "".join(body[3:])))
+        rows = [json.loads(line) for line in self.transcript.read_text().splitlines()]
+        rows.insert(2, {"type": "compacted"})
+        self.transcript.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        self.assertIn(f"=== {CORE} ===", self._deliver())
 
     def test_a_partial_read_does_not_count(self) -> None:
         self._transcript(("2026-10-02T02:00:00.000Z", CORE, "1\t---\n2\tkeyflow_id: k\n3\t---\n4\t## Must"))
@@ -116,6 +162,69 @@ class DeliveryTests(unittest.TestCase):
         text = self._deliver()
         self.assertNotIn(f"=== {CORE} ===", text)
         self.assertIn(f"=== {OTHER} ===", text)
+
+    def test_structured_codex_outputs_reuse_complete_reads(self) -> None:
+        body = (self.rules / CORE).read_text() + '- Use "settings".\n'
+        (self.rules / CORE).write_text(body)
+        for kind in ("function_call", "custom_tool_call"):
+            for serialized in (False, True):
+                with self.subTest(kind=kind, serialized=serialized):
+                    (self.evidence.parent / MARKER).unlink(missing_ok=True)
+                    output = {"output": body, "exit_code": 0}
+                    self._transcript(rows=[
+                        {"type": "response_item", "payload": {
+                            "type": kind, "call_id": "r1", "name": "exec_command",
+                            "arguments": json.dumps({"cmd": f"cat {self.rules}/{CORE}"})}},
+                        {"type": "response_item", "payload": {
+                            "type": kind + "_output", "call_id": "r1",
+                            "output": json.dumps(output) if serialized else output}},
+                    ])
+                    self.assertNotIn(f"=== {CORE} ===", self._deliver())
+
+    def test_a_failed_codex_read_cannot_supply_partial_coverage(self) -> None:
+        body = (self.rules / CORE).read_text()
+        self._transcript(rows=[
+            {"type": "response_item", "payload": {
+                "type": "function_call", "call_id": "r1",
+                "arguments": json.dumps({"cmd": f"cat {self.rules}/{CORE}"})}},
+            {"type": "response_item", "payload": {
+                "type": "function_call_output", "call_id": "r1",
+                "output": {"output": body, "exit_code": 1}}},
+        ])
+        self.assertIn(f"=== {CORE} ===", self._deliver())
+
+    def test_codex_wrappers_preserve_text_and_failed_commands_stay_unread(self) -> None:
+        body = (self.rules / CORE).read_text()
+        for output, read in (
+            ({"result": {"status": "fulfilled", "value": {"output": body, "exit_code": 0}}}, True),
+            ({"content": [{"type": "text", "text": json.dumps({"output": body})}]}, True),
+            (f"Chunk ID: c1\nWall time: 0.1 seconds\nProcess exited with code 0\nOutput:\n{body}", True),
+            (f"Chunk ID: c1\nWall time: 0.1 seconds\nProcess exited with code 1\nOutput:\n{body}", False),
+        ):
+            with self.subTest(output=output):
+                (self.evidence.parent / MARKER).unlink(missing_ok=True)
+                self._transcript(rows=[
+                    {"type": "response_item", "payload": {
+                        "type": "function_call", "call_id": "r1",
+                        "arguments": json.dumps({"cmd": f"cat {self.rules}/{CORE}"})}},
+                    {"type": "response_item", "payload": {
+                        "type": "function_call_output", "call_id": "r1", "output": output}},
+                ])
+                self.assertEqual(not read, f"=== {CORE} ===" in self._deliver())
+
+    def test_repeated_lines_need_unambiguous_partial_read_evidence(self) -> None:
+        (self.rules / CORE).write_text("Repeated rule.\nUnique rule.\nRepeated rule.\n")
+        self._transcript((STARTED, CORE, "Repeated rule.\n"),
+                         (STARTED, CORE, "Unique rule.\n"))
+        self.assertIn(f"=== {CORE} ===", self._deliver())
+
+    def test_a_batched_read_reuses_each_complete_doc_in_command_order(self) -> None:
+        body = (self.rules / OTHER).read_text() + (self.rules / CORE).read_text()
+        self._transcript(rows=[{"type": "event_msg", "payload": {
+            "item": {"type": "CommandExecution", "id": "r1", "status": "completed",
+                     "exit_code": 0, "command": f"cat {self.rules}/{OTHER} {self.rules}/{CORE}",
+                     "stdout": body}}}])
+        self.assertEqual("", self._deliver())
 
     def test_everything_read_delivers_nothing_but_still_marks_the_run(self) -> None:
         self._transcript(("2026-10-02T03:05:00.000Z", CORE), ("2026-10-02T03:06:00.000Z", OTHER))

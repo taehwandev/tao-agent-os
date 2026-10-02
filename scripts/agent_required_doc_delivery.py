@@ -33,8 +33,6 @@ MAX_DELIVERY_BYTES = 24 * 1024
 # Cheap substring filters before a transcript line is parsed.
 _TOOL_EVENT = ('"tool_use"', '"tool_result"', '"custom_tool_call', '"function_call',
                '"CommandExecution"')
-# Claude's and Codex's markers for a compaction that drops earlier tool output.
-_COMPACTION = ('"subtype":"compact_boundary"', '"type":"compacted"')
 _FRONTMATTER = re.compile(r"^---\n.*?\n---\n", re.S)
 _PATCH_FILE = re.compile(r"\*\*\* (?:Update|Add|Delete) File: (\S[^\n]*)")
 
@@ -98,11 +96,11 @@ def _read_in_context(transcript: Path, rules: Path, docs: list[str]) -> set[str]
 
     Counting a tool call that merely named a doc credited searches, failed and
     partial reads; counting only calls since the run started re-delivered docs
-    read just before `start` that were still in context. A doc counts when a
-    successful call naming it returned every line of the doc's current text
-    (a complete read of this version, not a slice or an older one) after the
-    last compaction (so the text is still there). File times are no guide: a
-    fresh worktree checkout restamps every unchanged doc.
+    read just before `start` that were still in context. A doc counts when
+    successful calls naming it returned exact, contiguous portions of the
+    doc's current text that together cover it after the last compaction.
+    Extra or reordered rules cannot prove a read of this version. File times
+    are no guide: a fresh checkout restamps every unchanged doc.
     """
 
     if not transcript.is_file():
@@ -110,21 +108,24 @@ def _read_in_context(transcript: Path, rules: Path, docs: list[str]) -> set[str]
     texts = {doc: _lines(rules / doc) for doc in docs}
     texts = {doc: lines for doc, lines in texts.items() if lines}
     calls: dict[str, list[str]] = {}
-    found: set[str] = set()
+    covered: dict[str, set[int]] = {}
     with transcript.open(encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            if any(marker in line for marker in _COMPACTION):
-                calls.clear()
-                found.clear()
-                continue
-            if not any(kind in line for kind in _TOOL_EVENT):
-                continue
-            # Parse only a call naming a doc, or the result of one.
-            if not any(doc in line for doc in texts) and not any(call in line for call in calls):
+            if not any(kind in line for kind in (*_TOOL_EVENT, '"compact_boundary"', '"compacted"')):
                 continue
             try:
                 row = json.loads(line)
             except ValueError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            if row.get("type") == "compacted" or (
+                row.get("type") == "system" and row.get("subtype") == "compact_boundary"
+            ):
+                calls.clear()
+                covered.clear()
+                continue
+            if not any(doc in line for doc in texts) and not any(call in line for call in calls):
                 continue
             for call_id, named, output, failed in _tool_events(row, texts):
                 if output is None:
@@ -132,9 +133,32 @@ def _read_in_context(transcript: Path, rules: Path, docs: list[str]) -> set[str]
                     continue
                 named = calls.pop(call_id, named)
                 if not failed:
-                    found.update(doc for doc in named
-                                 if all(text in output for text in texts[doc]))
-    return found
+                    for doc, span in _read_spans(named, texts, output).items():
+                        covered.setdefault(doc, set()).update(span)
+    return {doc for doc, span in covered.items() if len(span) == len(texts[doc])}
+
+
+def _read_spans(named: list[str], texts: dict[str, list[str]], output: str) -> dict[str, range]:
+    """Credit only exact current text; ambiguous slices remain unconfirmed."""
+
+    if output.startswith(("Chunk ID:", "Wall time:", "Process exited")):
+        if re.search(r"Process exited with code [1-9]\d*", output):
+            return {}
+        output = re.split(r"\n(?:Final output|Output):\n", output, maxsplit=1)[-1]
+    lines = [re.sub(r"^\s*\d+(?:\t|→)", "", line).strip() for line in output.splitlines()]
+    lines = [line for line in lines if line]
+    if not named or not lines:
+        return {}
+    if len(named) > 1:
+        if lines == [line for doc in named for line in texts[doc]]:
+            return {doc: range(len(texts[doc])) for doc in named}
+        return {}
+    doc = named[0]
+    starts = [index for index in range(len(texts[doc]) - len(lines) + 1)
+              if texts[doc][index:index + len(lines)] == lines]
+    if len(starts) != 1:
+        return {}
+    return {doc: range(starts[0], starts[0] + len(lines))}
 
 
 def _tool_events(row: dict, texts: dict[str, list[str]]):
@@ -142,7 +166,7 @@ def _tool_events(row: dict, texts: dict[str, list[str]]):
 
     def named(value) -> list[str]:
         text = json.dumps(value, ensure_ascii=False)
-        return [doc for doc in texts if doc in text]
+        return sorted((doc for doc in texts if doc in text), key=text.index)
 
     payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
     item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
@@ -155,8 +179,7 @@ def _tool_events(row: dict, texts: dict[str, list[str]]):
     if kind in ("function_call", "custom_tool_call"):
         yield str(payload.get("call_id")), named(payload.get("arguments") or payload.get("input")), None, False
     elif kind in ("function_call_output", "custom_tool_call_output"):
-        output = payload.get("output")
-        yield str(payload.get("call_id")), [], json.dumps(output, ensure_ascii=False) if not isinstance(output, str) else output, False
+        yield str(payload.get("call_id")), [], _result_text(payload.get("output")), False
     content = (row.get("message") or {}).get("content") if isinstance(row.get("message"), dict) else None
     for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict):
@@ -170,9 +193,22 @@ def _tool_events(row: dict, texts: dict[str, list[str]]):
 
 def _result_text(content) -> str:
     if isinstance(content, str):
-        return content
+        try:
+            decoded = json.loads(content)
+        except ValueError:
+            return content
+        if not isinstance(decoded, (dict, list)):
+            return content
+        content = decoded
+    if isinstance(content, dict):
+        if content.get("exit_code") not in (None, 0) or content.get("is_error") or content.get("isError"):
+            return ""
+        for key in ("stdout", "output", "text", "content", "result", "value"):
+            if key in content:
+                return _result_text(content[key])
+        return ""
     if isinstance(content, list):
-        return "\n".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
+        return "\n".join(_result_text(part) for part in content)
     return ""
 
 
