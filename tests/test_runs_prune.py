@@ -88,9 +88,9 @@ class RunsPruneTests(unittest.TestCase):
 
     def test_an_unfinished_run_that_could_still_resume_is_not_removable(self) -> None:
         # Its packet is the only record of where it stopped.
-        for phase in ("reviewing", "acting", "blocked", "scoped"):
+        for index, phase in enumerate(("reviewing", "acting", "blocked", "scoped")):
             with self.subTest(phase=phase):
-                path = self._run(hash(phase) % 1000, phase)
+                path = self._run(index, phase)
                 report = self._plan(keep=0)
 
                 self.assertIn(path.name, self._names(report["unfinished"]))

@@ -55,8 +55,11 @@ def document_key(root: Path, docs: set[str]) -> str:
     it out was a stale hit: changing only the rules file changed the graph and
     not the key.
 
-    Size and modification time rather than content: reading the 2 MB the build
-    reads is the cost the cache exists to avoid.
+    File identity, size, modification and change times rather than content:
+    reading the 2 MB the build reads is the cost the cache exists to avoid.
+    Change time detects rewrites with restored mtime; device and inode detect
+    replacements even when their timestamps match. Metadata cannot detect an
+    in-place rewrite that preserves every field at the filesystem's precision.
     """
 
     digest = hashlib.sha256()
@@ -85,7 +88,10 @@ def document_key(root: Path, docs: set[str]) -> str:
         except OSError:
             return ""
         digest.update(rel.encode("utf-8", "surrogateescape"))
-        digest.update(f"\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode("ascii"))
+        digest.update(
+            f"\0{stat.st_dev}\0{stat.st_ino}\0{stat.st_size}"
+            f"\0{stat.st_mtime_ns}\0{stat.st_ctime_ns}\0".encode("ascii")
+        )
         if link:
             digest.update(b"\0link\0")
             digest.update(link.encode("utf-8", "surrogateescape"))

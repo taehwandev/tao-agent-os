@@ -73,10 +73,17 @@ def delivery_text(payload: dict, evidence_for) -> str:
         rules = Path(preflight["rules"])
         docs = list(dict.fromkeys(preflight["route"].get("required_docs") or []))
         reused = set(required_doc_reuse(evidence)["reused"])
-        read = _read_in_context(Path(str(payload.get("transcript_path") or "")), rules, docs)
-        pending = [doc for doc in docs if doc not in reused and doc not in read]
+        docs = [doc for doc in docs if doc not in reused]
+        texts = {}
+        for doc in docs:
+            try:
+                texts[doc] = (rules / doc).read_text(encoding="utf-8")
+            except OSError:
+                continue
+        read = _read_in_context(Path(str(payload.get("transcript_path") or "")), rules, texts)
+        pending = [doc for doc in docs if doc not in read]
         marker.write_text(json.dumps({"delivered": pending}), encoding="utf-8")
-        return _render(rules, pending)
+        return _render(texts, pending)
     except (OSError, ValueError, KeyError, TypeError):
         return ""
 
@@ -92,7 +99,7 @@ def _session_run(payload: dict, evidence_for) -> Path | None:
     return None
 
 
-def _read_in_context(transcript: Path, rules: Path, docs: list[str]) -> set[str]:
+def _read_in_context(transcript: Path, rules: Path, texts: dict[str, str]) -> set[str]:
     """Docs whose full, current text a tool result put into the live context.
 
     Counting a tool call that merely named a doc credited searches, failed and
@@ -104,9 +111,10 @@ def _read_in_context(transcript: Path, rules: Path, docs: list[str]) -> set[str]
     are no guide: a fresh checkout restamps every unchanged doc.
     """
 
-    if not transcript.is_file():
+    if not texts or not transcript.is_file():
         return set()
-    texts = {doc: _lines(rules / doc) for doc in docs}
+    texts = {doc: [line.strip() for line in text.splitlines() if line.strip()]
+             for doc, text in texts.items()}
     texts = {doc: lines for doc, lines in texts.items() if lines}
     calls: dict[str, list[str]] = {}
     covered: dict[str, set[int]] = {}
@@ -251,24 +259,14 @@ def _result_text(content) -> str:
     return ""
 
 
-def _lines(path: Path) -> list[str]:
-    """The doc's substantive lines, frontmatter included since a read returns it."""
-
-    try:
-        return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    except OSError:
-        return []
-
-
-def _render(rules: Path, pending: list[str]) -> str:
+def _render(texts: dict[str, str], pending: list[str]) -> str:
     if not pending:
         return ""
     inline, listed, used = [], [], 0
     for doc in pending:
-        try:
-            text = _FRONTMATTER.sub("", (rules / doc).read_text(encoding="utf-8")).strip()
-        except OSError:
+        if doc not in texts:
             continue
+        text = _FRONTMATTER.sub("", texts[doc]).strip()
         size = len(text.encode("utf-8"))
         if size <= MAX_INLINE_DOC_BYTES and used + size <= MAX_DELIVERY_BYTES:
             inline.append(f"=== {doc} ===\n{text}")

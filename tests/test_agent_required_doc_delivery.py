@@ -67,6 +67,73 @@ class DeliveryTests(unittest.TestCase):
         found = self.evidence if evidence is None else evidence
         return delivery_text(payload, lambda project: found if project == self.project else None)
 
+    def _count_document_reads(self):
+        counts = {CORE: 0, OTHER: 0}
+        original = Path.read_text
+
+        def read(path, *args, **kwargs):
+            for doc in counts:
+                if path == self.rules / doc:
+                    counts[doc] += 1
+            return original(path, *args, **kwargs)
+
+        return counts, patch.object(Path, "read_text", read)
+
+    def test_unread_docs_are_opened_once_and_the_marker_skips_future_reads(self) -> None:
+        counts, reads = self._count_document_reads()
+        with reads:
+            first = self._deliver()
+        self.assertIn("Keep state immutable.", first)
+        self.assertIn("Run the tests.", first)
+        self.assertEqual({CORE: 1, OTHER: 1}, counts)
+        counts, reads = self._count_document_reads()
+        with reads:
+            self.assertEqual("", self._deliver())
+        self.assertEqual({CORE: 0, OTHER: 0}, counts)
+
+    def test_proven_reuse_does_not_open_document_content(self) -> None:
+        counts, reads = self._count_document_reads()
+        with reads, patch("agent_required_doc_delivery.required_doc_reuse",
+                          return_value={"reused": [CORE, OTHER], "unread": []}):
+            self.assertEqual("", self._deliver())
+        self.assertEqual({CORE: 0, OTHER: 0}, counts)
+
+    def test_mixed_reuse_and_fresh_delivery_opens_only_the_fresh_doc_once(self) -> None:
+        counts, reads = self._count_document_reads()
+        with reads, patch("agent_required_doc_delivery.required_doc_reuse",
+                          return_value={"reused": [CORE], "unread": [OTHER]}):
+            text = self._deliver()
+        self.assertNotIn(f"=== {CORE} ===", text)
+        self.assertIn("Run the tests.", text)
+        self.assertEqual({CORE: 0, OTHER: 1}, counts)
+
+    def test_transcript_comparison_and_rendering_share_the_document_read(self) -> None:
+        self._transcript((STARTED, CORE))
+        counts, reads = self._count_document_reads()
+        with reads:
+            text = self._deliver()
+        self.assertNotIn(f"=== {CORE} ===", text)
+        self.assertIn("Run the tests.", text)
+        self.assertEqual({CORE: 1, OTHER: 1}, counts)
+
+    def test_missing_transcript_still_opens_each_delivered_doc_once(self) -> None:
+        self.transcript.unlink()
+        counts, reads = self._count_document_reads()
+        with reads:
+            text = self._deliver()
+        self.assertIn("Keep state immutable.", text)
+        self.assertIn("Run the tests.", text)
+        self.assertEqual({CORE: 1, OTHER: 1}, counts)
+
+    def test_a_missing_doc_is_attempted_once_and_other_docs_are_delivered(self) -> None:
+        (self.rules / CORE).unlink()
+        counts, reads = self._count_document_reads()
+        with reads:
+            text = self._deliver()
+        self.assertNotIn(f"=== {CORE} ===", text)
+        self.assertIn("Run the tests.", text)
+        self.assertEqual({CORE: 1, OTHER: 1}, counts)
+
     def test_unread_docs_are_delivered_once(self) -> None:
         first = self._deliver()
         self.assertIn(f"=== {CORE} ===", first)

@@ -762,52 +762,73 @@ drift validation and the weak-evidence rejection control.
 
 ### F02: Delivery Reopens Content It Already Has Or Can Skip
 
-P2 efficiency; **open**, H02/H10. Owner: `delivery_text`, `_read_in_context`,
+The follow-up repairs below use the combined Codex/Claude baseline `180bb39`.
+
+P2 efficiency; **resolved**, H02/H10. Owner: `delivery_text`, `_read_in_context`,
 and `_render` in [delivery](scripts/agent_required_doc_delivery.py). Reproduce
 with [DeliveryTests](tests/test_agent_required_doc_delivery.py)'s existing
 empty transcript and two required documents. Count `Path.read_text` calls for
 those document paths while invoking `_deliver()`.
 
-Each unread document is opened **twice**, for transcript comparison and
-rendering. A second delivery opens neither document. Controlling
-`required_doc_reuse` to prove both documents reusable still opens each **once**,
+At the audit baseline, each unread document was opened **twice**, for transcript
+comparison and rendering. A second delivery opened neither document. Controlling
+`required_doc_reuse` to prove both documents reusable still opened each **once**,
 while delivering no text. This is local file I/O, not duplicate model context
 or a measured latency regression.
 
-Next check: exclude proven-reused documents from transcript verification and
-share a content buffer within delivery. Require one open per unread document,
-zero per proven-reused document, and zero after the marker, while preserving
-all freshness/span regressions.
+The repair excludes proven-reused documents before transcript verification and
+shares one content buffer between comparison and rendering. The delivery suite
+now passes **30 tests**: one content open per unread document, zero per
+proven-reused document, and zero after the marker. Five new regression cases
+failed before the repair; freshness, partial-read and compaction controls pass.
+These counts cover document content reads, not lifecycle-evidence file reads.
 
 ### F03: Restored Metadata Can Hide A Document-Graph Change
 
-P2 correctness edge; **open**, H05. Owner:
+P2 correctness edge; **resolved for the reported rewrite**, H05. Owner:
 [document_key](scripts/workflow_doc_graph_cache.py). In a temporary
 `.tao`-enabled fixture, build a graph from a Markdown link to `alpha.md`, replace
 its target with equal-length `omega.md`, and restore the original `st_mtime_ns`
 using `os.utime`. Clear only the in-process graph cache, then build again to exercise
 the persisted cache.
 
-The returned edge still points to **alpha.md**. Advancing the mtime and clearing
-the in-process cache rebuilds it with **omega.md**. The key measures document
+At the audit baseline, the returned edge still pointed to **alpha.md**. Advancing
+the mtime and clearing the in-process cache rebuilt it with **omega.md**. The key measured document
 path/size/mtime, symlink identity, and builder content, rather than document
-contents. Next check: require the omega edge after preserved-metadata rewriting
-and retain unchanged-input cache hits. Measure stronger identity options before
-choosing a repair; do not discard the cache or hash the corpus without measuring.
+contents. The repair adds `st_ctime_ns`, device and inode to the same stat-based
+key. The graph suite now passes **24 tests**, including persisted-cache
+in-place rewriting, atomic replacement, unchanged-input hits and zero document
+content opens while keying. Four regression assertions failed before the fix.
+Metadata-only caching still cannot detect an in-place change that leaves every
+key field identical at the filesystem's timestamp precision; this is not a
+content-hash guarantee.
 
 ### F04: Small-Change Owner Guidance Still Has A Large Read Surface
 
-P3 optimization investigation; **open**, H01/H10. Owners: the
+P3 optimization investigation; **partially improved; broader investigation open**,
+H01/H10. Owners: the
 [router](scripts/workflow_route.py), [surface rules](workflow-doc-surfaces.json),
 and selected guidance. The measured README and runtime-script profiles above
 select **58,084** and **74,507 bytes**. This does not establish irrelevance:
 verified owner contracts still apply and some readings may already be retained.
 
-Next check: inspect `required_doc_reasons`, include explicit dependencies and
-substantive entrypoints, and measure actual reads for the same task. Split broad
-guidance only if every surviving rule retains one owner. Lower selected bytes
-alone cannot justify removing required contracts. Carry F02–F04 forward until
-their proving checks pass or a source-backed decision closes them.
+The follow-up inspected `required_doc_reasons`: delivery/reuse inherited CI/CD
+guidance from the broad `workflow_router` path rule, although neither owner
+defines CI checks, release pipelines or scheduled automation. A specific
+`required_doc_context` rule preserves scripted workflow, lifecycle and recovery
+guidance without that unrelated card. The same delivery-owner profile now
+selects **7 docs / 69,386 bytes**, a reduction of **5,121 selected bytes**.
+Mixed delivery/workflow changes still require CI/CD guidance. The surface suite
+passes **74 tests**, with both owner-only negative controls failing before the
+rule split. README's profile remains **7 docs / 58,084 bytes**; its applicable
+documentation/source/writing contracts were retained. These are selection
+measurements, not actual model reads or latency savings. Further splitting
+requires a source-backed owner and conditional-read accounting.
+
+The same follow-up fixes the hash-based fixture in
+[runs-prune tests](tests/test_runs_prune.py): `PYTHONHASHSEED=240` reproduced a
+directory collision before repair; ordinal phase IDs then passed all **22
+tests** with that same seed. No run-retention policy was changed.
 
 ### Audit: 2026-10-02, Feature QA
 
@@ -816,10 +837,10 @@ checkout with temporary HOME/state directories. Ten feature areas (install,
 router, lifecycle, continuation, safety gate, doc delivery, collaboration,
 memory and cards, VibeGuard and release, runtime adapters) were each checked
 against README/AGENTS/reference promises by running CLIs, hooks or focused
-tests: 123 rows, 112 pass, 4 unverified, 9 fail. Each failure was reproduced
-again by an independent agent; one turned out to be a stale fixture rather than
+tests, with reported outcomes of 112 pass, 4 unverified, and 9 fail. Each failure
+was reproduced again by an independent agent; one turned out to be a stale fixture rather than
 a product failure. After the repairs below, the full `discover -s tests` suite
-passed **3776 tests** (1 skipped).
+ran **3776 tests** (**3775 passed**, 1 skipped).
 
 All resolved in this change except F11, which is docs-only by decision:
 

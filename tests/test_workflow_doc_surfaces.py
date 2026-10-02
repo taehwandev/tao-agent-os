@@ -356,6 +356,29 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
         self.assertIn("doc_surface_matches", route)
         self.assertTrue(any(match["name"] == "workflow_router" for match in route["doc_surface_matches"]))
 
+    def test_document_context_owners_keep_lifecycle_without_ci_guidance(self) -> None:
+        for owner in ("scripts/agent_required_doc_delivery.py", "scripts/agent_required_doc_reuse.py"):
+            with self.subTest(owner=owner):
+                route = resolve_docs("small-change", None, [], surface_paths=[owner])
+                required = required_areas(route)
+                for doc in (
+                    "workflows/skills/scripted-agent-workflow/SKILL.md",
+                    "workflows/skills/agent-task-lifecycle/SKILL.md",
+                    "common/skills/tool-failure-recovery/SKILL.md",
+                ):
+                    self.assertIn(guidance_area(doc), required)
+                self.assertNotIn(guidance_area("common/skills/ci-cd-automation/SKILL.md"), required)
+                self.assertEqual([], route["missing"])
+
+    def test_mixed_document_context_and_workflow_changes_keep_ci_guidance(self) -> None:
+        route = resolve_docs(
+            "small-change", None, [],
+            surface_paths=["scripts/agent_required_doc_delivery.py", "scripts/workflow_route.py"],
+        )
+        self.assertIn(
+            guidance_area("common/skills/ci-cd-automation/SKILL.md"), required_areas(route)
+        )
+
     def test_agent_mailbox_path_surface_promotes_runtime_integration_docs(self) -> None:
         route = resolve_docs(
             "feature",

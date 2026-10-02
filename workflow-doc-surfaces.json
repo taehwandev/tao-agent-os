@@ -1621,6 +1621,10 @@
         "scripts/agent_*",
         "scripts/agent-*"
       ],
+      "exclude_patterns": [
+        "scripts/agent_required_doc_delivery.py",
+        "scripts/agent_required_doc_reuse.py"
+      ],
       "docs": [
         "workflows/skills/scripted-agent-workflow/SKILL.md",
         "workflows/skills/agent-task-lifecycle/SKILL.md",
@@ -1628,6 +1632,19 @@
         "common/skills/ci-cd-automation/SKILL.md"
       ],
       "reason": "Workflow and hook script changes affect the executable route, preflight, required-document manifest, and finish gates."
+    },
+    {
+      "name": "required_doc_context",
+      "patterns": [
+        "scripts/agent_required_doc_delivery.py",
+        "scripts/agent_required_doc_reuse.py"
+      ],
+      "docs": [
+        "workflows/skills/scripted-agent-workflow/SKILL.md",
+        "workflows/skills/agent-task-lifecycle/SKILL.md",
+        "common/skills/tool-failure-recovery/SKILL.md"
+      ],
+      "reason": "Required-document delivery and reuse preserve lifecycle, freshness, and recovery contracts; these owners do not define CI checks, release pipelines, or scheduled automation."
     },
     {
       "name": "request_classifier",
