@@ -60,7 +60,10 @@ try:  # The gate must never fail to load; the import is only used for a message.
     import claude_pretool_publication as _publication
     import claude_pretool_finished_admission as _admission
     import claude_pretool_worktree_integration as _integration
-    from claude_pretool_git_hazards import shared_repository_hazard
+    from claude_pretool_git_hazards import (
+        discards_only_worktree_files,
+        shared_repository_hazard,
+    )
     from claude_pretool_protected_checkout import (
         is_git_deletion as _is_git_deletion,
         protected_checkout_verdict,
@@ -225,6 +228,9 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
 
     def shared_repository_hazard(tokens: list[str], protected: "frozenset[str] | None" = None) -> str:
         return ""
+
+    def discards_only_worktree_files(tokens: list[str]) -> bool:
+        return False
 
     # A broken install releases no checkout: every governed root stays one.
     def throwaway_checkout(root: Path) -> bool:
@@ -2493,6 +2499,8 @@ def _decide(payload: dict) -> int:
         )
     if worktree_policy_satisfied(root) and not policy_requires_workflow_entry(root):
         hazard = shared_repository_hazard(tokens, protected_branch_names(root))
+        if hazard and discards_only_worktree_files(tokens):
+            return allow()  # This worktree's own files: native permissions decide.
         if hazard:
             return ask(
                 "This worktree isolates ordinary file edits, but this Git command "
@@ -2514,7 +2522,7 @@ def _decide(payload: dict) -> int:
     # Other shared-state hazards retain their existing permission request.
     if worktree_policy_satisfied(root):
         hazard = shared_repository_hazard(tokens, protected_branch_names(root))
-        if hazard and not _is_git_deletion(tokens):
+        if hazard and not (_is_git_deletion(tokens) or discards_only_worktree_files(tokens)):
             return ask(
                 "This worktree isolates ordinary file edits, but this Git command "
                 f"{hazard}. Allow it only if that is what you meant."

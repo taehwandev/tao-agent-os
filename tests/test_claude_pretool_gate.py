@@ -563,6 +563,49 @@ class ClaudePreToolGateTests(unittest.TestCase):
                     self.assertEqual("allow", decision["permissionDecision"])
                     self.assertIn("ordinary Git", decision["permissionDecisionReason"])
 
+    def test_a_linked_worktree_restores_its_own_files_without_a_hook_ask(self) -> None:
+        """Putting this worktree's own files back is native permission's call.
+
+        A hook `ask` has no "don't ask again", so restoring the DTOs before
+        each rerun of a conversion asked every time. Branch-moving spellings
+        and the protected checkout still ask.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _require_linked_worktree(project, linked=True)
+
+            def decision(command: str) -> str:
+                code, out = _decide(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(project),
+                        "session_id": "no-evidence",
+                        "tool_input": {"command": command},
+                    }
+                )
+                self.assertEqual(0, code)
+                return _decision_of(out)
+
+            for command in (
+                "git checkout -- app/src/main/java/data/dto/",
+                "git checkout HEAD -- src/a.kt src/b.kt",
+                "git restore src/app.py",
+                "git restore --source=HEAD~1 --worktree src/app.py",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("allow", decision(command))
+
+            for command in (
+                "git checkout -f main",
+                "git checkout -B main origin/main",
+                "git checkout -f -- src/app.py",
+                "git -C ../other checkout -- src/app.py",
+                "git reset --hard origin/main",
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual("ask", decision(command))
+
     def test_unclassified_git_keeps_claudes_normal_permission_flow(self) -> None:
         """A missing hazard entry must not become an unconditional approval."""
 

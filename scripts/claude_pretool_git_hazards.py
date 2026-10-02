@@ -195,3 +195,32 @@ def shared_repository_hazard(
     return _shared_history_hazard(
         subcommand, arguments, flags, short_flags, words, first
     )
+
+
+def discards_only_worktree_files(tokens: list[str]) -> bool:
+    """Whether this hazard only rewrites files of the checkout it runs in.
+
+    `git checkout -- <paths>` and `git restore <paths>` put tracked files back
+    from the index or a commit. No ref, remote or object moves; in a linked
+    worktree the files lost are that worktree's own uncommitted edits, which
+    the session there is the one making. A hook `ask` overrides allow rules and
+    offers no "don't ask again", so asking here re-prompted the same restore on
+    every rerun. These defer to Claude's own permission flow, like the
+    deletions `git clean` belongs to.
+
+    Branch-moving spellings (`-b`, `-B`, `-f`, `--force`) and anything with a
+    global option or an output/execution option stay hazards.
+    """
+
+    if not tokens or Path(tokens[0]).name != "git":
+        return False
+    subcommand, arguments = git_subcommand(tokens)
+    if subcommand not in {"checkout", "restore"} or len(tokens) - len(arguments) != 2:
+        return False
+    if any(names_unsafe_git_option(argument) for argument in arguments):
+        return False
+    if subcommand == "restore":
+        return True
+    if "--" not in arguments or arguments[-1] == "--":
+        return False
+    return not any(argument.startswith("-") for argument in arguments[: arguments.index("--")])
