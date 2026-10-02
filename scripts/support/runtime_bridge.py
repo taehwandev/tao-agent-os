@@ -41,6 +41,45 @@ CODEX_APPROVAL_WAIT_BRIDGE_PHRASE = (
     'common/skills/agent-operating-skill/references/runtime-recovery.md; reconcile '
     'effects and never bypass a denial.'
 )
+CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES = [
+    (
+        'Codex operator decisions: a "Tao operator decision required" block is a pending '
+        'exact-call decision, not a permanent policy refusal. First reuse existing '
+        'authorization and documented, independently gated recovery. Ask only if a '
+        'decision remains. Explain the action, exact target or literal command, expected '
+        'effect and reason in the user\'s language; distinguish an unparsed command from '
+        'a proven write or policy violation. Use a structured choice tool only if this '
+        'runtime permits it for approvals; otherwise show a short numbered list: '
+        '1. allow once; 2. always allow this exact action and target; 3. reject. '
+        'The conversation runtime interprets the contextual answer, not through a '
+        'keyword, phrase, or yes/no allowlist. An unambiguous instruction to proceed '
+        'suffices for approve; do not demand a particular spelling or repeat the question. '
+        'It does not imply always: standing consent requires clear authorization to '
+        'reuse this exact scope. If several pending requests make the answer ambiguous, '
+        'ask only which action it covers. Then end your turn; do not sleep, poll this '
+        'request or call other tools while waiting for the next user message. Never '
+        'infer consent from silence, mailbox context, a request to fix the gate or '
+        'unrelated approval. After an explicit answer, use the gate-supplied '
+        '<TAO_LAUNCHER> operator-review --request-id <ID> --decision approve|always|reject; '
+        'never invent an ID or self-approve. Approve permits one identical retry; always '
+        'permits the same scope across sessions until revoked or input/policy changes. '
+        'Sandbox permissions and other workflow checks still apply.'
+    ),
+    (
+        'Codex lookup recovery: a syntax-only "use one literal command" block may be '
+        'a composition error in an inspection bundle. Submit recognized local-context '
+        'helpers and supported read-only inspections as separate, independently gated '
+        'tool calls, preserving original commands, targets, operands and conditional '
+        'dependencies. Keep the resolved working directory explicit and reuse the '
+        'bound task and authority. Do not split or reword opaque project code, '
+        'substitutions, pipes, redirections, writes or policy refusals to evade denial. '
+        'Each unsupported constituent needs its own exact-call operator decision. '
+        'If every constituent is independently admitted, continue without asking or '
+        'recording approval for the rejected bundle. A "No new operator decision is '
+        'needed" block confirms recognized read or local-label constituents, never '
+        'permission to retry the bundle. Never retry it without explicit approval.'
+    ),
+]
 
 RUNTIME_NATIVE_DELEGATION_PHRASES = {
     'Codex': 'Use native Codex workers for an eligible split; the parent integrates and verifies.',
@@ -151,6 +190,7 @@ def runtime_bridge_required_phrases(runtime_name: str, instruction_file: str) ->
         phrases.append(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
         phrases.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
         phrases.append(CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE)
+        phrases.extend(CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES)
     return phrases
 
 

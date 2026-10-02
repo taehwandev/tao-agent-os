@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from support.runtime_bridge import (
     CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
     CODEX_DISPATCH_BRIDGE_PHRASE,
+    CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES,
     LEGACY_RUNTIME_BRIDGE_BEGIN,
     LEGACY_RUNTIME_BRIDGE_END,
     RUNTIME_BRIDGE_BEGIN,
@@ -57,7 +58,8 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
     def test_compact_bridge_routes_details_without_a_blanket_read(self):
         for runtime, entry in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
             block = runtime_bridge_block(Path("/tao"), runtime, entry)
-            self.assertLess(len(block.encode()), 6000)
+            moved_guidance = sum(len(phrase.encode()) + 3 for phrase in CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES) if runtime == "Codex" else 0
+            self.assertLess(len(block.encode()) - moved_guidance, 6000)
             self.assertIn("For unresolved lifecycle arguments", block)
             self.assertIn("When delegation is applicable", block)
             for relative in set(re.findall(r"common/skills/[\w/.-]+\.md", block)):
@@ -65,6 +67,39 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
             self.assertNotIn("fallback worker evidence path and opaque reservation token", block)
             self.assertIn("fallback worker evidence path and opaque reservation token", _runtime_detail("collaboration"))
         self.assertIn("Before interruption/retry", runtime_bridge_block(Path("/tao"), "Codex", "AGENTS.md"))
+
+    def test_codex_operator_procedure_lives_in_session_instructions(self):
+        block = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        for phrase in CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES:
+            self.assertEqual(1, block.count(phrase))
+            self.assertIn(phrase, runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+            for runtime, entry in (("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
+                self.assertNotIn(phrase, runtime_bridge_block(ROOT, runtime, entry))
+        for guarantee in ("end your turn", "do not sleep, poll this request",
+                          "short numbered list", "1. allow once", "2. always allow", "3. reject",
+                          "not through a keyword, phrase, or yes/no allowlist",
+                          "do not demand a particular spelling", "It does not imply always",
+                          "Never infer consent", "never invent an ID or self-approve",
+                          "Sandbox permissions and other workflow checks still apply",
+                          "conditional dependencies", "opaque project code",
+                          "Each unsupported constituent", "Never retry it without explicit approval"):
+            self.assertIn(guarantee, block)
+
+    def test_operator_guidance_refresh_preserves_user_rules_and_is_idempotent(self):
+        current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        old = current
+        for phrase in CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES:
+            old = old.replace(f"- {phrase}\n", "")
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "AGENTS.md"
+            prefix, suffix = "Personal rules\n", "Other integration\n"
+            target.write_text(prefix + old + suffix)
+            kwargs = dict(block=current, required_phrases=runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+            self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+            self.assertEqual(prefix + old + suffix, target.read_text())
+            self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+            self.assertEqual(prefix + current + suffix, target.read_text())
+            self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
 
     def test_codex_bridge_refresh_teaches_explicit_worktree_target_without_permission_bypass(self):
         current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")

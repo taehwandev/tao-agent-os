@@ -42,23 +42,25 @@ class CodexOperatorReviewTests(unittest.TestCase):
         self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
         self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
 
-    def test_the_question_tells_the_agent_to_end_its_turn_not_poll(self):
-        # Observed: an agent asked, then slept and re-read the request for about
-        # a minute, re-reading its whole context each step; the answer only ever
-        # arrives as the user's next message.
-        _, message = OperatorReview.request(self.payload, "reason", "unreadable_command_effect")
-        self.assertIn("end your turn", message)
-        self.assertIn("do not sleep, poll this request", message)
-        self.assertNotIn("Stop and wait", message)
+    def test_pending_messages_keep_exact_binding_without_repeated_session_guidance(self):
+        for code in sorted(OperatorReview.CODES):
+            for reason in ("reason", "Cause: use one literal command"):
+                with self.subTest(code=code, reason=reason):
+                    approved, message = OperatorReview.request(self.payload, reason, code)
+                    self.assertFalse(approved)
+                    self.assertLess(len(message.encode()), 450)
+                    self.assertIn(code, message)
+                    self.assertIn("Codex session instructions", message)
+                    request_id = re.search(r"--request-id ([a-f0-9]{64})", message).group(1)
+                    self.assertEqual("pending", OperatorReview._read(OperatorReview._path(request_id))["status"])
+                    self.assertIn("--decision approve|always|reject", message)
+                    self.assertNotIn("short numbered list", message)
+                    self.assertNotIn("do not sleep, poll", message)
 
-    def test_question_uses_contextual_answers_and_permitted_choices(self):
-        _, message = OperatorReview.request(self.payload, "reason", "unreadable_command_effect")
-        self.assertIn("structured choice tool if this runtime permits it for approvals", message)
-        self.assertIn("short numbered list", message)
-        self.assertIn("conversation runtime interprets", message)
-        self.assertIn("not through a keyword, phrase, or yes/no allowlist", message)
-        self.assertIn("do not demand a particular spelling", message)
-        self.assertIn("It does not imply always", message)
+    def test_lookup_composition_hint_is_specific_to_the_syntax_denial(self):
+        for code in sorted(OperatorReview.CODES):
+            _, message = OperatorReview.request(self.payload, "Cause: use one literal command", code)
+            self.assertEqual(code == "unreadable_command_effect", "Lookup composition:" in message)
 
     def test_user_words_in_a_tool_payload_never_record_consent(self):
         # These are examples of real conversational answers, never a parser's
@@ -98,7 +100,8 @@ class CodexOperatorReviewTests(unittest.TestCase):
         self.assertFalse(approved, "the rejected bundle is never silently allowed")
         self.assertIn("No new operator decision is needed", message)
         self.assertIn("independently gated tool calls", message)
-        self.assertIn("opaque project code", message)
+        self.assertIn("Codex session lookup recovery", message)
+        self.assertLess(len(message.encode()), 200)
         self.assertNotIn("operator-review --request-id", message)
         self.assertEqual([], list(Path(self.temporary.name).rglob("*.json")))
 

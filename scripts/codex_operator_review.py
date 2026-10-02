@@ -45,46 +45,15 @@ def _policy_signature(payload: dict) -> str:
 
 
 def _question(request_id: str, reason: str, code: str) -> str:
-    """What the agent must do with a pending operator request."""
+    """Supply request-specific facts; the Codex session bridge owns procedure."""
     recovery = ""
     if code == "unreadable_command_effect" and "use one literal command" in reason:
-        recovery = (
-            "Before asking, check whether this is only a composition error in a lookup bundle. "
-            "A recognized local-context helper (such as label-only metering) and supported "
-            "read-only inspections can be submitted as separate, independently gated tool calls. "
-            "Keep the original targets, operands and conditional dependencies; explicitly "
-            "target the worktree where needed. Each unsupported constituent still needs the "
-            "question below for its own exact call. Do not split or reword opaque project code, "
-            "substitutions, pipes, redirections, writes or policy refusals to evade a denial. "
-            "If every constituent is independently admitted, continue the authorized task "
-            "without asking or recording approval for this rejected bundle. Otherwise use "
-            "the question below; never retry the bundle without explicit approval. "
-        )
+        recovery = "Lookup composition: apply Codex session recovery before asking. "
     return recovery + (
-        "Tao operator decision required (not a permanent policy refusal). "
-        "First reuse existing authorization and any documented, independently gated recovery. "
-        "Ask the user only if a decision is still needed. Explain briefly in the user's language: "
-        "the action, target, expected effect, and why a new decision is necessary. "
-        "Distinguish an unparsed command from a proven write or policy violation. "
-        "Use a structured choice tool if this runtime permits it for approvals. "
-        "Otherwise show a short numbered list: 1. allow once; "
-        "2. always allow this exact action and target; 3. reject. "
-        "The conversation runtime interprets the user's answer in the context of the "
-        "specific displayed request, not through a keyword, phrase, or yes/no allowlist. "
-        "An unambiguous contextual instruction to proceed is sufficient for approve; "
-        "do not demand a particular spelling or ask the same question again. "
-        "It does not imply always: standing consent needs the user's clear authorization "
-        "to reuse this action and target. If several pending requests make the answer "
-        "ambiguous, ask only which action it covers. "
-        "Then end your turn: the answer arrives as the user's next message, so do "
-        "not sleep, poll this request or call other tools while waiting. Never "
-        "infer consent from silence, a mailbox, a request to fix the gate, or "
-        "unrelated approval. "
-        "After an explicit answer, record it with "
+        f"Tao operator decision required ({code}); follow Codex session instructions. "
+        "Ask the user only if a decision remains. Record an explicit answer with "
         f"<TAO_LAUNCHER> operator-review --request-id {request_id} "
-        "--decision approve|always|reject. Approve permits one identical retry; "
-        "always permits the same scope across sessions until revoked or policy/input changes. "
-        "sandbox permissions and other workflow checks still apply."
+        "--decision approve|always|reject."
     )
 
 
@@ -115,12 +84,8 @@ def _lookup_recovery(payload: dict, reason: str, code: str) -> str:
                for command in segments):
         return ""
     return (
-        "This inspection bundle has independently recognized read or local-label constituents. "
-        "No new operator decision is needed: submit separate, independently gated tool calls "
-        "with the original commands, targets, operands and conditional dependencies. "
-        "Keep any resolved working directory explicit in each call. "
-        "Keep the existing task and authority. Do not retry the rejected bundle. "
-        "This recovery grants no permission to opaque project code, writes or policy refusals."
+        "No new operator decision is needed: submit separate, independently gated tool calls. "
+        "Follow Codex session lookup recovery; do not retry the rejected bundle."
     )
 
 
