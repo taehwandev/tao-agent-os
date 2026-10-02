@@ -33,6 +33,8 @@ def execute_dispatch_manifest(
     codex_argv: Callable[..., list[str]],
     build_handoff_prompt: Callable[..., str],
 ) -> int:
+    if manifest.get("execution_mode") == "native":
+        raise ValueError("Native dispatch requires the runtime's spawn tool; --execute cannot launch it.")
     if manifest.get("execution_mode") == "inline":
         raise ValueError(
             "Inline dispatch is a decision only and cannot execute work in the parent process; "
@@ -350,5 +352,8 @@ def print_dispatch_manifest(manifest: Mapping[str, object], output_format: str) 
     print(f"- Execution mode: `{manifest['execution_mode']}`")
     print(f"- Execution capsule reusable: `{str(bool(capsule['reusable'])).lower()}`")
     print(f"- Selection: {manifest['selection_reason']}\n")
+    if manifest.get("native_worker"):
+        print("## Native Worker Arguments")
+        print(json.dumps(manifest["native_worker"], ensure_ascii=False, indent=2))
     print("## Execution Boundary")
     print(execution_policy(str(manifest.get("execution_mode"))))

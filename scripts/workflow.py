@@ -237,6 +237,10 @@ def _add_dispatch_parser(subparsers: argparse._SubParsersAction) -> None:
     dispatch.add_argument("--worker-evidence", type=Path)
     dispatch.add_argument("--worker-reservation-token", default="")
     dispatch.add_argument("--work-kind", choices=WORK_KINDS, default="auto")
+    dispatch.add_argument(
+        "--execution-phase", choices=("reasoning", "mechanical"), default="reasoning",
+        help="mechanical: already resolved steps only; inherit the parent model with low worker reasoning.",
+    )
     dispatch.add_argument("--complexity-evidence", default="")
     dispatch.add_argument("--platform", choices=sorted(PLATFORMS), help="Affected platform.")
     dispatch.add_argument(
@@ -603,6 +607,7 @@ def print_dispatch(args: argparse.Namespace) -> int:
             Path(args.project),
             continuation_scope=args.continuation_scope,
             work_kind=args.work_kind,
+            execution_phase=args.execution_phase,
             complexity_evidence=args.complexity_evidence,
             route=route,
             request_classified=args.request_classified,

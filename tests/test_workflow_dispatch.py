@@ -706,6 +706,55 @@ class WorkflowDispatchTests(unittest.TestCase):
         self.assertEqual([], received)
         self.assertIn("must not start another Codex process", manifest["execution_policy"])
 
+    def test_mechanical_phase_uses_native_low_worker_with_current_model(self) -> None:
+        for model, effort in (("gpt-6.1-sol", "high"), ("gpt-6-astra", "xhigh")):
+            with self.subTest(model=model), patch(
+                "workflow_dispatch._execution_capsule_state",
+                return_value={"path": "/tmp/test-capsule.json", "reusable": True},
+            ):
+                manifest = build_dispatch_manifest(
+                    "workflow-setup", "Run the already selected installer and verify its exit status.", ROOT,
+                    execution_phase="mechanical", parent_model=model,
+                    parent_reasoning_effort=effort, parent_sandbox_mode="workspace-write",
+                )
+                self.assertEqual("native", manifest["execution_mode"])
+                worker = manifest["native_worker"]
+                self.assertEqual(model, worker["model"])
+                self.assertEqual("low", worker["reasoning_effort"])
+                self.assertEqual("none", worker["fork_turns"])
+                self.assertIn("Validated parent execution capsule", worker["message"])
+                self.assertIn("Return failures or new decisions to the parent", worker["message"])
+                received = []
+                with self.assertRaisesRegex(ValueError, "runtime's spawn tool"):
+                    execute_dispatch_manifest(manifest, runner=received.append)
+                self.assertEqual([], received)
+                with redirect_stdout(io.StringIO()) as output:
+                    print_dispatch_manifest(manifest, "json")
+                rendered = json.loads(output.getvalue())
+                self.assertEqual(worker, rendered["native_worker"])
+                self.assertEqual([], rendered["codex_exec_argv"])
+
+    def test_mechanical_phase_keeps_parent_without_ready_handoff_or_at_low(self) -> None:
+        for effort, reusable in (("high", False), ("low", True)):
+            with self.subTest(effort=effort), patch(
+                "workflow_dispatch._execution_capsule_state",
+                return_value={"path": "/tmp/test-capsule.json", "reusable": reusable},
+            ):
+                manifest = build_dispatch_manifest(
+                    "workflow-setup", "Run the resolved installer.", ROOT,
+                    execution_phase="mechanical", parent_model="gpt-6.1-sol",
+                    parent_reasoning_effort=effort, parent_sandbox_mode="workspace-write",
+                )
+                self.assertEqual("inline", manifest["execution_mode"])
+                self.assertIsNone(manifest["native_worker"])
+
+    def test_mechanical_phase_does_not_guess_the_parent_profile(self) -> None:
+        with self.assertRaisesRegex(ValueError, "do not guess"):
+            build_dispatch_manifest(
+                "workflow-setup", "Run the resolved installer.", ROOT,
+                execution_phase="mechanical",
+            )
+
     def test_dispatch_stays_inline_without_parent_profile_or_for_a_mismatch(self) -> None:
         cases = {
             "missing parent profile": {},
@@ -916,6 +965,21 @@ class WorkflowDispatchTests(unittest.TestCase):
                 self.assertEqual(23, print_dispatch(args))
 
         execute.assert_called_once()
+
+    def test_dispatch_cli_forwards_mechanical_phase_and_preserves_parent_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args = build_parser().parse_args([
+                "dispatch", "workflow-setup", "--request", "설치 단계만 낮은 추론으로 실행해줘",
+                "--project", temp_dir, "--execution-phase", "mechanical",
+                "--parent-model", "gpt-6.1-sol", "--parent-reasoning-effort", "high",
+                "--parent-sandbox-mode", "workspace-write",
+            ])
+            with patch("workflow.build_dispatch_manifest", return_value={"execution_mode": "native"}) as build:
+                with patch("workflow.print_dispatch_manifest"):
+                    self.assertEqual(0, print_dispatch(args))
+            self.assertEqual("mechanical", build.call_args.kwargs["execution_phase"])
+            self.assertEqual("gpt-6.1-sol", build.call_args.kwargs["parent_model"])
+            self.assertEqual("high", build.call_args.kwargs["parent_reasoning_effort"])
 
     def test_dispatch_finalize_wires_explicit_ignored_discard_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -55,7 +55,31 @@ def codex_argv(
     ]
 
 
+def native_worker_dispatch(
+    mode: str, profile: Mapping[str, object], prompt: str, handoff: Mapping[str, object],
+) -> tuple[str, dict[str, str] | None]:
+    if mode != "native":
+        return mode, None
+    if not _has_reusable_capsule(handoff):
+        return "inline", None
+    return "native", {
+        "fork_turns": "none",
+        "model": str(profile["codex_model"]),
+        "reasoning_effort": "low",
+        "message": prompt + (
+            "\nExecute only the parent's resolved steps. Return failures or new decisions to the parent; "
+            "do not redesign, retry with broader effects, or change parent settings."
+        ),
+    }
+
+
 def execution_policy(execution_mode: str) -> str:
+    if execution_mode == "native":
+        return (
+            "Use the runtime's native spawn tool with native_worker arguments and a scoped task name. "
+            "Keep the parent's selected model and effort unchanged. --execute must not start another Codex process. "
+            "If native model/effort selection is unavailable, retain the parent session; never claim a low worker ran."
+        )
     if execution_mode == "inline":
         return "Continue inline in the parent; dispatch --execute must not start another Codex process."
     return (

@@ -14,6 +14,7 @@ from workflow_dispatch_handoff import (
     build_handoff_prompt,
     codex_argv as _codex_argv,
     execution_policy as _execution_policy,
+    native_worker_dispatch as _native_worker_dispatch,
 )
 from workflow_dispatch_launch import (
     execute_dispatch_manifest as _execute_dispatch_manifest,
@@ -109,6 +110,7 @@ def build_dispatch_manifest(
     *,
     continuation_scope: str = "",
     work_kind: str = "auto",
+    execution_phase: str = "reasoning",
     complexity_evidence: str = "",
     route: Mapping[str, object] | None = None,
     request_classified: bool = False,
@@ -129,7 +131,6 @@ def build_dispatch_manifest(
     defer_capsule_validation: bool = False,
 ) -> dict[str, object]:
     """Create an inspectable dispatch decision for one bounded task stage."""
-
     classification = dict(
         request_classification
         or classify_request(request, continuation_scope=continuation_scope)
@@ -154,6 +155,7 @@ def build_dispatch_manifest(
             command,
             classification,
             work_kind=work_kind,
+            execution_phase=execution_phase,
             complexity_evidence=complexity_evidence,
             parent_model=parent_model,
             parent_reasoning_effort=parent_reasoning_effort,
@@ -191,6 +193,7 @@ def build_dispatch_manifest(
         profile=profile,
         sandbox_mode=sandbox_mode,
     )
+    execution_mode, native_worker = _native_worker_dispatch(execution_mode, profile, argv[-1], handoff_state)
     return {
         "schema_version": 1,
         "project": str(project),
@@ -208,6 +211,7 @@ def build_dispatch_manifest(
         "runtime_adapter": runtime_contract,
         "selection_reason": selection_reason,
         "execution_mode": execution_mode,
+        "native_worker": native_worker,
         "profile_matches_parent": same_profile,
         "isolation_required": isolation_required,
         "worktree_path": worktree_path or None,
@@ -263,6 +267,7 @@ def _select_execution_context(
     classification: Mapping[str, object],
     *,
     work_kind: str,
+    execution_phase: str,
     complexity_evidence: str,
     parent_model: str,
     parent_reasoning_effort: str,
@@ -277,6 +282,15 @@ def _select_execution_context(
         "read-only" if selected_kind in READ_ONLY_WORK_KINDS else "workspace-write"
     )
     parent_fields = (parent_model, parent_reasoning_effort, parent_sandbox_mode)
+    if execution_phase not in {"reasoning", "mechanical"}:
+        raise ValueError("Unsupported execution phase")
+    if execution_phase == "mechanical":
+        if not all(parent_fields):
+            raise ValueError("Mechanical dispatch needs the current parent model, effort and sandbox; do not guess them.")
+        profile = dict(profile, codex_model=parent_model, model_tier="inherited", reasoning_effort="low")
+        same = parent_reasoning_effort == "low" and parent_sandbox_mode == sandbox_mode
+        mode = "child" if isolation_required else ("inline" if same else "native")
+        return selected_kind, profile, sandbox_mode, mode, same, "resolved mechanical phase inherits the current model with low worker reasoning"
     same_profile = all(
         (
             parent_model == profile["codex_model"],

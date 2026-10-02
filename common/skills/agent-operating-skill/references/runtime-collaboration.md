@@ -74,3 +74,24 @@ For an eligible split, dispatch all independent Claude Agent/Task workers before
 For an eligible split, use the available Gemini/AGY Antigravity parallel agent runner; the parent owns the shared contract, integration, and final verification.
 
 For a bounded Codex leaf, use workflow.py dispatch --execute only when isolation is explicitly required. A matching parent profile or unavailable parent profile information both stay in the current process or use a native worker; neither condition starts a fresh Codex process.
+
+## Mechanical Execution In Codex
+
+Preserve the user's current model and reasoning effort in the parent session.
+Once installation or another procedural phase has resolved commands, targets,
+authority and success checks, automatically use a native worker at `low` effort
+with that same model. This bounded serial leaf does not require inventing a
+parallel split. Do not select this phase from an installation keyword alone:
+version selection, diagnosis, design and unresolved permissions remain with
+the parent. Execute a short ready command directly when dispatch costs more.
+
+After the required ready handoff, use `workflow.py dispatch` with
+`--execution-phase mechanical` and the actual `--parent-model`,
+`--parent-reasoning-effort` and `--parent-sandbox-mode`. Keep dispatch intake
+bound to the parent's current request. Add only the resolved steps, targets
+and checks to the native worker message. Use its `native_worker` arguments
+with the native spawn tool and a task name; do not use `--execute`
+to imitate native spawning. `fork_turns=none` avoids copying unrelated history.
+If the capsule or native overrides are unavailable, continue in the unchanged
+parent. A failure or new decision returns to the parent without broader retries.
+Existing approvals, sandbox boundaries and workflow gates still apply.
