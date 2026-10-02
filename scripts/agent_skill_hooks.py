@@ -99,7 +99,16 @@ def skill_maintenance_hook(args: Any) -> int:
         test_selector=args.maintenance_test_selector,
         evidence_path=preflight_evidence_path(args),
     )
+    success = bool(maintenance.get("updated"))
+    verification = maintenance.get("verification") or {}
+    if verification:
+        details.append(
+            f"verification: {verification['kind']} exited {verification['returncode']}"
+        )
+        for stream in ("stdout", "stderr"):
+            if verification.get(stream):
+                details.append(f"verification {stream}: {verification[stream]}")
     return finish_with_result(
-        "skill-maintenance", True, details, args.output,
-        {"skill_maintenance": maintenance}, 0,
+        "skill-maintenance", success, details, args.output,
+        {"skill_maintenance": maintenance}, 0, pending_closeout=not success,
     )

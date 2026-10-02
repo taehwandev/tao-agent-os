@@ -369,8 +369,12 @@ class AgentSkillLearningTests(unittest.TestCase):
             subprocess.run(["git", "add", canonical_skill.relative_to(root)], cwd=root, check=True)
             with patch(
                 "agent_skill_maintenance.run_verification_command",
-                return_value={"returncode": 1},
-            ):
+                return_value={
+                    "returncode": 7,
+                    "stdout": "Reading budget exceeded\n" + "x" * 3000,
+                    "stderr": "validator diagnostic\n" + "y" * 3000,
+                },
+            ) as verifier:
                 failed_verification = complete_verified_skill_maintenance(
                     root,
                     project=root,
@@ -383,6 +387,16 @@ class AgentSkillLearningTests(unittest.TestCase):
                 )
             self.assertFalse(failed_verification["updated"])
             self.assertEqual("maintenance_verification_failed", failed_verification["reason"])
+            verifier.assert_called_once()
+            diagnostic = failed_verification["verification"]
+            self.assertEqual("unittest", diagnostic["kind"])
+            self.assertEqual(7, diagnostic["returncode"])
+            self.assertTrue(diagnostic["stdout"].startswith("Reading budget exceeded"))
+            self.assertTrue(diagnostic["stderr"].startswith("validator diagnostic"))
+            self.assertEqual(2000, len(diagnostic["stdout"]))
+            self.assertEqual(2000, len(diagnostic["stderr"]))
+            self.assertTrue((root / "skill-learning" / "staged" / f"{candidate_id}.json").exists())
+            self.assertFalse((root / "skill-learning" / "completed" / f"{candidate_id}.json").exists())
             def change_target_during_verification(_command: list[str], _cwd: Path):
                 canonical_skill.write_text("changed during verification\n", encoding="utf-8")
                 return {"returncode": 0}

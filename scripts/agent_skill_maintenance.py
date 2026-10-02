@@ -97,7 +97,16 @@ def complete_verified_skill_maintenance(
     )
     returncode = int(result.get("returncode", 1))
     if returncode != 0:
-        return {"updated": False, "reason": "maintenance_verification_failed"}
+        return {
+            "updated": False,
+            "reason": "maintenance_verification_failed",
+            "verification": {
+                "kind": verification_kind,
+                "returncode": returncode,
+                "stdout": str(result.get("stdout") or "")[:2000],
+                "stderr": str(result.get("stderr") or "")[:2000],
+            },
+        }
     if _target_sha256(target_path) != target_sha256:
         return {"updated": False, "reason": "maintenance_target_changed_during_verification"}
     receipt = {
