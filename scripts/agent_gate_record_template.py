@@ -48,6 +48,28 @@ def gate_record_template(gate: str, *, hook: str = "gate-batch", extra_fields: I
     return f"fill-in template for {gate}: " + json.dumps(record, ensure_ascii=False, separators=(",", ":"))
 
 
+_NOT_RECORDED = {
+    "review hook": "review hook: the review hook records it; run review once after the gates before it",
+    "commit readiness": "commit readiness: finish derives it from the current review "
+                        "while reviewed bytes are unchanged; record nothing",
+}
+
+
+def remaining_gate_template_lines(remaining: list[str], loaded_skills: Iterable[str]) -> list[str]:
+    """One copyable record per remaining gate, plus the gates nobody records by hand."""
+
+    lines = [f"Remaining route gates: {remaining}"]
+    for gate in remaining:
+        if gate in _NOT_RECORDED:
+            lines.append(_NOT_RECORDED[gate])
+            continue
+        lines.append(gate_record_template(gate))
+        if gate == "retrospective check" and loaded_skills:
+            lines.append("retrospective check: skills_checked takes this run's loaded skills: "
+                         + ", ".join(sorted(loaded_skills)))
+    return lines
+
+
 def _placeholder(gate: str, name: str, enums: dict[str, tuple[str, ...]]) -> str:
     if name in enums:
         return "<" + "|".join(enums[name]) + ">"

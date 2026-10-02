@@ -19,7 +19,7 @@ if str(SCRIPTS) not in sys.path:
 
 from agent_gate_evidence import read_gate_evidence_ledger, reset_gate_evidence_ledger
 from agent_gate_record_template import gate_record_template
-from agent_hook_gate_records import gate_batch_hook, gate_hook
+from agent_hook_gate_records import gate_batch_hook, gate_hook, gate_template_hook
 
 
 GATES = ["tests", "retrospective check"]
@@ -46,8 +46,13 @@ def _run(hook_name: str, **overrides: object) -> tuple[int, str, dict]:
         for key, value in overrides.items():
             setattr(args, key, value)
         output = io.StringIO()
+        hooks = {"gate": gate_hook, "template": gate_template_hook}
         with redirect_stdout(output):
-            result = (gate_hook if hook_name == "gate" else gate_batch_hook)(args)
+            for record in getattr(args, "recorded_first", []):
+                gate_batch_hook(SimpleNamespace(**{**vars(args), "gate_record": [json.dumps(record)]}))
+            output.truncate(0)
+            output.seek(0)
+            result = hooks.get(hook_name, gate_batch_hook)(args)
         return result, output.getvalue(), read_gate_evidence_ledger(evidence)
 
 
@@ -132,6 +137,24 @@ class RejectedGateRecordTemplateTests(unittest.TestCase):
 
         self.assertEqual(0, result)
         self.assertNotIn("fill-in template", output)
+
+
+class RemainingGateTemplateTests(unittest.TestCase):
+    """After a compaction, the remaining records are reprinted without a failed call."""
+
+    def test_only_unrecorded_gates_are_templated_and_nothing_is_written(self) -> None:
+        tests_record = {
+            "gate": "tests",
+            "fields": {"check": "unittest discover -s tests", "result": "12 tests passed"},
+        }
+        result, output, _ledger = _run("template", recorded_first=[tests_record])
+
+        self.assertEqual(0, result)
+        self.assertIn("Remaining route gates: ['retrospective check']", output)
+        self.assertIn("fill-in template for retrospective check:", output)
+        self.assertIn("this run's loaded skills: agent_operating_skill", output)
+        self.assertNotIn("fill-in template for tests", output)
+        self.assertNotIn("recorded gate", output)
 
 
 if __name__ == "__main__":

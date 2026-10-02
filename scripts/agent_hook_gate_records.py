@@ -25,7 +25,12 @@ from agent_gate_evidence import (
     reset_gate_evidence_ledger,
     synthesize_gate_evidence,
 )
-from agent_gate_record_template import GateRecordRejected, gate_record_template, gate_value_hints
+from agent_gate_record_template import (
+    GateRecordRejected,
+    gate_record_template,
+    gate_value_hints,
+    remaining_gate_template_lines,
+)
 from agent_finish_gate_policy import MULTI_AGENT_GATE, validate_gate_evidence
 from agent_finish_check_steps import validate_recorded_grill_me_evidence
 from agent_finish_documentation import required_doc_target_failures
@@ -149,6 +154,24 @@ def gate_batch_hook(args: argparse.Namespace) -> int:
         args.output,
         {"gate_evidence": entries, "gate_progress": progress},
         args.repair_cycle,
+    )
+
+
+def gate_template_hook(args: argparse.Namespace) -> int:
+    """Reprint the bound run's remaining gates as fill-in records; records nothing.
+
+    After a context compaction the start output that listed the fields is gone,
+    and agents rebuilt it by reading this package's source instead.
+    """
+    progress = _gate_progress(args)
+    if progress["remaining_gates"] is None:
+        error = ValueError("no readable bound run ledger; pass --evidence <the run's preflight.json>")
+        return _gate_failure(args, "gate-batch", error, invocation_error=True)
+    route = json.loads(preflight_evidence_path(args).read_text(encoding="utf-8"))["route"]
+    loaded = skill_ids_from_doc_paths(required_docs_for_route(route) or [])
+    details = remaining_gate_template_lines(progress["remaining_gates"], loaded)
+    return finish_with_result(
+        "gate-batch", True, details, args.output, {"gate_progress": progress}, args.repair_cycle
     )
 
 

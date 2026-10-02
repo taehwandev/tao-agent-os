@@ -38,6 +38,7 @@ from agent_hook_checkpoint import add_checkpoint_arguments, checkpoint_hook
 from agent_hook_gate_records import (
     gate_batch_hook,
     gate_hook,
+    gate_template_hook,
     preflight_evidence_path,
 )
 from agent_hook_resume import add_resume_arguments, resume_hook
@@ -742,7 +743,8 @@ def _structured_gate_field_lines(gates: list[str]) -> list[str]:
         'gate-batch --gate-record shape: [{"gate":"<active gate>",'
         '"status":"<SUCCESS or FAIL>","fields":{"<listed field>":"<observed evidence>"}}]. '
         "Fill it from the fields and enums below with observed results; do not rerun checks "
-        "to fill a record.",
+        "to fill a record. After a context compaction, gate-batch --template reprints the "
+        "remaining gates as fill-in records; do not read Tao source for them.",
     ]
     from agent_gate_reuse import GateEvidenceReuse
     if any(GateEvidenceReuse.supports(gate) for gate in gates):
@@ -1746,6 +1748,10 @@ def _add_gate_arguments(parser: argparse.ArgumentParser) -> None:
         help="JSON object or array of objects with gate, evidence, fields, source, and status",
     )
     gate.add_argument(
+        "--template", dest="gate_template", action="store_true",
+        help="gate-batch: print the bound run's remaining gates as fill-in records; records nothing",
+    )
+    gate.add_argument(
         "--gate-json",
         type=existing_path,
         help="JSON file containing a gate evidence object or array of objects",
@@ -2518,6 +2524,8 @@ def _checkpointed_hook(
         return checkpoint_after_hook(
             args, gate_hook(args), "lifecycle", last_completed=gate_checkpoint_name(args)
         )
+    if args.hook == "gate-batch" and getattr(args, "gate_template", False):
+        return gate_template_hook(args)
     if args.hook == "gate-batch":
         return checkpoint_after_hook(args, gate_batch_hook(args), "lifecycle")
     if args.hook == "verify":
