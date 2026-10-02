@@ -27,9 +27,8 @@ from agent_run_registry import REGISTRY_FILENAME, SETTLED_RUN_STATES
 from support.global_state import global_state_dir, user_store_write_error
 
 
-# Version 2 adds the run id, so a listing can ask the run's own registry
-# whether the work is still unfinished.
-SCHEMA_VERSION = 2
+# Version 3 retains the runtime session after a task worktree is removed.
+SCHEMA_VERSION = 3
 STORE_NAME = "work-cards"
 DATABASE_NAME = "cards.sqlite3"
 WORK_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -54,6 +53,8 @@ CREATE TABLE IF NOT EXISTS cards (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     run_id TEXT NOT NULL DEFAULT '',
+    runtime TEXT NOT NULL DEFAULT '',
+    session_id TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (repo, work_id)
 )
 """
@@ -65,7 +66,7 @@ def _now() -> datetime:
 
 def _check_version(connection: sqlite3.Connection) -> int:
     version = connection.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (0, 1, SCHEMA_VERSION):
+    if version not in (0, 1, 2, SCHEMA_VERSION):
         connection.close()
         raise ValueError(f"unsupported work-card schema version {version}")
     return version
@@ -86,8 +87,9 @@ def _connect() -> sqlite3.Connection:
     _check_version(connection)
     connection.execute(_SCHEMA)
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(cards)")}
-    if "run_id" not in columns:
-        connection.execute("ALTER TABLE cards ADD COLUMN run_id TEXT NOT NULL DEFAULT ''")
+    for column in ("run_id", "runtime", "session_id"):
+        if column not in columns:
+            connection.execute(f"ALTER TABLE cards ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return connection
 
@@ -135,7 +137,8 @@ def _work_id(work_id: str) -> str:
 
 
 def open_card(
-    project: Path, work_id: str, *, summary: str, command: str, run_id: str = ""
+    project: Path, work_id: str, *, summary: str, command: str, run_id: str = "",
+    runtime: str = "", session_id: str = "",
 ) -> None:
     """Create the work's card, or reactivate it when a continued run starts."""
     now = _now()
@@ -143,12 +146,14 @@ def open_card(
     with closing(_connect()) as connection, connection:
         connection.execute(
             "INSERT INTO cards (repo, work_id, summary, command, project, state, "
-            "created_at, updated_at, run_id) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?) "
+            "created_at, updated_at, run_id, runtime, session_id) "
+            "VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?) "
             "ON CONFLICT (repo, work_id) DO UPDATE SET summary = excluded.summary, "
             "command = excluded.command, project = excluded.project, "
-            "state = 'active', updated_at = excluded.updated_at, run_id = excluded.run_id",
+            "state = 'active', updated_at = excluded.updated_at, run_id = excluded.run_id, "
+            "runtime = excluded.runtime, session_id = excluded.session_id",
             (repository_key(project), _work_id(work_id), _summary(summary), command,
-             str(project.resolve()), now.isoformat(), now.isoformat(), run_id),
+             str(project.resolve()), now.isoformat(), now.isoformat(), run_id, runtime, session_id),
         )
         connection.execute(
             "DELETE FROM cards WHERE updated_at < ?", ((now - IDLE_RETENTION).isoformat(),)
@@ -185,6 +190,8 @@ def list_cards(project: Path, *, include_settled: bool = False) -> list[dict[str
         card = dict(row)
         card.pop("repo", None)
         card.setdefault("run_id", "")  # a version 1 store has no run ids yet
+        card.setdefault("runtime", "")
+        card.setdefault("session_id", "")
         cards.append(card)
     return cards
 
@@ -277,7 +284,13 @@ def start_lines(project: Path, evidence: Path, *, summary: str, command: str) ->
         run_id = evidence.parent.name if WORK_ID_RE.fullmatch(evidence.parent.name) else ""
         if summary.strip():
             try:
-                open_card(project, work_id, summary=summary, command=command, run_id=run_id)
+                payload = json.loads(evidence.read_text(encoding="utf-8"))
+                session = payload.get("runtime_session") or {}
+                if not isinstance(session, dict):
+                    session = {}
+                open_card(project, work_id, summary=summary, command=command, run_id=run_id,
+                          runtime=str(session.get("runtime") or ""),
+                          session_id=str(session.get("session_id") or ""))
             except (OSError, ValueError, sqlite3.Error):
                 pass  # An unwritable store still lets the other cards be named.
         return open_card_lines(project, work_id, settle_stale=True)
@@ -295,16 +308,20 @@ def settle_from_evidence(project: Path, evidence: Path, state: str) -> None:
 
 def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--project", type=Path, required=True)
+    parser.add_argument("--project", type=Path, default=Path.cwd())
     commands = parser.add_subparsers(dest="command", required=True)
     list_parser = commands.add_parser("list")
     list_parser.add_argument("--all", action="store_true", help="include done and cancelled cards")
+    commands.add_parser("resume", help="choose a task by its summary and resume its Codex session")
     close_parser = commands.add_parser("close")
     close_parser.add_argument("work_id")
     close_parser.add_argument("--state", choices=STATES[1:], default="done")
     args = parser.parse_args(argv)
     project = args.project.resolve()
     try:
+        if args.command == "resume":
+            from agent_work_card_resume import resume_task
+            return resume_task(project)
         if args.command == "list":
             result: Any = list_cards(project, include_settled=args.all)
         elif not settle_card(project, args.work_id, args.state):

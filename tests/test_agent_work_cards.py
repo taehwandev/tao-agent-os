@@ -197,7 +197,10 @@ class WorkCardTests(unittest.TestCase):
         directory = self.root / "state-home" / cards.STORE_NAME
         directory.mkdir(parents=True)
         with closing(sqlite3.connect(directory / cards.DATABASE_NAME)) as connection, connection:
-            connection.execute(cards._SCHEMA.replace("    run_id TEXT NOT NULL DEFAULT '',\n", ""))
+            schema = cards._SCHEMA
+            for column in ("run_id", "runtime", "session_id"):
+                schema = schema.replace(f"    {column} TEXT NOT NULL DEFAULT '',\n", "")
+            connection.execute(schema)
             connection.execute(
                 "INSERT INTO cards VALUES (?, ?, 'old', 'task', ?, 'active', 't', 't')",
                 (cards.repository_key(self.project), WORK_B, str(self.project)),
@@ -207,6 +210,35 @@ class WorkCardTests(unittest.TestCase):
         cards.open_card(self.project, WORK_A, summary="new", command="task")
         self.assertEqual({WORK_A: WORK_A, WORK_B: ""},
                          {c["work_id"]: c["run_id"] for c in cards.list_cards(self.project)})
+
+    def test_start_automatically_binds_the_recorded_session_and_updates_on_continuation(self) -> None:
+        evidence = self._evidence(WORK_A)
+        for session in ("01a0f571-0366-7863-ba96-0a9aa4ddf9fc", "01a0f571-0366-7863-ba96-0a9aa4ddf9fd"):
+            evidence.write_text(json.dumps({"work": {"id": WORK_A},
+                                            "runtime_session": {"runtime": "codex", "session_id": session}}))
+            cards.start_lines(self.project, evidence, summary="image enlargement", command="bugfix")
+            [card] = cards.list_cards(self.project)
+            self.assertEqual(("codex", session), (card["runtime"], card["session_id"]))
+        cards.settle_card(self.project, WORK_A, "done")
+        self.assertEqual(session, cards.list_cards(self.project, include_settled=True)[0]["session_id"])
+
+    def test_version_two_read_does_not_migrate_and_write_preserves_unbound_cards(self) -> None:
+        directory = self.root / "state-home" / cards.STORE_NAME
+        directory.mkdir(parents=True)
+        with closing(sqlite3.connect(directory / cards.DATABASE_NAME)) as connection, connection:
+            schema = cards._SCHEMA
+            for column in ("runtime", "session_id"):
+                schema = schema.replace(f"    {column} TEXT NOT NULL DEFAULT '',\n", "")
+            connection.execute(schema)
+            connection.execute("INSERT INTO cards VALUES (?, ?, 'old', 'task', ?, 'active', 't', 't', ?)",
+                               (cards.repository_key(self.project), WORK_B, str(self.project), WORK_B))
+            connection.execute("PRAGMA user_version = 2")
+        self.assertEqual("", cards.list_cards(self.project)[0]["session_id"])
+        with sqlite3.connect(directory / cards.DATABASE_NAME) as connection:
+            self.assertEqual(2, connection.execute("PRAGMA user_version").fetchone()[0])
+        cards.open_card(self.project, WORK_A, summary="new", command="task", runtime="codex", session_id="new")
+        self.assertEqual({WORK_A: "new", WORK_B: ""},
+                         {c["work_id"]: c["session_id"] for c in cards.list_cards(self.project)})
 
 
 if __name__ == "__main__":

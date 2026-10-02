@@ -168,6 +168,15 @@ of the same repository as reference context, so unfinished work stays visible in
 a new session. `<TAO_LAUNCHER> work-cards list [--all]` shows the board and
 `work-cards close <work id>` settles a card by hand.
 
+For Codex, start also records the runtime session automatically. From the
+repository, run `<TAO_LAUNCHER> work-cards resume` and choose a numbered task
+summary to open its exact conversation, including completed tasks. No session
+renaming or UUID entry is needed. The current directory is the default project;
+`--project <repo>` selects another repository. Selection uses the displayed
+snapshot and never guesses the latest session. Older cards use their own retained
+run evidence when available; unbound cards cannot be resumed this way. This
+navigates to a conversation without resuming a Tao run or granting work authority.
+
 Cards live in one SQLite file under the PC's user-local `~/.tao/work-cards/`,
 shared by linked worktrees of a repository. Cards idle for 90 days are dropped.
 They hold no prompt, transcript, or log, and Tao never syncs them. The
