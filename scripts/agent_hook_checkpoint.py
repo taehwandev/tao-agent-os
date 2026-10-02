@@ -18,12 +18,18 @@ from agent_continuation_packet import (
 from agent_hook_continuation import run_binding_path
 from agent_hook_runtime import finish_with_result
 
+# Mirrors agent_continuation_fields.CHECKPOINT_RE and its 64-character bound.
+LAST_COMPLETED_RULE = "1-64 chars of lowercase a-z, 0-9, space, '_', '.', '-'"
+
 
 def add_checkpoint_arguments(parser: argparse.ArgumentParser) -> None:
     checkpoint = parser.add_argument_group("continuation checkpoint")
     checkpoint.add_argument("--checkpoint-kind", choices=CHECKPOINT_KINDS)
     checkpoint.add_argument("--phase", choices=PHASES)
-    checkpoint.add_argument("--last-completed")
+    checkpoint.add_argument(
+        "--last-completed",
+        help=f"short step name ({LAST_COMPLETED_RULE}); put prose in the work object",
+    )
     checkpoint.add_argument("--mutation-kind", choices=MUTATION_KINDS)
     checkpoint.add_argument("--mutation-path", action="append", default=[])
     checkpoint.add_argument(
@@ -55,7 +61,13 @@ def checkpoint_hook(args: argparse.Namespace) -> int:
 
         return _result(args, True, "\n".join(_work_shape_lines()))
 
-    binding = run_binding_path(args)
+    try:
+        binding = run_binding_path(args)
+    except PermissionError:
+        # A sandboxed runtime cannot take the run-state lock; a traceback here
+        # read as a Tao crash rather than a permission to request.
+        return _result(args, False, "checkpoint unavailable: run state is not writable "
+                       "from this sandbox; rerun the same command with write permission")
     if binding is None:
         return _result(args, False, "checkpoint requires exact run-local evidence")
     try:
@@ -87,6 +99,11 @@ def checkpoint_hook(args: argparse.Namespace) -> int:
                 f"Shorten the rejected prose to at most {MAX_TEXT} Unicode characters "
                 f"per field ({MAX_SHORT_TEXT} for each non_goals entry), not bytes. "
                 "Resubmit the bounded summary without truncating its meaning.\n"
+            )
+        if any(item["pointer"] == "/checkpoint/last_completed" for item in error.failures):
+            prose_hint += (
+                f"--last-completed is a step name ({LAST_COMPLETED_RULE}), such as "
+                "\"tests passed\"; put the sentence in the work object.\n"
             )
         return _result(
             args, False,

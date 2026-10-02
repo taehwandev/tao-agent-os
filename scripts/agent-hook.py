@@ -2438,6 +2438,10 @@ def _dispatch_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
     if args.hook not in ("start", "resume"):
         _refresh_run_heartbeat(args)
     if args.hook == "resume":
+        if args.resume_run_id and not args.list_mode:
+            # Naming the run is the claim: --run-id only ever selects what
+            # --last claims, so refusing it for a missing --last cost a retry.
+            args.last_mode = True
         if args.list_mode == args.last_mode:
             parser.error("resume requires exactly one of --list or --last")
         if args.list_mode and args.resume_run_id:

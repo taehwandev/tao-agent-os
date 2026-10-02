@@ -328,6 +328,18 @@ class NamedRunTests(unittest.TestCase):
             self.assertIn("objective: the task this session left behind", output)
             self.assertNotIn("another session, still running", output)
 
+    def test_a_run_id_alone_claims_that_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = free_fixture(directory, "the run named without --last")
+
+            code, output = run_resume(
+                fixture.project, fixture.rules, f"--run-id={fixture.run_id}"
+            )
+
+            self.assertEqual(0, code)
+            self.assertIn("resume result: ready", output)
+            self.assertIn(f"run: {fixture.run_id}", output)
+
     def test_naming_a_run_that_is_not_unfinished_claims_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = free_fixture(directory, "a task that must not be handed over")

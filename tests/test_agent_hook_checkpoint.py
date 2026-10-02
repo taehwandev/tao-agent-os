@@ -82,6 +82,32 @@ class CheckpointCommandTests(unittest.TestCase):
             self.assertEqual(work["objective"], fixture.packet()["work"]["objective"])
             self.assertEqual(work["non_goals"], fixture.packet()["work"]["non_goals"])
 
+    def test_a_sentence_as_last_completed_is_explained_as_a_step_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            before = fixture.packet()
+            output = io.StringIO()
+            args = _args(fixture, last_completed="UI tests reviewed; awaiting the API response")
+            with patch.object(sys, "stdin", _stdin({"objective": "bounded"})), redirect_stdout(output):
+                code = agent_hook_checkpoint.checkpoint_hook(args)
+
+            self.assertNotEqual(0, code)
+            self.assertEqual(before, fixture.packet())
+            self.assertIn("invalid_checkpoint@/checkpoint/last_completed", output.getvalue())
+            self.assertIn("--last-completed is a step name", output.getvalue())
+
+    def test_an_unwritable_run_state_is_reported_not_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            output = io.StringIO()
+            with redirect_stdout(output), patch.object(
+                agent_hook_checkpoint, "run_binding_path", side_effect=PermissionError(1, "denied"),
+            ):
+                code = agent_hook_checkpoint.checkpoint_hook(_args(fixture))
+
+            self.assertNotEqual(0, code)
+            self.assertIn("run state is not writable from this sandbox", output.getvalue())
+
     def test_template_cannot_silently_discard_a_requested_checkpoint(self) -> None:
         parser = agent_hook.build_parser()
         args = parser.parse_args([
