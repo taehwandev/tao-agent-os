@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from agent_continuation_checkpoint import CHECKPOINT_KINDS, write_continuation_checkpoint
@@ -32,10 +33,17 @@ def add_checkpoint_arguments(parser: argparse.ArgumentParser) -> None:
     )
     checkpoint.add_argument("--mutation-kind", choices=MUTATION_KINDS)
     checkpoint.add_argument("--mutation-path", action="append", default=[])
-    checkpoint.add_argument(
+    work_input = checkpoint.add_mutually_exclusive_group()
+    work_input.add_argument(
         "--work-stdin",
         action="store_true",
         help="read one schema-bounded partial work object from stdin",
+    )
+    work_input.add_argument(
+        "--work-file",
+        type=Path,
+        metavar="PATH",
+        help="read one schema-bounded UTF-8 JSON work object without stdin or a terminal",
     )
     checkpoint.add_argument(
         "--work-shape",
@@ -71,7 +79,10 @@ def checkpoint_hook(args: argparse.Namespace) -> int:
     if binding is None:
         return _result(args, False, "checkpoint requires exact run-local evidence")
     try:
-        work = _read_work_stdin() if args.work_stdin else None
+        work_file = getattr(args, "work_file", None)
+        work = _read_work_file(work_file) if work_file is not None else (
+            _read_work_stdin() if args.work_stdin else None
+        )
         mutation = None
         if args.checkpoint_kind == "pre_mutation":
             mutation = {
@@ -133,10 +144,25 @@ def checkpoint_hook(args: argparse.Namespace) -> int:
 
 
 def _read_work_stdin() -> dict[str, Any]:
-    encoded = sys.stdin.buffer.read(MAX_PACKET_BYTES + 1)
+    return _decode_work_input(sys.stdin.buffer.read(MAX_PACKET_BYTES + 1))
+
+
+def _read_work_file(path: Path) -> dict[str, Any]:
+    with path.open("rb") as source:
+        return _decode_work_input(source.read(MAX_PACKET_BYTES + 1))
+
+
+def _decode_work_input(encoded: bytes) -> dict[str, Any]:
     if len(encoded) > MAX_PACKET_BYTES:
         raise ValueError("work input exceeds packet budget")
-    payload = json.loads(encoded.decode("utf-8"))
+    try:
+        decoded = encoded.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("work input must be UTF-8") from None
+    try:
+        payload = json.loads(decoded)
+    except json.JSONDecodeError:
+        raise ValueError("work input must be valid JSON") from None
     if not isinstance(payload, dict):
         raise ValueError("work input must be an object")
     return payload

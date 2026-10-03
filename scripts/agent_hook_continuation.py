@@ -123,7 +123,8 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
             "decision",
             "--phase",
             "acting",
-            "--work-stdin",
+            "--work-file",
+            str(binding_path.parent / "work.json"),
         ]
     )
     # The schema is nine lines that never change, printed by every start in
@@ -133,12 +134,12 @@ def work_checkpoint_advice(args: argparse.Namespace) -> list[str]:
     if not getattr(args, "verbose", False):
         return [
             WORK_CHECKPOINT_LEAD,
-            f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command} < work.json",
+            f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command}",
             "  work fields, limits and enums: `checkpoint --work-shape`",
         ]
     return [
         WORK_CHECKPOINT_LEAD,
-        f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command} < work.json",
+        f"{WORK_CHECKPOINT_COMMAND_LEAD}\n{command}",
         *_work_shape_lines(),
         WORK_CHECKPOINT_CLOSING,
     ]
@@ -190,7 +191,7 @@ def start_objective(args: argparse.Namespace) -> str:
     packet before an agent had made a bounded semantic decision.  The initial
     packet therefore records only the selected route.  A later explicit
     ``checkpoint`` command may replace this label with a schema-bounded work
-    summary supplied through stdin.
+    summary supplied through the checkpoint's explicit work input.
     """
 
     command = str(getattr(args, "command", "") or "task")

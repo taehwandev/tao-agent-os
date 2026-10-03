@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 import agent_hook_checkpoint
 from agent_continuation_fields import MAX_SHORT_TEXT, MAX_TEXT
+from agent_continuation_packet import MAX_PACKET_BYTES
 from test_agent_runtime_session import RuntimeFixture
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -50,6 +51,116 @@ def _stdin(payload: dict) -> io.TextIOWrapper:
 
 
 class CheckpointCommandTests(unittest.TestCase):
+    def test_work_file_records_the_parsed_checkpoint_without_touching_stdin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            work_file = fixture.project / "work state.json"
+            work = {
+                "objective": "작업 결정을 보존한다",
+                "decisions": [{"id": "file_input", "status": "accepted", "text": "Use one file argument"}],
+            }
+            work_file.write_text(json.dumps(work, ensure_ascii=False), encoding="utf-8")
+            parser = agent_hook.build_parser()
+            args = parser.parse_args([
+                "checkpoint", "--project", str(fixture.project),
+                "--rules", str(fixture.rules), "--evidence", str(fixture.evidence),
+                "--checkpoint-kind", "decision", "--work-file", str(work_file),
+            ])
+            before = fixture.packet()
+            with patch.object(sys, "stdin", object()), redirect_stdout(io.StringIO()):
+                code = agent_hook._run_checkpoint_hook(parser, args)
+
+            self.assertEqual(0, code)
+            packet = fixture.packet()
+            self.assertEqual(work["objective"], packet["work"]["objective"])
+            self.assertEqual(work["decisions"], packet["work"]["decisions"])
+            self.assertEqual(before["generation"] + 1, packet["generation"])
+            self.assertEqual(before["binding"], packet["binding"])
+            self.assertEqual(before["checkpoint"]["first_unfinished"], packet["checkpoint"]["first_unfinished"])
+
+    def test_work_file_and_stdin_are_mutually_exclusive(self) -> None:
+        parser = agent_hook.build_parser()
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            parser.parse_args([
+                "checkpoint", "--checkpoint-kind", "decision", "--work-stdin", "--work-file", "work.json",
+            ])
+        self.assertEqual(2, raised.exception.code)
+
+    def test_work_file_cannot_be_silently_discarded_by_template_or_shape(self) -> None:
+        for display in ("--work-template", "--work-shape"):
+            with self.subTest(display=display):
+                parser = agent_hook.build_parser()
+                args = parser.parse_args(["checkpoint", display, "--work-file", "work.json"])
+                with (
+                    patch.object(agent_hook_checkpoint, "run_binding_path") as binding,
+                    redirect_stderr(io.StringIO()),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    agent_hook._run_checkpoint_hook(parser, args)
+                self.assertEqual(2, raised.exception.code)
+                binding.assert_not_called()
+
+    def test_invalid_work_files_leave_the_packet_unchanged_without_echoing_content(self) -> None:
+        scenarios = (
+            (b'{"objective":"private-do-not-print"', "valid JSON"),
+            (b'{"objective":"private-do-not-print\xff"}', "UTF-8"),
+            (b'["private-do-not-print"]', "must be an object"),
+            (b'{"transcript":"private-do-not-print"}', "unknown_field"),
+            (b"private-do-not-print" + b"x" * MAX_PACKET_BYTES, "packet budget"),
+        )
+        for encoded, diagnostic in scenarios:
+            with self.subTest(diagnostic=diagnostic), tempfile.TemporaryDirectory() as directory:
+                fixture = RuntimeFixture(directory)
+                work_file = fixture.project / "work.json"
+                work_file.write_bytes(encoded)
+                before = fixture.packet()
+                output = io.StringIO()
+                with patch.object(sys, "stdin", object()), redirect_stdout(output):
+                    code = agent_hook_checkpoint.checkpoint_hook(
+                        _args(fixture, work_stdin=False, work_file=work_file)
+                    )
+                self.assertNotEqual(0, code)
+                self.assertEqual(before, fixture.packet())
+                self.assertIn(diagnostic, output.getvalue())
+                self.assertNotIn("private-do-not-print", output.getvalue())
+                self.assertNotIn("\\xff", output.getvalue())
+
+    def test_work_file_byte_budget_accepts_the_limit_and_refuses_one_extra_byte(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            work_file = fixture.project / "work.json"
+            encoded = b'{"objective":"bounded"}'
+            encoded += b" " * (MAX_PACKET_BYTES - len(encoded))
+            work_file.write_bytes(encoded)
+            with patch.object(sys, "stdin", object()), redirect_stdout(io.StringIO()):
+                code = agent_hook_checkpoint.checkpoint_hook(
+                    _args(fixture, work_stdin=False, work_file=work_file)
+                )
+            self.assertEqual(0, code)
+            before = fixture.packet()
+            work_file.write_bytes(encoded + b" ")
+            with patch.object(sys, "stdin", object()), redirect_stdout(io.StringIO()):
+                code = agent_hook_checkpoint.checkpoint_hook(
+                    _args(fixture, work_stdin=False, work_file=work_file)
+                )
+            self.assertNotEqual(0, code)
+            self.assertEqual(before, fixture.packet())
+
+    def test_missing_work_file_is_unavailable_without_path_or_state_leakage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = RuntimeFixture(directory)
+            before = fixture.packet()
+            work_file = fixture.project / "private-missing-file.json"
+            output = io.StringIO()
+            with patch.object(sys, "stdin", object()), redirect_stdout(output):
+                code = agent_hook_checkpoint.checkpoint_hook(
+                    _args(fixture, work_stdin=False, work_file=work_file)
+                )
+            self.assertNotEqual(0, code)
+            self.assertEqual(before, fixture.packet())
+            self.assertIn("checkpoint unavailable: FileNotFoundError", output.getvalue())
+            self.assertNotIn(str(work_file), output.getvalue())
+
     def test_overlong_prose_reports_canonical_limits_without_writing_or_echoing(self) -> None:
         for field, limit in (("objective", MAX_TEXT), ("non_goals", MAX_SHORT_TEXT)):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:

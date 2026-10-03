@@ -42,7 +42,7 @@ REFUSAL_GUIDANCE = {
     "drift_refused": (
         "HEAD, worktree, rules, required docs, or a pending mutation moved since the last "
         "checkpoint. Inspect the current state, then use checkpoint --checkpoint-kind "
-        "reconcile --phase acting --work-stdin with this run's --evidence and an "
+        "reconcile --phase acting --work-file <path> with this run's --evidence and an "
         "observed work summary including verification: []. Changed required guidance "
         "requires refreshing this action with start --evidence first."
     ),

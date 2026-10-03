@@ -29,6 +29,11 @@ CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE = (
     'DNS/name-resolution errors alone do not prove sandbox denial; never instruct the '
     'user to approve an unconfirmed dialog.'
 )
+CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE = (
+    'For authorized tests/builds, reuse native prefix approvals with literal argv '
+    '(env KEY=value <runner>); for repeat prompts and terminal input read '
+    'common/skills/agent-operating-skill/references/runtime-recovery.md.'
+)
 CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE = (
     'Target worktrees explicitly with git -C "<worktree>" or cd "<worktree>" && '
     '<command>; do not rely on exec_command.workdir alone. This does not grant sandbox '
@@ -132,9 +137,9 @@ RUNTIME_READING_BRIDGE_PHRASE = (
     'queue. Stop discovery at the owner, constraints and nearest check.'
 )
 RUNTIME_CONTINUATION_BRIDGE_PHRASE = (
-    'Checkpoint with --work-stdin only when interruption, material scope/decision change '
+    'Checkpoint with --work-file <path> only when interruption, material scope/decision change '
     'or handoff makes resume useful. Do not checkpoint routine phase transitions. For '
-    'schema/recovery read '
+    'schema/recovery and compatible --work-stdin read '
     'common/skills/agent-operating-skill/references/runtime-lifecycle.md.'
 )
 RUNTIME_CAPSULE_BRIDGE_PHRASES = [
@@ -189,6 +194,7 @@ def runtime_bridge_required_phrases(runtime_name: str, instruction_file: str) ->
         phrases.append(CODEX_DISPATCH_BRIDGE_PHRASE)
         phrases.append(CODEX_APPROVAL_WAIT_BRIDGE_PHRASE)
         phrases.append(CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE)
+        phrases.append(CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE)
         phrases.append(CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE)
         phrases.extend(CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES)
     return phrases

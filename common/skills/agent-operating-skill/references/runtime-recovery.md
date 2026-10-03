@@ -21,4 +21,41 @@ A Codex exec result that only reports `Script running with cell ID ...` or a ses
 
 Permission evidence: reuse user approval for the identical action and target; request required sandbox escalation through the tool, not another conversational approval. DNS/name-resolution errors alone do not prove sandbox denial. A pending tool result alone does not prove that an approval dialog is visible or awaiting a user click. State the observed error and what remains unverified; never instruct the user to approve an unconfirmed dialog.
 
+Native Codex approval and Tao admission are separate boundaries. A native
+"Would you like to run" or "send input to terminal" prompt does not become a
+Tao operator-review request. Never self-approve either boundary or change the
+user's approval policy or sandbox profile to clear a prompt.
+
+Before submitting an authorized test or local build, use literal argv that
+matches an existing native prefix rule. A shell assignment such as
+`KEY=value <runner> <args>` can cause Codex to match the entire shell invocation,
+so a different task list or worktree asks again. When the existing rule covers
+it, use `env KEY=value <runner> <args>` with the same literal environment value,
+runner, arguments, target and conditional ordering. Keep the absolute
+`cd "<worktree>" &&` target explicit. Do not introduce expansions, substitutions
+or redirections merely to set the runner's environment. Verify matching with
+`codex execpolicy check --rules <rules-file> -- <argv>` when it is uncertain;
+this inspects policy without executing the requested command.
+
+If no existing rule covers required escalation, request it through the tool
+with a stable, scoped runner prefix rather than the full task list, shell
+script or worktree command. An environment wrapper prefix includes its exact
+literal assignments and runner; never request a blanket `env`, interpreter or
+shell prefix. A matching rule grants only native execution permission. Keep
+the user's action and target authority and Tao checks: tests or local packaging
+do not authorize install, publish, deploy or unrelated writes. Apply invocation
+choices before submission. Do not rewrite a denied command or resubmit a
+pending equivalent request; follow the denial or pending-request recovery above.
+
+For a semantic checkpoint, save the bounded work object to an ignored local
+JSON file and invoke `<TAO_LAUNCHER> checkpoint ... --work-file <absolute-path>`
+once, with exact run evidence. The file uses the same byte budget and schema as
+`--work-stdin`, and supplies no new action authority. Use stdin only when the
+caller can deliver it noninteractively in the original invocation. Do not
+launch an escalated interactive terminal solely to send JSON later with
+`write_stdin`: sending input to that terminal has a separate native permission
+boundary. A real interactive session may still need that approval. An already
+pending terminal-input request stays pending until it is answered or confirmed
+cancelled; changing the checkpoint transport does not settle it.
+
 When a Codex session starts outside its task worktree, make every shell command's execution directory explicit: use `git -C "<worktree>" <args>` for Git and `cd "<worktree>" && <command>` for other commands, with an absolute, shell-quoted worktree path. Do not rely on exec_command.workdir alone: Codex versions that send only tool_input.command to PreToolUse leave the hook with the session cwd. Keep workdir consistent when supplied, and use absolute worktree paths for file-edit tools. Reuse the current bound task instead of creating another worktree or restarting its workflow after a location denial. Explicit targeting does not grant sandbox permission; preserve checks on actual write targets and request escalation only for a real permission boundary.

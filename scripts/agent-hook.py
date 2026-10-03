@@ -1963,10 +1963,12 @@ def _run_checkpoint_hook(
     # `--work-shape` writes no checkpoint; it answers what one must contain, so
     # the start hook can name it instead of reprinting it every session.
     if getattr(args, "work_template", False) and any((
-        args.checkpoint_kind, args.work_stdin, args.work_shape, args.mutation_kind,
+        args.checkpoint_kind, args.work_stdin, args.work_file, args.work_shape, args.mutation_kind,
         args.mutation_path, args.phase, args.last_completed,
     )):
         parser.error("--work-template cannot be combined with checkpoint inputs")
+    if args.work_shape and args.work_file is not None:
+        parser.error("--work-shape cannot be combined with --work-file")
     if not args.checkpoint_kind and not (
         getattr(args, "work_shape", False) or getattr(args, "work_template", False)
     ):

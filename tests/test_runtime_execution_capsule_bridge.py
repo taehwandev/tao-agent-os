@@ -143,6 +143,28 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
         self.assertIn("DNS/name-resolution errors alone do not prove sandbox denial", phrase)
         self.assertIn("never instruct the user to approve an unconfirmed dialog", phrase)
 
+    def test_permission_and_checkpoint_guidance_refreshes_without_changing_user_rules(self):
+        current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        self.assertIn("env KEY=value <runner>", current)
+        self.assertIn("Checkpoint with --work-file <path>", current)
+        self.assertNotIn("Checkpoint with --work-stdin only", current)
+        approval_line = next(line for line in current.splitlines()
+                             if "env KEY=value <runner>" in line)
+        self.assertNotIn(approval_line, runtime_bridge_block(ROOT, "Claude", "CLAUDE.md"))
+        old = current.replace(approval_line + "\n", "").replace(
+            "Checkpoint with --work-file <path>", "Checkpoint with --work-stdin")
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "AGENTS.md"
+            prefix = "Personal policy: ask for publication.\n"
+            suffix = "Other integration stays enabled.\n"
+            target.write_text(prefix + old + suffix)
+            kwargs = dict(block=current, required_phrases=runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+            self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+            self.assertEqual(prefix + old + suffix, target.read_text())
+            self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+            self.assertEqual(prefix + current + suffix, target.read_text())
+            self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
+
     def test_unmarked_legacy_instructions_cannot_hide_missing_reading_contract(self) -> None:
         for runtime, filename in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"),
                                   ("Antigravity", "AGENTS.md")):

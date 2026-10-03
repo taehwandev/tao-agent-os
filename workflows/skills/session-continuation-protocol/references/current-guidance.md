@@ -61,7 +61,7 @@ gates or granting publication. Same-session resume that accepts later byte
 movement also returns no pre-drift verification successes.
 
 An owned `reconcile_required` run has an explicit recovery command:
-`checkpoint --checkpoint-kind reconcile --phase acting --work-stdin`, with the
+`checkpoint --checkpoint-kind reconcile --phase acting --work-file <path>`, with the
 run's exact `--evidence`. Supply a bounded observed objective and
 `verification: []`; `blocked` is also an allowed phase. The current owner and
 runtime session must match. This clears unresolved mutation state and returns

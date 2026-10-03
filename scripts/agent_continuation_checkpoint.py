@@ -176,7 +176,7 @@ def _validate_reconciliation(project, rules, record, binding, base, work, phase)
             or binding.get("runtime_session") != identity):
         raise ValueError("reconcile requires this session's exact reconcile_required run")
     if not work.get("objective") or work.get("verification") != [] or phase not in {"acting", "blocked"}:
-        raise ValueError("reconcile requires observed work via --work-stdin, verification: [], and phase acting or blocked")
+        raise ValueError("reconcile requires observed work via --work-file or --work-stdin, verification: [], and phase acting or blocked")
     drift = verify_drift(project, rules, base, required_doc_records=binding_required_docs(binding))
     if "required_docs" in drift.get("changed_signals", []):
         raise ValueError("required guidance changed: refresh the same action with start --evidence before reconciliation")

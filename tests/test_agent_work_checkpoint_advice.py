@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shlex
 import sys
 import tempfile
 import unittest
@@ -91,11 +92,16 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             evidence = project / ".tao" / "runs" / RUN_ID / "preflight.json"
 
             advice = wiring.work_checkpoint_advice(self._args(project, evidence))
+            work_file = (evidence.parent / "work.json").resolve()
 
         printed = "\n".join(advice)
 
         self.assertIn("tao-hook checkpoint", printed)
-        self.assertIn("--work-stdin", printed)
+        command = shlex.split(advice[1].splitlines()[1])
+        self.assertEqual(str(work_file), command[command.index("--work-file") + 1])
+        self.assertTrue(work_file.is_absolute())
+        self.assertNotIn("--work-stdin", printed)
+        self.assertNotIn("< work.json", printed)
         self.assertIn("--checkpoint-kind", printed)
 
     def test_the_advice_names_the_fields_a_resume_is_handed(self) -> None:
@@ -298,7 +304,9 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             git(project, "config", "user.email", "probe@example.invalid")
             git(project, "config", "user.name", "probe")
             (project / "AGENTS.md").write_text("uses tao-hook\n", encoding="utf-8")
-            git(project, "add", "AGENTS.md")
+            # Match the repository's ignored local runtime evidence boundary.
+            (project / ".gitignore").write_text(".tao/\n", encoding="utf-8")
+            git(project, "add", "AGENTS.md", ".gitignore")
             git(project, "commit", "-q", "-m", "first", "--no-verify")
             launcher = Path(home) / ".tao" / "bin" / "tao-hook"
             launcher.parent.mkdir(parents=True)
@@ -331,12 +339,15 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
                 if line.startswith(f"{launcher} checkpoint ")
             )
             evidence = next((project / ".tao" / "runs").glob("*/preflight.json"))
-            (project / "work.json").write_text(json.dumps(work), encoding="utf-8")
+            command = shlex.split(printed)
+            work_file = Path(command[command.index("--work-file") + 1])
+            self.assertEqual(evidence.parent.resolve() / "work.json", work_file)
+            work_file.write_text(json.dumps(work), encoding="utf-8")
+            git(project, "check-ignore", "-q", str(work_file))
             recorded = subprocess.run(
-                printed,
-                cwd=project,
-                shell=True,
-                executable="/bin/sh",
+                command,
+                cwd=directory,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 env=environment,
@@ -344,11 +355,14 @@ class WorkCheckpointAdviceTests(unittest.TestCase):
             packet = json.loads(
                 (evidence.parent / "continuation.json").read_text(encoding="utf-8")
             )
+            self.assertFalse((project / "work.json").exists())
 
         self.assertNotIn("<project>", printed)
         self.assertNotIn("<rules>", printed)
         self.assertNotIn("<this-run>", printed)
         self.assertNotIn("continuation work state", printed)
+        self.assertIn(shlex.quote(str(work_file)), printed)
+        self.assertNotIn("< work.json", printed)
         self.assertIn(shlex.quote(str(project.resolve())), printed)
         self.assertIn(shlex.quote(str(evidence.resolve())), printed)
         self.assertEqual(0, recorded.returncode, recorded.stdout + recorded.stderr)
