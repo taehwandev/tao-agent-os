@@ -36,6 +36,22 @@ OPT_IN_FILES = ("AGENTS.md", "CLAUDE.md", "CODEX.md")
 UNAVAILABLE_RULES = frozenset({"not_git_ignored", "local_boundary_unavailable"})
 
 
+def _is_own_sprawl_ack(target: Path, root: Path, session_id: str) -> bool:
+    """True only for this session's proportionality-gate acknowledgement file.
+
+    Mirrors ``claude_pretool_gate.sprawl_ack_file`` (a test pins the two
+    together); importing the gate here would re-run it, since it loads this
+    module lazily. Both sides are resolved so a symlink or ``..`` cannot
+    reach other project state through the exemption.
+    """
+    cleaned = "".join(ch for ch in session_id if ch.isalnum() or ch in "-_")
+    ack = root / ".tao" / "claude-pretool-gate" / f"{cleaned or 'unknown-session'}.sprawl-ack"
+    try:
+        return target.resolve() == ack.resolve()
+    except OSError:
+        return False
+
+
 class ClaudeContinuationAdapter:
     """Map Claude session/tool events onto the common continuation contract."""
 
@@ -64,6 +80,11 @@ class ClaudeContinuationAdapter:
             # while a project run is open -- a scope this adapter never owned.
             return None
         if ".tao" in Path(relative).parts:
+            if _is_own_sprawl_ack(target, root, session_id):
+                # The proportionality gate tells the agent to write exactly
+                # this file to justify going over its new-file budget. It is
+                # a session marker, not run state, and no packet records it.
+                return None
             return "Tao continuation checkpoint refuses mutations inside project state."
         kind = (
             "create"

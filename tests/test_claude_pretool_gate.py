@@ -2639,6 +2639,60 @@ class ClaudePreToolGateTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("", out)
 
+    def _write_state_file(self, project: Path, session: str, path: Path) -> tuple[int, str]:
+        payload = {
+            "tool_name": "Write",
+            "cwd": str(project),
+            "session_id": session,
+            "tool_input": {"file_path": str(path), "content": "justification\n"},
+        }
+        return _decide(payload)
+
+    def test_denial_instruction_to_write_ack_is_itself_allowed(self) -> None:
+        # The over-budget denial tells the agent to write the ack file with
+        # Write. The continuation guard must not refuse that exact path.
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project)
+            for index in range(gate.DEFAULT_NEW_FILE_BUDGET):
+                self._write_new_source(project, "sp", f"src/file{index}.py")
+            code, out = self._write_new_source(project, "sp", "src/one_too_many.py")
+            self.assertIn("proportionality gate", out)
+            ack = gate.sprawl_ack_file(project, "sp")
+            self.assertIn(str(ack), out)
+            code, out = self._write_state_file(project, "sp", ack)
+            self.assertEqual(0, code)
+            self.assertEqual("", out)
+            ack.parent.mkdir(parents=True, exist_ok=True)
+            ack.write_text("each file owns a distinct platform adapter\n", encoding="utf-8")
+            code, out = self._write_new_source(project, "sp", "src/one_too_many.py")
+        self.assertEqual(0, code)
+        self.assertEqual("", out)
+
+    def test_ack_exemption_does_not_open_other_project_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = _opt_in_project(Path(tmp))
+            _write_preflight(project)
+            _satisfy_workflow_entry(project, "sp")
+            state = project / ".tao"
+            denied = (
+                gate.sprawl_ack_file(project, "other-session"),
+                state / "runs" / "abc" / "evidence.json",
+                state / "claude-pretool-gate" / "sp.newfiles",
+                state / "claude-pretool-gate" / "x" / ".." / "other.sprawl-ack",
+            )
+            for path in denied:
+                code, out = self._write_state_file(project, "sp", path)
+                self.assertIn("project state", out, str(path))
+
+    def test_continuation_ack_path_matches_gate_ack_path(self) -> None:
+        from claude_continuation_hook import _is_own_sprawl_ack
+
+        root = Path("/project")
+        for session in ("sp", "a/b..c", "", "uuid-1_2"):
+            ack = gate.sprawl_ack_file(root, session)
+            self.assertTrue(_is_own_sprawl_ack(ack, root, session), session)
+
     def test_non_source_new_files_are_never_counted(self) -> None:
         # Doc/content sprawl (e.g. a writing workspace) must not be blocked.
         with tempfile.TemporaryDirectory() as tmp:
