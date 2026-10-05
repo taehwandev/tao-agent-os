@@ -474,6 +474,16 @@ def _project_route_doc_lines(path: Path, payload: dict, shown: list[str]) -> lis
     return lines
 
 
+def _publication_review_invocation_hint() -> str:
+    return (
+        "Review reuse does not waive invocation evidence. Preserve applicable "
+        "--structure-review-evidence fields: owner: ...; allowed imports: ...; "
+        "forbidden imports: ...; callers/tests: ...; verification: ... . "
+        "Await the review command's exit status 0 before dependent gates or finish. "
+        "Do not invoke finish after a rejected, failed or pending review."
+    )
+
+
 def _hook_summary_from_preflight(path: Path) -> list[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -549,6 +559,7 @@ def _hook_summary_from_preflight(path: Path) -> list[str]:
                 "Stage exactly these paths, then call review once; it will validate "
                 "current staged scope and drift. Any mismatch falls back to full review."
             )
+            lines.append(_publication_review_invocation_hint())
         else:
             lines.append(
                 "Publication review reuse: unavailable for this current scope; "

@@ -321,6 +321,11 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("not proof of unread context", summary)
         self.assertIn("source.py", summary)
         self.assertIn("Do not search, reopen, or manually review", summary)
+        self.assertIn("--structure-review-evidence", summary)
+        self.assertIn("owner: ...; allowed imports: ...; forbidden imports: ...; callers/tests: ...; verification: ...", summary)
+        self.assertIn("Review reuse does not waive invocation evidence", summary)
+        self.assertIn("exit status 0", summary)
+        self.assertIn("Do not invoke finish after a rejected, failed or pending review", summary)
 
     def test_summary_replays_takeaways_and_lists_project_route_docs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
