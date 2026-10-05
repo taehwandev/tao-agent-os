@@ -19,7 +19,8 @@ class AndroidActionBoundary:
     _event = re.compile(r"\b\w*(?:RouteEvent|NavigationEvent|NoticeEffect)\s*\.\s*[A-Z]\w*\b")
     _data = re.compile(
         r"\b(?:\w*(?:Repository|UseCase|DataSource|ApiClient)|repository|useCase|api|dao)"
-        r"\s*(?:\?\.)?\s*\.?(?:\s*\w+\s*)?\("
+        r"\b\s*(?:\?\.|\.)\s*\w+\s*\("
+        r"|\b(?:[a-z_]\w*UseCase|repository|useCase|api|dao)\s*\("
     )
     _effect = re.compile(
         r"\b(?:\w+\s*\.)?(?:navigate|popBackStack|navigateUp|showSnackbar|showToast|"

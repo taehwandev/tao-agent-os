@@ -70,6 +70,24 @@ class AndroidActionBoundaryTests(unittest.TestCase):
             Content(onClick = viewModel::navigate)
         '''))
 
+    def test_repository_named_renderers_helpers_and_constructors_are_not_data_calls(self):
+        self.assertEqual([], self.check('''
+            val adapter = remember { DesktopGitRepository() }
+            GitRepositoryHeader(snapshot, folder)
+            RepositoryHistory(folder, loadHistory)
+            readRepository()
+        '''))
+
+    def test_precise_matching_still_rejects_nullable_ports_and_invokable_use_cases(self):
+        for body in (
+            'LaunchedEffect(Unit) { gitRepository?.snapshot(folder) }',
+            'LaunchedEffect(Unit) { gitRepository.execute(folder, revision, action) }',
+            'submitUseCase(input)',
+            'repository(input)',
+        ):
+            with self.subTest(body=body):
+                self.assertTrue(self.check(body))
+
     def test_effect_collector_is_allowed_but_nested_user_callback_is_not(self):
         self.assertEqual([], self.check('''
             LaunchedEffect(viewModel) {
