@@ -11,12 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_execution_capsule_state import atomic_write_json, sha256_file
+from agent_execution_capsule_state import atomic_write_json, read_json_object, sha256_file
+from agent_gate_evidence import merge_gate_evidence_from_ledger
 from agent_repair_ledger import (
     checkpoint_failure_signature,
     checkpoint_has_recorded_failure,
     failure_signature,
     record_failure_checkpoints,
+    repair_checkpoint_path_for_preflight,
 )
 from agent_route_state import preflight_evidence_sha256, route_fingerprint
 from agent_repair_receipt_validation import validate_repair_receipt
@@ -161,6 +163,7 @@ def _record_structural_preflight_failure(
     checkpoint: str,
 ) -> None:
     if checkpoint != "preflight":
+        _record_failed_gate_checkpoint(preflight, evidence_path, checkpoint)
         return
 
     failed_checks = [
@@ -178,4 +181,28 @@ def _record_structural_preflight_failure(
         checkpoints=[checkpoint],
         signature=signature,
         checkpoint_signatures={checkpoint: signature},
+    )
+
+
+def _record_failed_gate_checkpoint(
+    preflight: dict[str, Any], evidence_path: Path, checkpoint: str
+) -> None:
+    """External test runners record FAIL through gate, without failing a hook."""
+    route = preflight.get("route") or {}
+    _, diagnostics = merge_gate_evidence_from_ledger(route=route, evidence_path=evidence_path)
+    failed = diagnostics["failed_gates"].get(checkpoint)
+    if diagnostics["warnings"] or not failed:
+        return
+    signature = failure_signature([f"{checkpoint}:{failed['source']}:{failed['evidence']}"])
+    prior = read_json_object(repair_checkpoint_path_for_preflight(evidence_path)) or {}
+    signatures = {
+        name: checkpoint_failure_signature(route=route, evidence_path=evidence_path, checkpoint=name)
+        for name in prior.get("failed_checkpoints", [])
+        if checkpoint_has_recorded_failure(route=route, evidence_path=evidence_path, checkpoint=name)
+    }
+    signatures[checkpoint] = signature
+    record_failure_checkpoints(
+        evidence_path=evidence_path, preflight=preflight,
+        checkpoints=list(signatures), signature=signature,
+        checkpoint_signatures=signatures,
     )
