@@ -177,6 +177,26 @@ class AndroidActionBoundaryTests(unittest.TestCase):
         '''
         self.assertTrue(AndroidActionBoundary.failures(Path("FeedScreen.kt"), source))
 
+    def test_bootstrap_repository_reads_are_rejected_in_both_source_sets(self):
+        for source_set, repository in (("commonMain", "settingsRepository"), ("desktopMain", "projectCatalogRepository")):
+            with self.subTest(source_set=source_set):
+                path = Path(f"app-desktop/src/{source_set}/kotlin/App.kt")
+                source = f"@Composable fun App() {{ val initial = remember {{ {repository}.load() }} }}"
+                findings = AndroidActionBoundary.failures(path, source)
+                self.assertTrue(any("data request" in finding for finding in findings), findings)
+
+    def test_bootstrap_data_owned_by_state_holder_is_allowed(self):
+        source = """
+            class AppState(settingsRepository: SettingsRepository) {
+                val settings = settingsRepository.loadSettings()
+            }
+            @Composable fun App(state: AppState) {
+                Settings(state.settings, onAction = state::onAction)
+            }
+        """
+        self.assertEqual([], AndroidActionBoundary.failures(Path("app-desktop/src/commonMain/kotlin/App.kt"), source))
+
+
     def test_real_structure_cli_fails_bad_code_and_accepts_action_dispatch(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
