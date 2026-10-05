@@ -849,9 +849,40 @@ def workflow_entry_allows(root: Path, session_id: str) -> bool:
         # would reopen the original bypass on any payload missing a session.
         return False
     evidence = session_evidence(root, session_id)
-    if evidence is None and resume_paused_run(root, session_id):
+    if (
+        evidence is None
+        and not finished_run_supersedes_paused(root, session_id)
+        and resume_paused_run(root, session_id)
+    ):
         evidence = session_evidence(root, session_id)
     return evidence is not None and evidence_is_fresh(evidence)
+
+
+def finished_run_supersedes_paused(root: Path, session_id: str) -> bool:
+    """Whether this session finished a run after its paused one last moved.
+
+    A paused run older than a finished one is leftover, not work in progress.
+    Reclaiming it re-opened the session on every gated command, so a publication
+    covered by the finished run was refused as "run still open", and cancelling
+    the reclaimed run only exposed the next older one.
+    """
+
+    paused = paused_session_evidence(root, session_id)
+    finished = finished_session_evidence(root, session_id)
+    if paused is None or finished is None:
+        return False
+    finished_at = evidence_mtime(finished.with_name("publication.json"))
+    if finished_at is None:
+        finished_at = _registry_completion_time(finished)
+    moved = [
+        at
+        for at in (
+            evidence_mtime(paused),
+            evidence_mtime(paused.with_name("continuation.json")),
+        )
+        if at is not None
+    ]
+    return finished_at is not None and bool(moved) and finished_at > max(moved)
 
 
 # Why the last automatic resume of a paused run was refused, keyed by run id,

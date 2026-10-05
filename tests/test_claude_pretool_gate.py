@@ -4273,6 +4273,29 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
             self.assertFalse(gate.workflow_entry_allows(project, self.SESSION))
             self.assertIsNotNone(gate.finished_session_evidence(project, self.SESSION))
 
+    def test_an_older_paused_run_is_not_reclaimed_over_a_newer_finished_one(self) -> None:
+        """Reclaiming it re-opened the session and refused a push the finished run covered."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paused = root / "paused" / "preflight.json"
+            finished = root / "finished" / "preflight.json"
+            for evidence in (paused, finished):
+                evidence.parent.mkdir()
+                evidence.write_text("{}", encoding="utf-8")
+            os.utime(paused, (100, 100))
+            receipt = finished.parent / "publication.json"
+            receipt.write_text("{}", encoding="utf-8")
+            for newer_finish, expected_reclaims in ((True, 0), (False, 1)):
+                os.utime(receipt, (200, 200) if newer_finish else (50, 50))
+                with self.subTest(newer_finish=newer_finish), patch.object(
+                    gate, "session_evidence", return_value=None
+                ), patch.object(gate, "paused_session_evidence", return_value=paused), patch.object(
+                    gate, "finished_session_evidence", return_value=finished
+                ), patch.object(gate, "resume_paused_run", return_value=False) as reclaim:
+                    self.assertFalse(gate.workflow_entry_allows(root, self.SESSION))
+                    self.assertEqual(expected_reclaims, reclaim.call_count)
+
     def test_finish_lets_its_own_commit_and_push_through(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp))
