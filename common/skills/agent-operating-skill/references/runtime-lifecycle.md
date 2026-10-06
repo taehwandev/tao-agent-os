@@ -14,6 +14,13 @@ Interpret intent, sequence, scope and authority from the conversation, not a phr
 
 Immediately before finish, compare the active route's exact gate list with the latest Remaining route gates snapshot and record only gates that are actually missing. Never manufacture generic gates, submit a hook-owned review through gate-batch, rerun a passed hook while the route and worktree are unchanged, or call finish to discover prerequisites. Require a successful gate command result and exit status before dependent edits, gates, review, or finish; a pending, rejected, or failed result stops that dependent sequence. Run the review hook once when the route requires it, and reuse a successful batch's Remaining route gates snapshot while the route and ledger are unchanged. When that snapshot or the start field list was lost to a context compaction, `gate-batch --template` reprints the remaining gates as fill-in records and records nothing; do not read Tao source or the preflight file to rebuild them.
 
+Optional retrospective efficiency evidence must pair the exact fields, for
+example `"efficiency":"unmeasured","efficiency_evidence":"No CPU/RSS measurement was taken"`.
+`efficiency_status` is not an alias. Omit both fields when no efficiency
+assessment is supplied. In tool orchestration, inspect each gate result and
+require exit status zero before invoking dependent finish; awaiting a tool
+result alone does not establish success.
+
 For tracked work claiming completion, run Tao Agent OS agent-hook.py finish before final report, commit, release, or handoff; direct agent-finish-check.py is a lower-level fallback only. Stateless lookup has no finish; blocked or interrupted work must not claim completion.
 
 Apply the Need-Driven Reading Contract in common/skills/agent-operating-skill/SKILL.md. Read required_docs; reference_docs and links are candidates, not a recursive reading queue. Reuse complete, unchanged readings still available in context. Read an optional document only for an unresolved in-scope question, and stop discovery when the owner, constraints, and nearest verification are known. Preserve applicable required instructions.
