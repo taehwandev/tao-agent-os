@@ -420,6 +420,31 @@ class RealRepositoryTests(unittest.TestCase):
             self.project, {"discovery": discovery}, self.run_command
         )
 
+    def test_nested_workspace_paths_and_image_links_are_checked(self) -> None:
+        self.write("writing/drafts/article.md", "# Article\n")
+        self.write("README.md", "# Parent\n")
+        self.commit_initial()
+        workspace = self.project / "writing"
+        image = workspace / "drafts" / "assets" / "cat.png"
+        image.parent.mkdir()
+        image.write_bytes(b"image")
+        self.write("writing/drafts/article.md", "# Article\n![cat](assets/cat.png)\n")
+
+        discovery, _checked = changed_source_paths(
+            workspace, self.run_command, ["drafts/article.md"]
+        )
+        self.assertEqual(["drafts/article.md"], list(discovery["path_metadata"]))
+        self.assertEqual(1, discovery["path_metadata"]["drafts/article.md"]["additions"])
+        self.assertEqual([], documentation_reference_failures(
+            workspace, {"discovery": discovery}, self.run_command
+        ))
+
+        image.unlink()
+        failures = documentation_reference_failures(
+            workspace, {"discovery": discovery}, self.run_command
+        )
+        self.assertTrue(any("drafts/article.md -> assets/cat.png" in x for x in failures))
+
     def test_deleting_a_tracked_document_is_discovered_from_git(self) -> None:
         self.write("common/a/old.md", "# Old\n")
         self.write("keeper.md", "See `common/a/old.md`.\n")
