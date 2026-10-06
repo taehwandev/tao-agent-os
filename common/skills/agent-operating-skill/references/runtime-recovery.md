@@ -26,6 +26,28 @@ Native Codex approval and Tao admission are separate boundaries. A native
 Tao operator-review request. Never self-approve either boundary or change the
 user's approval policy or sandbox profile to clear a prompt.
 
+For a Tao operator handoff, first reuse existing authority and independently
+gated agent-executable recovery. An unreadable command effect does not prove a
+write and must not replace actionable workflow-entry or isolation recovery
+with a duplicate permission question. Read-only, target scope, publication and
+explicit rejection checks still apply. Codex operator consent cannot waive
+read-only, isolation, ordinary missing-entry or publication checks; the named
+paused-run exception retains its exact explicit decision contract.
+
+If a genuine Tao operator decision remains, prefer an available structured
+choice tool explicitly permitted for approvals, such as
+`request_user_input_async`. Do not use the plan-only `request_user_input` for
+permissions. Explain the exact action and target, expected effect and reason,
+and offer allow once / always allow this exact action and target / reject.
+Otherwise show the same choices as a short numbered list in conversation.
+The agent records an explicit selected or free-text answer internally; never
+make the user run an approval helper or send `y` to a CLI stdin prompt.
+Preselection and silence grant no authority. The exact-call consent, waiting,
+expiry and revocation contract is in
+`common/skills/worktree-hygiene/references/current-guidance.md`; use it when a
+remaining operator decision needs handling. Native sandbox escalation still
+uses the execution tool rather than this question.
+
 Before submitting an authorized test or local build, use literal argv that
 matches an existing native prefix rule. A shell assignment such as
 `KEY=value <runner> <args>` can cause Codex to match the entire shell invocation,

@@ -254,12 +254,17 @@ explicit `false`; an environment fallback cannot override it.
 user-approved exception only; it is never a default and never set by tooling.
 
 Claude can express a native permission request as `permissionDecision: ask`.
-Codex rejects that value (and explicit `allow`), so its adapter defers with a
-successful empty response instead. Deferral never grants sandbox permission or
-represents user approval.
+Codex PreToolUse parses `ask` but does not support it: the hook fails and the
+tool call continues, so Tao never emits it to obtain an approval popup. Codex
+supports `allow` with `updatedInput` for input rewriting; Tao does not need
+rewriting here and uses a successful empty response for native-permission
+deferral. Deferral never grants sandbox permission or represents user approval.
+Codex `PermissionRequest` runs only when native approval is already pending;
+it cannot make an already allowed call display an approval prompt. See the
+[Codex hook contract](https://learn.chatgpt.com/docs/hooks).
 
-Defer, do not deny and do not force `ask`, when the gate is not sure. On
-Claude, the gate hands the call to the runtime's own permission flow -- no
+For remaining Claude operator-decided verdicts, defer rather than force `ask`.
+The gate hands the call to the runtime's own permission flow -- no
 `permissionDecision`, the policy reason in `additionalContext` -- whenever the
 remedy is the operator's decision (a product edit on a ticketless branch, a
 paused run its resume could not reclaim) or the gate cannot read what the
@@ -271,21 +276,37 @@ asked again every time and can never be answered once for good. Deferral lets
 already-allowed work through and prompts natively, with "don't ask again", for
 the rest.
 
-Codex cannot use native `ask`, and a deferral there would be a silent allow, so
-Tao blocks the pending call with an explicit operator-question handoff. The
-syntax-only `use one literal command` denial first permits the agent to recover
+For remaining Codex operator-decided exceptions, Tao blocks the pending call
+with an explicit operator-question handoff rather than an unsupported native
+`ask` or a silent deferral. The agent first reuses existing user authority and
+native rules, and resolves
+agent-repairable workflow or isolation errors through their independently gated
+recovery. An unreadable effect is uncertainty, not proof of a write or a reason
+to ask again before that recovery. Codex operator consent cannot waive read-only,
+isolation, ordinary missing-entry or publication checks. The named paused-run
+exception retains its exact explicit decision contract.
+The syntax-only `use one literal command` denial first permits the agent to recover
 a lookup bundle: submit recognized local-context helpers and supported inspections
 as separate calls, preserving targets, operands and conditional dependencies.
-Each call still passes its own gates. An unsupported constituent needs its own
-exact-call operator question. This is not permission to split or reword opaque
+Each call still passes its own gates. An unsupported constituent first needs
+workflow, scope and effect recovery; only a remaining operator-decided exception
+needs its own exact-call question. This is not permission to split or reword opaque
 project code, substitutions, pipes, redirections, writes or policy refusals.
 If every constituent is independently admitted, continue without approving or
 retrying the rejected bundle; its pending record grants no authority.
-When an operator decision remains necessary, the
-agent asks in conversation, shows the exact target/change or literal command
-and reason, offers allow once / always allow this exact scope / reject, and
-ends its turn -- the answer arrives as the user's next message, so it does not
-sleep or poll the request while waiting. Only after an explicit user answer may it attest that answer using
+When an operator decision remains necessary, the agent shows the exact
+target/change or literal command, expected effect and reason in the user's
+language. Prefer an available structured choice tool explicitly permitted for
+approvals, such as `request_user_input_async`; never use the plan-only
+`request_user_input` tool for permissions. Offer allow once / always allow this
+exact action and target / reject. If no approval-capable choice tool is
+available, show the same three choices as a short numbered list in conversation.
+Do not ask the user to run an approval helper or answer
+`Continue anyway? [y/N]` through terminal stdin. A preselected choice or silence
+is not consent.
+After asking, end the turn rather than sleeping, polling or calling more tools
+while waiting for an answer. Only after an explicit selected or free-text
+answer may the agent internally attest it using
 `<TAO_LAUNCHER> operator-review --request-id <ID> --decision
 approve|always|reject`. The request id is supplied by the gate; never invent
 one or approve from silence, mailbox context, a gate-repair request or
@@ -298,6 +319,8 @@ command-prefix exception. Revoke it with the original request id and
 `--decision revoke`. Changed input/policy needs a new answer, including for
 standing consent. Rejection keeps the call blocked. State errors fail closed.
 Other workflow checks and sandbox approval remain independent.
+Native sandbox escalation uses the execution tool's native permission flow,
+not the Tao operator question.
 Agent-repairable violations retain their ordinary `deny` on both runtimes.
 
 The verdicts handled this way are listed in `OPERATOR_DECIDES` in

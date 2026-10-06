@@ -42,13 +42,23 @@ class CodexOperatorReviewTests(unittest.TestCase):
         self.assertTrue(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
         self.assertFalse(OperatorReview.request(self.payload, "reason", "unreadable_command_effect")[0])
 
+    def test_pending_exception_prefers_choices_and_agent_records_answer(self):
+        _, message = OperatorReview.request(self.payload, "ticket required", "ticketed_product_branch")
+        self.assertIn("selectable", message)
+        self.assertIn("approval-capable", message)
+        self.assertIn("once/always exact scope/reject", message)
+        self.assertIn("record it internally", message)
+        self.assertIn("Never ask the user to run this helper", message)
+        request_id = re.search(r"--request-id ([a-f0-9]{64})", message).group(1)
+        self.assertEqual("pending", OperatorReview._read(OperatorReview._path(request_id))["status"])
+
     def test_pending_messages_keep_exact_binding_without_repeated_session_guidance(self):
         for code in sorted(OperatorReview.CODES):
             for reason in ("reason", "Cause: use one literal command"):
                 with self.subTest(code=code, reason=reason):
                     approved, message = OperatorReview.request(self.payload, reason, code)
                     self.assertFalse(approved)
-                    self.assertLess(len(message.encode()), 450)
+                    self.assertLess(len(message.encode()), 600)
                     self.assertIn(code, message)
                     self.assertIn("Codex session instructions", message)
                     request_id = re.search(r"--request-id ([a-f0-9]{64})", message).group(1)
