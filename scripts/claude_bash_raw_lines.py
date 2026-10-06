@@ -157,7 +157,53 @@ def substitution_runs(command: str) -> bool:
     return False
 
 
-def _raw_command_parts(command: str, reject_redirections: bool) -> "list[str] | None":
+def _without_trailing_descriptor(current: list[str]) -> list[str]:
+    """Drop a `2` left by `2>`: it names a stream, not an argument of the command."""
+    text = "".join(current)
+    word = text.split()[-1] if text and not text[-1].isspace() else ""
+    if word.isdigit():
+        return list(text[: len(text) - len(word)])
+    return current
+
+
+def _past_redirect_target(command: str, index: int) -> "int | None":
+    """Index after the operator at `index` and the one file word it names.
+
+    The word is data -- a path the shell opens, never a program it runs -- so
+    `> $OUT/p.patch` must not read as a command named `$OUT/p.patch`. A running
+    substitution inside the word is refused, since that does run a program.
+    """
+
+    while index < len(command) and command[index] in "<>":
+        index += 1
+    if index < len(command) and command[index] in "|&":
+        index += 1
+    while index < len(command) and command[index] in " \t":
+        index += 1
+    start = index
+    quote = ""
+    while index < len(command):
+        char = command[index]
+        if quote != "'" and command.startswith(RUNNING_SUBSTITUTION_MARKERS, index):
+            return None
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+        elif char == "\\":
+            index += 1
+        elif char.isspace() or char in OPERATOR_CHARS:
+            break
+        index += 1
+    if quote or index == start:
+        return None
+    return index
+
+
+def _raw_command_parts(
+    command: str, reject_redirections: bool, drop_redirect_targets: bool = False
+) -> "list[str] | None":
     """Split operators before unquoting so literal punctuation stays data."""
 
     parts: list[str] = []
@@ -203,6 +249,17 @@ def _raw_command_parts(command: str, reject_redirections: bool) -> "list[str] | 
         elif char == "\n" or char in OPERATOR_CHARS:
             if reject_redirections and char in "<>":
                 return None
+            # A heredoc (`<<`) keeps the old reading: its body lines still
+            # count as commands, which only ever holds more.
+            if drop_redirect_targets and char in "<>" and not command.startswith("<<", index):
+                after = _past_redirect_target(command, index)
+                if after is None:
+                    return None
+                current = _without_trailing_descriptor(current)
+                current.append(" ")
+                word_start = True
+                index = after
+                continue
             if current:
                 parts.append("".join(current))
                 current = []
@@ -219,11 +276,15 @@ def _raw_command_parts(command: str, reject_redirections: bool) -> "list[str] | 
 
 
 def raw_command_segments(
-    command: str, *, reject_redirections: bool = False
+    command: str, *, reject_redirections: bool = False, drop_redirect_targets: bool = False
 ) -> "list[list[str]] | None":
-    """Simple commands of a raw line, or None for hidden substitutions or bad syntax."""
+    """Simple commands of a raw line, or None for hidden substitutions or bad syntax.
 
-    parts = _raw_command_parts(command, reject_redirections)
+    `drop_redirect_targets` reads `cmd > file` as `cmd`, for callers asking only
+    which program runs; callers that care where a command writes keep the default.
+    """
+
+    parts = _raw_command_parts(command, reject_redirections, drop_redirect_targets)
     if parts is None:
         return None
     segments: list[list[str]] = []

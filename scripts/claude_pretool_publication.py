@@ -4,8 +4,8 @@ Owner: the publication hold -- whether any segment of a command line pushes,
 tags, opens or merges a pull request, or runs a project publication, and
 whether a wrapper hides the program so that cannot be read.
 Allowed imports: the standard library, claude_bash_syntax,
-claude_bash_raw_lines, claude_bash_git, claude_command_effect and
-claude_worktree_gate.
+claude_bash_raw_lines, claude_bash_git, claude_bash_xargs,
+claude_command_effect and claude_worktree_gate.
 Forbidden imports: claude_pretool_gate and run evidence; a hold is decided
 from the command alone.
 Callers/tests: claude_pretool_gate (which re-exports these names);
@@ -30,6 +30,7 @@ from claude_bash_syntax import (
     computed_word,
     shell_c_payload,
 )
+from claude_bash_xargs import xargs_runs_local_program
 from claude_command_effect import github_pr_merge, github_publication
 from claude_worktree_gate import project_publication_kind
 
@@ -101,7 +102,7 @@ def publication_hold(
     command, verdict = read
     if verdict == "publishes":
         return "publishes"
-    segments = raw_command_segments(command)
+    segments = raw_command_segments(command, drop_redirect_targets=True)
     if segments is None:
         return "unreadable"
     for tokens in segments:
@@ -123,7 +124,7 @@ def _segment_hold(
 
     command = command_behind_wrappers(tokens)
     if command is None:
-        return "unreadable"
+        return "" if xargs_runs_local_program(tokens) else "unreadable"
     if not command:
         return ""
     head = command[0]
