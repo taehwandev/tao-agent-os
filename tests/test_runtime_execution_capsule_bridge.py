@@ -101,6 +101,36 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
             self.assertEqual(prefix + current + suffix, target.read_text())
             self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
 
+    def test_operator_choices_refresh_without_cli_consent_or_sandbox_bypass(self):
+        current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        for guarantee in (
+            "Prefer an available approval-capable structured choice tool",
+            "request_user_input_async", "plan-only request_user_input",
+            "Do not ask the user to run a helper command",
+            "preselected option is not consent", "explicit selected or free-text answer",
+            "1. allow once", "2. always allow this exact action and target", "3. reject",
+            "request native sandbox escalation through the execution tool",
+        ):
+            self.assertIn(guarantee, current)
+        legacy = current.replace(
+            CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES[0],
+            "Codex operator decisions: use a structured choice tool only if permitted; "
+            "otherwise ask the user to run an approval command.",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "AGENTS.md"
+            prefix = "Personal policy: ask before publication.\n"
+            suffix = "Other runtime integration stays enabled.\n"
+            target.write_text(prefix + legacy + suffix)
+            kwargs = dict(block=current, required_phrases=runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+            self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+            self.assertEqual(prefix + legacy + suffix, target.read_text())
+            self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+            self.assertEqual(prefix + current + suffix, target.read_text())
+            self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
+        for runtime, entry in (("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
+            self.assertNotIn("request_user_input_async", runtime_bridge_block(ROOT, runtime, entry))
+
     def test_codex_bridge_refresh_teaches_explicit_worktree_target_without_permission_bypass(self):
         current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
         lines = [line for line in current.splitlines() if "exec_command.workdir" in line]

@@ -51,9 +51,10 @@ def _question(request_id: str, reason: str, code: str) -> str:
         recovery = "Lookup composition: apply Codex session recovery before asking. "
     return recovery + (
         f"Tao operator decision required ({code}); follow Codex session instructions. "
-        "Ask the user only if a decision remains. Record an explicit answer with "
+        "Ask the user only if a decision remains; prefer approval-capable selectable "
+        "choices (once/always exact scope/reject). After an explicit answer, record it internally with "
         f"<TAO_LAUNCHER> operator-review --request-id {request_id} "
-        "--decision approve|always|reject."
+        "--decision approve|always|reject. Never ask the user to run this helper."
     )
 
 

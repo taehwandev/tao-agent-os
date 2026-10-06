@@ -215,7 +215,32 @@ class WorkflowStartDenialTests(unittest.TestCase):
         self.assertNotIn("alone, as the only command on the line", reason)
 
     def test_operator_request_is_written_only_to_the_temporary_state_home(self) -> None:
-        self._verdict(f"touch {self.main}/one ; touch {self.main}/two")
+        # Codex now denies worktree isolation outright; a ticketless product
+        # branch is still an operator decision, so it is the request to record.
+        policy_path = self.worktree / ".agents/shared/worktree-policy.json"
+        policy = json.loads(policy_path.read_text())
+        policy.update({
+            "require_workflow_entry": True,
+            "require_ticketed_product_branch": True,
+            "ticket_key_pattern": "TICKET-[0-9]+",
+            "product_path_prefixes": ["app"],
+            "product_file_names": ["build.gradle"],
+            "product_suffixes": [".kt"],
+        })
+        policy_path.write_text(json.dumps(policy))
+        output = io.StringIO()
+        with patch.object(gate, "current_branch", return_value="task/no-ticket"), \
+                redirect_stdout(output):
+            pretool.decide({
+                "tool_name": "Write",
+                "cwd": str(self.worktree),
+                "session_id": "start-denial",
+                "tool_input": {"file_path": str(self.worktree / "app/Screen.kt"),
+                               "content": "x"},
+            })
+        decision = json.loads(output.getvalue())["hookSpecificOutput"]
+        self.assertEqual("deny", decision["permissionDecision"])
+        self.assertIn("ticketless branch", decision["permissionDecisionReason"])
         records = list((self.base / "state/codex-operator-review").glob("*.json"))
         self.assertEqual(1, len(records))
         self.assertEqual("start-denial", json.loads(records[0].read_text())["session_id"])

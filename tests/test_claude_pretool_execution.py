@@ -40,7 +40,8 @@ class PretoolExecutionTests(unittest.TestCase):
     def decision(self, argv):
         payload = {"tool_name": "Bash", "cwd": str(self.project),
                    "session_id": "execution-test", "tool_input": {"command": argv if isinstance(argv, str) else shlex.join(argv)}}
-        result = self.run_command([sys.executable, str(ROOT / "scripts/claude_pretool_gate.py")],
+        adapter = "codex_pretool_gate.py" if self.environment["TAO_PRETOOL_RUNTIME"] == "codex" else "claude_pretool_gate.py"
+        result = self.run_command([sys.executable, str(ROOT / "scripts" / adapter)],
                                   input=json.dumps(payload))
         self.assertEqual(0, result.returncode, result.stderr)
         return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout.strip() else None
@@ -53,8 +54,34 @@ class PretoolExecutionTests(unittest.TestCase):
                 "--target-summary", "Local integration fixture", "--runtime-session-id", "execution-test"]
         if read_only:
             args.append("--read-only")
+        args.extend(["--runtime", self.environment["TAO_PRETOOL_RUNTIME"]])
         result = self.run_command(args)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_codex_unknown_script_recovery_uses_real_start_and_adapter(self):
+        self.environment["TAO_PRETOOL_RUNTIME"] = "codex"
+        self.environment["CODEX_THREAD_ID"] = "execution-test"
+        self.environment.pop("CLAUDE_CODE_SESSION_ID", None)
+        tools = self.project / "tools"
+        tools.mkdir()
+        (tools / "check.py").write_text("from pathlib import Path\nPath('verified').write_text('complete')\n")
+        command = [sys.executable, "tools/check.py"]
+        verdict = self.decision(command)
+        self.assertEqual("deny", verdict["permissionDecision"])
+        self.assertIn("workflow start", verdict["permissionDecisionReason"])
+        self.assertNotIn("Tao operator decision required", verdict["permissionDecisionReason"])
+        self.start(read_only=True)
+        verdict = self.decision(command)
+        self.assertEqual("deny", verdict["permissionDecision"])
+        self.assertIn("read-only", verdict["permissionDecisionReason"])
+        self.assertNotIn("Tao operator decision required", verdict["permissionDecisionReason"])
+        self.assertFalse((self.project / "verified").exists())
+        self.start()
+        self.assertIsNone(self.decision(command))
+        result = self.run_command(command)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("complete", (self.project / "verified").read_text())
+        self.assertFalse((Path(self.directory.name) / "state/codex-operator-review").exists())
 
     def test_read_then_real_authorized_write_transition_and_http_execution(self):
         observed = []

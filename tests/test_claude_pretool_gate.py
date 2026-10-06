@@ -42,6 +42,119 @@ from agent_runtime_session import resolve_runtime_evidence
 import claude_worktree_gate as worktree_gate
 
 
+class CodexRepairableApprovalTests(unittest.TestCase):
+    """Repair a workflow boundary before asking for an exception to it."""
+
+    def _project(self, base: Path, *, linked: bool = True) -> Path:
+        project = _opt_in_project(base)
+        (project / ".gitignore").write_text(".tao/\n")
+        (project / "tools").mkdir()
+        (project / "tools/check.py").write_text("print('checked')\n")
+        policy = project / gate.WORKTREE_POLICY_PATH
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({"schema_version": 1, "require_linked_worktree": True,
+                                     "require_workflow_entry": True,
+                                     "protected_branches": ["main"]}))
+        for args in (["init", "-q", "-b", "main"], ["add", "."],
+                     ["-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                      "commit", "-qm", "fixture"]):
+            subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
+        if linked:
+            target = base / "linked"
+            subprocess.run(["git", "-C", str(project), "worktree", "add", "-qb", "task", str(target)],
+                           check=True, capture_output=True)
+            (target / ".tao").mkdir()
+            return target
+        return project
+
+    def test_unknown_command_recovers_through_authorized_start_without_operator(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex", STATE_HOME_ENV: tmp + "/state"}
+        ):
+            project = self._project(Path(tmp))
+            payload = {"tool_name": "Bash", "cwd": str(project), "session_id": "recovery",
+                       "tool_input": {"command": "python3 tools/check.py"}}
+            _, before = _decide(payload)
+            self.assertEqual("deny", _decision_of(before))
+            self.assertIn("run the workflow start hook", _reason(before))
+            self.assertIn("effect: unknown", _reason(before))
+            self.assertNotIn("Tao operator decision required", _reason(before))
+            self.assertFalse((Path(tmp) / "state/codex-operator-review").exists())
+
+            _write_preflight(project, "recovery", runtime="codex")
+            _, after = _decide(payload)
+            self.assertEqual("allow", _decision_of(after))
+            self.assertNotIn("Tao operator decision required", after)
+
+    def test_unknown_in_read_only_run_stays_denied_without_useless_approval(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex", STATE_HOME_ENV: tmp + "/state"}
+        ):
+            project = self._project(Path(tmp))
+            _write_preflight(project, "lookup", command="analysis", read_only=True, runtime="codex")
+            _, out = _decide({"tool_name": "Bash", "cwd": str(project), "session_id": "lookup",
+                              "tool_input": {"command": "python3 tools/check.py"}})
+            self.assertEqual("deny", _decision_of(out))
+            self.assertIn("read-only", _reason(out))
+            self.assertIn("effect: unknown", _reason(out))
+            self.assertNotIn("Tao operator decision required", _reason(out))
+            self.assertFalse((Path(tmp) / "state/codex-operator-review").exists())
+
+    def test_unknown_in_protected_checkout_keeps_isolation_without_operator(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex", STATE_HOME_ENV: tmp + "/state"}
+        ):
+            project = self._project(Path(tmp), linked=False)
+            _, out = _decide({"tool_name": "Bash", "cwd": str(project), "session_id": "isolation",
+                              "tool_input": {"command": "python3 tools/check.py && git status --short"}})
+            self.assertEqual("deny", _decision_of(out))
+            self.assertIn("worktree", _reason(out))
+            self.assertNotIn("Tao operator decision required", _reason(out))
+            self.assertFalse((Path(tmp) / "state/codex-operator-review").exists())
+
+    def test_literal_env_unittest_glob_executes_without_extra_tao_permission(self):
+        import shlex
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex", STATE_HOME_ENV: tmp + "/state"}
+        ):
+            project = self._project(Path(tmp))
+            tests = project / "tests"
+            tests.mkdir()
+            (tests / "test_check_case.py").write_text(
+                "import unittest\nclass Check(unittest.TestCase):\n"
+                "    def test_result(self):\n        self.assertEqual(2, 1 + 1)\n"
+            )
+            command = (f"cd {shlex.quote(str(project))} && env PYTHONDONTWRITEBYTECODE=1 "
+                       "python3 -m unittest discover -s tests -p 'test_check*.py'")
+            payload = {"tool_name": "exec_command", "cwd": str(project), "session_id": "test-run",
+                       "tool_input": {"cmd": command}}
+            _, out = _decide(payload)
+            self.assertEqual("allow", _decision_of(out), out)
+            result = subprocess.run(command, shell=True, cwd=project, capture_output=True, text=True,
+                                    env=os.environ, timeout=30)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertIn("Ran 1 test", result.stderr)
+            self.assertFalse((project / ".tao/runs").exists())
+            self.assertFalse((Path(tmp) / "state/codex-operator-review").exists())
+
+    def test_finished_codex_unknown_keeps_conditional_recovery_without_operator(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"TAO_PRETOOL_RUNTIME": "codex", STATE_HOME_ENV: tmp + "/state"}
+        ):
+            project = self._project(Path(tmp))
+            _write_preflight(project, "finished", runtime="codex")
+            evidence = resolve_runtime_evidence(project, {"runtime": "codex", "session_id": "finished"})
+            transition_run(project, evidence, "completed")
+            _attest_finished_publication(project, evidence)
+            _, out = _decide({"tool_name": "Bash", "cwd": str(project), "session_id": "finished",
+                              "tool_input": {"command": "python3 tools/check.py"}})
+            self.assertEqual("deny", _decision_of(out))
+            self.assertIn("continue without another workflow start", _reason(out))
+            self.assertNotIn("No exact registered preflight", _reason(out))
+            self.assertNotIn("Tao operator decision required", _reason(out))
+            self.assertFalse((Path(tmp) / "state/codex-operator-review").exists())
+
+
 # `record_session_project` writes under the global state home, and these cases
 # run it for real against temporary projects. With no override it wrote into
 # the developer's own `~/.tao/claude-session-projects/`, where nothing removes

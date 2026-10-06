@@ -56,8 +56,12 @@ UNDER_TEST_ENV = "TAO_UNDER_UNITTEST"
 
 
 def _running_unittest() -> bool:
+    # pytest collects the same suite; under it `__main__` is pytest's entry
+    # (or has no spec at all), so its own loaded package is the signal.
     spec = getattr(sys.modules.get("__main__"), "__spec__", None)
-    return bool(spec and str(getattr(spec, "name", "")).startswith("unittest"))
+    if spec and str(getattr(spec, "name", "")).startswith(("unittest", "pytest")):
+        return True
+    return "_pytest" in sys.modules
 
 
 if _running_unittest():

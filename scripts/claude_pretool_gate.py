@@ -545,8 +545,8 @@ def ask(reason: str, tokens: list[str] | None = None) -> int:
     refusals are evaluated separately and remain in force.
     """
 
-    # Codex rejects Claude's `ask` value as well as `allow`. A silent success
-    # leaves sandbox/approval decisions with the runtime; it grants no permission.
+    # Codex does not support PreToolUse `ask`. A silent success leaves native
+    # sandbox/approval decisions with the runtime; it grants no permission.
     if runtime_name() == "codex" or (tokens and _is_git_deletion(tokens)):
         return allow()
     return _emit({"permissionDecision": "ask", "permissionDecisionReason": reason})
@@ -591,13 +591,13 @@ def deny_or_ask(reason: str, code: str, payload: dict | None = None,
     return deny(reason + " " + question, code)
 
 
-def _read_only_operator_verdict(payload: dict, reason: str, unknown_reason: str) -> int:
-    verdict = deny_or_ask(
-        unknown_recovery(unknown_reason) if unknown_reason else reason,
-        "unreadable_command_effect" if unknown_reason else "read_only_run_mutation",
-        payload, continue_on_approval=True,
-    )
-    return deny(reason, "read_only_run_mutation") if verdict is None else verdict
+def _read_only_verdict(reason: str, unknown_reason: str) -> int:
+    if unknown_reason and runtime_name() != "codex":
+        return deny_or_ask(unknown_recovery(unknown_reason), "unreadable_command_effect")
+    # Codex operator consent cannot widen a frozen read-only run. Asking first used
+    # to consume an answer only to refuse the same call on its next attempt.
+    detail = " " + unknown_recovery(unknown_reason) if unknown_reason else ""
+    return deny(reason + detail, "read_only_run_mutation")
 
 
 def max_age_seconds() -> int:
@@ -1483,21 +1483,28 @@ def _isolated_checkout_verdict(
             return deny(finished_publication_denial(
                 governed, session_id, bash_command(payload), effective_cwd or cwd),
                 "publication_after_finish_mismatch")
-        if unknown_reason:
-            after_finish = finished_evidence_is_fresh(finished_session_evidence(governed, session_id))
-            verdict = deny_or_ask(unknown_recovery(unknown_reason, after_finish=after_finish)
-                        + governed_because(governed, cwd_roots),
-                        "unreadable_command_effect", payload, continue_on_approval=True)
-            if verdict is not None:
-                return verdict
+        after_finish = bool(unknown_reason) and finished_evidence_is_fresh(
+            finished_session_evidence(governed, session_id)
+        )
+        if unknown_reason and runtime_name() != "codex":
+            return deny_or_ask(unknown_recovery(unknown_reason, after_finish=after_finish)
+                               + governed_because(governed, cwd_roots),
+                               "unreadable_command_effect", payload)
+        if unknown_reason and after_finish:
+            return deny(unknown_recovery(unknown_reason, after_finish=True)
+                        + governed_because(governed, cwd_roots), "unreadable_command_effect")
         publishes = tool in BASH_TOOLS and publication_hold(
             bash_command(payload), root=governed, cwd=effective_cwd or cwd
         ) == "publishes"
+        # Missing workflow entry is repaired by a scoped start, not by an
+        # operator exception for the parser. Native execution permissions still
+        # decide the unchanged command after that entry succeeds.
+        detail = " " + unknown_recovery(unknown_reason) if unknown_reason else ""
         return entry_denial(governed, session_id, tool, cwd_roots, (
             " This command publishes: when the user's request authorizes it, start "
             "that run with --approved-effect external_write so its finish admits it."
             if publishes else ""
-        ), payload=payload)
+        ) + detail, payload=payload)
     if finish_authorized:
         return _approve(
             "This is a publication command that a successful finish "
@@ -1728,21 +1735,25 @@ def _worktree_policy_verdict(
             "if that is what you meant.",
             tokens=tokens,
         )
+    # In Codex, unparsed syntax cannot grant a main-checkout exception. The
+    # agent has an isolation remedy; an additional human answer only duplicated
+    # native permission review and could conceal the unresolved boundary.
+    reason = _worktree_reason_naming_its_cause(
+        roots,
+        worktree_reason,
+        is_bash=tool in BASH_TOOLS,
+        standing_in_the_protected_checkout=standing_in_the_protected_checkout,
+        readable=readable,
+        syntax_is_simple=syntax_is_simple,
+        payload=payload,
+        tokens=tokens,
+        command_cwd=command_cwd,
+    )
+    if runtime_name() == "codex":
+        return deny(reason, "worktree_isolation")
     unreadable = tool in BASH_TOOLS and not (syntax_is_simple and readable)
     return deny_or_ask(
-        _worktree_reason_naming_its_cause(
-            roots,
-            worktree_reason,
-            is_bash=tool in BASH_TOOLS,
-            standing_in_the_protected_checkout=standing_in_the_protected_checkout,
-            readable=readable,
-            syntax_is_simple=syntax_is_simple,
-            payload=payload,
-            tokens=tokens,
-            command_cwd=command_cwd,
-        ),
-        "unreadable_command_effect" if unreadable else "worktree_isolation",
-        payload,
+        reason, "unreadable_command_effect" if unreadable else "worktree_isolation", payload
     )
 
 
@@ -2515,7 +2526,7 @@ def _decide(payload: dict) -> int:
         roots, str(payload.get("session_id") or ""), bash_kind
     )
     if read_denial:
-        return _read_only_operator_verdict(payload, read_denial, scope.unknown_reason)
+        return _read_only_verdict(read_denial, scope.unknown_reason)
     if tool in BASH_TOOLS and bash_kind == SCRATCH_SCRIPT_KIND:
         return allow()
     if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:
