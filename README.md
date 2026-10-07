@@ -939,3 +939,38 @@ All resolved in this change except F11, which is docs-only by decision:
 Unverified in that run (permission classifier or gate refusals, not failures):
 `agent-os-status --validate`, the maintenance/watchdog CLIs, the
 mailbox/handoff/dispatch suites, and pre-commit audit reuse.
+
+### Audit: 2026-10-07, Figma And PR Follow-Through
+
+Source baseline: `129d256567d1fabacbaa72a0036e3346d7ce095b`. Environment:
+Codex on macOS, isolated Tao task checkout. Scope: the Figma command boundary
+and the agent's follow-through on one resource-copy change and its requested PR.
+This does not migrate or reinstall the active runtime, alter the product
+repository's policy, or establish full visual parity.
+
+| ID | Priority / check | Evidence and expected behavior | Owner / proving check / disposition |
+| --- | --- | --- | --- |
+| F14 | High / H07, H09 | The canonical Figma interpreter operand and URL query were treated as local write paths. Even dry-run required another repository's writable lifecycle. A bytecode-free dry-run should be a read; extraction should protect its output, not require authoring the tool checkout. | [Figma classifier](scripts/claude_bash_figma.py), [regressions](tests/test_claude_bash_figma.py). Two new tests failed before the repair; canonical CLI operand roles now resolve the false targets. Unknown tools/options and protected output writes remain conservative. |
+| F15 | Medium / H06 | PR lookup was invoked with `--check` after other options, but the project's explicit non-publication prefix places it immediately after the script. This was an agent invocation error, not a missing publication exemption. | [Prefix contract](scripts/claude_worktree_gate.py), [longest-prefix tests](tests/test_claude_worktree_gate.py). Use the repository's declared lookup form; do not reorder arbitrary script arguments or infer safety from the spelling of a flag. Existing tests passed. |
+| F16 | Medium / H02, H10 | The agent asked for design text despite having the Figma link, stopped before supported recovery, reread unchanged guidance, and exported 142 assets for one copy change. These were avoidable execution decisions; no comparable latency benchmark was collected. | Existing operating-skill persistence/reuse rules already cover the first three. Figma guidance needs a bytecode-free invocation and bounded extraction for copy-only work. No end-to-end speedup is claimed. |
+| F17 | Medium / H07, H08 | A required product pre-push structure check found inherited upstream debt. Publication authority did not authorize changing its frozen baseline; a separate baseline approval remained necessary. | Product-owned audit and approval rule remain authoritative and unchanged by this Tao repair. Anticipate required publication checks when preparing the concrete PR unit; a failed check must not be bypassed. |
+| F18 | Medium / H06, H07 | Staged canonical maintenance rejected a Tao task worktree target as `maintenance_target_mismatch` when `--rules` still named the main checkout. The task worktree is a canonical source owner in the same repository, not a foreign product-local skill. | [Maintenance owner](scripts/agent_skill_maintenance.py), [identity controls](tests/test_agent_skill_maintenance.py). Canonical bundles now require matching Git common directories, exact checkout roots, a linked `.git` file, bundle provenance and containment. Foreign repositories, subdirectories, missing bundles and symlink escapes remain refused. The live maintenance step completed using the actual canonical task worktree as its rules owner. |
+
+The copy implementation and product PR were ultimately completed. The delays
+came from both a missing Figma command contract and agent decision errors.
+The auxiliary no-source-change extraction run was unnecessary; removing the
+false tool-repository target avoids it without weakening the empty-code-review
+guard. Keep required approvals, isolation, lifecycle gates, and publication
+checks intact.
+
+Verification: **173 tests passed**, exit `0`, with `python3 -B -m unittest`
+over `tests.test_claude_bash_figma`, `tests.test_claude_bash_readonly`,
+`tests.test_claude_worktree_gate`, `tests.test_claude_pretool_target_protection`,
+`tests.test_claude_shell_parser_parity`, `tests.test_figma_cli`,
+`tests.test_figma_validate`, `tests.test_agent_skill_maintenance`,
+`tests.test_agent_skill_learning`, and `tests.test_agent_skill_hooks`. These cover
+the actual CLI dry-run's lack of output, argument-grammar drift, source-operand
+exemption, canonical maintenance identity, and negative protection cases.
+Canonical Figma guidance was staged and its maintenance verifier passed the
+focused unittest selector before marking the change applied. These are not the full Tao suite or
+a new live Figma API/network test.

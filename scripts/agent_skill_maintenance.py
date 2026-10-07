@@ -8,6 +8,7 @@ from typing import Any
 from agent_execution_capsule_state import sha256_file
 from agent_skill_draft import draft_binding
 from agent_state_lock import state_lock
+from support.bounded_git import run_git
 from agent_verification_command import (
     run_verification_command,
     resolve_verification_target,
@@ -62,6 +63,7 @@ def complete_verified_skill_maintenance(
     target_path, target_scope, target_relative, target_root = resolved
     if not _target_scope_is_allowed(
         project=project,
+        rules=rules,
         target_path=target_path,
         target_scope=target_scope,
         target_relative=target_relative,
@@ -205,6 +207,7 @@ def _target_matches_promotion(target_relative: str, promotion_target: str) -> bo
 def _target_scope_is_allowed(
     *,
     project: Path,
+    rules: Path,
     target_path: Path,
     target_scope: str,
     target_relative: str,
@@ -216,6 +219,8 @@ def _target_scope_is_allowed(
         return True
     if target_scope != "project":
         return False
+    if _canonical_rules_worktree(project, rules, target_path, target_relative):
+        return True
 
     parts = Path(target_relative).parts
     allowed_prefixes = (
@@ -234,6 +239,45 @@ def _target_scope_is_allowed(
     except ValueError:
         return False
     return (bundle / "SKILL.md").is_file()
+
+
+def _canonical_rules_worktree(
+    project: Path, rules: Path, target: Path, relative: str,
+) -> bool:
+    """Trust only canonical bundles in a linked worktree of the rules repo."""
+    parts = Path(relative).parts
+    if len(parts) >= 3 and parts[0] in {"common", "workflows"} and parts[1] == "skills":
+        bundle = Path(*parts[:3])
+    elif len(parts) >= 4 and parts[0] == "platforms" and parts[2] == "skills":
+        bundle = Path(*parts[:4])
+    else:
+        return False
+    try:
+        project, rules = project.resolve(), rules.resolve()
+        if target.resolve().relative_to(project).as_posix() != relative:
+            return False
+        if not (project / ".git").is_file() or (project / ".git").is_symlink():
+            return False
+        for root in (project, rules):
+            skill = (root / bundle / "SKILL.md").resolve()
+            skill.relative_to(root)
+            if not skill.is_file():
+                return False
+        identities = []
+        for root in (project, rules):
+            result = run_git(
+                ["git", "-C", str(root), "rev-parse", "--show-toplevel", "--git-common-dir"],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                return False
+            top, common = result.stdout.strip().splitlines()
+            if Path(top).resolve() != root:
+                return False
+            identities.append((root / common).resolve())
+        return identities[0] == identities[1]
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def _target_sha256(target_path: Path) -> str:

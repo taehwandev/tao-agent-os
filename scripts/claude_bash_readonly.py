@@ -17,6 +17,7 @@ from claude_bash_compile_check import (
     runner_target_local as _test_target_local,
 )
 from claude_bash_adb import adb_command_kind
+from claude_bash_figma import figma_command_effect
 from claude_bash_git import git_command_kind, git_subcommand
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
@@ -1098,6 +1099,9 @@ def _declared_read_indices(tokens: list[str], offset: int, cwd: Path | None = No
 
     if not tokens:
         return []
+    figma_effect = figma_command_effect(tokens, cwd)
+    if figma_effect is not None:
+        return [offset + index for index in figma_effect[1]]
     # A proven read segment can precede a write in another repository. Its
     # operands are not write targets of that later command. Redirections keep
     # the conservative path because they may write independently of the reader.
@@ -1311,6 +1315,9 @@ def simple_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
         command = strip_env_wrapper(command)
     if not command:
         return "mutating"
+    figma_effect = figma_command_effect(command, cwd)
+    if figma_effect is not None:
+        return figma_effect[0]
     runtime_kind = runtime_control_kind(command)
     if runtime_kind is not None:
         return runtime_kind

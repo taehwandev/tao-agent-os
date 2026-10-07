@@ -86,12 +86,19 @@ Prefer a URL containing a `node-id`. Before any real call, validate parsing
 and output locations without a token:
 
 ```bash
-python3 "$HANDOFF_CLI" \
+python3 -B "$HANDOFF_CLI" \
   --url "<FIGMA_URL>" \
   --name "<bundle-name>" \
   --out "<workspace-controlled-output>" \
   --dry-run
 ```
+
+Use `-B` for the canonical CLI and validator so imports do not write bytecode
+into the tool checkout. The tool path and input URL are read operands; real
+bundle writes belong to `--out` or the documented cwd default. Run from the
+target task directory with an explicit output location. Executing the tool
+does not require authoring its repository; unknown scripts/options and actual
+protected output paths retain their normal permission and isolation checks.
 
 A real call requires a token in an environment variable. Never accept a token
 value in chat or command arguments; if absent, guide the user to the [CLI token
@@ -110,10 +117,15 @@ small node URL the token is authorized to read.
 
 ## 5. Produce The Bundle For The Purpose
 
-Implementation requests default to collecting individual assets:
+Implementation requests that change imagery default to collecting individual
+assets. For a copy-only change, extract the requested frame with
+`--max-flow-depth 0` without `--export-assets`, then inspect the exact text node
+and rendered context. Export assets or fetch linked states only when the
+requested change requires them. This bounds collection without relaxing the
+implementation and visual-verification requirements below.
 
 ```bash
-python3 "$HANDOFF_CLI" \
+python3 -B "$HANDOFF_CLI" \
   --url "<FIGMA_URL>" \
   --name "<bundle-name>" \
   --out "<workspace-controlled-output>" \
@@ -267,7 +279,7 @@ For a newly produced bundle, check the CLI-recorded warnings and run the
 validator:
 
 ```bash
-python3 "$REPO_ROOT/scripts/figma-handoff/figma_validate.py" \
+python3 -B "$REPO_ROOT/scripts/figma-handoff/figma_validate.py" \
   "<bundle>/summary/design-summary.json"
 ```
 
