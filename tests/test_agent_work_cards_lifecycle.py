@@ -115,26 +115,46 @@ class WorkCardLifecycleTests(unittest.TestCase):
 
 
 class ProjectMemoryAtStartTests(unittest.TestCase):
-    def test_the_next_start_recalls_a_capture_without_approval(self) -> None:
+    def setUp(self) -> None:
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         state_home = mock.patch.dict(os.environ, {"TAO_STATE_HOME": str(Path(temp.name) / "state-home")})
         state_home.start()
         self.addCleanup(state_home.stop)
-        project = PlainCheckout(temp.name).project
+        self.project = PlainCheckout(temp.name).project
+
+    def capture(self, body: str, source: str = "design note") -> None:
         captured = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "agent_project_memory.py"),
-             "--project", str(project), "capture", "--source", "design note",
+             "--project", str(self.project), "capture", "--source", source,
              "--review-on", "2999-01-01"],
-            input="Run the adapter contract check first.", capture_output=True, text=True,
+            input=body, capture_output=True, text=True,
         )
         self.assertEqual(0, captured.returncode, captured.stderr)
 
-        started = start(project, ROOT, "가드를 고쳐줘")
+    def test_the_next_start_recalls_a_capture_without_approval(self) -> None:
+        self.capture("Run the adapter contract check first.")
+
+        started = start(self.project, ROOT, "가드를 고쳐줘")
 
         self.assertEqual(0, started.returncode, started.stdout)
         self.assertIn("Project memory (agent-written reference", started.stdout)
         self.assertIn("Run the adapter contract check first.", started.stdout)
+        self.assertNotIn("Project memory upkeep", started.stdout)
+
+    def test_start_names_upkeep_counts_without_record_content(self) -> None:
+        self.capture("Prefer the queue for retries.")
+        self.capture("Avoid the queue for retries.")
+
+        started = start(self.project, ROOT, "가드를 고쳐줘")
+
+        self.assertEqual(0, started.returncode, started.stdout)
+        [notice] = [line for line in started.stdout.splitlines() if "Project memory upkeep" in line]
+        self.assertIn("expired=0 expiring=0 duplicates=0 shared_source=1 unfinished=0", notice)
+        self.assertIn("project-memory --project", notice)
+        self.assertTrue(notice.rstrip().endswith("consolidate"), notice)
+        self.assertNotIn("queue", notice)
+        self.assertNotIn("design note", notice)
 
 
 class TestRunsNeverReachTheUsersStoreTests(unittest.TestCase):

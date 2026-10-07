@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,9 @@ from agent_hook_runtime import (
 from agent_inprocess import run_script_main
 from agent_global_lessons import promote_lessons_for_repair
 from agent_project_memory import recall_lines as project_memory_recall_lines
+from agent_project_memory import scan_records as project_memory_scan
+from agent_project_memory_consolidate import findings as project_memory_findings
+from agent_project_memory_consolidate import summary_line as project_memory_upkeep_line
 from agent_work_cards import settle_from_evidence as settle_work_card
 from agent_work_cards import start_lines as work_card_start_lines
 from agent_review_hook import required_review_evidence_flags, review_hook
@@ -137,6 +141,7 @@ from agent_context_store import (
 )
 from support.global_state import ensure_local_only_state_dir
 from support.git_read_scope import git_read_scope
+from support.stable_launcher import stable_launcher_path
 from workflow_catalog import COMMANDS, CONCERNS, PLATFORM_CONCERNS
 from support.stage_timing import append_recorded_stages, set_timing_sink, stage
 ROOT = Path(__file__).resolve().parents[1]
@@ -354,10 +359,22 @@ def _start_reference_lines(args: argparse.Namespace) -> list[str]:
         summary=str(getattr(args, "target_summary", "") or ""), command=args.command,
     )
     try:
-        lines.extend(project_memory_recall_lines(args.project, args.command))
+        records, _unreadable = project_memory_scan(args.project)
+        lines.extend(project_memory_recall_lines(args.project, args.command, records=records))
+        lines.extend(_project_memory_upkeep_lines(args.project, records))
     except (OSError, ValueError):
         pass
     return lines
+
+
+def _project_memory_upkeep_lines(project: Path, records: list[dict[str, Any]]) -> list[str]:
+    """Counts of records awaiting a decision; advisory, content-free, never a gate."""
+    try:
+        report = project_memory_findings(records, 0, today=date.today())
+        line = project_memory_upkeep_line(report, project.resolve(), str(stable_launcher_path()))
+    except (OSError, ValueError):
+        return []
+    return [line] if line else []
 
 
 def _is_invocation_error(result: dict[str, Any]) -> bool:

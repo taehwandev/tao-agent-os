@@ -60,7 +60,7 @@ def repository_key(project: Path) -> str:
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
 
 
-def _store(project: Path) -> Path:
+def store_dir(project: Path) -> Path:
     """Use one local store across every worktree of the same Git repository."""
     root = global_state_dir() / STORE_NAME
     directory = root / repository_key(project)
@@ -73,16 +73,17 @@ def _writable_store(project: Path) -> Path:
     refusal = user_store_write_error()
     if refusal:
         raise ValueError(refusal)
-    return _store(project)
+    return store_dir(project)
 
 
 def _record_path(project: Path, record_id: str) -> Path:
     if not ID_RE.fullmatch(record_id):
         raise ValueError("invalid memory id")
-    return _store(project) / f"{record_id}.json"
+    return store_dir(project) / f"{record_id}.json"
 
 
-def _read(path: Path) -> dict[str, Any] | None:
+def read_record(path: Path) -> dict[str, Any] | None:
+    """Return one validated record, or None for anything that fails validation."""
     if path.is_symlink():
         return None
     try:
@@ -114,7 +115,7 @@ def _read(path: Path) -> dict[str, Any] | None:
 
 def _existing(project: Path, record_id: str) -> tuple[Path, dict[str, Any]]:
     path = _record_path(project, record_id)
-    record = _read(path)
+    record = read_record(path)
     if record is None:
         raise ValueError("memory record is missing or invalid")
     return path, record
@@ -169,17 +170,29 @@ def _capture(project: Path, *, body: str, source: str, scope: str, review_on: st
     return record
 
 
-def _recall(project: Path, scope: str, *, today: date | None = None) -> list[dict[str, Any]]:
+def scan_records(project: Path) -> tuple[list[dict[str, Any]], int]:
+    """Read the store once: every validated record and the count of rejected files."""
+    directory = store_dir(project)
+    if not directory.is_dir() or directory.is_symlink():
+        return [], 0
+    records, unreadable = [], 0
+    for path in sorted(directory.glob("*.json")):
+        record = read_record(path)
+        if record is None:
+            unreadable += 1
+        else:
+            records.append(record)
+    return records, unreadable
+
+
+def _recall(project: Path, scope: str, *, today: date | None = None,
+            records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     if not SCOPE_RE.fullmatch(scope):
         raise ValueError("invalid recall scope")
     today = today or date.today()
-    directory = _store(project)
-    if not directory.is_dir() or directory.is_symlink():
-        return []
-    live = [
-        record for record in (_read(path) for path in directory.glob("*.json"))
-        if record is not None and record["status"] in RECALLABLE_STATUSES
-    ]
+    if records is None:
+        records = scan_records(project)[0]
+    live = [record for record in records if record["status"] in RECALLABLE_STATUSES]
     replaced = {record.get("replaces") for record in live}
     eligible = [
         record for record in live
@@ -192,11 +205,15 @@ def _recall(project: Path, scope: str, *, today: date | None = None) -> list[dic
     return eligible
 
 
-def recall_lines(project: Path, scope: str) -> list[str]:
-    """Render bounded, explicitly non-authoritative context for a start result."""
+def recall_lines(project: Path, scope: str, *,
+                 records: list[dict[str, Any]] | None = None) -> list[str]:
+    """Render bounded, explicitly non-authoritative context for a start result.
+
+    `records` lets a caller that already scanned the store reuse that read.
+    """
     lines = []
     size = 0
-    for record in _recall(project, scope):
+    for record in _recall(project, scope, records=records):
         payload = json.dumps(
             {key: record[key] for key in ("id", "body", "source", "review_on")},
             ensure_ascii=False,
@@ -231,6 +248,9 @@ def _main(argv: list[str] | None = None) -> int:
     retire_parser.add_argument("id")
     recall_parser = commands.add_parser("recall")
     recall_parser.add_argument("--scope", default="all")
+    # Read-only review of the whole store; decisions go through capture and retire.
+    consolidate_parser = commands.add_parser("consolidate")
+    consolidate_parser.add_argument("--within-days", type=int, default=14)
     args = parser.parse_args(argv)
     project = args.project.resolve()
     try:
@@ -242,6 +262,11 @@ def _main(argv: list[str] | None = None) -> int:
             result = _existing(project, args.id)[1]
         elif args.command == "retire":
             result = _retire(project, args.id)
+        elif args.command == "consolidate":
+            # Imported here: the rules module imports this one.
+            from agent_project_memory_consolidate import consolidate
+
+            result = consolidate(project, within_days=args.within_days)
         else:
             result = _recall(project, args.scope)
     except (OSError, ValueError) as error:

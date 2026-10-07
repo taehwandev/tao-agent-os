@@ -1,6 +1,6 @@
 ---
 keyflow_id: sys_project_memory_consolidation_spec
-status: draft
+status: review
 type: ai-generated
 ---
 
@@ -86,7 +86,7 @@ metering or continuation packets.
 | `duplicate_groups` | live records whose scopes match, or where one scope is `all`, and whose normalized bodies have a token Jaccard of at least 0.8 | write one merged record with `capture --replaces <one>`, then `retire` the others |
 | `shared_source_groups` | two or more live records with the same normalized `source` | open the source; keep, merge or retire the records that disagree with it |
 | `unfinished_replacements` | a live record whose id appears in another live record's `replaces` | `retire <id>`, which finishes the interrupted replacement |
-| `unreadable` | a count of `*.json` files that `_read` rejects | report only; never print their contents |
+| `unreadable` | a count of `*.json` files that `read_record` rejects | report only; never print their contents |
 
 Normalization lowercases the text, folds runs of whitespace, and strips
 punctuation. Plain token sets keep the heuristic stdlib-only and

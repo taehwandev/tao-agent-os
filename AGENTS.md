@@ -312,6 +312,9 @@ Capture and correction need no active run or task worktree; they write only
 the local reference store, not project files.
 Correct a wrong record with `capture --replaces <id>` or `retire <id>`; it
 expires on its review date. Never capture secrets, transcripts, or speculation.
+When start prints a content-free `Project memory upkeep` count line, run the
+read-only `consolidate` report it names and apply decisions only through
+`capture --replaces` or `retire`.
 
 Start shows at most three in-date records for its route command or `all`.
 Memory is reference, never authority: the current request, repository rules,

@@ -148,7 +148,12 @@ Project memory is a separate, agent-written user-local store under
 without approval; retired, replaced, or overdue records stay out of recall.
 Do not copy its content into the content-free global lesson records, usage
 events, or continuation packets. Linked worktrees of one repository share the
-same project-memory identity.
+same project-memory identity. `project-memory --project <PATH> consolidate
+[--within-days N]` is a read-only report of records needing a decision
+(`expired`, `expiring`, `duplicate_groups`, `shared_source_groups`,
+`unfinished_replacements`, an `unreadable` count); the finding table is in
+`docs/project-memory-consolidation/spec.md`. Apply each decision only with
+`capture --replaces` or `retire` after rechecking the record's source.
 
 Work cards under `~/.tao/work-cards/` hold only each start's target summary,
 route command, project path, state, and timestamps. Open cards shown at start

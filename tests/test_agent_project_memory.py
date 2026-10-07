@@ -96,6 +96,27 @@ class ProjectMemoryTests(unittest.TestCase):
                                       "--digest", record["digest"]]))
         self.assertEqual(before, self._path(record).read_bytes())
 
+    def test_consolidate_is_read_only(self) -> None:
+        old = self.candidate("Old advice")
+        with mock.patch("agent_project_memory._retire"):
+            self.candidate("Old advice", replaces=old["id"])
+        store = self._path(old).parent
+        (store / "0123456789abcdef.json").write_text("{broken", encoding="utf-8")
+        before = {path.name: path.read_bytes() for path in store.iterdir()}
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(0, main(["--project", str(self.project), "consolidate"]))
+        self.assertEqual(before, {path.name: path.read_bytes() for path in store.iterdir()})
+        report = json.loads(output.getvalue())
+        self.assertEqual([old["id"]], [item["id"] for item in report["unfinished_replacements"]])
+        self.assertEqual(1, len(report["duplicate_groups"]))
+        self.assertEqual(1, report["unreadable"])
+
+    def test_consolidate_refuses_a_negative_window(self) -> None:
+        with self.assertRaises(SystemExit) as raised, mock.patch("sys.stderr", io.StringIO()):
+            main(["--project", str(self.project), "consolidate", "--within-days", "-1"])
+        self.assertEqual(2, raised.exception.code)
+
     def test_changed_content_fails_closed(self) -> None:
         record = self.candidate()
         path = self._path(record)
