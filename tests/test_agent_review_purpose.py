@@ -371,6 +371,24 @@ internal fun shouldCollapseInput() = Unit
 
         self.assertTrue(any("grab-bag package" in failure for failure in failures))
 
+    def test_agent_tooling_namespace_is_not_a_runtime_package(self) -> None:
+        for directory, should_block in (
+            (".agents/shared/checks", False),
+            (".agents/shared/checks/utils", True),
+            ("src/shared/checks", True),
+            ("src/.agents/shared/checks", True),
+        ):
+            with self.subTest(directory=directory), tempfile.TemporaryDirectory() as temp_dir:
+                project = Path(temp_dir)
+                path = Path(directory) / "audit.py"
+                (project / path).parent.mkdir(parents=True)
+                (project / path).write_text("def audit():\n    return []\n", encoding="utf-8")
+                failures = purpose_failures(
+                    project, [path], {str(path): {"status": "A", "additions": 2}},
+                    lambda root, item: (root / item).is_file(), lambda item: False,
+                )
+                self.assertEqual(should_block, any("grab-bag package" in item for item in failures))
+
 
 class KotlinDefaultPublicOwnerTests(unittest.TestCase):
     """Kotlin top-level functions are public with no modifier to match on.

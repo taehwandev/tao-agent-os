@@ -435,21 +435,18 @@ def package_role_failures(
     review_source_path: PathPredicate,
     test_exempt_path: TestPredicate,
 ) -> list[str]:
-    """Refuse a grab-bag package segment for newly added runtime source.
-
-    This once also refused a package whose files mixed runtime roles, which
-    meant reading every file in the changed directory to collect those roles.
-    That check was removed for producing false positives on legacy structure
-    (`0078102c`), and the scan feeding it was left behind: on a three-file
-    patch it read 142 files and 105ms to build a list nothing then consulted.
-    What remains is answered by the directory name and the changed files' own
-    status, so no sibling is opened at all.
+    """Reject generic packages; only the root .agents/shared is administrative.
+    Lower segments remain signals. Inspect names and added file status,
+    never scan unchanged siblings to infer mixed roles.
     """
 
     failures: list[str] = []
     for parent in sorted({path.parent for path in paths if not test_exempt_path(path)}):
         changed = [path for path in paths if path.parent == parent and not test_exempt_path(path)]
-        generic = [part for part in parent.parts if part.lower() in GENERIC_PACKAGE_PARTS]
+        package_parts = parent.parts
+        if package_parts[:2] == (".agents", "shared"):
+            package_parts = package_parts[2:]
+        generic = [part for part in package_parts if part.lower() in GENERIC_PACKAGE_PARTS]
         if generic and any(path_metadata.get(str(path), {}).get("status") == "A" for path in changed):
             failures.append(
                 f"{parent} contains grab-bag package segment(s) {', '.join(sorted(set(generic)))} for new "

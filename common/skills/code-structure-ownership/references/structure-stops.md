@@ -206,6 +206,13 @@ Use three layers for package-structure discipline:
    `.tao/structure-rules.json`; this is useful while tuning rules but
    should not be the only source of truth for team workflows.
 
+The repository-root `.agents/shared` namespace identifies shared agent tooling,
+not a product runtime package. Exclude that exact prefix from the generic
+package-name check while keeping every lower segment, file/owner budget,
+boundary note, and repo-local import rule in scope. An added checker under
+`.agents/shared/checks` is valid; adding `checks/utils` below it still fails.
+Product paths such as `src/shared` retain the ordinary package-name gate.
+
 Supported rule shape:
 
 ```json
