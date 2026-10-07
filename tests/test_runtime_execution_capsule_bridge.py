@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from support.runtime_bridge import (
     CODEX_APPROVAL_WAIT_BRIDGE_PHRASE,
     CODEX_DISPATCH_BRIDGE_PHRASE,
+    CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE,
     CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES,
     LEGACY_RUNTIME_BRIDGE_BEGIN,
     LEGACY_RUNTIME_BRIDGE_END,
@@ -55,6 +57,46 @@ def _runtime_detail(topic: str) -> str:
     return (ROOT / f"common/skills/agent-operating-skill/references/runtime-{topic}.md").read_text()
 
 class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
+    def test_codex_native_review_does_not_add_duplicate_chat_approval(self):
+        block = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        self.assertIn("Use auto_review for escalation", block)
+        self.assertIn("do not repeat settled chat approval", block)
+        detail = _runtime_detail("recovery")
+        for guarantee in (
+            "already authorized action and target", "through\nthe execution tool",
+            "do not add a conversational approval question",
+            "settle a Tao\noperator-review request", "or override an explicit rejection",
+        ):
+            self.assertIn(guarantee, detail)
+        for runtime, entry in (("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
+            self.assertNotIn("auto_review", runtime_bridge_block(ROOT, runtime, entry))
+
+    def test_native_review_guidance_refresh_preserves_user_policy(self):
+        current = runtime_bridge_block(ROOT, "Codex", "AGENTS.md")
+        legacy = current.replace(CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE, "For authorized tests/builds, reuse native prefix approvals.")
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "AGENTS.md"
+            prefix = "Personal policy: ask before new deployment targets.\n"
+            suffix = "Other integration must remain enabled.\n"
+            target.write_text(prefix + legacy + suffix)
+            kwargs = dict(block=current, required_phrases=runtime_bridge_required_phrases("Codex", "AGENTS.md"))
+            self.assertEqual("missing", merge_runtime_bridge(target, True, **kwargs))
+            self.assertEqual(prefix + legacy + suffix, target.read_text())
+            self.assertEqual("installed", merge_runtime_bridge(target, False, **kwargs))
+            self.assertEqual(prefix + current + suffix, target.read_text())
+            self.assertEqual("ok", merge_runtime_bridge(target, False, **kwargs))
+
+    def test_missing_native_review_guidance_is_detected(self):
+        with patch("support.runtime_bridge.CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE",
+                   "For authorized tests/builds, reuse native prefix approvals."):
+            result = unittest.TestResult()
+            RuntimeExecutionCapsuleBridgeTests(
+                "test_codex_native_review_does_not_add_duplicate_chat_approval"
+            ).run(result)
+        self.assertEqual(1, result.testsRun)
+        self.assertEqual(1, len(result.failures))
+        self.assertEqual([], result.errors)
+
     def test_compact_bridge_routes_details_without_a_blanket_read(self):
         for runtime, entry in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
             block = runtime_bridge_block(Path("/tao"), runtime, entry)

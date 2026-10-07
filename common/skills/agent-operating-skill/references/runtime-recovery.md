@@ -26,6 +26,18 @@ Native Codex approval and Tao admission are separate boundaries. A native
 Tao operator-review request. Never self-approve either boundary or change the
 user's approval policy or sandbox profile to clear a prompt.
 
+Honor Codex's configured native reviewer, including `auto_review`. For an
+already authorized action and target, submit required sandbox escalation through
+the execution tool and let that reviewer handle eligible approval requests;
+do not add a conversational approval question for the same permission. Keep one
+pending request and use its handle. A successful review supplies native execution
+permission only: it does not widen the user's requested scope, settle a Tao
+operator-review request, or override an explicit rejection. Handle an actual
+denial through the permitted recovery path. Ask only when existing authority and
+agent-executable recovery leave a material decision for the user; name that
+decision rather than asking again to perform the original task. Do not change
+`approvals_reviewer`, `approval_policy`, or sandbox settings as a prompt workaround.
+
 For a Tao operator handoff, first reuse existing authority and independently
 gated agent-executable recovery. An unreadable command effect does not prove a
 write and must not replace actionable workflow-entry or isolation recovery

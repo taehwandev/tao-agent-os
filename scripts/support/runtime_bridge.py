@@ -30,6 +30,7 @@ CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE = (
     'user to approve an unconfirmed dialog.'
 )
 CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE = (
+    'Use auto_review for escalation; do not repeat settled chat approval. '
     'For authorized tests/builds, reuse native prefix approvals with literal argv '
     '(env KEY=value <runner>); for repeat prompts and terminal input read '
     'common/skills/agent-operating-skill/references/runtime-recovery.md.'
