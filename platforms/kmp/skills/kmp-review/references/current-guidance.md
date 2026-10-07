@@ -52,6 +52,15 @@ modules, source-set changes, platform actuals, or target app integration.
 - Are release checks covering serialization/minification rules, signing,
   framework export, package identifiers, config injection, and target smoke
   paths when release surfaces changed?
+- Do Gradle project dependencies match the layer map in
+  `../../kmp-architecture/references/layering.md`, with no unused declared
+  edge, no feature-to-feature implementation edge, and no app-target screen,
+  policy, or data adapter?
+- Do touched packages pass the root-package audit in
+  `../../kmp-module-structure/references/package-layout.md`?
+- Does UI code consume the design system per
+  `../../kmp-compose-ui/references/design-system.md`, without new hardcoded
+  colors, repeated dimension literals, or private primitives?
 
 ## Do Not Approve When
 
@@ -68,6 +77,10 @@ modules, source-set changes, platform actuals, or target app integration.
 - Gradle, version catalog, framework export, signing, package id, or release
   config changes are mixed with product behavior or lack affected-target
   verification.
+- The design-system module gains a dependency on a feature, data, domain, or
+  platform capability module.
+- A long-running process, window, watcher, or native handle is owned by
+  feature presentation instead of the app target, data, or a capability module.
 
 ## Output
 

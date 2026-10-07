@@ -84,7 +84,9 @@ Use repo-local names first. KMP projects commonly separate these families:
 | Shared core/domain module | Pure models, policies, result/error types, clocks/dispatchers contracts, reusable use cases. | Compose UI, Android/iOS framework types, database rows, network DTOs. |
 | Shared data module | Repository contracts, repository implementations, cache/network coordination, DTO/entity mapping. | Target UI state or platform permission prompts. |
 | Platform adapter module/source set | Android/iOS/desktop/web implementations, file/permission/secure storage/native interop adapters. | Silent no-op behavior or shared product policy. |
-| Compose/design module | Shared Compose UI, theme, resources, design primitives, previews where supported. | Target lifecycle, platform SDK calls, repository internals. |
+| Design-system module (`core:designsystem`) | Theme, semantic tokens, domain-free components, icons, previews; target source sets for pointer, popup, and font differences. | Feature, data, domain, or platform capability dependencies; product composites, copy, language settings. See [`design-system.md`](../../kmp-compose-ui/references/design-system.md). |
+| Shared product UI module (`core:ui`, optional) | Domain-aware UI patterns reused by several features, built on the design system. | Repository calls, routes, feature state; dependency from the design system back to it. |
+| Platform capability module (`core:<capability>`) | One platform service such as process/terminal host, device bridge, file watcher, browser engine, with its contract, lifecycle, and parsers. | Feature UI state, product copy; living under `feature/` because one feature calls it. |
 | Build logic/testing | Convention plugins, target setup, fixtures, fake adapters, test utilities. | Runtime behavior hidden from production owners. |
 
 ## Build Logic And Version Catalog
@@ -244,39 +246,26 @@ Forbidden edges:
   environment-specific private config
 - debug tooling dependency -> release runtime when a no-op or disabled variant
   is required
+- design system -> feature, data, domain, or platform capability modules
+- feature -> data implementation module, even when no file imports it yet; a
+  declared edge is an invitation
+
+Layer ownership, the composition root, and the Gradle/import verification
+commands are in
+[`layering.md`](../../kmp-architecture/references/layering.md).
 
 ## Package Layout
 
-Inside a shared feature module:
+MUST read [`package-layout.md`](package-layout.md) before adding a package,
+moving files between packages, or adding files to a module whose root package
+already mixes roles. It owns the default package trees per module family
+(feature, data, domain/model, design system, platform capability, app target),
+the rule that every source set shares one package tree with `actual` beside
+`expect`, and the root-package audit triggers.
 
-```text
-src/commonMain/kotlin/<feature>/
-  <Feature>StateHolder.kt
-  <Feature>UiState.kt
-  action/
-  model/
-  domain/
-  data/
-  ui/                     shared Compose UI if used
-  platform/               adapter contracts
-  navigation/             route contracts or feature-local graph entry
-  di/                     feature-local binding declarations
-src/androidMain/kotlin/<feature>/platform/
-src/iosMain/kotlin/<feature>/platform/
-src/commonTest/kotlin/<feature>/
-```
-
-Inside a shared data module:
-
-```text
-repository/
-  <Name>Repository.kt      caller-facing contract
-  <Name>RepositoryImpl.kt  source coordination when shared
-model/                    stable entities
-remote/                   network DTOs and client wrappers
-local/                    cache/settings/database wrappers
-mapper/                   DTO/cache/native -> entity mapping
-```
+Short form: a module's root package holds only its entry surface; a large
+feature splits by flow, then by role; a data module splits by capability, then
+by role (`repository/`, `local/`, `remote/`, `mapper/`).
 
 ## Test And Coverage Modules
 
@@ -320,3 +309,10 @@ When modernizing an old KMP shared module:
 - Are platform unsupported states explicit in shared state or capability models?
 - Are `commonTest` and at least one target-specific check covering the new
   boundary?
+- Does every declared project dependency have an import, and do the Gradle
+  edges match the layer map in
+  [`layering.md`](../../kmp-architecture/references/layering.md)?
+- Does each touched module's root package hold only its entry surface, or is
+  the audit result from [`package-layout.md`](package-layout.md) recorded?
+- Does the design-system module stay free of feature, data, domain, and
+  platform capability dependencies?

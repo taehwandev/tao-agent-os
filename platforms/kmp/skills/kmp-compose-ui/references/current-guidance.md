@@ -33,6 +33,29 @@ Route/Host Composable -> Screen Composable -> Section Composable
 - Design-system primitives know visual and interaction contracts, not product
   routes, analytics labels, storage, shell commands, or fake data.
 
+## Design-System Consumption
+
+Before writing screen, section, or component code, pass the Android
+[Design-System Consumption Gate](../../../../android/skills/android-compose-ui/references/current-guidance.md#design-system-consumption-gate);
+it applies to Compose Multiplatform as-is: existing design-system component,
+then primitives, then theme tokens, then foundation layout, and raw Material
+only with a written reason.
+
+KMP feature code must also:
+
+- depend on `:core:designsystem` from `commonMain` in every module that renders
+  UI
+- read colors, typography, spacing, radius, and stroke through the theme object,
+  with no `Color(0x...)` literals and no repeated `.dp`/`.sp` literals
+- not define private `*Button`, `*Card`, `*Chip`, or `*Badge` primitives that
+  duplicate a design-system component
+
+MUST read [design-system.md](design-system.md) before changing the
+design-system module, adding a token or shared component, moving a composable
+into or out of the design system, or placing a desktop/mobile visual
+difference. Package trees for feature UI are in
+[package-layout.md](../../kmp-module-structure/references/package-layout.md).
+
 ## Mandatory Component Split
 
 Compose Multiplatform screens must be split into named composables instead of
@@ -152,3 +175,7 @@ a screenshot test, Compose UI test, desktop smoke, or manual target check.
   and interaction changes.
 - Review for target-only APIs in shared composables and for product behavior
   moved into design-system components.
+- Run the design-system bypass searches in
+  [design-system.md](design-system.md#verification) on the changed feature
+  modules; a UI change should not add hardcoded colors, dimensions, or raw
+  Material controls.

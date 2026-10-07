@@ -26,6 +26,10 @@ App Target -> Platform Shell -> Shared Presentation/UI -> Use Case
 -> Repository -> Platform Adapter
 ```
 
+The layers, architecture tracks, and effect-sink rules are the Android ones;
+the KMP layer map, composition root, platform service boundary, and desktop
+runtime owners are in [layering.md](layering.md).
+
 Use source sets as ownership boundaries:
 
 ```text
@@ -100,6 +104,30 @@ work, make these decisions explicit before implementation:
   instead of a repository, client, or state owner.
 - Release-only code paths such as minification, signing, packaging, or debug
   inspector no-op variants are not represented in verification.
+- A Gradle file declares a project dependency the module never imports, or the
+  repo's architecture document and Gradle edges disagree.
+- The app target holds screens, policies, scanners, or process launchers that
+  belong to a feature, data, or platform capability owner.
+- A `feature/` module contains platform capability code (device bridges,
+  process or browser engines) instead of UI for one feature.
+- A module's root package holds most of its files across unrelated roles, or
+  feature code bypasses the design system with raw colors, dimensions, or
+  private primitives.
+
+## Required References By Decision
+
+Each reference below holds rules this file does not repeat. When the change
+makes that decision, read the reference before editing.
+
+- [layering.md](layering.md): before creating a module or feature slice,
+  adding a Gradle project dependency, wiring the composition root, or placing a
+  platform service, window, or long-running process.
+- [package-layout.md](../../kmp-module-structure/references/package-layout.md):
+  before adding a package, moving files between packages, or when a module's
+  root package keeps growing.
+- [design-system.md](../../kmp-compose-ui/references/design-system.md): before
+  changing the design-system module, adding a token or shared component, or
+  reviewing hardcoded colors, dimensions, or primitives in features.
 
 ## Verification
 
