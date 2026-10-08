@@ -249,8 +249,8 @@ def top_level_declaration_failures(
     previous_declarations: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     failures: list[str] = []
-    raw_declarations = declarations
-    raw_previous_declarations = previous_declarations or []
+    raw_declarations = coalesce_next_route_adapter(path, declarations)
+    raw_previous_declarations = coalesce_next_route_adapter(path, previous_declarations or [])
     declarations = coalesce_typescript_support_types(path, raw_declarations)
     previous_declarations = coalesce_typescript_support_types(
         path,
@@ -303,6 +303,30 @@ def top_level_declaration_failures(
             "split by purpose before approval"
         )
     return failures
+
+
+def coalesce_next_route_adapter(path: Path, declarations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep App Router method/config exports in their framework entrypoint family.
+
+    This does not admit an additional public helper or relax block/import checks.
+    Class and type declarations remain ordinary owners even with reserved names.
+    """
+    is_app_route = path.name in {"route.ts", "route.tsx", "route.js", "route.jsx"} and (
+        path.parts[:2] == ("src", "app") or path.parts[:1] == ("app",)
+    )
+    if not is_app_route:
+        return declarations
+    methods = {"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"}
+    configuration = {"dynamic", "dynamicParams", "revalidate", "fetchCache", "runtime", "preferredRegion", "maxDuration"}
+    adapter = [item for item in declarations if item["exported"] and item["kind"] in {"function", "const"}
+               and item["name"] in methods | configuration]
+    if len(adapter) < 2 or not any(item["name"] in methods for item in adapter):
+        return declarations
+    names = {item["name"] for item in adapter}
+    first = min(adapter, key=lambda item: item["line"])
+    family = {**first, "kind": "framework_adapter", "name": "NextRouteAdapter", "role": "contract",
+              "references": set().union(*(item.get("references", set()) for item in adapter))}
+    return [item for item in declarations if item["name"] not in names or item not in adapter] + [family]
 
 
 def retain_legacy_typescript_support_types(

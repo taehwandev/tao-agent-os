@@ -71,6 +71,14 @@ owner; unrelated types, type-only files, and multiple runtime owners retain the
 ordinary budgets. Classes, enums, and separate exported values remain runtime
 owners. Size, dependency, and repository-specific limits still apply.
 
+For Next.js App Router route entrypoints, named HTTP method and supported
+segment configuration exports form one framework adapter family. The
+normalization applies only to `app/**/route.{ts,tsx,js,jsx}` and
+`src/app/**/route.{ts,tsx,js,jsx}` with an exported HTTP method. Extra public
+helpers, classes, and ordinary modules retain the normal owner limits.
+File/block sizes and import boundaries remain mandatory. See the official
+[route conventions](https://nextjs.org/docs/app/api-reference/file-conventions/route).
+
 This reference grouping is a syntactic aid, not proof of semantic cohesion.
 Review whether the types actually describe that owner's contract. A referenced
 contract with independent consumers, lifecycle, or dependency requirements may

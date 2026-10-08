@@ -111,6 +111,10 @@ explicit command target; these are not interchangeable across adapters.
 
 Hook failure:
 
+- Review receipts use the canonical `review` checkpoint and look up the
+  `review hook` gate. After a resume rebinds preflight evidence, recovery may
+  use its still-valid failed gate record. A stale repair ledger with a consumed
+  retry must remain blocked; importing it must never reset the repair budget.
 - Treat a hook `FAIL` as an active recovery task, not a handoff summary.
 - Read every failure detail and classify it as safe scoped fix, scope decision,
   environment blocker, external-state risk, or broader refactor.

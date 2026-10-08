@@ -190,11 +190,16 @@ def _record_failed_gate_checkpoint(
     """External test runners record FAIL through gate, without failing a hook."""
     route = preflight.get("route") or {}
     _, diagnostics = merge_gate_evidence_from_ledger(route=route, evidence_path=evidence_path)
-    failed = diagnostics["failed_gates"].get(checkpoint)
+    gate = "review hook" if checkpoint == "review" else checkpoint
+    failed = diagnostics["failed_gates"].get(gate)
     if diagnostics["warnings"] or not failed:
         return
-    signature = failure_signature([f"{checkpoint}:{failed['source']}:{failed['evidence']}"])
     prior = read_json_object(repair_checkpoint_path_for_preflight(evidence_path)) or {}
+    # A resumed preflight may have a fresh gate ledger but stale repair binding.
+    # Never import it as a fresh failure when doing so would reset a used retry.
+    if prior.get("repair_attempts") and prior.get("preflight_evidence_sha256") != preflight_evidence_sha256(evidence_path):
+        return
+    signature = failure_signature([f"{checkpoint}:{failed['source']}:{failed['evidence']}"])
     signatures = {
         name: checkpoint_failure_signature(route=route, evidence_path=evidence_path, checkpoint=name)
         for name in prior.get("failed_checkpoints", [])
