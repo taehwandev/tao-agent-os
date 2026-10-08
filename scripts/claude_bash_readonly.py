@@ -346,12 +346,11 @@ def runtime_control_kind(tokens: list[str]) -> str | None:
 # alias -> (subcommand, its bare flags, its flags that take a value).
 LOCAL_STORE_LOOKUPS = {
     "work-cards": ("list", {"--all"}, set()),
-    "project-memory": ("recall", set(), {"--scope"}),
 }
 
 
 def _local_store_lookup_kind(alias: str, arguments: list[str]) -> str | None:
-    """Read-only only for the exact lookup grammar; close, capture and approve write."""
+    """Read-only only for the exact lookup grammar; `close` writes."""
     subcommand, flags, valued = LOCAL_STORE_LOOKUPS[alias]
     seen, index = False, 0
     while index < len(arguments):
