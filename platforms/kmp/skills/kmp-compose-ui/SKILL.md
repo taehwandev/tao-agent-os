@@ -6,12 +6,17 @@ type: ai-generated
 
 # KMP Compose UI
 
-Use when the active route selects this skill or its topic applies.
+Use for Compose Multiplatform screens, state holders, components, previews,
+resources or UI tests in shared or desktop (JVM) source sets. Not for
+Android-only modules (`platforms/android/skills/android-compose-ui/SKILL.md`)
+or non-Compose UI.
 
-Read `references/current-guidance.md` for applicable decision rules, stop
-conditions and verification before acting. Open related cards only for
-in-scope work, starting with their `SKILL.md`. Use this canonical bundle,
-not legacy flat paths.
+## Read
 
-When changing routing, confirm it selects this entrypoint. When changing
-guidance, validate the reference's links and frontmatter.
+- `references/current-guidance.md`; `references/design-system.md` for tokens
+  and shared components.
+
+## Verification
+
+- Compile the changed source set, then run `runComposeUiTest`, a screenshot or
+  a captured-window check for the changed screen.

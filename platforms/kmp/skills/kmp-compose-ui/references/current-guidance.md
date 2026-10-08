@@ -12,7 +12,7 @@ state holders, reusable UI components, previews, resources, or UI tests.
 For reusable UI extraction, also read `common/skills/reusable-code-design/SKILL.md`,
 `common/skills/component-api-design/SKILL.md`, and `common/skills/design-system/SKILL.md`.
 For shared Compose module placement, source-set ownership, and feature/shared UI
-splits, also read `kmp-module-structure.md`.
+splits, also read `platforms/kmp/skills/kmp-module-structure/SKILL.md`.
 
 ## Compose Layers
 

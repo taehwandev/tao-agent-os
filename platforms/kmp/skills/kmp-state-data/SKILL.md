@@ -6,12 +6,15 @@ type: ai-generated
 
 # KMP State And Data
 
-Use when the active route selects this skill or its topic applies.
+Use for shared Kotlin state holders, coroutines, `Flow`, repositories,
+persistence, sync, settings or session state, including desktop JVM targets.
+Not for Android-only ViewModels or pure rendering changes.
 
-Read `references/current-guidance.md` for applicable decision rules, stop
-conditions and verification before acting. Open related cards only for
-in-scope work, starting with their `SKILL.md`. Use this canonical bundle,
-not legacy flat paths.
+## Read
 
-When changing routing, confirm it selects this entrypoint. When changing
-guidance, validate the reference's links and frontmatter.
+- `references/current-guidance.md`.
+
+## Verification
+
+- Run state-owner and repository tests with injected dispatchers for the
+  changed transitions and typed failures.

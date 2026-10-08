@@ -10,20 +10,24 @@ Use when building, refactoring, or reviewing a desktop app that uses a React
 renderer inside a native shell, such as Tauri, Electron, WebView, or a Mac/Win
 app with embedded web UI.
 
-Also use:
-- `application-architecture.md` for desktop shell and OS resource ownership.
-- `application-command-ui.md` for commands, windows, panels, shortcuts, and
-  renderer bridges.
-- `application-system-integration.md` for files, shell, clipboard,
-  notifications, background work, updates, and OS APIs.
-- `application-security.md` for IPC, URL schemes, signing, updater trust,
-  broad filesystem or shell access, and renderer exposure.
-- `../web/web-code-structure.md` for React feature folder and import
-  boundaries.
-- `../web/web-react-ui.md` for container/screen, hook, `UiState`, and
-  component contracts.
-- `../web/web-state-data.md` when renderer state, cache, persistence, forms, or
-  API clients are touched.
+This card refines the framework-neutral desktop parents. Also use:
+
+- `platforms/application/skills/application-architecture/SKILL.md` for desktop
+  shell and OS resource ownership.
+- `platforms/application/skills/application-command-ui/SKILL.md` for commands,
+  windows, panels, shortcuts, state separation, and trust boundary bridges.
+- `platforms/application/skills/application-system-integration/SKILL.md` for
+  files, shell, clipboard, notifications, background work, watchers, updates,
+  and OS APIs.
+- `platforms/application/skills/application-security/SKILL.md` for IPC, URL
+  schemes, signing, updater trust, broad filesystem or shell access, and
+  renderer exposure.
+- `platforms/web/skills/web-code-structure/SKILL.md` for React feature folder
+  and import boundaries.
+- `platforms/web/skills/web-react-ui/SKILL.md` for container/screen, hook,
+  `UiState`, and component contracts.
+- `platforms/web/skills/web-state-data/SKILL.md` when renderer state, cache,
+  persistence, forms, or API clients are touched.
 
 ## Boundary Shape
 
@@ -54,23 +58,38 @@ Renderer Shell -> Feature Container -> Screen/View -> Feature Component
 - Screens and feature components render explicit state and emit intent. They
   should not call raw IPC, filesystem, shell, or native APIs.
 
+## IPC And Renderer Bridge
+
+The neutral rules are the Trust Boundary Bridges section of
+`platforms/application/skills/application-command-ui/SKILL.md`. For Tauri,
+Electron, WebView, plugin, or renderer/main-process apps, apply them as:
+
+- The renderer is an untrusted surface. Privileged work runs in the main
+  process (Electron), the Rust core (Tauri), or the native host (WebView), not
+  in renderer code.
+- Electron: keep context isolation on and Node integration off in renderers;
+  the preload script exposes a small, named, typed API through the context
+  bridge, never raw `ipcRenderer`, `require`, or Node modules. Main-process
+  handlers validate the payload and the sending frame before acting.
+- Tauri: expose narrow `#[tauri::command]` functions and restrict them with
+  capabilities/permissions to the windows that need them; do not enable broad
+  shell, filesystem, or HTTP plugin scopes for convenience.
+- WebView hosts: accept script messages only from expected origins and message
+  names, and decode them into typed requests before dispatching a command.
+- Treat IPC payloads as untrusted input even when the renderer created them,
+  and return stable result/error shapes to the renderer.
+
 ## State Ownership
 
-- Window visibility, size, focus, drag regions, panel placement, and tray/menu
-  state are shell state, not product state.
-- Renderer-local UI state stays near its interaction owner: menu open, selected
-  row, draft text, hover, focus, and transient dialog state.
-- Product/workspace state belongs to a feature store, use case, or app service
-  with explicit persistence and restore rules.
-- Server state and local filesystem state are different sources of truth. Do
-  not copy one into the other without a sync rule, conflict rule, and refresh
-  rule.
-- File watchers, subscriptions, timers, monitors, background tasks, and IPC
-  listeners need a single owner and cleanup on stop, timeout, failure,
-  cancellation, window close, and app quit.
-- Writes made by the app should not trigger recursive watcher or sync loops.
-  Add an app-originated write guard, debounce, or normalization pause when a
-  watcher observes files the app also writes.
+- Shell, UI, product, and filesystem/server state separation follows the
+  Window And State Rule in
+  `platforms/application/skills/application-command-ui/SKILL.md`. In a React
+  renderer, UI state lives in component or feature hooks, and product state in
+  a feature store, use case, or app service, never in window or shell state.
+- Bridge subscriptions and IPC listeners registered by the renderer need a
+  single owner and cleanup on unmount, window close, and app quit.
+- Watcher loop prevention (the app-originated write guard) follows
+  `platforms/application/skills/application-system-integration/SKILL.md`.
 
 ## React Renderer Rules
 

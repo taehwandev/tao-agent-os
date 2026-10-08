@@ -6,12 +6,16 @@ type: ai-generated
 
 # KMP Review
 
-Use when the active route selects this skill or its topic applies.
+Use when reviewing Kotlin or Compose Multiplatform changes, including desktop
+JVM apps. Not for Android-only reviews
+(`platforms/android/skills/android-review/SKILL.md`) or implementation work.
 
-Read `references/current-guidance.md` for applicable decision rules, stop
-conditions and verification before acting. Open related cards only for
-in-scope work, starting with their `SKILL.md`. Use this canonical bundle,
-not legacy flat paths.
+## Read
 
-When changing routing, confirm it selects this entrypoint. When changing
-guidance, validate the reference's links and frontmatter.
+- `references/current-guidance.md`; for desktop shells also
+  `platforms/application/skills/application-review/SKILL.md`.
+
+## Verification
+
+- Every finding names file, impact and required check; list targets without
+  compile or test evidence.

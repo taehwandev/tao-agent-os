@@ -6,12 +6,26 @@ type: ai-generated
 
 # KMP Security
 
-Use when the active route selects this skill or its topic applies.
+Use when Kotlin Multiplatform work touches credentials, tokens, local files or
+config, shell or process execution, network clients, secure storage, platform
+permissions, native interop, logging, release builds, or signing, on mobile or
+desktop (JVM) targets.
 
-Read `references/current-guidance.md` for applicable decision rules, stop
-conditions and verification before acting. Open related cards only for
-in-scope work, starting with their `SKILL.md`. Use this canonical bundle,
-not legacy flat paths.
+Do not use when the change has no data, privilege, or release surface (pure
+layout or copy), or when the app is Android-only (use
+`platforms/android/skills/android-security/SKILL.md`).
 
-When changing routing, confirm it selects this entrypoint. When changing
-guidance, validate the reference's links and frontmatter.
+## Read
+
+- `references/current-guidance.md` for rules, auth and network security, local
+  storage and config files, review questions, and verification.
+- `common/skills/secure-development-baseline/SKILL.md` for shared secret,
+  logging, and repository safety rules.
+- For desktop shell, IPC, signing, notarization, updates, or privileged APIs,
+  also read `platforms/application/skills/application-security/SKILL.md`.
+
+## Verification
+
+- Run the relevant compile/test target plus a focused adapter or smoke check,
+  and inspect the diff for secrets, broad shell/filesystem APIs, and unsafe
+  logs.

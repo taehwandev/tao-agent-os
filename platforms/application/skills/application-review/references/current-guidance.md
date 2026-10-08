@@ -6,7 +6,10 @@ type: ai-generated
 
 # Application Review
 
-Use for Mac/native desktop, Tauri, Electron, menu bar, window, and system integration review.
+Use for desktop/native app review on any stack (Swift/macOS, Electron, Tauri,
+Compose Multiplatform desktop on the JVM, or another native toolkit): menu
+bar, window, command, trust boundary, and system integration review. Load the
+matching stack review card as well when one exists.
 
 ## Findings Priority
 
@@ -14,7 +17,7 @@ Use for Mac/native desktop, Tauri, Electron, menu bar, window, and system integr
    risk, data loss, or private data leak.
 2. Window/menu/shortcut/tray action mismatch that triggers different behavior
    for the same user command.
-3. IPC, renderer bridge, permission, background task, cancellation, or OS
+3. IPC or trust boundary bridge, permission, background task, cancellation, or OS
    resource leak.
 4. Missing packaging, signing, first-launch, command, or system-integration
    verification for affected surfaces.
@@ -24,9 +27,11 @@ Use for Mac/native desktop, Tauri, Electron, menu bar, window, and system integr
 
 - Check window/menu/shortcut actions route through commands or use cases.
 - Check command, window/panel, IPC, background work, and OS resource ownership
-  against `application-command-ui.md` when desktop UI/actions changed.
+  against `platforms/application/skills/application-command-ui/SKILL.md` when
+  desktop UI/actions changed.
 - Verify file, shell, clipboard, notification, permission, and update boundaries.
-- Ensure renderer/webview code does not expose privileged APIs broadly.
+- Ensure untrusted surfaces (renderer, webview, embedded browser content,
+  plugin, URL, file input) cannot reach privileged APIs broadly.
 - Check background task cancellation, progress, retry, and error reporting.
 - Confirm logs avoid secrets, tokens, file contents, and private user data.
 - Check menu bar, shortcut, toolbar, and panel entry points share command behavior.
@@ -34,7 +39,8 @@ Use for Mac/native desktop, Tauri, Electron, menu bar, window, and system integr
 
 ## Do Not Approve When
 
-- Renderer, webview, plugin, or untrusted URL code can reach broad shell,
+- An untrusted surface (renderer, webview, embedded browser content, plugin,
+  URL, or file input) can reach broad shell,
   filesystem, clipboard, environment, credential, updater, or permission APIs.
 - Menu, shortcut, toolbar, tray, and panel entry points bypass the shared command
   path or enforce different validation.
@@ -47,11 +53,26 @@ Use for Mac/native desktop, Tauri, Electron, menu bar, window, and system integr
 
 ## Tools
 
-- Native Mac: XCTest/XCUITest, `xcodebuild test`, SwiftLint if configured.
+Every stack:
+
+- Command/use-case tests for each changed entry point.
+- UI or smoke test for the changed window, panel, or flow.
+- Packaging smoke: build the distributable, install it, and launch it fresh.
+- Release: signing, permission, auto-update, and first-launch smoke checks.
+- macOS release: signing, notarization/stapling, Gatekeeper, quarantine, and
+  update smoke checks when configured.
+
+Stack examples:
+
+- Swift/macOS: XCTest/XCUITest, `xcodebuild test`, SwiftLint if configured.
 - Tauri: frontend tests, Playwright, Rust `cargo test`, command tests.
 - Electron: unit tests, Playwright, packaging smoke tests.
-- Release: signing, permission, auto-update, and first-launch smoke checks.
-- Mac release: signing, notarization/stapling, Gatekeeper, quarantine, and update smoke checks when configured.
+- Compose Multiplatform desktop (JVM): the Gradle desktop test task (for
+  example `./gradlew :desktopApp:desktopTest`), Compose UI tests with
+  `runComposeUiTest`, a packaging task smoke such as `./gradlew packageDmg`
+  (or `packageMsi`/`packageDeb`), and `spctl -a -vv` plus
+  `xcrun stapler validate` on the packaged app when notarization is in
+  scope.
 
 ## UI Test Focus
 

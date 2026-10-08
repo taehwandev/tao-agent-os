@@ -10,14 +10,17 @@ Use for Kotlin Multiplatform, Compose Multiplatform, shared Kotlin modules,
 Gradle source sets, `expect`/`actual` boundaries, and shared mobile/desktop
 application logic.
 
-For Compose Multiplatform UI, also use `kmp-compose-ui.md`. For state,
-coroutines, repositories, persistence, and data flow, also use
-`kmp-state-data.md`. For platform APIs, source sets, native interop, shell,
-files, clipboard, permissions, or background resources, also use
-`kmp-platform-integration.md`. For target-specific shells, also load the
-matching Android, iOS, or application card.
-For shared modules, source-set hierarchy, umbrella frameworks, and Gradle module
-splits, also use `kmp-module-structure.md`.
+Also use:
+
+- `platforms/kmp/skills/kmp-compose-ui/SKILL.md` for Compose Multiplatform UI.
+- `platforms/kmp/skills/kmp-state-data/SKILL.md` for state, coroutines,
+  repositories, persistence, and data flow.
+- `platforms/kmp/skills/kmp-platform-integration/SKILL.md` for platform APIs,
+  source sets, native interop, shell, files, clipboard, permissions, or
+  background resources.
+- `platforms/kmp/skills/kmp-module-structure/SKILL.md` for shared modules,
+  source-set hierarchy, umbrella frameworks, and Gradle module splits.
+- The matching Android, iOS, or application card for target-specific shells.
 
 ## Boundaries
 

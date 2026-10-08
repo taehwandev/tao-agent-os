@@ -11,7 +11,7 @@ native interop, platform services, files, shell/process execution, clipboard,
 notifications, permissions, secure storage, background work, or app lifecycle.
 
 For source-set hierarchy, shared module splits, and umbrella framework shape,
-also use `kmp-module-structure.md`.
+also use `platforms/kmp/skills/kmp-module-structure/SKILL.md`.
 
 ## Adapter Choice
 

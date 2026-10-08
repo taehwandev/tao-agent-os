@@ -6,12 +6,26 @@ type: ai-generated
 
 # KMP Platform Integration
 
-Use when the active route selects this skill or its topic applies.
+Use when Kotlin Multiplatform work touches source sets, `expect`/`actual`,
+native interop, platform services, files, shell/process execution, clipboard,
+notifications, permissions, secure storage, background work, app lifecycle, or
+desktop (JVM) packaging and distribution.
 
-Read `references/current-guidance.md` for applicable decision rules, stop
-conditions and verification before acting. Open related cards only for
-in-scope work, starting with their `SKILL.md`. Use this canonical bundle,
-not legacy flat paths.
+Do not use when the change stays in platform-neutral `commonMain` logic with no
+adapter or target API, or when the app is Android-only (use the Android
+background-work and architecture cards).
 
-When changing routing, confirm it selects this entrypoint. When changing
-guidance, validate the reference's links and frontmatter.
+## Read
+
+- `references/current-guidance.md` for adapter choice, app wiring, adapter
+  patterns, release and packaging checks, stop conditions, and verification.
+- For desktop shells, also read
+  `platforms/application/skills/application-system-integration/SKILL.md`.
+- For source-set hierarchy and module splits, read
+  `platforms/kmp/skills/kmp-module-structure/SKILL.md`.
+
+## Verification
+
+- Run compile/test tasks for the affected source sets and app targets, and
+  exercise unsupported-target, permission-denied, cancellation, and cleanup
+  paths when they are reachable.

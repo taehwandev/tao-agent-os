@@ -11,10 +11,10 @@ persistence, sync, settings, caching, or one-off effects in a Kotlin
 Multiplatform project.
 
 For platform APIs and actual implementations, also use
-`kmp-platform-integration.md`. For broader state shape rules, also use
+`platforms/kmp/skills/kmp-platform-integration/SKILL.md`. For broader state shape rules, also use
 `common/skills/state-modeling/SKILL.md` and `common/skills/error-modeling/SKILL.md`.
 For repository module splits, source-set ownership, and umbrella/shared module
-boundaries, also use `kmp-module-structure.md`.
+boundaries, also use `platforms/kmp/skills/kmp-module-structure/SKILL.md`.
 
 ## Defaults
 

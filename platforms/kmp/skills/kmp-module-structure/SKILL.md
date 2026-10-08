@@ -6,12 +6,16 @@ type: ai-generated
 
 # KMP Module Structure
 
-Use when the active route selects this skill or its topic applies.
+Use for multiplatform modules, source sets, Gradle edges, build logic,
+`expect`/`actual` placement or package layout, including desktop JVM targets.
+Not for Android-only projects or edits inside an existing package.
 
-Read `references/current-guidance.md` for applicable decision rules, stop
-conditions and verification before acting. Open related cards only for
-in-scope work, starting with their `SKILL.md`. Use this canonical bundle,
-not legacy flat paths.
+## Read
 
-When changing routing, confirm it selects this entrypoint. When changing
-guidance, validate the reference's links and frontmatter.
+- `references/current-guidance.md`; `references/package-layout.md` before
+  adding or moving packages.
+
+## Verification
+
+- Compile every affected target and confirm each declared project dependency
+  has a matching import.
