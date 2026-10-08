@@ -105,7 +105,13 @@ RUNTIME_NATIVE_DELEGATION_PHRASES = {
         'runtime-collaboration.md. Role availability never replaces a ready handoff '
         'or grants write authority.'
     ),
-    'Claude': 'Launch independent Claude Agent/Task workers before waiting; the parent integrates and verifies.',
+    'Claude': (
+        'Launch independent Claude Agent/Task workers before waiting; the parent integrates and verifies. '
+        'Prefer available tao_explorer, tao_worker and tao_reviewer subagent types; apply the '
+        'native-role guidance in common/skills/agent-operating-skill/references/'
+        'runtime-collaboration.md. Role availability never replaces a ready handoff '
+        'or grants write authority.'
+    ),
     'Antigravity': 'Use the available Gemini/AGY parallel runner for an eligible split; the parent integrates and verifies.',
 }
 AUTO_DELEGATION_BRIDGE_PHRASE = (

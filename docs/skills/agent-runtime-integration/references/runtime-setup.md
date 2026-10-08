@@ -126,33 +126,30 @@ It installs three namespaced native agent files from
 `templates/codex-agents/` into `~/.codex/agents/`: `tao_explorer` gathers bounded
 read-only evidence, `tao_worker` implements an assigned slice, and
 `tao_reviewer` reports correctness and verification risks without editing.
-The files contain only runtime role instructions and reuse the existing Tao
-handoff and collaboration rules. The canonical execution guidance is
+They reuse the rules in
 `common/skills/agent-operating-skill/references/runtime-collaboration.md`.
-Each file's first-line Tao marker declares installer ownership. Setup refreshes
-only those managed files, preserves unrelated roles, and reports a conflict
-for an unmarked same-name file or a symlink instead of overwriting it.
-Customize a separately named role rather than editing a managed file.
-`--dry-run` and `--check` inspect the same roles without writing.
-Check exits nonzero for missing, stale, or conflicting Tao roles. Installation
-also reports conflicts as failure while preserving the user-owned paths.
+A first-line Tao marker declares ownership. Setup refreshes only managed files,
+preserves unrelated roles, and reports a conflict for an unmarked same-name
+file, a symlink, or a non-file path instead of overwriting it; customize a
+separately named role.
+`--dry-run` and `--check` only inspect; check fails on missing, stale, or
+conflicting roles, and installation fails on a conflict.
 
-Current Codex supports these standalone TOML roles with `name`, `description`,
-and `developer_instructions`; see the
+Codex TOML roles require `name`, `description`, and `developer_instructions`
+and may set other config keys such as `sandbox_mode`, which Tao's explorer and
+reviewer set to `read-only`; see the
 [official subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents)
-(verified 2026-10-08). Model and reasoning settings inherit from the parent.
-Setup preserves `[agents]` settings, including an explicit disabled state or
-concurrency limit. If a user wants a local limit of two spawned agents, the
-current Codex setting is:
+(verified 2026-10-08). Model and reasoning settings inherit.
+Setup preserves `[agents]` settings such as a disabled state or concurrency
+limit; a two-agent local limit is:
 
 ```toml
 [agents]
 max_concurrent_threads_per_session = 2
 ```
 
-This limit excludes the main thread. An enabled configuration exposes agent
-tools; delegation still follows the project's eligibility rule and a valid
-handoff. Restart the client after installing roles to load them.
+This limit excludes the main thread. Enabled agent tools never bypass the
+eligibility rule or a valid handoff. Restart the client to load new roles.
 
 It adds Codex's native `five-hour-limit` and `weekly-limit` items to
 `tui.status_line`, preserving the existing item order and every unrelated
@@ -220,6 +217,12 @@ For Claude, `setup-agent-hooks.py` installs a stable user-level launcher at
 `~/.tao/tao-root`. Rerun setup after moving or migrating
 Tao Agent OS so the pointer is refreshed without changing the Claude hook
 command.
+Claude setup installs the same roles from `templates/claude-agents/*.md.template`
+(not `.md`, so doc validators skip them) into `~/.claude/agents/` under the
+Codex ownership rules; frontmatter must open the file, so the marker is a YAML
+comment on line two. Roles use `model: inherit`; explorer and reviewer set
+`disallowedTools: Edit, Write, NotebookEdit` and keep Bash read-only by
+instruction. Load them in a new session; pick one by `subagent_type`.
 
 The same stable launcher exposes `agent-mailbox` for all configured runtimes.
 Setup adds that entrypoint to the managed narrow permission surface and
