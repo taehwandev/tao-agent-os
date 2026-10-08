@@ -122,6 +122,38 @@ Tao Agent OS-managed entrypoints and suffix-aware runtime matchers. Do not
 broadly allow `python3`.
 For Codex, the same setup also merges one Tao Agent OS-owned `Stop` hook into
 `~/.codex/hooks.json` without replacing unrelated hooks such as local metering.
+It installs three namespaced native agent files from
+`templates/codex-agents/` into `~/.codex/agents/`: `tao_explorer` gathers bounded
+read-only evidence, `tao_worker` implements an assigned slice, and
+`tao_reviewer` reports correctness and verification risks without editing.
+The files contain only runtime role instructions and reuse the existing Tao
+handoff and collaboration rules. The canonical execution guidance is
+`common/skills/agent-operating-skill/references/runtime-collaboration.md`.
+Each file's first-line Tao marker declares installer ownership. Setup refreshes
+only those managed files, preserves unrelated roles, and reports a conflict
+for an unmarked same-name file or a symlink instead of overwriting it.
+Customize a separately named role rather than editing a managed file.
+`--dry-run` and `--check` inspect the same roles without writing.
+Check exits nonzero for missing, stale, or conflicting Tao roles. Installation
+also reports conflicts as failure while preserving the user-owned paths.
+
+Current Codex supports these standalone TOML roles with `name`, `description`,
+and `developer_instructions`; see the
+[official subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents)
+(verified 2026-10-08). Model and reasoning settings inherit from the parent.
+Setup preserves `[agents]` settings, including an explicit disabled state or
+concurrency limit. If a user wants a local limit of two spawned agents, the
+current Codex setting is:
+
+```toml
+[agents]
+max_concurrent_threads_per_session = 2
+```
+
+This limit excludes the main thread. An enabled configuration exposes agent
+tools; delegation still follows the project's eligibility rule and a valid
+handoff. Restart the client after installing roles to load them.
+
 It adds Codex's native `five-hour-limit` and `weekly-limit` items to
 `tui.status_line`, preserving the existing item order and every unrelated
 setting. When no status line was configured, it keeps Codex's default model and

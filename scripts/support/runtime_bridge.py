@@ -98,7 +98,13 @@ CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES = [
 ]
 
 RUNTIME_NATIVE_DELEGATION_PHRASES = {
-    'Codex': 'Use native Codex workers for an eligible split; the parent integrates and verifies.',
+    'Codex': (
+        'Use native Codex workers for an eligible split; the parent integrates and verifies. '
+        'Prefer available tao_explorer, tao_worker and tao_reviewer roles; apply the '
+        'native-role guidance in common/skills/agent-operating-skill/references/'
+        'runtime-collaboration.md. Role availability never replaces a ready handoff '
+        'or grants write authority.'
+    ),
     'Claude': 'Launch independent Claude Agent/Task workers before waiting; the parent integrates and verifies.',
     'Antigravity': 'Use the available Gemini/AGY parallel runner for an eligible split; the parent integrates and verifies.',
 }

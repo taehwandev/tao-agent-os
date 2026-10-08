@@ -75,6 +75,35 @@ For an eligible split, use the available Gemini/AGY Antigravity parallel agent r
 
 For a bounded Codex leaf, use workflow.py dispatch --execute only when isolation is explicitly required. A matching parent profile or unavailable parent profile information both stay in the current process or use a native worker; neither condition starts a fresh Codex process.
 
+## Native Codex Roles
+
+Use available `tao_explorer`, `tao_worker`, and `tao_reviewer` custom agents for
+bounded evidence gathering, implementation, and review respectively. Fall back
+to the corresponding native agent when a custom role is unavailable; do not
+install settings during an ordinary task. These roles are thin runtime adapters
+to the existing collaboration and handoff contracts, not separate workflows.
+
+Start eligible work with two workers at most. Use a third only for another
+meaningful independent slice whose benefit exceeds its startup and integration
+cost. Respect the route's maximum and the runtime's available slots. Keep small
+bounded work in the parent; a role definition is not a reason to delegate.
+
+Before spawning, send each worker its exact owned and forbidden paths, stable
+input contract, acceptance check, capsule result, and expected output. Scope
+ownership, including the parent's concurrent edits, follows
+`workflows/skills/multi-agent-collaboration/references/current-guidance.md`.
+Use a bounded brief with `fork_turns=none` when it carries all applicable
+instructions and required-doc takeaways; otherwise retain the context the worker
+needs. Never omit applicable instructions to reduce tokens. Reuse the parent's
+required-doc brief only after the ready and valid handoff above.
+
+Roles inherit the current model and reasoning effort unless the user or an
+applicable instruction selects an override. Do not change the parent profile
+or hard-code a cheaper model into reusable roles. Return changed paths or
+findings with file references, checks and outcomes, blockers, and the next
+integration action; keep raw intermediate logs in the worker thread. Workers
+must not recursively delegate, publish, or settle the parent's gate ledger.
+
 ## Mechanical Execution In Codex
 
 Preserve the user's current model and reasoning effort in the parent session.

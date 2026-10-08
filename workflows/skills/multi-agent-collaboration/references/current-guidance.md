@@ -74,6 +74,15 @@ Rules:
   conditional until the lead records the eligibility decision.
 - Assign each writer explicit owned files or modules.
 - Assign explicit forbidden files or modules when overlap is likely.
+- Reserve the lead's concurrent write scope as well as every worker's scope.
+  In a shared checkout, the lead must not edit a live worker's owned files;
+  workers must not edit the lead's or another worker's files. Reading the same
+  files is allowed. Review a stable result after its writer returns.
+- Treat the delegation plan as a reservation, not a sandbox. Check each
+  worker's returned changed-file list and patch against its brief before
+  integration. An out-of-scope dependency returns to the lead for reassignment;
+  stop conflicting writers before changing ownership, then refresh their briefs
+  and handoffs. Do not silently widen a worker's scope.
 - Do not assign two writers to the same file, unless both writers declare
   `isolation: "worktree"` and each runs in its own real `git worktree` (the
   worktree-isolation carve-out described under "Delegation Decision Record").
