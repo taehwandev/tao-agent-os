@@ -11,6 +11,7 @@ from pathlib import Path
 
 from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
+from support.codex_agent_setup import install_codex_agents
 from support.codex_permissions import merge_codex_worktree_roots, reset_tao_permission_default
 from support.codex_setup import (
     merge_codex_mailbox_delivery,
@@ -293,7 +294,17 @@ def configure_target_projects(
 
 
 def fail_if_setup_incomplete(args: argparse.Namespace, results: list[dict]) -> None:
-    missing = [result for result in results if result["status"] == "missing"]
+    if any(result["status"] == "conflict" for result in results):
+        print(
+            "\nSetup conflicts with user-owned files or symlinks. Preserve them and "
+            "resolve the reported paths before retrying.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    missing = [result for result in results if result["status"] == "missing" or (
+        result["status"] == "would_update" and result["tool"] == "codex"
+        and result.get("hook", "").startswith("agents.")
+    )]
     if any(result["tool"] == "graphify" for result in missing):
         print(
             "\nGraphify setup is incomplete. Repair the shared ~/.tao skill and "
@@ -304,7 +315,8 @@ def fail_if_setup_incomplete(args: argparse.Namespace, results: list[dict]) -> N
         raise SystemExit(1)
     if args.check and missing:
         print(
-            "\nRun `python3 scripts/setup-agent-hooks.py` to install missing bridges, hooks, or permissions.",
+            "\nRun `python3 scripts/setup-agent-hooks.py` to install or refresh "
+            "missing or stale bridges, hooks, permissions, or agent roles.",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -347,6 +359,7 @@ def _has_spill_setup_helper() -> bool:
 
 
 def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
+    agent_results = install_codex_agents(root, Path.home() / ".codex" / "agents", dry_run)
     bridge_target = Path.home() / ".codex" / "AGENTS.md"
     bridge_status = merge_runtime_bridge(
         bridge_target,
@@ -388,7 +401,7 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         dry_run,
     )
     _notice_tao_permission_default(config_target)
-    return [
+    return agent_results + [
         {
             "tool": "codex",
             "hook": "runtime_bridge.AGENTS",
