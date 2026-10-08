@@ -72,6 +72,7 @@ from support.spill_permissions import spill_helper_path_variants
 from support.runtime_bridge import (
     CODEX_DISPATCH_BRIDGE_PHRASE,
     LOCAL_AGENT_MAILBOX_BRIDGE_PHRASE,
+    RUNTIME_MEMORY_BRIDGE_PHRASE,
     RUNTIME_BRIDGE_GRAPH_PHRASES,
     RUNTIME_START_BRIDGE_PHRASE,
     runtime_bridge_block,
@@ -448,6 +449,20 @@ class RuntimeSetupTests(unittest.TestCase):
         self.assertNotIn("Compute that fingerprint", RUNTIME_START_BRIDGE_PHRASE)
         self.assertNotIn("build the envelope from the full conversation", RUNTIME_START_BRIDGE_PHRASE)
         self.assertNotIn("let the classifier decide", RUNTIME_START_BRIDGE_PHRASE)
+
+    def test_every_runtime_bridge_shares_the_project_memory_capture_rule(self) -> None:
+        surfaces = (
+            _agy_runtime_bridge_block(ROOT),
+            runtime_bridge_block(ROOT, "Codex", "AGENTS.md"),
+            runtime_bridge_block(ROOT, "Claude", "CLAUDE.md"),
+            AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES,
+            PREFLIGHT_AGY_RUNTIME_BRIDGE_REQUIRED_PHRASES,
+        )
+        for surface in surfaces:
+            self.assertIn(RUNTIME_MEMORY_BRIDGE_PHRASE, surface)
+        for required in ("Tao project-memory", "not runtime-private memory",
+                         "verified root cause", "if none, skip"):
+            self.assertIn(required, RUNTIME_MEMORY_BRIDGE_PHRASE)
 
     def test_every_runtime_bridge_exposes_the_project_local_agent_mailbox(self) -> None:
         surfaces = (

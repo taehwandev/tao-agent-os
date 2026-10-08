@@ -82,6 +82,7 @@ bounded evidence gathering, implementation, and review respectively. Fall back
 to the corresponding native agent when a custom role is unavailable; do not
 install settings during an ordinary task. These roles are thin runtime adapters
 to the existing collaboration and handoff contracts, not separate workflows.
+A role's availability never replaces a ready handoff or grants write authority.
 
 Start eligible work with two workers at most. Use a third only for another
 meaningful independent slice whose benefit exceeds its startup and integration

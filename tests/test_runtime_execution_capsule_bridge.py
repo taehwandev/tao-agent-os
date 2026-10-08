@@ -101,7 +101,11 @@ class RuntimeExecutionCapsuleBridgeTests(unittest.TestCase):
         for runtime, entry in (("Codex", "AGENTS.md"), ("Claude", "CLAUDE.md"), ("Antigravity", "AGENTS.md")):
             block = runtime_bridge_block(Path("/tao"), runtime, entry)
             moved_guidance = sum(len(phrase.encode()) + 3 for phrase in CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES) if runtime == "Codex" else 0
-            self.assertLess(len(block.encode()) - moved_guidance, 6000)
+            # Codex alone carries approval, sandbox, worktree and dispatch safety
+            # rules that have no other always-loaded home; its native-role and
+            # approval text were already compacted, so it gets 500 bytes more.
+            budget = 6500 if runtime == "Codex" else 6000
+            self.assertLess(len(block.encode()) - moved_guidance, budget)
             self.assertIn("For unresolved lifecycle arguments", block)
             self.assertIn("When delegation is applicable", block)
             for relative in set(re.findall(r"common/skills/[\w/.-]+\.md", block)):

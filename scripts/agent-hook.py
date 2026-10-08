@@ -899,17 +899,7 @@ def finish_hook(args: argparse.Namespace) -> int:
                 "review findings: this read-only review completed with findings; "
                 "report them as its result (no repair cycle is owed)"
             )
-        details.append(
-            "This run is closed; finish attests verification, not execution of pending "
-            "actions. Continue already-authorized steps within the same verified scope "
-            "without reopening this lifecycle. Once the requested outcome is confirmed, "
-            "report it; do not repeat review or finish merely to close publication. "
-            "New effects, targets or changed evidence still require matching admission. "
-            "A fast-forward of this worktree's HEAD into the same repository's main "
-            "checkout (git -C <main> merge --ff-only <HEAD>) is admitted by this finish "
-            "while the worktree stays clean and unchanged; do not open a commit route "
-            "for it."
-        )
+        details.extend(_closed_run_lines(args.project))
         details.append(
             record_lifecycle_checkpoint(
                 args,
@@ -945,6 +935,32 @@ def finish_hook(args: argparse.Namespace) -> int:
         pending_closeout=result["returncode"] == 3,
         refreshable_failure=_is_refreshable_finish_drift(result),
     )
+
+
+def _closed_run_lines(project: Path) -> list[str]:
+    """What a successful finish leaves the agent to do, including the memory capture point.
+
+    Tao recalls project memory at start but never captures on its own, so
+    finish is where an agent decides whether this run verified anything worth
+    keeping. The line is content-free and advisory; it is never a gate.
+    """
+
+    return [
+        "This run is closed; finish attests verification, not execution of pending "
+        "actions. Continue already-authorized steps within the same verified scope "
+        "without reopening this lifecycle. Once the requested outcome is confirmed, "
+        "report it; do not repeat review or finish merely to close publication. "
+        "New effects, targets or changed evidence still require matching admission. "
+        "A fast-forward of this worktree's HEAD into the same repository's main "
+        "checkout (git -C <main> merge --ff-only <HEAD>) is admitted by this finish "
+        "while the worktree stays clean and unchanged; do not open a commit route "
+        "for it.",
+        "Project memory: if this run verified a project fact worth reusing (a root "
+        "cause, a pitfall, or a decision reason the code does not show), capture it "
+        f"once with {stable_launcher_path()} project-memory --project {project} "
+        "capture --source <evidence> --review-on <YYYY-MM-DD> [--source-path <file>], "
+        "the one-line body on stdin; otherwise nothing is needed.",
+    ]
 
 
 def _transferred_cancellation(

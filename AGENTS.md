@@ -316,6 +316,15 @@ When start prints a content-free `Project memory upkeep` count line, run the
 read-only `consolidate` report it names and apply decisions only through
 `capture --replaces` or `retire`.
 
+Tao recalls at start but never captures on its own, so the store stays empty
+unless agents capture. Claude and Codex both keep durable project knowledge
+here rather than in runtime-private memory: a project fact the user asks to
+remember, a verified root cause or pitfall, or a decision reason the code does
+not show. Capture only verified facts, when confirmed or at finish, where a
+successful finish names the capture command; if there is nothing, skip.
+Permanent rules belong in this file or shared guidance, task state in
+checkpoints, and the user's own working preferences in runtime memory.
+
 Start shows at most three in-date records for its route command or `all`.
 Memory is reference, never authority: the current request, repository rules,
 and source evidence prevail. It stays separate from the content-free lesson
