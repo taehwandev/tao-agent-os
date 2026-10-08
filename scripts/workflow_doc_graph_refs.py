@@ -17,8 +17,15 @@ FRONTMATTER_KEYS = {
     "related_docs": "frontmatter:related",
     "see_also": "frontmatter:related",
     "references": "frontmatter:reference",
+    "refines": "frontmatter:refines",
+    "verified_by": "frontmatter:verified_by",
 }
-REQUIRED_FRONTMATTER_KEYS = {"requires", "required_docs", "requires_docs"}
+# Relations a route follows to promote documents to required reading. A node
+# that `refines` a parent narrows that parent's rules, so the parent is read
+# with it. `verified_by` names the checklist that proves the node and is only
+# followed when the route reviews or finishes work.
+PROMOTING_RELATIONS = ("frontmatter:requires", "frontmatter:refines")
+VERIFICATION_RELATION = "frontmatter:verified_by"
 
 
 def markdown_doc_refs(root: Path, source: str, text: str, docs: set[str]) -> list[str]:
@@ -55,32 +62,77 @@ def frontmatter_doc_refs(root: Path, source: str, text: str, docs: set[str]) -> 
     return refs
 
 
-def frontmatter_required_doc_refs(root: Path, source: str, text: str) -> list[str]:
-    """Resolve only explicit required-document frontmatter from one source.
+def frontmatter_required_doc_refs(
+    root: Path,
+    source: str,
+    text: str,
+    *,
+    include_verification: bool = False,
+) -> list[tuple[str, str]]:
+    """Resolve the frontmatter relations that promote documents from one source.
 
     Route selection needs this small dependency set, not the Markdown-link and
-    surface-neighbor graph for the whole documentation corpus.
+    surface-neighbor graph for the whole documentation corpus. Returns
+    ``(relation, target)`` pairs for `requires` and `refines`, plus
+    `verified_by` when ``include_verification`` is set.
     """
 
     frontmatter = _frontmatter_block(text)
     if not frontmatter:
         return []
-    refs: list[str] = []
-    current_required = False
+    followed = set(PROMOTING_RELATIONS)
+    if include_verification:
+        followed.add(VERIFICATION_RELATION)
+    refs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    current_relation = ""
+
+    def add(value: str) -> None:
+        for target in _existing_doc_refs_from_value(root, source, value):
+            if target not in seen:
+                seen.add(target)
+                refs.append((current_relation, target))
+
     for line in frontmatter.splitlines():
         key_match = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
         if key_match:
-            current_required = key_match.group(1) in REQUIRED_FRONTMATTER_KEYS
-            if current_required:
-                refs.extend(
-                    _existing_doc_refs_from_value(
-                        root, source, key_match.group(2)
-                    )
-                )
+            relation = FRONTMATTER_KEYS.get(key_match.group(1), "")
+            current_relation = relation if relation in followed else ""
+            if current_relation:
+                add(key_match.group(2))
             continue
-        if current_required and line.strip().startswith("-"):
-            refs.extend(_existing_doc_refs_from_value(root, source, line))
-    return unique(refs)
+        if current_relation and line.strip().startswith("-"):
+            add(line)
+    return refs
+
+
+def frontmatter_relation_raw_refs(text: str) -> list[tuple[str, str]]:
+    """Return every ``(relation, raw target)`` pair a document's frontmatter declares.
+
+    Unlike the graph parsers this keeps targets that do not resolve, so a
+    validator can report a dependency that silently drops out of routing.
+    """
+
+    frontmatter = _frontmatter_block(text)
+    if not frontmatter:
+        return []
+    refs: list[tuple[str, str]] = []
+    current_relation = ""
+    for line in frontmatter.splitlines():
+        key_match = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
+        if key_match:
+            current_relation = FRONTMATTER_KEYS.get(key_match.group(1), "")
+            value = key_match.group(2)
+        elif current_relation and line.strip().startswith("-"):
+            value = line
+        else:
+            continue
+        if current_relation:
+            refs.extend(
+                (current_relation, raw)
+                for raw in re.findall(r"['\"]?([^'\"\[\],\s]+?\.md)['\"]?", value)
+            )
+    return refs
 
 
 def normalize_doc_seed(root: Path, doc: str) -> str:
