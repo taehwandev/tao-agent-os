@@ -20,32 +20,31 @@ SUPERSEDED_RUNTIME_BRIDGE_PATTERN = re.compile(
     re.MULTILINE,
 )
 CODEX_DISPATCH_BRIDGE_PHRASE = (
-    'Use native Codex workers; dispatch --execute only when isolation is explicitly '
+    'Dispatch --execute only when isolation is explicitly '
     'required. A matching profile or unavailable parent profile information keeps work '
     'in-process, never a fresh Codex process.'
 )
 CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE = (
-    'Permission evidence: reuse existing authority; request required sandbox escalation through the tool. '
+    'Permission evidence: reuse authority; request required sandbox escalation through the tool. '
     'DNS/name-resolution errors alone do not prove sandbox denial; never instruct the '
     'user to approve an unconfirmed dialog.'
 )
 CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE = (
     'Use auto_review for escalation; do not repeat settled chat approval. '
     'For authorized tests/builds, reuse native prefix approvals with literal argv '
-    '(env KEY=value <runner>); for repeat prompts and terminal input read '
-    'common/skills/agent-operating-skill/references/runtime-recovery.md.'
+    '(env KEY=value <runner>).'
 )
 CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE = (
-    'Target worktrees explicitly with git -C "<worktree>" or cd "<worktree>" && '
-    '<command>; do not rely on exec_command.workdir alone. This does not grant sandbox '
-    'permission. Reuse the bound task after a location error.'
+    'Target worktrees with git -C "<worktree>" or cd "<worktree>" && '
+    '<command>, not exec_command.workdir alone. This does not grant sandbox '
+    'permission; reuse the bound task after a location error.'
 )
 CODEX_APPROVAL_WAIT_BRIDGE_PHRASE = (
     'Pending transport is not proof that the command started or that approval was '
     'rejected. Keep one pending equivalent request; wait on its handle. Before '
     'interruption/retry, read '
-    'common/skills/agent-operating-skill/references/runtime-recovery.md; reconcile '
-    'effects and never bypass a denial.'
+    'common/skills/agent-operating-skill/references/runtime-recovery.md (also for '
+    'repeat prompts and terminal input); reconcile effects and never bypass a denial.'
 )
 CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES = [
     (
@@ -100,17 +99,13 @@ CODEX_OPERATOR_REVIEW_BRIDGE_PHRASES = [
 RUNTIME_NATIVE_DELEGATION_PHRASES = {
     'Codex': (
         'Use native Codex workers for an eligible split; the parent integrates and verifies. '
-        'Prefer available tao_explorer, tao_worker and tao_reviewer roles; apply the '
-        'native-role guidance in common/skills/agent-operating-skill/references/'
-        'runtime-collaboration.md. Role availability never replaces a ready handoff '
-        'or grants write authority.'
+        'Prefer tao_explorer/tao_worker/tao_reviewer roles, which never replace a ready '
+        'handoff or grant write authority.'
     ),
     'Claude': (
         'Launch independent Claude Agent/Task workers before waiting; the parent integrates and verifies. '
-        'Prefer available tao_explorer, tao_worker and tao_reviewer subagent types; apply the '
-        'native-role guidance in common/skills/agent-operating-skill/references/'
-        'runtime-collaboration.md. Role availability never replaces a ready handoff '
-        'or grants write authority.'
+        'Prefer tao_explorer/tao_worker/tao_reviewer subagent types, which never replace a '
+        'ready handoff or grant write authority.'
     ),
     'Antigravity': 'Use the available Gemini/AGY parallel runner for an eligible split; the parent integrates and verifies.',
 }
