@@ -264,6 +264,33 @@
     ],
     "android_background_work": [
       "platforms/android/skills/android-background-work/SKILL.md"
+    ],
+    "kmp_desktop_shell": [
+      "platforms/kmp/nodes/desktop-shell.md"
+    ],
+    "kmp_desktop_process": [
+      "platforms/kmp/nodes/desktop-process-pty.md"
+    ],
+    "kmp_desktop_swing": [
+      "platforms/kmp/nodes/desktop-swing-interop.md"
+    ],
+    "kmp_desktop_packaging": [
+      "platforms/kmp/nodes/desktop-packaging.md"
+    ],
+    "kmp_state_holder": [
+      "platforms/kmp/nodes/state-holder.md"
+    ],
+    "kmp_di_metro": [
+      "platforms/kmp/nodes/di-metro.md"
+    ],
+    "kmp_room": [
+      "platforms/kmp/nodes/room-kmp.md"
+    ],
+    "kmp_testing": [
+      "platforms/kmp/nodes/testing.md"
+    ],
+    "kmp_architecture_enforcement": [
+      "platforms/kmp/nodes/architecture-enforcement.md"
     ]
   },
   "request_intents": [
@@ -1541,6 +1568,150 @@
         "platforms/web/skills/figma-to-web/SKILL.md"
       ],
       "reason": "An explicit Figma or design-handoff request on Web needs the platform mapping card for framework, responsive, and accessibility translation."
+    },
+    {
+      "name": "kmp_desktop_packaging_request",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor",
+        "review"
+      ],
+      "platforms": [
+        "kmp"
+      ],
+      "request_all": [
+        [
+          "\\b(dmg|msi|jpackage|notari[sz]e|notary|codesign|entitlements?|sign(ing)?|packag(e|ing)|updater)\\b",
+          "(패키징|서명|공증|배포 파일|인스톨러|업데이터)"
+        ]
+      ],
+      "doc_sets": [
+        "kmp_desktop_packaging"
+      ],
+      "reason": "KMP desktop packaging, signing, notarization or updater work needs the packaging node."
+    },
+    {
+      "name": "kmp_desktop_process_request",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor",
+        "review"
+      ],
+      "platforms": [
+        "kmp"
+      ],
+      "request_all": [
+        [
+          "\\b(pty|process(es)?|subprocess|terminal session|shell|file watcher)\\b",
+          "(프로세스|터미널 세션|셸|파일 감시)"
+        ]
+      ],
+      "doc_sets": [
+        "kmp_desktop_process"
+      ],
+      "reason": "KMP desktop process, PTY or watcher work needs the process node."
+    },
+    {
+      "name": "kmp_desktop_shell_request",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor",
+        "review"
+      ],
+      "platforms": [
+        "kmp"
+      ],
+      "request_all": [
+        [
+          "\\b(window|menu ?bar|tray|shortcut|keybinding)\\b",
+          "(윈도우|창 위치|메뉴바|트레이|단축키)"
+        ]
+      ],
+      "doc_sets": [
+        "kmp_desktop_shell"
+      ],
+      "reason": "KMP desktop window, menu, tray or shortcut work needs the shell node."
+    },
+    {
+      "name": "kmp_di_metro_request",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor",
+        "review"
+      ],
+      "platforms": [
+        "kmp"
+      ],
+      "request_all": [
+        [
+          "\\b(metro|dependency graph|di graph)\\b",
+          "(메트로|의존성 그래프|DI 그래프)"
+        ]
+      ],
+      "doc_sets": [
+        "kmp_di_metro"
+      ],
+      "reason": "Metro DI work in KMP needs the Metro node."
+    },
+    {
+      "name": "kmp_room_request",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor",
+        "review"
+      ],
+      "platforms": [
+        "kmp"
+      ],
+      "request_all": [
+        [
+          "\\b(room|dao|migration|sqlite)\\b",
+          "(룸 DB|마이그레이션|데이터베이스)"
+        ]
+      ],
+      "doc_sets": [
+        "kmp_room"
+      ],
+      "reason": "Room work in KMP needs the Room KMP node."
+    },
+    {
+      "name": "kmp_architecture_enforcement_request",
+      "commands": [
+        "feature",
+        "task",
+        "build",
+        "bugfix",
+        "refactor",
+        "review"
+      ],
+      "platforms": [
+        "kmp"
+      ],
+      "request_all": [
+        [
+          "\\b(konsist|archunit|dependency guard|architecture (test|check|enforcement))\\b",
+          "(아키텍처 (검사|강제|테스트)|의존 방향 검사)"
+        ]
+      ],
+      "doc_sets": [
+        "kmp_architecture_enforcement"
+      ],
+      "reason": "Enforcing KMP architecture rules needs the enforcement node."
     }
   ],
   "path_surfaces": [
@@ -2044,6 +2215,113 @@
         "platforms/android/skills/android-module-structure/references/module-layout.md"
       ],
       "reason": "Changes inside the android-module-structure bundle must keep the boundary and layout rules consistent with the entrypoint."
+    },
+    {
+      "name": "kmp_desktop_shell_paths",
+      "patterns": [
+        "**/desktopMain/**/*Window*.kt",
+        "**/desktopMain/**/*Menu*.kt",
+        "**/desktopMain/**/*Tray*.kt",
+        "**/desktopMain/**/*Shortcut*.kt",
+        "**/desktopMain/**/Main.kt",
+        "**/jvmMain/**/*Window*.kt",
+        "**/jvmMain/**/*Menu*.kt",
+        "**/jvmMain/**/*Tray*.kt",
+        "**/jvmMain/**/*Shortcut*.kt",
+        "**/jvmMain/**/Main.kt"
+      ],
+      "doc_sets": [
+        "kmp_desktop_shell"
+      ],
+      "reason": "Touched Compose desktop window, menu, tray, shortcut or entry files need the desktop shell node."
+    },
+    {
+      "name": "kmp_desktop_process_paths",
+      "patterns": [
+        "**/desktopMain/**/*Process*.kt",
+        "**/desktopMain/**/*Pty*.kt",
+        "**/desktopMain/**/*Watcher*.kt",
+        "**/jvmMain/**/*Process*.kt",
+        "**/jvmMain/**/*Pty*.kt",
+        "**/jvmMain/**/*Watcher*.kt"
+      ],
+      "doc_sets": [
+        "kmp_desktop_process"
+      ],
+      "reason": "Touched JVM process, PTY or watcher files need the desktop process node."
+    },
+    {
+      "name": "kmp_desktop_swing_paths",
+      "patterns": [
+        "**/desktopMain/**/*Swing*.kt",
+        "**/jvmMain/**/*Swing*.kt"
+      ],
+      "doc_sets": [
+        "kmp_desktop_swing"
+      ],
+      "reason": "Touched Swing interop files need the Swing interop node."
+    },
+    {
+      "name": "kmp_desktop_packaging_paths",
+      "patterns": [
+        "**/*.entitlements",
+        "**/entitlements*.plist"
+      ],
+      "doc_sets": [
+        "kmp_desktop_packaging"
+      ],
+      "reason": "Touched entitlements imply desktop signing and packaging rules."
+    },
+    {
+      "name": "kmp_state_holder_paths",
+      "patterns": [
+        "**/commonMain/**/*StateHolder.kt",
+        "**/desktopMain/**/*StateHolder.kt",
+        "**/jvmMain/**/*StateHolder.kt"
+      ],
+      "doc_sets": [
+        "kmp_state_holder"
+      ],
+      "reason": "Touched Compose Multiplatform state holders need the KMP state holder node."
+    },
+    {
+      "name": "kmp_room_paths",
+      "patterns": [
+        "**/commonMain/**/*Dao.kt",
+        "**/commonMain/**/*Database.kt",
+        "**/desktopMain/**/*Dao.kt",
+        "**/desktopMain/**/*Database.kt",
+        "**/jvmMain/**/*Dao.kt",
+        "**/jvmMain/**/*Database.kt"
+      ],
+      "doc_sets": [
+        "kmp_room"
+      ],
+      "reason": "Touched Room database or DAO files in multiplatform source sets need the Room KMP node."
+    },
+    {
+      "name": "kmp_testing_paths",
+      "patterns": [
+        "**/commonTest/**/*.kt",
+        "**/desktopTest/**/*.kt",
+        "**/jvmTest/**/*.kt"
+      ],
+      "doc_sets": [
+        "kmp_testing"
+      ],
+      "reason": "Touched multiplatform test source sets need the KMP testing node."
+    },
+    {
+      "name": "kmp_architecture_enforcement_paths",
+      "patterns": [
+        "**/*ArchitectureTest.kt",
+        "**/*Konsist*.kt",
+        "**/konsist/**/*.kt"
+      ],
+      "doc_sets": [
+        "kmp_architecture_enforcement"
+      ],
+      "reason": "Touched architecture tests need the enforcement node."
     }
   ]
 }
