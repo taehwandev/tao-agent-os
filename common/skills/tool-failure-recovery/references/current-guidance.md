@@ -115,6 +115,10 @@ Hook failure:
   `review hook` gate. After a resume rebinds preflight evidence, recovery may
   use its still-valid failed gate record. A stale repair ledger with a consumed
   retry must remain blocked; importing it must never reset the repair budget.
+- A claimed resume may change only the runtime-session stamp. Rebind existing
+  gate provenance and valid failure checkpoints to the unchanged task snapshot,
+  retaining signatures and consumed retries. If packet writing fails, restore
+  the prior preflight and both ledger bindings before propagating the failure.
 - Treat a hook `FAIL` as an active recovery task, not a handoff summary.
 - Read every failure detail and classify it as safe scoped fix, scope decision,
   environment blocker, external-state risk, or broader refactor.

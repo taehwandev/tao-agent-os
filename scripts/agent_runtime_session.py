@@ -372,11 +372,23 @@ def bind_resumed_runtime_session(
     # those chains to answer a question it never asks.
     from agent_continuation_checkpoint import write_continuation_checkpoint
     from agent_execution_capsule_state import atomic_write_json
-    from agent_gate_evidence import resync_gate_evidence_ledger
+    from agent_gate_evidence import resync_gate_evidence_ledger, bind_gate_evidence_to_capsule
+    from agent_repair_ledger import (
+        CONFLICT, capture_failure_checkpoint_binding,
+        rebind_failure_checkpoints_after_required_doc_refresh,
+    )
+
+    repair_binding = capture_failure_checkpoint_binding(candidate)
 
     try:
         atomic_write_json(candidate, payload)
         resync_gate_evidence_ledger(candidate, payload)
+        bind_gate_evidence_to_capsule(evidence_path=candidate, preflight=payload)
+        if rebind_failure_checkpoints_after_required_doc_refresh(
+            evidence_path=candidate, preflight=payload, prior_binding=repair_binding,
+            required_doc_drift=bool(repair_binding),
+        ) == CONFLICT:
+            raise RuntimeError("resume repair binding changed during session rebind")
         rules = Path(str(payload.get("rules") or project)).resolve()
         write_continuation_checkpoint(
             project=project,
@@ -386,8 +398,15 @@ def bind_resumed_runtime_session(
             binding_path=candidate,
         )
     except Exception:
+        rebound_repair_binding = capture_failure_checkpoint_binding(candidate)
         atomic_write_json(candidate, previous)
         resync_gate_evidence_ledger(candidate, previous)
+        bind_gate_evidence_to_capsule(evidence_path=candidate, preflight=previous)
+        if rebind_failure_checkpoints_after_required_doc_refresh(
+            evidence_path=candidate, preflight=previous, prior_binding=rebound_repair_binding,
+            required_doc_drift=bool(rebound_repair_binding),
+        ) == CONFLICT:
+            raise RuntimeError("resume repair binding rollback conflicted")
         raise
 
 
