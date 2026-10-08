@@ -1,5 +1,6 @@
 .DS_Store
 .antigravitycli/
+.taoide/
 *.log
 .tao/
 node_modules/
