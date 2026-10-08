@@ -363,8 +363,12 @@ def _history(project: Path, record_id: str) -> list[dict[str, Any]]:
 
     _existing(project, record_id)
     by_id = {record["id"]: record for record in scan_records(project)[0]}
+    # The replacement is durable before retiring its predecessor writes replaced_by.
+    following = {record["replaces"]: record["id"] for record in by_id.values()
+                 if record.get("replaces")}
     newest, seen = record_id, {record_id}
-    while (later := by_id[newest].get("replaced_by")) in by_id and later not in seen:
+    while ((later := by_id[newest].get("replaced_by") or following.get(newest)) in by_id
+           and later not in seen):
         newest = later
         seen.add(later)
     chain, current, seen = [], newest, set()

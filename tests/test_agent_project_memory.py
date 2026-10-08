@@ -115,6 +115,26 @@ class ProjectMemoryTests(unittest.TestCase):
                 mock.patch("agent_project_memory.scan_records", return_value=([loop, other], 0)):
             self.assertEqual(2, len(agent_project_memory._history(self.project, "a" * 16)))
 
+    def test_history_follows_a_replacement_after_its_predecessor_retire_fails(self) -> None:
+        first = self.candidate("First advice")
+        with mock.patch("agent_project_memory._retire", side_effect=OSError("interrupted retire")):
+            with self.assertRaises(OSError):
+                self.candidate("Second advice", replaces=first["id"])
+        second = recall(self.project, "task")[0]
+        third = self.candidate("Third advice", replaces=second["id"])
+        store = self._path(first).parent
+        before = {path.name: path.read_bytes() for path in store.iterdir()}
+        recalled_before = recall(self.project, "task")
+        for member in (first, second, third):
+            with self.subTest(member=member["body"]):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    self.assertEqual(0, main(["--project", str(self.project), "history", member["id"]]))
+                self.assertEqual([third["id"], second["id"], first["id"]],
+                                 [record["id"] for record in json.loads(buffer.getvalue())])
+        self.assertEqual(before, {path.name: path.read_bytes() for path in store.iterdir()})
+        self.assertEqual(recalled_before, recall(self.project, "task"))
+
     def test_replacement_hides_the_old_record_even_before_its_retire_lands(self) -> None:
         old = self.candidate("Old advice")
         with mock.patch("agent_project_memory._retire"):
