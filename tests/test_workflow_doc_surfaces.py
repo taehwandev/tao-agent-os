@@ -442,6 +442,16 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
 
         names = {match["name"] for match in route["doc_surface_matches"]}
         self.assertIn("runtime_setup", names)
+        # runtime-setup.md was split; each piece stays required for setup paths.
+        for piece in (
+            "runtime-setup.md",
+            "runtime-hook-install.md",
+            "runtime-write-isolation.md",
+        ):
+            self.assertIn(
+                f"docs/skills/agent-runtime-integration/references/{piece}",
+                route["required_docs"],
+            )
         self.assertNotIn("graphify_integration", names)
         self.assertNotIn("workflow_router", names)
         self.assertNotIn("graphify readiness", route["gates"])
@@ -1025,7 +1035,9 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
                         "schema_version": 1,
                         "doc_sets": {"pair": ["docs/a.md", "docs/b.md"]},
                         "request_intents": [],
-                        "path_surfaces": [],
+                        "path_surfaces": [
+                            {"name": "pair_paths", "paths": ["src/**"], "doc_sets": ["pair"]}
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -1040,7 +1052,9 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
             )
 
             self.assertIn("docs/b.md", [str(match["path"]) for match in matches])
-            self.assertTrue(any(match["relation"] == "surface:doc_set:pair" for match in matches))
+            relations = {match["relation"] for match in matches}
+            self.assertIn("surface:path_surface:pair_paths", relations)
+            self.assertNotIn("surface:doc_set:pair", relations)
 
     def test_android_ui_request_promotes_compose_docs_to_required_docs(self) -> None:
         route = resolve_docs(

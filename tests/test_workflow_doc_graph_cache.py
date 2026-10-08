@@ -230,7 +230,13 @@ class DocGraphCacheTests(unittest.TestCase):
 
             rules.write_text(
                 json.dumps(
-                    {"schema_version": 1, "doc_sets": {"pair": ["alpha.md", "omega.md"]}}
+                    {
+                        "schema_version": 1,
+                        "doc_sets": {},
+                        "path_surfaces": [
+                            {"name": "pair", "paths": ["src/**"], "docs": ["alpha.md", "omega.md"]}
+                        ],
+                    }
                 ),
                 encoding="utf-8",
             )

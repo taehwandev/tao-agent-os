@@ -174,6 +174,10 @@ Installing or wiring a runtime is a separate reading:
 `docs/skills/agent-runtime-integration/references/runtime-setup.md` covers the
 installer ownership boundary, the setup modes, project discovery, launch-root
 discipline, the cross-repo scope checkpoint, and both repo and one-shot setups.
+Its per-runtime install details are in
+`docs/skills/agent-runtime-integration/references/runtime-hook-install.md`, and
+the installed write-isolation and permission boundaries are in
+`docs/skills/agent-runtime-integration/references/runtime-write-isolation.md`.
 
 That guidance was split out of this document because a single reference larger
 than the route's mandatory-reading budget is admitted into `reference_docs`

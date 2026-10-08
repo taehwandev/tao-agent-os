@@ -7,7 +7,12 @@ from typing import Iterable
 
 from workflow_common import ROOT, unique
 from workflow_doc_graph_build import build_doc_graph, clear_doc_graph_cache, graph_summary
-from workflow_doc_graph_refs import frontmatter_required_doc_refs, normalize_doc_seed
+from workflow_doc_graph_refs import (
+    PROMOTING_RELATIONS,
+    VERIFICATION_RELATION,
+    frontmatter_required_doc_refs,
+    normalize_doc_seed,
+)
 
 
 def expand_doc_paths(
@@ -74,11 +79,12 @@ def expand_doc_matches(
 
 
 def graph_required_docs(matches: Iterable[dict[str, object]]) -> list[str]:
-    """Return docs connected by explicit required-doc relations."""
+    """Return docs connected by relations that promote them to required reading."""
+    promoting = (*PROMOTING_RELATIONS, VERIFICATION_RELATION)
     return unique(
         str(match["path"])
         for match in matches
-        if str(match.get("relation") or "").startswith("frontmatter:requires")
+        if str(match.get("relation") or "").startswith(promoting)
     )
 
 
@@ -88,10 +94,13 @@ def expand_required_doc_matches(
     *,
     max_depth: int = 4,
     max_docs: int = 24,
+    include_verification: bool = False,
 ) -> list[dict[str, object]]:
-    """Follow explicit ``requires_docs`` frontmatter from selected sources.
+    """Follow promoting frontmatter relations from selected sources.
 
-    Unlike ``expand_doc_matches``, this reads only selected documents and their
+    `requires` and `refines` are always followed; `verified_by` only when
+    ``include_verification`` is set, which routes do for review work. Unlike
+    ``expand_doc_matches``, this reads only selected documents and their
     declared dependencies. It does not build or traverse the corpus graph.
     """
 
@@ -107,7 +116,9 @@ def expand_required_doc_matches(
             text = (root / source).read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        for target in frontmatter_required_doc_refs(root, source, text):
+        for relation, target in frontmatter_required_doc_refs(
+            root, source, text, include_verification=include_verification
+        ):
             if target in seen:
                 continue
             seen.add(target)
@@ -116,8 +127,8 @@ def expand_required_doc_matches(
                     "path": target,
                     "source": source,
                     "depth": depth + 1,
-                    "relation": "frontmatter:requires",
-                    "reason": "Explicit required-document frontmatter",
+                    "relation": relation,
+                    "reason": _PROMOTION_REASONS[relation],
                     "weight": 80,
                 }
             )
@@ -125,6 +136,13 @@ def expand_required_doc_matches(
             if len(matches) >= max_docs:
                 break
     return matches
+
+
+_PROMOTION_REASONS = {
+    "frontmatter:requires": "Explicit required-document frontmatter",
+    "frontmatter:refines": "Refined parent node frontmatter",
+    VERIFICATION_RELATION: "Verification node frontmatter for review work",
+}
 
 
 def _seed_docs(root: Path, seed_docs: Iterable[str]) -> list[str]:

@@ -69,20 +69,22 @@ authority. No provider process, polling loop, extra lifecycle or AGY hook is add
 
 For an eligible split, use Codex native subagents or parallel workers; the parent owns the shared contract, write scopes, integration, and final verification.
 
-For an eligible split, dispatch all independent Claude Agent/Task workers before waiting; the parent owns the shared contract, integration, and final verification.
+For an eligible split, dispatch all independent Claude Agent/Task workers before waiting; the parent owns the shared contract, write scopes, integration, and final verification.
 
 For an eligible split, use the available Gemini/AGY Antigravity parallel agent runner; the parent owns the shared contract, integration, and final verification.
 
 For a bounded Codex leaf, use workflow.py dispatch --execute only when isolation is explicitly required. A matching parent profile or unavailable parent profile information both stay in the current process or use a native worker; neither condition starts a fresh Codex process.
 
-## Native Codex Roles
+## Native Agent Roles
 
 Use available `tao_explorer`, `tao_worker`, and `tao_reviewer` custom agents for
-bounded evidence gathering, implementation, and review respectively. Fall back
-to the corresponding native agent when a custom role is unavailable; do not
-install settings during an ordinary task. These roles are thin runtime adapters
-to the existing collaboration and handoff contracts, not separate workflows.
-A role's availability never replaces a ready handoff or grants write authority.
+bounded evidence gathering, implementation, and review respectively. In Codex
+they are custom agent roles; in Claude Code they are subagents selected with
+the Agent tool's `subagent_type`. Fall back to the corresponding native agent
+when a custom role is unavailable; do not install settings during an ordinary
+task. These roles are thin runtime adapters to the existing collaboration and
+handoff contracts, not separate workflows. A role's availability never
+replaces a ready handoff or grants write authority.
 
 Start eligible work with two workers at most. Use a third only for another
 meaningful independent slice whose benefit exceeds its startup and integration
@@ -93,10 +95,12 @@ Before spawning, send each worker its exact owned and forbidden paths, stable
 input contract, acceptance check, capsule result, and expected output. Scope
 ownership, including the parent's concurrent edits, follows
 `workflows/skills/multi-agent-collaboration/references/current-guidance.md`.
-Use a bounded brief with `fork_turns=none` when it carries all applicable
-instructions and required-doc takeaways; otherwise retain the context the worker
-needs. Never omit applicable instructions to reduce tokens. Reuse the parent's
-required-doc brief only after the ready and valid handoff above.
+In Codex, use a bounded brief with `fork_turns=none` when it carries all
+applicable instructions and required-doc takeaways; otherwise retain the context
+the worker needs. A Claude subagent does not see the parent's conversation, so
+its brief must carry the applicable instructions and takeaways the parent
+gathered. Never omit applicable instructions to reduce tokens. Reuse the
+parent's required-doc brief only after the ready and valid handoff above.
 
 Roles inherit the current model and reasoning effort unless the user or an
 applicable instruction selects an override. Do not change the parent profile

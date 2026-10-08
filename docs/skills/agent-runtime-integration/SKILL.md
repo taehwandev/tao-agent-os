@@ -12,13 +12,19 @@ Use when routed to `docs/skills/agent-runtime-integration/SKILL.md` or when work
 
 - `references/current-guidance.md` for the execution contract a wired runtime follows.
 - `references/runtime-setup.md` for installing or wiring a runtime into a repository.
+- `references/runtime-hook-install.md` for what runtime setup installs per runtime:
+  hooks, agent roles, permission profile, launcher, mailbox, status lines, and bridge blocks.
+- `references/runtime-write-isolation.md` for the installed PreToolUse enforcement,
+  run evidence binding, worktree write isolation, and Git/Bash permission boundaries.
 - Related `SKILL.md` entrypoints named by the reference before loading their detailed references.
 
 ## Process
 
 1. Read this entrypoint first to confirm this guidance area applies.
 2. Open `references/current-guidance.md` only when the task actually touches this area,
-   and `references/runtime-setup.md` when it installs or wires a runtime.
+   and `references/runtime-setup.md` when it installs or wires a runtime; open
+   `references/runtime-hook-install.md` or `references/runtime-write-isolation.md`
+   only when the task touches those installed surfaces.
 3. Follow the reference's decision rules, stop conditions, and verification requirements before editing, reviewing, or reporting completion.
 
 ## Do Not
@@ -30,7 +36,8 @@ Use when routed to `docs/skills/agent-runtime-integration/SKILL.md` or when work
 
 - If route wiring changes, confirm the route loads this `SKILL.md` entrypoint.
 - If detailed guidance changes, validate links and frontmatter for
-  `references/current-guidance.md` and `references/runtime-setup.md`.
+  `references/current-guidance.md`, `references/runtime-setup.md`,
+  `references/runtime-hook-install.md`, and `references/runtime-write-isolation.md`.
 
 ## Required-document drift recovery
 

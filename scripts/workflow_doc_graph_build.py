@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 from support.project_tree import git_ignored, iter_project_files
 from workflow_doc_graph_cache import document_key, read_cached_graph, write_cached_graph
 from workflow_common import ROOT, unique
 from workflow_doc_graph_refs import frontmatter_doc_refs, markdown_doc_refs
-from workflow_doc_surface_rules import rule_docs, rule_list, string_list
+from workflow_doc_surface_rules import rule_docs, rule_list
 from workflow_doc_surfaces import RULES_FILE, load_doc_surface_rules
 from workflow_skill_paths import canonical_doc_path
 from support.stage_timing import stage
@@ -124,9 +124,16 @@ def _add_legacy_alias_edges(docs: set[str], graph: dict[str, list[dict[str, obje
 
 
 def _add_surface_rule_edges(root: Path, graph: dict[str, list[dict[str, object]]]) -> None:
+    """Connect documents that one routing rule selects together.
+
+    Named `doc_sets` are entry-node lists, not relations: a set only says which
+    nodes a rule starts from, and dependencies between nodes are declared by
+    the nodes' own `requires`/`refines` frontmatter. Meshing every set member
+    with every other one gave each set member edges to documents it does not
+    depend on, so set membership adds no edge of its own here. The intents and
+    path surfaces that use a set still connect its members.
+    """
     rules = load_doc_surface_rules(root)
-    for name, docs in _doc_sets(rules).items():
-        _connect_group(graph, docs, f"surface:doc_set:{name}", f"Shared document set `{name}`", 45)
     for key, label, weight in (
         ("request_intents", "request_intent", 40),
         ("path_surfaces", "path_surface", 35),
@@ -171,13 +178,6 @@ def _add_edge(
         if edge["target"] == target and edge["relation"] == relation:
             return
     edges.append({"target": target, "relation": relation, "reason": reason, "weight": weight})
-
-
-def _doc_sets(rules: dict[str, Any]) -> dict[str, list[str]]:
-    raw = rules.get("doc_sets")
-    if not isinstance(raw, dict):
-        return {}
-    return {str(name): string_list(value) for name, value in raw.items()}
 
 
 def _surface_rule_count(root: Path) -> int:

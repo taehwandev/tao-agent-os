@@ -10,6 +10,7 @@ from support.permission_entries import (
     claude_legacy_permission_entries,
     claude_permission_entries,
 )
+from support.claude_agent_setup import install_claude_agents
 from support.claude_continuation_setup import configure_claude_continuation
 from support.runtime_bridge import (
     merge_runtime_bridge,
@@ -51,6 +52,8 @@ def configure_claude(
     launcher_path: Path,
     spill_available: bool = True,
 ) -> list[dict]:
+    # Install roles first: a missing or invalid template stops before any write.
+    results = install_claude_agents(root, Path.home() / ".claude" / "agents", dry_run)
     target = Path.home() / ".claude" / "settings.json"
     # This hook fires on every prompt and never sees the prompt text, so it has
     # no request to classify and nothing to assert about intake. It used to say
@@ -67,7 +70,6 @@ def configure_claude(
         " workflow"
         " route triage --advisory --hook-stdin"
     )
-    results = []
 
     bridge_target = Path.home() / ".claude" / "CLAUDE.md"
     status = merge_runtime_bridge(

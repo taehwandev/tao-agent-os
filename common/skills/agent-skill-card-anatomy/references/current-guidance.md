@@ -75,6 +75,36 @@ card family, changing workflow router paths, or cleaning duplicated
 source-of-truth rules. For duplicate guidance cleanup, also read
 `docs/skills/tao-skill-bundle-migration/references/source-of-truth-ownership.md`.
 
+## Guidance Nodes
+
+A node is one atomic rule set that a route can require on its own. Use a node
+when a platform or concern shares most of its rules with another one and only
+a delta differs, so the delta can refine the shared baseline instead of
+copying it.
+
+```text
+<area>/nodes/<node-name>.md
+```
+
+Each node declares in frontmatter:
+
+- `use_when` and `skip_when`: the trigger and the exclusion, one line each.
+- `requires`: nodes that must be read with it. A route always promotes them.
+- `refines`: the baseline node or card this node narrows. A route always
+  promotes it, so the node states only the delta, never a copy.
+- `verified_by`: the review checklist node that proves it. Only review and
+  release routes promote it; implementation routes keep it as a reference.
+
+A node body stays under 120 lines and ends with a `## Verification` section.
+Workflow validation rejects a node without a trigger or exclusion, an oversized
+node, an orphan node that no route rule or document reaches, a node backtick
+reference to a missing document, a `requires`/`refines`/`verified_by` target
+that does not exist in any document, and a `requires`/`refines` cycle.
+
+`workflow-doc-surfaces.json` doc sets are entry-node lists. Set membership adds
+no relation between members; a dependency between nodes belongs in the nodes'
+own frontmatter.
+
 ## Common Rationalizations
 
 | Rationalization | Required Response |

@@ -140,6 +140,11 @@ REVIEW_HOOK_REQUIRED_COMMANDS = {
 
 LIGHTWEIGHT_SURFACE_REFERENCE_COMMANDS = {"commit", "git_commit"}
 
+# Routes that review or accept finished work also read the `verified_by`
+# checklist nodes of their required documents. Implementation routes leave
+# those checklists as references so a build route does not pay for review text.
+VERIFICATION_NODE_COMMANDS = {"review", "docs-review", "release", "ship"}
+
 # A combined commit/push/PR request is one lightweight publication lifecycle.
 # The commit workflow card already owns its worktree, remote, visibility, push,
 # and idempotent-PR checks, so expanding every inferred concern repeats the
@@ -340,12 +345,19 @@ def _resolve_documents(
                     explicit_docs = resolve_guidance_docs(ROOT, match.get("docs", []))
                     selected_sources = unique([*selected_sources, *explicit_docs])
                     advisory_sources = unique([*advisory_sources, *explicit_docs])
-        doc_graph_matches = expand_required_doc_matches(ROOT, selected_sources)
+        include_verification = command in VERIFICATION_NODE_COMMANDS
+        doc_graph_matches = expand_required_doc_matches(
+            ROOT, selected_sources, include_verification=include_verification
+        )
         graph_required = graph_required_docs(doc_graph_matches)
         # An advisory route requires only dependencies of its own required
         # sources. Dependencies of demoted gate docs remain references.
         advisory_graph_required = (
-            graph_required_docs(expand_required_doc_matches(ROOT, advisory_sources))
+            graph_required_docs(
+                expand_required_doc_matches(
+                    ROOT, advisory_sources, include_verification=include_verification
+                )
+            )
             if advisory
             else graph_required
         )

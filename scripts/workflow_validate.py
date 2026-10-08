@@ -21,6 +21,7 @@ from workflow_common import (
     ROOT,
     SCOPE_CHANGE_LIFECYCLE_COMMANDS,
 )
+from workflow_doc_node_rules import node_graph_failures
 from workflow_doc_resolution import doc_size
 from workflow_doc_surfaces import load_doc_surface_rules, surface_rule_doc_refs
 from workflow_gate_policy import (
@@ -375,6 +376,12 @@ def validate() -> int:
             if not (path.parent / target).resolve().exists():
                 bad_links.append(f"{relative}: {raw_link}")
 
+    bad_node_graph = node_graph_failures(
+        ROOT,
+        (path.relative_to(ROOT).as_posix() for path in markdown_files),
+        refs,
+    )
+
     if missing:
         print("Missing workflow references:", file=sys.stderr)
         for doc in missing:
@@ -403,6 +410,10 @@ def validate() -> int:
         print("Removed workflow CLI options in Markdown:", file=sys.stderr)
         for item in bad_removed_cli_options:
             print(f"- {item}", file=sys.stderr)
+    if bad_node_graph:
+        print("Invalid guidance nodes or frontmatter relations:", file=sys.stderr)
+        for item in bad_node_graph:
+            print(f"- {item}", file=sys.stderr)
 
     if (
         missing
@@ -412,6 +423,7 @@ def validate() -> int:
         or bad_surface_refs
         or bad_card_quality
         or bad_removed_cli_options
+        or bad_node_graph
     ):
         return 1
 

@@ -302,7 +302,7 @@ def fail_if_setup_incomplete(args: argparse.Namespace, results: list[dict]) -> N
         )
         raise SystemExit(1)
     missing = [result for result in results if result["status"] == "missing" or (
-        result["status"] == "would_update" and result["tool"] == "codex"
+        result["status"] == "would_update" and result["tool"] in {"codex", "claude"}
         and result.get("hook", "").startswith("agents.")
     )]
     if any(result["tool"] == "graphify" for result in missing):
