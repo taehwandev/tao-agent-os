@@ -123,11 +123,13 @@ class ProjectMemoryAtStartTests(unittest.TestCase):
         self.addCleanup(state_home.stop)
         self.project = PlainCheckout(temp.name).project
 
-    def capture(self, body: str, source: str = "design note") -> None:
+    def capture(self, body: str, source: str = "design note", *, source_paths: tuple[str, ...] = (),
+                scope: str = "all") -> None:
         captured = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "agent_project_memory.py"),
-             "--project", str(self.project), "capture", "--source", source,
-             "--review-on", "2999-01-01"],
+             "--project", str(self.project), "capture", "--source", source, "--scope", scope,
+             "--review-on", "2999-01-01",
+             *(arg for path in source_paths for arg in ("--source-path", path))],
             input=body, capture_output=True, text=True,
         )
         self.assertEqual(0, captured.returncode, captured.stderr)
@@ -155,6 +157,36 @@ class ProjectMemoryAtStartTests(unittest.TestCase):
         self.assertTrue(notice.rstrip().endswith("consolidate"), notice)
         self.assertNotIn("queue", notice)
         self.assertNotIn("design note", notice)
+
+    def ranked_start(self, request: str, *extra: str, source_paths: tuple[str, ...] = ()) -> None:
+        for number in range(4):
+            self.capture(f"Unrelated billing advice {number}.", scope="bugfix")
+        self.capture("Uniquequeue contract.", source="queue design", source_paths=source_paths)
+        started = start(self.project, ROOT, request, *extra)
+        self.assertEqual(0, started.returncode, started.stdout + started.stderr)
+        header = started.stdout.index("Project memory (agent-written reference")
+        first_record = started.stdout[header:].splitlines()[1]
+        self.assertIn("Uniquequeue contract.", first_record)
+
+    def test_start_request_selects_relevant_memory_before_the_three_item_cutoff(self) -> None:
+        self.ranked_start("Uniquequeue 가드를 고쳐줘")
+
+    def test_start_target_summary_affects_memory_ranking(self) -> None:
+        self.ranked_start("가드를 고쳐줘", "--target-summary", "Uniquequeue")
+
+    def test_start_verified_surface_path_affects_memory_ranking(self) -> None:
+        self.ranked_start("가드를 고쳐줘", "--target-summary", "bounded repair",
+                          "--surface-path", "src/module.py",
+                          source_paths=("src/module.py",))
+
+    def test_start_shows_a_warning_when_source_worktree_bytes_changed(self) -> None:
+        self.capture("Check the module contract.", source_paths=("src/module.py",))
+        source = self.project / "src/module.py"
+        source.write_text(source.read_text(encoding="utf-8") + "\n# changed evidence\n", encoding="utf-8")
+        started = start(self.project, ROOT, "가드를 고쳐줘")
+        self.assertEqual(0, started.returncode, started.stdout + started.stderr)
+        self.assertIn('"source_status": "changed"', started.stdout)
+        self.assertIn("Source evidence changed — verify before use", started.stdout)
 
 
 class TestRunsNeverReachTheUsersStoreTests(unittest.TestCase):

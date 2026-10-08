@@ -360,7 +360,12 @@ def _start_reference_lines(args: argparse.Namespace) -> list[str]:
     )
     try:
         records, _unreadable = project_memory_scan(args.project)
-        lines.extend(project_memory_recall_lines(args.project, args.command, records=records))
+        lines.extend(project_memory_recall_lines(
+            args.project, args.command, records=records,
+            request=str(getattr(args, "request", "") or ""),
+            target_summary=str(getattr(args, "target_summary", "") or ""),
+            target_paths=tuple(getattr(args, "surface_path", None) or ()),
+        ))
         lines.extend(_project_memory_upkeep_lines(args.project, records))
     except (OSError, ValueError):
         pass

@@ -31,6 +31,11 @@ SCOPE_RE = re.compile(r"[a-z][a-z0-9_-]{1,40}\Z")
 STORE_NAME = "project-memory"
 MAX_RECALL_ITEMS = 3
 MAX_RECALL_CHARS = 1200
+MAX_SOURCE_FILES = 4
+BLOB_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+PATH_RE = re.compile(r"[\w.-]+(?:/[\w.-]+)+|[\w-]+\.[a-zA-Z0-9]+")
+STOP_WORDS = frozenset("a an and are be before for in is it of on or the to use with src tests scripts".split())
 # `pending` and `approved` are the former review states; both are recallable.
 RECALLABLE_STATUSES = frozenset({"active", "pending", "approved"})
 STATUSES = RECALLABLE_STATUSES | {"retired"}
@@ -42,9 +47,97 @@ def _timestamp() -> str:
 
 def _digest(record: dict[str, Any]) -> str:
     content = {key: record[key] for key in ("body", "source", "scope", "review_on")}
+    if "source_files" in record:
+        content["source_files"] = record["source_files"]
     return hashlib.sha256(
         json.dumps(content, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
+
+
+def _valid_source_path(value: Any) -> bool:
+    if not isinstance(value, str) or not (1 <= len(value) <= 300) or not value.isprintable():
+        return False
+    path = Path(value)
+    return (not path.is_absolute() and path.as_posix() == value and "\\" not in value
+            and not any(part in {"..", ".git"} for part in path.parts) and value != ".")
+
+
+def _valid_source_files(files: Any) -> bool:
+    return (isinstance(files, list) and 1 <= len(files) <= MAX_SOURCE_FILES
+            and all(isinstance(item, dict) and set(item) == {"path", "blob"}
+                    and _valid_source_path(item["path"]) and isinstance(item["blob"], str)
+                    and BLOB_RE.fullmatch(item["blob"]) for item in files)
+            and len({item["path"] for item in files}) == len(files))
+
+
+def _source_blob(project: Path, path: str, *, tracked: bool = False) -> str:
+    """Hash exact worktree bytes without filters or writing a Git object."""
+    if not _valid_source_path(path):
+        return ""
+    root = project.resolve()
+    candidate = root / path
+    try:
+        # Reject symlinks, including parent symlinks, before reading any bytes.
+        if candidate.resolve(strict=True) != candidate or not candidate.is_file():
+            return ""
+        if tracked:
+            checked = subprocess.run(
+                ["git", "--literal-pathspecs", "-C", str(root), "ls-files", "--error-unmatch", "--", path],
+                capture_output=True, check=False, timeout=2,
+            )
+            if checked.returncode:
+                return ""
+        result = subprocess.run(
+            ["git", "-C", str(root), "hash-object", "--no-filters", "--", path],
+            capture_output=True, text=True, check=False, timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    blob = result.stdout.strip()
+    return blob if result.returncode == 0 and BLOB_RE.fullmatch(blob) else ""
+
+
+def _source_status(project: Path, record: dict[str, Any]) -> dict[str, Any]:
+    files = record.get("source_files", [])
+    if not files:
+        return {}
+    statuses = []
+    for item in files:
+        blob = _source_blob(project, item["path"])
+        statuses.append("unavailable" if not blob else "unchanged" if blob == item["blob"] else "changed")
+    status = "changed" if "changed" in statuses else "unavailable" if "unavailable" in statuses else "unchanged"
+    result: dict[str, Any] = {"source_status": status}
+    if status != "unchanged":
+        result["unverified_sources"] = [item["path"] for item, state in zip(files, statuses) if state != "unchanged"]
+        result["warning"] = f"Source evidence {status} — verify before use"
+    return result
+
+
+def _terms(text: str) -> tuple[set[str], set[str], set[str]]:
+    paths = {path.casefold().removeprefix("./").rstrip(".") for path in PATH_RE.findall(text)}
+    # Only a path's file stem and its two nearest directories name what it is
+    # about. Leading directories (`app/src/main/java/com/<org>/<app>`) and the
+    # extension are shared by most files of a repository, so counting them let
+    # any record with a path outrank the record that matches the work.
+    near = {part for path in paths
+            for part in (*Path(path).parts[:-1][-2:], Path(path).stem)}
+    rest = PATH_RE.sub(" ", text)
+    words = {word.casefold() for word in TOKEN_RE.findall(" ".join((rest, *near)))
+             if len(word) > 1} - STOP_WORDS
+    modules = near | {word.casefold() for word in re.findall(r"\b[\w-]+\b", rest)
+                      if "_" in word or "-" in word or re.search(r"[a-z][A-Z]", word)}
+    return words, paths, modules - STOP_WORDS
+
+
+def _relevance(record: dict[str, Any], query: tuple[set[str], set[str], set[str]]) -> int:
+    text = " ".join([record["body"], record["source"],
+                     *(item["path"] for item in record.get("source_files", []))])
+    words, paths, modules = _terms(text)
+    query_words, query_paths, query_modules = query
+    # Absolute query paths may name the same repository-relative evidence file.
+    matches = sum(any(other == path or other.endswith("/" + path) for other in query_paths) for path in paths)
+    module_matches = (modules & (query_words | query_modules)) | (query_modules & words)
+    return len(words & query_words) + 12 * matches + 8 * len(module_matches)
 
 
 def repository_key(project: Path) -> str:
@@ -107,6 +200,7 @@ def read_record(path: Path) -> dict[str, Any] | None:
             and date.fromisoformat(record["review_on"]) >= date(2000, 1, 1)
             and record["digest"] == _digest(record)
             and ID_RE.fullmatch(record.get("replaces") or "0" * 16) is not None
+            and ("source_files" not in record or _valid_source_files(record["source_files"]))
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -135,7 +229,7 @@ def _retire(project: Path, record_id: str, *, replaced_by: str = "") -> dict[str
 
 
 def _capture(project: Path, *, body: str, source: str, scope: str, review_on: str,
-             replaces: str = "") -> dict[str, Any]:
+             replaces: str = "", source_paths: tuple[str, ...] = ()) -> dict[str, Any]:
     body, source = body.strip(), source.strip()
     if not (1 <= len(body) <= 500 and body.isprintable()):
         raise ValueError("memory body must be one line of 1–500 characters")
@@ -147,6 +241,14 @@ def _capture(project: Path, *, body: str, source: str, scope: str, review_on: st
         raise ValueError("review date must be in the future")
     if replaces:
         _existing(project, replaces)
+    if len(source_paths) > MAX_SOURCE_FILES:
+        raise ValueError(f"at most {MAX_SOURCE_FILES} source paths are allowed")
+    source_files = []
+    for path in dict.fromkeys(source_paths):
+        blob = _source_blob(project, path, tracked=True)
+        if not blob:
+            raise ValueError("source path must name a readable tracked repository-relative file without symlinks")
+        source_files.append({"path": path, "blob": blob})
     _writable_store(project).mkdir(parents=True, exist_ok=True, mode=0o700)
     record_id = secrets.token_hex(8)
     record = {
@@ -161,6 +263,8 @@ def _capture(project: Path, *, body: str, source: str, scope: str, review_on: st
     }
     if replaces:
         record["replaces"] = replaces
+    if source_files:
+        record["source_files"] = source_files
     record["digest"] = _digest(record)
     # The new record is the commit point: recall already hides the record it
     # replaces, so an interrupted retire below never shows both.
@@ -186,7 +290,8 @@ def scan_records(project: Path) -> tuple[list[dict[str, Any]], int]:
 
 
 def _recall(project: Path, scope: str, *, today: date | None = None,
-            records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+            records: list[dict[str, Any]] | None = None, request: str = "",
+            target_summary: str = "", target_paths: tuple[str, ...] = ()) -> list[dict[str, Any]]:
     if not SCOPE_RE.fullmatch(scope):
         raise ValueError("invalid recall scope")
     today = today or date.today()
@@ -200,26 +305,31 @@ def _recall(project: Path, scope: str, *, today: date | None = None,
         and record["scope"] in {scope, "all"}
         and date.fromisoformat(record["review_on"]) > today
     ]
-    # Records written for this route come before the general ones.
-    eligible.sort(key=lambda item: (item["scope"] != scope, item["review_on"], item["id"]))
+    query = _terms(" ".join((request, target_summary, *map(str, target_paths))))
+    # Relevance comes first; ties and context-free calls retain the old order.
+    eligible.sort(key=lambda item: (-_relevance(item, query), item["scope"] != scope,
+                                    item["review_on"], item["id"]))
     return eligible
 
 
 def recall_lines(project: Path, scope: str, *,
-                 records: list[dict[str, Any]] | None = None) -> list[str]:
+                 records: list[dict[str, Any]] | None = None, request: str = "",
+                 target_summary: str = "", target_paths: tuple[str, ...] = ()) -> list[str]:
     """Render bounded, explicitly non-authoritative context for a start result.
 
     `records` lets a caller that already scanned the store reuse that read.
     """
     lines = []
     size = 0
-    for record in _recall(project, scope, records=records):
-        payload = json.dumps(
-            {key: record[key] for key in ("id", "body", "source", "review_on")},
-            ensure_ascii=False,
-        )
+    for record in _recall(project, scope, records=records, request=request,
+                          target_summary=target_summary, target_paths=target_paths):
         if len(lines) >= MAX_RECALL_ITEMS:
             break
+        payload = json.dumps(
+            {**{key: record[key] for key in ("id", "body", "source", "review_on")},
+             **_source_status(project, record)},
+            ensure_ascii=False,
+        )
         if size + len(payload) > MAX_RECALL_CHARS:
             # Skip the oversized record so a shorter one after it still fits.
             continue
@@ -240,6 +350,8 @@ def _main(argv: list[str] | None = None) -> int:
     capture_parser.add_argument("--scope", default="all")
     capture_parser.add_argument("--review-on", required=True)
     capture_parser.add_argument("--replaces", default="")
+    capture_parser.add_argument("--source-path", action="append", default=[],
+                                help="tracked repository-relative evidence file; repeat up to four times")
     # Former review step, kept so older instructions still run; it changes nothing.
     approve_parser = commands.add_parser("approve")
     approve_parser.add_argument("id")
@@ -248,6 +360,9 @@ def _main(argv: list[str] | None = None) -> int:
     retire_parser.add_argument("id")
     recall_parser = commands.add_parser("recall")
     recall_parser.add_argument("--scope", default="all")
+    recall_parser.add_argument("--request", default="")
+    recall_parser.add_argument("--target-summary", default="")
+    recall_parser.add_argument("--target-path", action="append", default=[])
     # Read-only review of the whole store; decisions go through capture and retire.
     consolidate_parser = commands.add_parser("consolidate")
     consolidate_parser.add_argument("--within-days", type=int, default=14)
@@ -257,7 +372,7 @@ def _main(argv: list[str] | None = None) -> int:
         if args.command == "capture":
             result = _capture(project, body=sys.stdin.read(), source=args.source,
                               scope=args.scope, review_on=args.review_on,
-                              replaces=args.replaces)
+                              replaces=args.replaces, source_paths=tuple(args.source_path))
         elif args.command == "approve":
             result = _existing(project, args.id)[1]
         elif args.command == "retire":
@@ -268,7 +383,9 @@ def _main(argv: list[str] | None = None) -> int:
 
             result = consolidate(project, within_days=args.within_days)
         else:
-            result = _recall(project, args.scope)
+            result = [{**record, **_source_status(project, record)} for record in _recall(
+                project, args.scope, request=args.request, target_summary=args.target_summary,
+                target_paths=tuple(args.target_path))]
     except (OSError, ValueError) as error:
         parser.exit(2, f"project memory: {error}\n")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
