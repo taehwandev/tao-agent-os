@@ -4,7 +4,8 @@ A split is only safe if it moved text rather than rewrote it, and only useful if
 each piece can be selected on its own. Both properties are asserted here for the
 two bundles that were still oversized when `OVERSIZED_DOC_BYTES` was deleted, so
 a later edit that regrows one fails against the budget it now actually competes
-in rather than against a guard that no longer exists.
+in rather than against a guard that no longer exists. Later splits of references
+that had grown back to the former guard are held to the same properties.
 """
 
 from __future__ import annotations
@@ -28,6 +29,10 @@ BUNDLES = {
     "session-continuation-protocol": (
         "workflows/skills/session-continuation-protocol",
         ("current-guidance.md", "decisions.md", "packet-contract.md"),
+    ),
+    "agent-runtime-integration": (
+        "docs/skills/agent-runtime-integration",
+        ("runtime-setup.md", "runtime-hook-install.md", "runtime-write-isolation.md"),
     ),
 }
 
@@ -79,6 +84,11 @@ class BundleContentPreservationTests(unittest.TestCase):
             "A Stop hook is an optional final flush and never a correctness",
             "Unknown fields and unknown enum values are invalid.",
             "The shared library owns:",
+        ),
+        "agent-runtime-integration": (
+            "Resemblance is where this goes wrong, because two products configuring the same",
+            "The gauge fills to what remains, so it empties as the budget does.",
+            "For a repository that requires linked worktrees, isolation governs writes, not",
         ),
     }
 

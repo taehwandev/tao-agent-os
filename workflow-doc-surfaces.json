@@ -1569,10 +1569,14 @@
         "scripts/support/setup_agent_hooks_impl.py",
         "scripts/project-discover.py",
         "scripts/agent-entry.py",
-        "docs/skills/agent-runtime-integration/references/runtime-setup.md"
+        "docs/skills/agent-runtime-integration/references/runtime-setup.md",
+        "docs/skills/agent-runtime-integration/references/runtime-hook-install.md",
+        "docs/skills/agent-runtime-integration/references/runtime-write-isolation.md"
       ],
       "docs": [
         "docs/skills/agent-runtime-integration/references/runtime-setup.md",
+        "docs/skills/agent-runtime-integration/references/runtime-hook-install.md",
+        "docs/skills/agent-runtime-integration/references/runtime-write-isolation.md",
         "docs/skills/agent-runtime-integration/SKILL.md"
       ],
       "reason": "Installing or wiring a runtime touches entries an installer may own, the setup mode a request needs, and how a runtime finds its project."

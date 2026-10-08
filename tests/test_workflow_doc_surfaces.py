@@ -442,6 +442,16 @@ class WorkflowDocSurfacesTests(unittest.TestCase):
 
         names = {match["name"] for match in route["doc_surface_matches"]}
         self.assertIn("runtime_setup", names)
+        # runtime-setup.md was split; each piece stays required for setup paths.
+        for piece in (
+            "runtime-setup.md",
+            "runtime-hook-install.md",
+            "runtime-write-isolation.md",
+        ):
+            self.assertIn(
+                f"docs/skills/agent-runtime-integration/references/{piece}",
+                route["required_docs"],
+            )
         self.assertNotIn("graphify_integration", names)
         self.assertNotIn("workflow_router", names)
         self.assertNotIn("graphify readiness", route["gates"])
