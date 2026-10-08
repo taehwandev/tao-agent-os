@@ -36,6 +36,11 @@ BLOB_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 PATH_RE = re.compile(r"[\w.-]+(?:/[\w.-]+)+|[\w-]+\.[a-zA-Z0-9]+")
 STOP_WORDS = frozenset("a an and are be before for in is it of on or the to use with src tests scripts".split())
+HANGUL_RE = re.compile(r"[가-힣]")
+# Longest first, so `에서는` is removed whole rather than as `는`.
+KOREAN_PARTICLES = ("에서는", "으로는", "에게서", "에서", "에게", "으로", "까지", "부터", "처럼",
+                    "보다", "이랑", "은", "는", "이", "가", "을", "를", "의", "에", "도", "로",
+                    "와", "과", "만", "랑")
 # `pending` and `approved` are the former review states; both are recallable.
 RECALLABLE_STATUSES = frozenset({"active", "pending", "approved"})
 STATUSES = RECALLABLE_STATUSES | {"retired"}
@@ -97,13 +102,18 @@ def _source_blob(project: Path, path: str, *, tracked: bool = False) -> str:
     return blob if result.returncode == 0 and BLOB_RE.fullmatch(blob) else ""
 
 
-def _source_status(project: Path, record: dict[str, Any]) -> dict[str, Any]:
+def _source_status(project: Path, record: dict[str, Any],
+                   blobs: dict[str, str] | None = None) -> dict[str, Any]:
+    """`blobs` caches one recall's hashes, so records sharing a file hash it once."""
     files = record.get("source_files", [])
     if not files:
         return {}
+    blobs = {} if blobs is None else blobs
     statuses = []
     for item in files:
-        blob = _source_blob(project, item["path"])
+        if item["path"] not in blobs:
+            blobs[item["path"]] = _source_blob(project, item["path"])
+        blob = blobs[item["path"]]
         statuses.append("unavailable" if not blob else "unchanged" if blob == item["blob"] else "changed")
     status = "changed" if "changed" in statuses else "unavailable" if "unavailable" in statuses else "unchanged"
     result: dict[str, Any] = {"source_status": status}
@@ -113,19 +123,37 @@ def _source_status(project: Path, record: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _particle_variants(words: set[str]) -> set[str]:
+    """Add each Hangul word with a trailing particle removed (`프로필을` -> `프로필`).
+
+    The original token stays; the stem must keep at least two syllables, so a
+    two-syllable word such as `아이` is never cut down to one.
+    """
+
+    variants = set()
+    for word in words:
+        if HANGUL_RE.search(word):
+            particle = next((p for p in KOREAN_PARTICLES if word.endswith(p)), "")
+            if particle and len(word) - len(particle) >= 2:
+                variants.add(word[: -len(particle)])
+    return words | variants
+
+
 def _terms(text: str) -> tuple[set[str], set[str], set[str]]:
     paths = {path.casefold().removeprefix("./").rstrip(".") for path in PATH_RE.findall(text)}
     # Only a path's file stem and its two nearest directories name what it is
     # about. Leading directories (`app/src/main/java/com/<org>/<app>`) and the
     # extension are shared by most files of a repository, so counting them let
-    # any record with a path outrank the record that matches the work.
-    near = {part for path in paths
-            for part in (*Path(path).parts[:-1][-2:], Path(path).stem)}
+    # any record with a path outrank the record that matches the work. Even the
+    # nearest directories (`src/main/kotlin`) are often shared, so they count
+    # as plain words; the module weight is kept for stems and identifiers.
+    stems = {Path(path).stem for path in paths}
+    near = {part for path in paths for part in Path(path).parts[:-1][-2:]} | stems
     rest = PATH_RE.sub(" ", text)
-    words = {word.casefold() for word in TOKEN_RE.findall(" ".join((rest, *near)))
-             if len(word) > 1} - STOP_WORDS
-    modules = near | {word.casefold() for word in re.findall(r"\b[\w-]+\b", rest)
-                      if "_" in word or "-" in word or re.search(r"[a-z][A-Z]", word)}
+    words = _particle_variants({word.casefold() for word in TOKEN_RE.findall(" ".join((rest, *near)))
+                                if len(word) > 1}) - STOP_WORDS
+    modules = stems | {word.casefold() for word in re.findall(r"\b[\w-]+\b", rest)
+                       if "_" in word or "-" in word or re.search(r"[a-z][A-Z]", word)}
     return words, paths, modules - STOP_WORDS
 
 
@@ -321,15 +349,18 @@ def recall_lines(project: Path, scope: str, *,
     """
     lines = []
     size = 0
+    blobs: dict[str, str] = {}
     for record in _recall(project, scope, records=records, request=request,
                           target_summary=target_summary, target_paths=target_paths):
         if len(lines) >= MAX_RECALL_ITEMS:
             break
-        payload = json.dumps(
-            {**{key: record[key] for key in ("id", "body", "source", "review_on")},
-             **_source_status(project, record)},
-            ensure_ascii=False,
-        )
+        fields = {key: record[key] for key in ("id", "body", "source", "review_on")}
+        # Evidence status only lengthens the payload, so a record that is
+        # already too long is skipped before any of its files are hashed.
+        if size + len(json.dumps(fields, ensure_ascii=False)) > MAX_RECALL_CHARS:
+            continue
+        payload = json.dumps({**fields, **_source_status(project, record, blobs)},
+                             ensure_ascii=False)
         if size + len(payload) > MAX_RECALL_CHARS:
             # Skip the oversized record so a shorter one after it still fits.
             continue
@@ -383,7 +414,8 @@ def _main(argv: list[str] | None = None) -> int:
 
             result = consolidate(project, within_days=args.within_days)
         else:
-            result = [{**record, **_source_status(project, record)} for record in _recall(
+            blobs: dict[str, str] = {}
+            result = [{**record, **_source_status(project, record, blobs)} for record in _recall(
                 project, args.scope, request=args.request, target_summary=args.target_summary,
                 target_paths=tuple(args.target_path))]
     except (OSError, ValueError) as error:

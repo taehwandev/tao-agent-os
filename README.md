@@ -153,10 +153,12 @@ request, repository rules, and source evidence prevail.
 Capture and correction work without an active development run or task worktree.
 
 Start ranks eligible records by token overlap with `--request`,
-`--target-summary`, and verified `--surface-path` values. Exact file paths and
-module names receive extra weight; a path contributes only its file stem and
-its two nearest directories, so a repository-wide prefix such as
-`app/src/main/java/...` matches nothing. Ties retain route-specific, review-date,
+`--target-summary`, and verified `--surface-path` values. Exact file paths,
+file stems and identifiers such as `retry_queue` or `ProfileScreen` receive
+extra weight; a path's two nearest directories count only as plain words and
+its other directories not at all, so a repository-wide prefix such as
+`app/src/main/java/...` matches nothing. A Hangul word also matches without a
+trailing particle (`프로필을` matches `프로필`). Ties retain route-specific, review-date,
 then id ordering. The route/`all`, expiry, replacement, three-item and
 1,200-character limits still apply. Query context is never saved as memory.
 Standalone `project-memory recall` accepts `--request`, `--target-summary`,
@@ -165,7 +167,8 @@ and repeatable `--target-path` values for the same ranking.
 Capture can include up to four repeatable `--source-path` values naming tracked,
 repository-relative evidence files. Tao stores their paths and Git blob hashes
 of the current worktree bytes, without filters, contents or history. Recall
-marks changed or unavailable evidence with `verify before use`; it neither
+marks changed or unavailable evidence with `verify before use`, hashing each
+file once per recall and never for a record too long to show; it neither
 retires the record nor treats an unchanged file as proof that the guidance is
 correct. Existing records without file evidence remain readable and date-based.
 Paths outside the repository, untracked files and symlinks are rejected.

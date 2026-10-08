@@ -25,6 +25,7 @@ from agent_project_memory import (  # noqa: E402
     _retire as retire,
     recall_lines,
 )
+import agent_project_memory  # noqa: E402
 
 
 class ProjectMemoryTests(unittest.TestCase):
@@ -192,6 +193,43 @@ class ProjectMemoryTests(unittest.TestCase):
         self.assertEqual(useful["id"], recall(self.project, "task", request=request)[0]["id"])
         self.assertEqual(useful["id"], recall(
             self.project, "task", target_paths=(f"{base}/ui/profile/ProfileScreen.kt",))[0]["id"])
+
+    def test_shared_nearest_directories_do_not_outrank_the_matching_record(self) -> None:
+        # Files directly under `src/main/kotlin` share both nearest directories;
+        # giving those the module weight scored 18 against 12 for the right one.
+        self.candidate("Keep src/main/kotlin/FeedData.kt fields nullable", scope="task")
+        useful = self.candidate("Profile screen crash comes from a null nickname; guard ProfileScreen",
+                                scope="all")
+        request = "Fix crash in profile screen src/main/kotlin/ProfileScreen.kt"
+        self.assertEqual(useful["id"], recall(self.project, "task", request=request)[0]["id"])
+
+    def test_korean_particles_still_match_the_stem(self) -> None:
+        self.candidate("피드 목록 페이지 캐시 유지", scope="task")
+        useful = self.candidate("프로필 화면에서 닉네임 null 크래시", scope="all")
+        for request in ("프로필은 왜 죽나", "프로필을 고쳐줘", "화면 크래시"):
+            with self.subTest(request=request):
+                self.assertEqual(useful["id"], recall(self.project, "task", request=request)[0]["id"])
+        # The stem keeps two syllables, so a two-syllable word is never cut to one.
+        self.assertIn("아이", agent_project_memory._terms("아이")[0])
+        self.assertNotIn("아", agent_project_memory._terms("아이")[0])
+
+    def test_one_recall_hashes_each_source_file_once(self) -> None:
+        files = tuple(f"src/f{number}.py" for number in range(4))
+        for path in files:
+            self.tracked_source(path)
+        for number in range(5):
+            self.candidate("long " * 95 + str(number), scope="all", source_paths=files)
+        self.candidate("short", scope="all", source_paths=files)
+        with mock.patch("agent_project_memory._source_blob",
+                        wraps=agent_project_memory._source_blob) as hashed:
+            lines = recall_lines(self.project, "task")
+        self.assertEqual(len(files), hashed.call_count)
+        self.assertGreaterEqual(len(lines), 2)
+        with mock.patch("agent_project_memory._source_blob",
+                        wraps=agent_project_memory._source_blob) as hashed, \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(0, main(["--project", str(self.project), "recall", "--scope", "task"]))
+        self.assertEqual(len(files), hashed.call_count)
 
     def test_relevance_never_revives_ineligible_memories(self) -> None:
         foreign = self.candidate("retry_queue", scope="review")
