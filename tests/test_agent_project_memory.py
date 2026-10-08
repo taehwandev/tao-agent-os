@@ -252,12 +252,19 @@ class ProjectMemoryTests(unittest.TestCase):
     def test_korean_particles_still_match_the_stem(self) -> None:
         self.candidate("피드 목록 페이지 캐시 유지", scope="task")
         useful = self.candidate("프로필 화면에서 닉네임 null 크래시", scope="all")
-        for request in ("프로필은 왜 죽나", "프로필을 고쳐줘", "화면 크래시"):
+        for request in ("프로필은 왜 죽나", "프로필을 고쳐줘", "프로필에서는 왜 죽나", "화면 크래시"):
             with self.subTest(request=request):
                 self.assertEqual(useful["id"], recall(self.project, "task", request=request)[0]["id"])
         # The stem keeps two syllables, so a two-syllable word is never cut to one.
         self.assertIn("아이", agent_project_memory._terms("아이")[0])
         self.assertNotIn("아", agent_project_memory._terms("아이")[0])
+
+    def test_shorter_korean_particle_matches_when_longer_candidate_is_too_short(self) -> None:
+        self.candidate("결제 정책", scope="task")
+        useful = self.candidate("아이 차이", scope="all")
+        for request in ("아이랑", "차이랑"):
+            with self.subTest(request=request):
+                self.assertEqual(useful["id"], recall(self.project, "task", request=request)[0]["id"])
 
     def test_one_recall_hashes_each_source_file_once(self) -> None:
         files = tuple(f"src/f{number}.py" for number in range(4))

@@ -26,6 +26,38 @@ ARRAY_HINT = 'pass "a.md, b.md" rather than ["a.md", "b.md"]'
 
 
 class GateRecordInvocationTests(unittest.TestCase):
+    def test_rejected_retrospective_stays_missing_until_a_valid_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "preflight.json"
+            evidence.parent.mkdir()
+            preflight = {
+                "project": str(project), "rules": str(ROOT),
+                "route": {"command": "small-change", "gates": ["retrospective check"],
+                          "required_docs": ["common/skills/agent-operating-skill/SKILL.md"]},
+            }
+            evidence.write_text(json.dumps(preflight), encoding="utf-8")
+            reset_gate_evidence_ledger(evidence, preflight)
+            args = SimpleNamespace(project=project, rules=ROOT, evidence=evidence,
+                                   output=None, repair_cycle=0, gate_json=None, hook="gate-batch")
+            fields = {"skills_checked": "bounded_local_change",
+                      "outcome": "no_reusable_gap", "observation": "not_needed"}
+            args.gate_record = [json.dumps({"gate": "retrospective check", "fields": fields})]
+            before = read_gate_evidence_ledger(evidence)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(1, gate_batch_hook(args))
+            self.assertIn("unknown canonical skills", output.getvalue())
+            self.assertEqual(before, read_gate_evidence_ledger(evidence))
+            self.assertEqual({"remaining_gates": ["retrospective check"], "ledger_complete": False},
+                             _gate_progress(args))
+
+            fields["skills_checked"] = "agent_operating_skill"
+            args.gate_record = [json.dumps({"gate": "retrospective check", "fields": fields})]
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(0, gate_batch_hook(args))
+            self.assertEqual({"remaining_gates": [], "ledger_complete": True}, _gate_progress(args))
+
     def test_batch_reports_remaining_gates_without_a_second_query(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

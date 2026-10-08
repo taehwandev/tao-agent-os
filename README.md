@@ -168,8 +168,10 @@ Capture can include up to four repeatable `--source-path` values naming tracked,
 repository-relative evidence files. Tao stores their paths and Git blob hashes
 of the current worktree bytes, without filters, contents or history. Recall
 marks changed or unavailable evidence with `verify before use`, hashing each
-file once per recall and never for a record too long to show; it neither
-retires the record nor treats an unchanged file as proof that the guidance is
+file once per recall. At task start, a record is skipped before hashing when its
+base payload already exceeds the remaining character budget. Added status fields
+can still make a record exceed that budget after hashing. Recall neither retires
+the record nor treats an unchanged file as proof that the guidance is
 correct. Existing records without file evidence remain readable and date-based.
 Paths outside the repository, untracked files and symlinks are rejected.
 

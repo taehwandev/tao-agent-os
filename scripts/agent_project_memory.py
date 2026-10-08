@@ -135,8 +135,9 @@ def _particle_variants(words: set[str]) -> set[str]:
     variants = set()
     for word in words:
         if HANGUL_RE.search(word):
-            particle = next((p for p in KOREAN_PARTICLES if word.endswith(p)), "")
-            if particle and len(word) - len(particle) >= 2:
+            particle = next((p for p in KOREAN_PARTICLES
+                             if word.endswith(p) and len(word) - len(p) >= 2), "")
+            if particle:
                 variants.add(word[: -len(particle)])
     return words | variants
 
