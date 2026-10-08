@@ -2,14 +2,20 @@
 keyflow_id: sys_android_compose_ui
 status: review
 type: human-reviewed-needed
+requires:
+  - platforms/compose/nodes/ui-screen-structure.md
+  - platforms/compose/nodes/ui-authoring-rules.md
+  - platforms/compose/nodes/lifecycle-resource-ownership.md
 ---
 
 # Android Compose UI
 
-The Compose authoring contract: which design-system API a screen or component
-consumes, how holder and stateless content are named and split, how the screen
-skeleton owns bars, insets and the keyboard, which modifier, effect, lazy-list
-and animation APIs it uses, and which previews it ships with.
+The Compose authoring contract on Android: which design-system API a screen or
+component consumes, how holder and stateless content are named and split, how
+the screen skeleton owns bars, insets and the keyboard, which modifier,
+effect, lazy-list and animation APIs it uses, and which previews it ships
+with. The platform-neutral rules live in the Compose nodes this file requires;
+this file keeps the Android-only rules and the ordered procedure.
 
 ## Steps
 
@@ -58,136 +64,58 @@ owner per changed screen, previews added, and verification run or not run.
 
 ## Compose Layers
 
-Use this shape unless the repo has a stricter local pattern:
-
-```text
-Screen/Holder Composable -> Content Composable -> Section Composable
--> Feature Component -> Design-System Primitive
-```
-
-- The holder wires the ViewModel, lifecycle collection, effects, navigation
-  callbacks, permission launchers and dependency entry points.
-- Content is stateless. It receives immutable UI state plus explicit callbacks
-  and renders the whole screen.
-- Sections group screen areas and accept only the state they need.
-- Feature components may know product display models but not repositories,
-  ViewModels, activities or routers.
-- Design-system primitives know visual and interaction contracts, not product
-  routes, analytics labels or fake data.
-- Each layer passes the smallest stable model or value set the next layer
-  needs, not the whole screen `UiState`.
+The layer shape Screen/Holder Composable -> Content Composable -> Section Composable
+-> Feature Component -> Design-System Primitive, and what each layer may know,
+are in `platforms/compose/nodes/ui-screen-structure.md`. On Android the holder
+also wires the ViewModel, permission launchers and activity-result callbacks.
 
 When a screen mixes Views and Compose, decide first which side owns the window
 insets and the keyboard, and keep the bridge at an existing repo boundary.
 
 ## Design-System Consumption Gate
 
-Before writing screen, section or component code, search the repo in this
-order and stop at the first level that expresses the design:
-
-1. A finished design-system component (button, card, top bar, scaffold,
-   dialog, list row, text field).
-2. Design-system primitives and shared modifiers.
-3. Theme tokens: color, typography, shape, spacing, elevation.
-4. Foundation layout: `Row`, `Column`, `Box`, lazy layouts.
-5. Raw Material or platform widgets, only with a reason written in the change.
-
-- Do not reassemble the look of an existing component from shape, color and
-  text style. If a variant or slot is missing, extend the existing API
-  minimally, and say so in the report.
-- When a component exposes public defaults (`FooButtonDefaults`,
-  `FooCardDefaults`), take padding, icon size, colors and styles at the call
-  site from them. Do not duplicate their numbers in the feature.
-- Do not create a new product-prefixed wrapper for a single screen. A new
-  shared component is a design-system decision
-  ([design-system](../../../../../common/skills/design-system/SKILL.md)).
-- A design-system wrapper is not a renamed Material widget: it defines semantic
-  variants, slots, accessibility, loading/disabled/error behavior and token
-  ownership.
+The five-level search order (finished component, primitives, tokens,
+foundation layout, raw Material with a reason) and the `Defaults` rules are in
+`platforms/compose/nodes/ui-authoring-rules.md`. A new shared component is a
+[design-system](../../../../../common/skills/design-system/SKILL.md) decision.
 
 ## Stateful And Stateless
 
-**Naming.** First read two or three neighbouring screens and follow the repo's
-existing holder/stateless naming, whatever the suffixes are. Only in a repo
-without a convention, use the default: `FooScreen` for the stateful holder and
-`FooContent` for the stateless content. In that default, do not use `Route` as
-the holder suffix: in Navigation Compose `Route` names the destination type,
+Naming and the holder/content contract are in
+`platforms/compose/nodes/ui-screen-structure.md` (default `FooScreen` /
+`FooContent`). In Navigation Compose `Route` names the destination type,
 declared in the feature `api` module (see
 [module-boundaries.md](../../android-module-structure/references/module-boundaries.md)).
 
-Stateful holders:
+Android holders:
 
 - Collect `StateFlow` with `collectAsStateWithLifecycle()`.
-- Own lifecycle-aware effects for one-off commands such as navigation,
-  snackbar, focus, permission launch or external activity launch.
 - Prefer `LifecycleEventEffect` for a single lifecycle callback,
   `LifecycleStartEffect` for `ON_START`/`ON_STOP` work with cleanup, and
   `LifecycleResumeEffect` for `ON_RESUME`/`ON_PAUSE` work with cleanup. Use
   `LaunchedEffect` when the coroutine is tied only to composition lifetime.
-- Translate platform results into ViewModel actions.
-- Delegate rendering to the stateless content.
+- Translate permission and activity results into ViewModel actions.
 
-Stateless composables:
+Android stateless composables:
 
-- Take `state`, explicit callbacks, slots and `modifier`.
 - Do not obtain ViewModels, repositories, activities, nav controllers,
   `LocalContext`-driven side effects or service locators. If a leaf needs a
   platform value, pass a plain value or callback.
-- Do not launch coroutines for business work.
-- Keep UI-local state only when it affects rendering or local interaction:
-  scroll, focus, gesture, animation, expanded, selected tab, text-field draft.
-- Expose user intent as callbacks (`onBackClick`, `onRetryClick`,
-  `onQueryChange`) or one `onAction` when the action set is already typed.
-  When callbacks grow past three or four, consider a sealed action type.
 
 ## Component Split
 
-Compose screens must be split into named composables by responsibility, not by
-reuse potential:
-
-- When one composable assembles the layout, derives state, renders list rows,
-  owns an input area and a bottom bar, split it into sections that each draw
-  one thing: header, filters, form, list region, row, card, dialog,
-  empty/error/loading surface, bottom action.
-- The default home for those sections is the same file, as `private`
-  composables below the public one. Keep helper modifiers private too.
-- Move a section to its own file when it grows past easy review or gets a
-  second caller. Create a feature-local `components/` package only when two or
-  more files need the same piece; group it by role only once it holds enough
-  files to need grouping.
-- Promote to the design system only stable, domain-free controls
-  ([screen-structure.md](screen-structure.md#reuse-decision)).
-
-Do not:
-
-- Keep distinct sections, rows, dialogs and actions inline in one large
-  holder or content function.
-- Split only to wrap another composable, only to name an unrepeated style, or
-  under a name vaguer than its call site.
-- Pass a full screen `UiState` into every section or leaf to avoid a smaller
-  model.
-- Use `Scaffold`, `BoxWithConstraints` or `SubcomposeLayout` as convenience
-  wrappers inside lazy items.
+Compose screens must be split into named composables by responsibility; the
+split, file-placement and promotion rules are in
+`platforms/compose/nodes/ui-screen-structure.md`. Promotion to the design
+system: [screen-structure.md](screen-structure.md#reuse-decision).
 
 ## Composable Dependencies
 
-- Call top-level composables directly, including those from another module the
-  feature already depends on. Express differences as data, callbacks or slots.
-- Use a renderer interface or registry behind DI only when there are two or
-  more real implementations chosen at runtime, or a registry that features add
-  to. A single implementation behind `interface + Impl + DI binding` only hides
-  a composable call.
-- If the composable lives in a module you cannot depend on, revisit the module
-  boundary or navigation entry instead of injecting a renderer into the
-  Activity.
-- Do not add a generic "get any dependency" helper for composables, and do not
-  use a `CompositionLocal` to carry repositories, renderers or services.
-  `CompositionLocal` is for tree-scoped UI values such as theme or content
-  color, not dependency injection.
-- A DI scope is not a composition lifetime. Release what a composable creates
-  from the composition: `DisposableEffect` `onDispose`, `AndroidView`
-  `onRelease`, or a lifecycle effect. See
-  [android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md).
+Direct calls, renderer registries and `CompositionLocal` limits are in
+`platforms/compose/nodes/ui-screen-structure.md`. On Android, do not inject a
+renderer into the Activity, and release what a composable creates with
+`DisposableEffect` `onDispose`, `AndroidView` `onRelease`, or a lifecycle
+effect ([android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md)).
 
 ## Screen Skeleton
 
@@ -221,122 +149,32 @@ and `adjustResize` rules are in
 
 ## Authoring Rules
 
-### Modifiers
+Modifier order and caller placement such as outer padding, deferred state
+reads, lazy layouts, animation and effect keys are in
+`platforms/compose/nodes/ui-authoring-rules.md`. Every domain-backed lazy item should have a stable key from server/domain data.
+Android additions:
 
-- Order a chain as layout (`padding`, `size`) -> shape (`clip`) -> drawing
-  (`background`, `border`) -> interaction (`clickable`), so the ripple and hit
-  area follow the shape:
-  `Modifier.padding(8.dp).size(48.dp).clip(shape).background(color).clickable { }`.
-- `modifier: Modifier = Modifier` is the first optional parameter of a public
-  composable and is applied to the root layout exactly once. Caller
-  placement such as outer padding, width fill or alignment belongs to the
-  caller.
-- Build a chain as one fluent value; no mutable modifier variables.
-- Text-bearing containers (rows, cards, dialogs, sheets, banners, buttons with
-  copy) never get a fixed `height(x.dp)`. Content plus padding decides the
-  height; use `heightIn(min = ...)` for a design minimum. Fixed or max widths
-  are fine.
-- In a custom `BasicTextField`, put the placeholder and `innerTextField()` in
-  the same decoration container with one alignment (usually `CenterStart`).
-  Do not nudge either with separate padding.
-- New custom modifiers use `Modifier.Node` (`ModifierNodeElement`).
-  `Modifier.composed` is only for legacy interop the Node API cannot express.
-
-### Deferred State Reads
-
-Read a value that changes every frame (animation, scroll offset, drag) in the
-layout or draw phase, not in composition:
-
-```kotlin
-// Recomposes every frame.
-val offset by animateDpAsState(target)
-Box(Modifier.offset(x = offset))
-
-// Reads in layout; composition is untouched.
-val offset = animateDpAsState(target)
-Box(Modifier.offset { IntOffset(offset.value.roundToPx(), 0) })
-```
-
-- Use `graphicsLayer { alpha = ... }`, `drawBehind { }`, `offset { }` and
-  similar lambda modifiers for fast values.
-- Pass a fast value across a composable boundary as a provider `() -> T`, not
-  a plain `T`.
 - `val state by viewModel.state.collectAsStateWithLifecycle()` in the holder is
-  fine for screen state. Do not use `by` to read a high-frequency value high in
-  the tree; keep the `State<T>` and read `.value` in the lowest scope that
-  needs it.
-- Reading in composition is correct when the value decides what to emit.
-- Do not write Compose state from a composable body in response to a value
-  read in that same composition, or from a layout/draw result into state a
-  sibling reads in composition. Put the transition in a callback, effect or
-  state holder.
-
-### Lazy Layouts
-
-- Every domain-backed lazy item should have a stable key from server/domain data
-  (its id), never an index or random value. Add `contentType` when the list
-  mixes item shapes.
-- `Modifier.animateItem()` needs those stable keys.
-- Do not pass `Flow<T>` into composables; collect at the holder and pass values.
-
-### Animation
-
-Pick the smallest API: `animate*AsState` for one value;
-`updateTransition`/`rememberTransition` for several synchronized values;
-`AnimatedVisibility` when the subtree should mount and unmount; alpha or draw
-changes when it should stay mounted; `AnimatedContent` with a `contentKey`
-based on visual shape for content swaps.
-
-### Effects And Remember
-
-- Choose the effect by lifetime: `LaunchedEffect` for keyed suspending work,
-  `DisposableEffect` for register/unregister, lifecycle effects when cleanup
-  follows `ON_STOP`/`ON_PAUSE`, `rememberCoroutineScope` for work started by a
-  user event, `SideEffect` to publish after a successful composition,
-  `snapshotFlow` to turn Compose state into a flow.
-- Key an effect by the specific input or owner that should restart it (an id,
-  a request token, the ViewModel). Do not key by a lambda, and avoid `Unit` or
-  the whole `UiState` unless the whole state should restart the work.
-- Use `rememberUpdatedState` only when a long-lived effect must see a callback
-  or value that actually changes while the effect runs and the effect must not
-  restart. Show what changes first. Stable method references such as
-  `viewModel::onAction`, and lambdas memoized under strong skipping whose
-  captures are stable, have nothing to update; do not wrap them. Read the
-  `State` it returns inside the effect, never once eagerly in `remember { }`.
-- Register listeners, receivers and observers from an effect with a matching
-  dispose path. Do not create heavy platform resources in a composable body.
-- Use `remember` for UI-local objects, expensive calculations and gesture or
-  animation state. Cheap derived values can be recomputed.
-- Never use a remembered boolean flag as a one-off event queue; one-off events
-  come from the state holder's effect stream.
+  fine for screen state; keep high-frequency values as `State<T>`.
+- Use lifecycle effects when cleanup follows `ON_STOP`/`ON_PAUSE`.
 - Stay on the Compose surface: `stringResource`, `pluralStringResource`,
-  `dimensionResource`, Compose state and effects. Do not pull View-era helpers
-  such as `Context.getString()` into Compose code.
+  `dimensionResource`. Do not pull View-era helpers such as
+  `Context.getString()` into Compose code.
 
 ## UI State
 
-- Model screen states explicitly (content, loading, empty, error, permission
-  denied, offline) with immutable data classes or sealed types instead of
-  scattered nullable values and boolean flags. The state shape itself is owned
-  by [android-viewmodel-state](../../android-viewmodel-state/SKILL.md).
-- Keep one-off effects separate from persistent state.
-- Keep domain models free of Compose types (`Color`, `Dp`, `TextStyle`,
-  painters, resource ids); map to UI models at the feature UI boundary.
-- User-facing copy is owned by resources and the repo's localization rules,
-  not by enums, validators or ViewModels.
+Model screen states explicitly; the state shape is owned by
+[android-viewmodel-state](../../android-viewmodel-state/SKILL.md) and
+`platforms/compose/nodes/state-model-stability.md`, and the UI model boundary
+by `platforms/compose/nodes/ui-screen-structure.md`.
 
 ## Component API Rules
 
-- Order public parameters as required inputs, callbacks or slots, `modifier`,
-  then optional visual defaults, unless the repo's ordering is stricter.
-- Prefer plain values, immutable UI models, callbacks and slots. Use slots for
-  caller-owned icons, actions, media and supporting content.
-- Optional slots should be nullable when absence should not reserve space.
-- Keep default parameters simple and side-effect free.
-- Accessibility labels, roles, selected states, enabled states, and content
-  descriptions are part of the component contract.
-- `Defaults` objects and token holders are stable or immutable and read theme
-  values through composable getters only when the value is theme-dependent.
+Parameter order, `modifier`, slots (Optional slots should be nullable when
+absence should not reserve space), `Defaults` holders and the rule that
+Accessibility labels, roles, selected states, enabled states and content
+descriptions are part of the contract are in
+`platforms/compose/nodes/ui-authoring-rules.md`.
 
 ## Verification
 

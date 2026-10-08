@@ -2,6 +2,11 @@
 keyflow_id: sys_android_viewmodel_state
 status: review
 type: human-reviewed-needed
+requires:
+  - platforms/compose/nodes/state-holder-surface.md
+  - platforms/compose/nodes/state-model-stability.md
+  - platforms/compose/nodes/state-transitions-errors.md
+  - platforms/compose/nodes/coroutine-flow-ownership.md
 ---
 
 # Android ViewModel And State
@@ -18,46 +23,48 @@ For DTO, repository and persistence rules, read
 extraction, also read
 [reusable-code-design](../../../../../common/skills/reusable-code-design/SKILL.md).
 
-This card owns how an Android screen's state is held and changed: the state
-holder choice, the `UiState` model, typed actions and one-off effects, the
-stream primitives, user-visible text, error handling, and coroutine ownership
-in the ViewModel.
+
+The platform-neutral rules (state holder surface, state model and stability,
+transitions and errors, coroutine and Flow ownership) live in the shared
+Compose nodes listed in this card's `requires` frontmatter. This card adds the
+Android delta: the ViewModel as holder, `viewModelScope`, no Android platform
+objects, permission flows, `@StringRes` text, persistence and
+`SavedStateHandle` navigation.
 
 ## Steps
 
 Follow these for every ViewModel, `UiState`, action or effect change, even
-when the request names only one of them. Each step names the section below
+when the request names only one of them. Each step names the section or node
 you MUST read at that step.
 
 1. **Detect the repo convention.** Read one neighbouring ViewModel end to end
    and apply
    [Detect The Repo Convention First](#detect-the-repo-convention-first)
-   and [Naming](#naming). A small fix keeps the
+   and the naming table in
+   [state-holder-surface](../../../../compose/nodes/state-holder-surface.md). A small fix keeps the
    existing path.
 2. **Choose the holder.** `remember`, a plain state holder, a ViewModel, or a
    reducer, per
    [State Holder Selection](#state-holder-selection).
-3. **Model the state.** Pick one model in
-   [Choose The State Model](#choose-the-state-model)
-   and make every reachable state (loading, empty, error, permission denied,
-   offline, submitting) representable. Apply the
-   [UiState Stability Contract](#uistate-stability-contract).
-4. **Define the surface.** `state`, `effects`, `onAction`, nothing else. No
-   Android platform objects in the ViewModel: apply
+3. **Model the state.** Pick one model and make every reachable state
+   (loading, empty, error, permission denied, offline, submitting)
+   representable, per
+   [state-model-stability](../../../../compose/nodes/state-model-stability.md).
+4. **Define the surface.** `state`, `effects`, `onAction`, nothing else, per
+   [state-holder-surface](../../../../compose/nodes/state-holder-surface.md). No Android platform
+   objects in the ViewModel: apply
    [No Android Platform Objects In ViewModels](#no-android-platform-objects-in-viewmodels).
-   Before adding a feature effect, look for an existing app-wide notice or
-   route host.
 5. **Pick stream primitives** by delivery contract with
-   [Stream Primitive Selection](#stream-primitive-selection).
+   [coroutine-flow-ownership](../../../../compose/nodes/coroutine-flow-ownership.md).
 6. **Carry text as values.** Validators and mappers return typed values; the
    ViewModel emits `UiText` or resource ids, and the renderer resolves them
-   (Feature Actions, Feedback, And I18n Text).
+   ([Feature Actions, Feedback, And I18n Text](#feature-actions-feedback-and-i18n-text)).
 7. **Handle failures.** Follow the repo's result type, then apply the
    failure-to-UI table and retry classes in
-   [Error Handling](#error-handling).
+   [state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md).
 8. **Write transitions safely.** Update inside `update { }`, guard writes after
    suspension, and cancel stale work, per
-   [State Transitions And Stale Snapshots](#state-transitions-and-stale-snapshots)
+   [state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md)
    and [Flow And Coroutine Rules](#flow-and-coroutine-rules).
 9. **Test** the transitions and effects listed in
    [Tests](#tests).
@@ -66,7 +73,11 @@ you MUST read at that step.
 
 | Need | Source |
 | --- | --- |
-| State model, surface, streams, errors, coroutines | this card, below |
+| Holder surface, naming, effect ports | [state-holder-surface](../../../../compose/nodes/state-holder-surface.md) |
+| State model, stability, state split | [state-model-stability](../../../../compose/nodes/state-model-stability.md) |
+| Transitions, errors, retry, recovery | [state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md) |
+| Stream primitives, coroutine ownership | [coroutine-flow-ownership](../../../../compose/nodes/coroutine-flow-ownership.md) |
+| ViewModel, platform objects, permissions, text, navigation | this card, below |
 | DTOs, repositories, nullability, persistence | [android-state-data](../../android-state-data/SKILL.md) |
 | Holder and content composables, previews | [android-compose-ui](../../android-compose-ui/SKILL.md) |
 | Lifecycle-aware collection and cleanup | [android-memory-lifecycle](../../android-memory-lifecycle/SKILL.md) |
@@ -112,46 +123,15 @@ existing path instead of migrating it.
 
 ## Naming
 
-Use the repo's names when they exist; otherwise:
-
-| Name | Holds | Not |
-| --- | --- | --- |
-| `FooUiState` | the durable, renderable screen state the ViewModel exposes | callbacks, effects, Android objects |
-| `FooAction` | typed user intents sent to `onAction` | results, UI commands |
-| `FooEffect` | one-off commands the holder performs once (navigate, snackbar, launch) | anything a late collector must still see |
-| `FooDraft` | unsaved user input for a form or editor | server state |
-| `FooSnapshot` | an immutable copy captured for a request, diff or undo | the live state holder |
+Moved to [state-holder-surface](../../../../compose/nodes/state-holder-surface.md) (naming table);
+`FooUiState` is what the ViewModel exposes.
 
 ## State Ownership
 
-Use this shape unless the repo has a stricter local pattern:
-
-```text
-View/Screen holder/Composable -> Action -> ViewModel -> Use Case -> Repository
-  -> DataSource/Adapter -> domain/repository entity
-  -> ViewModel maps entity/failure to UiState + SideEffect
-```
-
-- View/Screen holder/Composable collects state, renders it, emits typed actions, and
-  handles lifecycle-aware UI effects.
-- ViewModel receives actions through one explicit surface such as
-  `onAction(action)`, owns screen state, cancellation, and event output.
-- Use case owns product rules and orchestration when logic is reused, risky, or
-  independently testable.
-- Repository owns source coordination, caching, DTO/domain mapping, and error
-  normalization.
-- Data sources/adapters own Room, DataStore, files, sensors, permissions,
-  notifications, SDKs, and network clients.
-
-Do not add a use case or repository only as a pass-through. Add it when it
-protects a product rule, side effect, test boundary, cache boundary, or platform
-API boundary.
-
-Clean Architecture is useful when a feature has real domain or integration
-pressure. It is not a naming template. In that track, request/response DTOs stay
-at the data/network boundary, entities or domain models cross into the
-ViewModel/use-case boundary, and `UiState` plus one-off effects are the only
-presentation outputs.
+The ownership chain lives in
+[state-holder-surface](../../../../compose/nodes/state-holder-surface.md); on Android the ViewModel is
+the state holder, and data sources/adapters own Room, DataStore, files,
+sensors, permissions, notifications, SDKs and network clients.
 
 ## State Holder Selection
 
@@ -175,88 +155,21 @@ UI logic depend directly on repositories or long-lived business state.
 
 ## ViewModel Contract
 
-ViewModels should expose an explicit state contract and explicit intent methods
-or typed actions. One coarse observable state stream is a useful default for
-small screens, but it is not mandatory when performance, ownership, or update
-cadence requires smaller streams.
-
-The public surface is `state` (a `StateFlow`), `effects` (a `Flow` of typed
-one-off commands) and `onAction(action)`. Do not add public getters the view
-polls, suspend functions the view awaits for a result, public `MutableStateFlow`
-or `MutableState`, or callbacks the view registers.
+The public surface (`state`, `effects`, `onAction(action)`) is defined in
+[state-holder-surface](../../../../compose/nodes/state-holder-surface.md). On Android, collect `state`
+with lifecycle-aware collection (`collectAsStateWithLifecycle`) from the UI.
 
 ### Choose The State Model
 
-Pick one model per screen and keep the example, the mapper and the renderer
-consistent with it:
-
-| Model | Use when | Shape |
-| --- | --- | --- |
-| Sealed status carrying content | A load fully replaces what the screen shows; there is no stale content during refresh or error. | `status: FooStatus` where `Content(data)` holds the payload |
-| Always-present content + `LoadStatus` | Content stays visible while it refreshes, pages or fails (pull to refresh, list plus error banner). | `content` with a non-null empty default plus `status: LoadStatus` |
-
-Do not mix them: a nullable payload beside a status that can say `Content` is
-an impossible-state generator.
-
-```kotlin
-// Always-present content + LoadStatus.
-@Immutable
-data class ProfileUiState(
-    val rows: ImmutableList<ProfileRow> = persistentListOf(),
-    val status: LoadStatus = LoadStatus.Loading,
-    val permission: PermissionState = PermissionState.Unknown,
-    val isSubmitting: Boolean = false,
-)
-
-sealed interface ProfileAction {
-    data object Retry : ProfileAction
-    data object Edit : ProfileAction
-    data object DismissMessage : ProfileAction
-}
-```
-
-Rules:
-
-- Prefer immutable `data class` or sealed state over scattered `MutableState`
-  and nullable fields.
-- Keep `MutableStateFlow` private and expose `StateFlow`.
-- Use lifecycle-aware collection from UI.
-- Convert DTO/domain models into UI models before state reaches Compose.
-- Keep permission denied, offline, empty, loading, error, disabled, and submitted
-  states representable when the flow can reach them.
-- Keep one-off effects separate from persistent state. Use a typed effect stream
-  or route callback for navigation, snackbar, permission launch, external
-  activity, and file/share actions.
+Moved to [state-model-stability](../../../../compose/nodes/state-model-stability.md): pick sealed
+status or always-present content + `LoadStatus`, never both.
 
 ## Effect Interfaces And Delegates
 
-ViewModels should communicate with app/runtime effects through role-sized
-interfaces, not concrete Android UI, router, Activity, or SDK implementations.
-This keeps Dependency Inversion and Interface Segregation visible in the
-ViewModel boundary.
-
-Examples of role-sized ports:
-
-```text
-NoticeSink or NoticeEffectDelegate       toast, snackbar, alert, inline notice
-RouteEventSink or RouteDispatcher        app route events and navigation requests
-DeepLinkOpener or DeepLinkDispatcher     allowlisted deep-link requests
-PermissionRequester                      permission prompt requests
-ExternalActivityLauncher                 share, browser, file picker, settings
-```
-
-Use delegates to compose reusable behavior into a ViewModel without inheriting
-from broad base classes. A delegate can own a channel, shared flow, sink, mapper,
-or small effect API. The ViewModel still owns the screen action reducer and
-state transition; the delegate only owns the reusable capability it represents.
-
-Do not create a `BaseViewModel` only to inherit notice, routing, permission, or
-coroutine helpers. Inject small interfaces or delegates instead.
-
-Before adding a feature-level effect for a snackbar, alert, toast or route,
-search for an existing app-wide notice host or route host. Use it when it
-exists; a second, feature-local host for the same job splits ordering and
-dismissal rules.
+Role-sized ports, delegates, the app-wide host search and confirmation results
+live in [state-holder-surface](../../../../compose/nodes/state-holder-surface.md). On Android, ports
+replace concrete UI, router, `Activity` or SDK implementations, and a
+`BaseViewModel` is never the vehicle for notice, routing or coroutine helpers.
 
 ### No Android Platform Objects In ViewModels
 
@@ -275,43 +188,17 @@ work that belongs elsewhere and makes the ViewModel untestable on the JVM.
 | Permission or Activity result | the holder composable, which sends the decision as an action |
 | System services, SDK clients | an adapter behind a small interface |
 
-Confirmation results belong to the state owner. When a dialog or alert needs a
-confirm/cancel outcome, model it as a typed suspending notice request on the
-notice port: the ViewModel calls `val result = showNotice(Alert(...))`,
-inspects the result, and then decides the state transition, route, or effect.
-Do not model the outcome with a screen-local `mutableStateOf(isDialogVisible)`
-where the composable decides what confirm means. A custom dialog host may
-render typed state owned by the ViewModel, but the decision stays in the state
-owner.
+The ViewModel decides confirm/cancel through the notice port; see
+"Confirmation results belong to the state owner" in
+[state-holder-surface](../../../../compose/nodes/state-holder-surface.md).
 
 ## Stream Primitive Selection
 
-Choose `StateFlow`, `SharedFlow`, `Channel`, `suspend`, or cold `Flow` by
-delivery contract. Do not copy a primitive from a reference app without naming
-what replay, buffering, ordering, and lifecycle behavior the screen needs.
+Moved to [coroutine-flow-ownership](../../../../compose/nodes/coroutine-flow-ownership.md). On
+Android, "recreation" includes rotation and process death: an effect that must
+survive them is durable pending state, not a replayed effect.
 
-| Primitive | Use For | Avoid When |
-| --- | --- | --- |
-| `StateFlow` | Durable, replayable latest UI state with a synchronous current value. Use for screen state, selected ids, loading/error/content state, permission state, and form availability. | One-off navigation, toast/snackbar, permission launches, Activity launches, or events that must not replay after rotation. |
-| `SharedFlow(replay = 0)` | Broadcast one-off effects where zero replay is intentional, such as notice, route, analytics-safe UI effect, or runtime host events collected by one or more lifecycle owners. Set buffer/overflow explicitly. | A reducer/action queue where every input must be serialized, or a durable state that a late collector must see. |
-| `Channel` / `receiveAsFlow()` | Single-consumer ordered work or action queues, actor-style reducers, and one-off effects where a single collector owns consumption. Use when backpressure and serialization matter. | Broadcast events to multiple collectors, durable UI state, or events that must survive process death/configuration by replay. |
-| `suspend` | One-shot caller-owned work such as load, submit, save, retry, refresh, repository calls, and platform adapter calls invoked from a ViewModel action handler. | Long-lived observation, shared state, callback-style event buses, or work whose lifecycle owner is hidden inside the callee. |
-| cold `Flow` | Continuous data, subscriptions, paging windows, callback adapters, repository streams, and platform signals whose collection lifecycle is owned by the caller. | A single request/response command that is simpler and safer as `suspend`. |
-
-View to ViewModel input should normally be a typed `Action` method such as
-`onAction(action)`. A direct method is enough when the caller is already on the
-main thread and the ViewModel can branch immediately. Add a `Channel` or actor
-only when actions must be queued, serialized, cancelled, coalesced, or tested as
-an input stream. Keep the public API typed either way; the UI should not send
-raw strings, Android objects, or generic event maps.
-
-ViewModel to View output has two lanes: `UiState` for durable renderable state,
-and typed side effects for work the renderer/runtime performs once. Use state
-instead of side effects when a late collector, rotation, or process recreation
-must still show the information. Use a side-effect stream when repeating it
-would be wrong. If a side effect must survive recreation, model it as durable
-pending state with an id and explicit consume/acknowledge behavior instead of
-replaying a blind effect.
+### Runtime Permissions
 
 For runtime permissions, prefer Compose-first request gates when the permission
 is local to a screen. The Composable or route holder owns
@@ -329,24 +216,9 @@ side-effect stream only for architectural symmetry.
 
 ## Feature Actions, Feedback, And I18n Text
 
-Feature events should stay feature-owned. Do not create one global action type
-for unrelated screens, and do not make a reusable feedback model carry a generic
-action payload. Actions are UI intents/events, similar to reducer or React-style
-actions: clicks, retries, dismissals, item selections, and form changes are
-modeled as feature-specific sealed values.
-
-```kotlin
-sealed interface InboxAction {
-    data object Refresh : InboxAction
-    data object RetryLoadClick : InboxAction
-    data object DismissFeedbackClick : InboxAction
-    data class MessageClick(val item: InboxMessageItem) : InboxAction
-}
-```
-
-In Compose, pass one dispatch function down from the stateful route to the
-stateless screen or components. The screen emits actions; the ViewModel handles
-them:
+Feature actions stay feature-owned sealed values
+([state-holder-surface](../../../../compose/nodes/state-holder-surface.md)). With Hilt, the route
+acquires the ViewModel and passes one dispatch function down:
 
 ```kotlin
 @HiltViewModel
@@ -412,102 +284,19 @@ resources module is optional, not a default; naming prefixes, review rules, and
 translation export can provide centralized management without turning one
 resource module into a catch-all dependency.
 
-Toast-like effects are poor retry surfaces because they cannot reliably own
-actions. Use snackbar, banner, dialog, alert, or full-page error effects when
-the user needs retry, dismiss, confirm/cancel, or an alternative action.
-Feedback buttons are UI triggers; they should dispatch the relevant feature
-action through `onAction(InboxAction.RetryLoadClick)` or `viewModel.send(...)`
-instead of becoming part of the action model itself. The renderer should not run
-business logic directly.
+Retry-capable feedback surfaces are chosen per
+[state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md); feedback buttons
+dispatch the feature action through `onAction(...)` or `viewModel.send(...)`.
 
 ## UiState Stability Contract
 
-For Compose-observed state, make stability an explicit contract instead of an
-afterthought:
-
-- In Compose-aware UI modules, annotate top-level screen state and display-model
-  data classes with `@Immutable` when every public property is immutable and
-  equality represents the visible state.
-- Annotate sealed UI-state marker interfaces such as `FooStatus` or `FooUiItem`
-  with `@Stable` only when every implementation keeps the same stability
-  contract. Annotate leaf data classes or data objects with `@Immutable`.
-- Actions and effects can stay unannotated unless repo-local convention uses
-  annotations for Compose-visible UI contracts. They should still be immutable
-  value objects.
-- Do not add Compose runtime annotations to pure domain, repository, or model
-  modules only to satisfy UI stability. Keep those modules structurally immutable,
-  then map to annotated UI models in the feature or design-system boundary.
-- Never put `var`, mutable collections, mutable maps, arrays, raw SDK objects,
-  `Context`, `Activity`, `NavController`, `CoroutineScope`, or repository
-  references inside `UiState`.
-- Use immutable or persistent collections for lists that cross into Compose,
-  especially high-churn `LazyColumn` or `LazyRow` models. If the repo uses
-  `kotlinx.collections.immutable`, prefer `ImmutableList` plus `persistentListOf`
-  for default states and mapper output.
-- Keep callbacks and one-off commands out of `UiState`. Actions and effects are
-  separate contracts.
-- Treat `@Stable` and `@Immutable` as promises to the Compose compiler, not lint
-  suppressions. Remove the annotation or fix the model when the promise is false.
-
-Prefer deterministic default state owned by the state model or preview fixture:
-
-```kotlin
-@Immutable
-data class ProfileUiState(
-    val status: ProfileStatus = ProfileStatus.Loading,
-    val items: ImmutableList<ProfileRow> = persistentListOf(),
-    val canEdit: Boolean = false,
-)
-
-@Stable
-sealed interface ProfileStatus {
-    data object Loading : ProfileStatus
-
-    @Immutable
-    data class Content(val profile: ProfileViewData) : ProfileStatus
-
-    @Immutable
-    data class Error(val message: UiText) : ProfileStatus
-}
-```
+Moved to [state-model-stability](../../../../compose/nodes/state-model-stability.md). Never put
+`Context`, `Activity` or `NavController` inside `UiState`.
 
 ## UiState Split And High-Churn Streams
 
-The default "one observable state stream" contract is a starting point, not a
-license to put every value into one `UiState`. Use one coarse screen state when
-the values update together and the screen cost is low. Split state when update
-cadence, rendering cost, lifecycle owner, cache owner, or list window ownership
-differs.
-
-A ViewModel may expose a coarse screen `StateFlow<FooUiState>` for top-level
-status, title, permissions, selected ids, form availability, banners, and
-submit or refresh state. Keep high-churn data in separate streams or holders
-when it would recompose unrelated UI:
-
-- chat or conversation messages, paging windows, delivery status, read receipts,
-  typing indicators, and presence
-- playback progress, timers, sensor or location values, live metrics, cursors,
-  drag, scroll, focus, gesture, and animation state
-- large `LazyColumn` or `LazyRow` item models where only rows or a visible
-  window need to update
-
-For conversation UI, a `ConversationUiState` can own metadata, connection
-status, permission state, composer availability, and top-level failure states.
-Messages should be a paged, cached, or otherwise separate item stream with
-stable immutable ids. Typing, presence, delivery, and draft state should update
-through the smallest state holder or composable that observes them.
-
-Collect separate streams at the route or section boundary that owns the
-observation, then pass stable row models or plain values down. Do not pass the
-ViewModel, repository, `Flow`, callback bundle, mutable collection, or whole
-screen `UiState` into repeated rows to avoid creating a smaller model.
-
-Do not split state for ceremony. A simple profile, read-only settings page, or
-small form can keep one `UiState` when the update cadence and render cost are
-shared. When a split is justified as performance work, name which Compose read,
-observer, or recomposition boundary becomes smaller. Prefer structural language
-such as "reduces broad invalidation risk" unless measurement proves a runtime
-performance improvement.
+Moved to [state-model-stability](../../../../compose/nodes/state-model-stability.md). Collect each
+split stream with `collectAsStateWithLifecycle` at the owning route or section.
 
 ## Implementation Pattern
 
@@ -586,48 +375,20 @@ class ProfileViewModel(
 
 Implementation rules:
 
-- Keep action handling centralized in the ViewModel or reducer; do not scatter
-  business actions across composables.
-- Treat the normal round trip as `Action -> ViewModel -> domain/data work ->
-  entity or typed failure -> UiState and SideEffect`. Do not let a composable
-  parse a server response, call a repository directly, or decide domain failure
-  meaning.
 - Keep notice, router, deep-link, permission, external launch, and platform
-  outputs behind small interfaces or delegates. ViewModels may invoke those
-  contracts, but they should not import concrete router implementations,
+  outputs behind the ports in
+  [state-holder-surface](../../../../compose/nodes/state-holder-surface.md). ViewModels must not import
   Android `Toast`, `SnackbarHostState`, `AlertDialog`, `NavController`,
   `ActivityResultLauncher`, or `Activity`.
-- Use `Channel`/`receiveAsFlow`, `SharedFlow`, or repo-local event primitives
-  intentionally. Effects should not replay after rotation unless replay is the
-  product contract.
-- Convert repository/domain errors into typed UI messages or state. Do not pass
-  raw exceptions to Compose.
-- Follow the repo's existing result convention for `suspend` API calls. When
-  repositories already return a sealed result type, keep it and branch with an
-  exhaustive `when`; do not add `getOrThrow()` or a parallel exception path in
-  new code. Only when the repo has no convention: do not invent sealed
-  `Success/Failure` results just to re-wrap exceptions. Let successful suspend
-  calls return the value, normalize library-specific HTTP responses at the
-  network or API boundary, and throw typed transport/protocol/domain
-  exceptions for failure. Either way the ViewModel or reducer maps the typed
-  failure to screen state or a one-off effect, as described in Error Handling.
+- Effects should not replay after rotation unless replay is the product
+  contract.
+- Result convention and failure mapping follow
+  [state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md).
 - When a Retrofit or HTTP stack exposes raw response handles, prefer a
   `CallAdapter`, client interceptor, or API boundary adapter that centralizes
   success, non-2xx, empty body, body conversion failure, network failure, and
   cancellation handling. Do not spread the same response parsing and exception
   wrapping across every repository method.
-- Preserve cancellation semantics. Cancellation should escape as cancellation,
-  not become a generic user-visible failure or retryable network error.
-- If the server returns presentation hints such as toast/banner, alert/dialog,
-  full-page error, retry metadata, no-op/none, or a deep-link action, treat them
-  as API contract hints. The ViewModel maps supported hints into Compose
-  state/effects; the feature UI should not parse raw server envelopes or
-  transport responses.
-- Put required content data inside the `Content` state, or use another explicit
-  state shape when stale content can coexist with refresh/error. Avoid nullable
-  payloads that contradict the status.
-- Prefer a single `onAction(ProfileAction)` surface when a screen has many
-  events. Explicit callbacks are fine for small screens.
 - Do not create forwarding composables or helpers whose only job is passing
   through ViewModel acquisition plus state collection once, such as
   `rememberFooViewModel` or `FooWithViewModel`. The route/holder composable
@@ -638,117 +399,28 @@ Implementation rules:
 
 ## State Transitions And Stale Snapshots
 
-State transitions must operate on the freshest state:
-
-- Perform transitions on the state parameter inside `update { state -> ... }`.
-  Pure helpers should take the current state as a parameter and return the next
-  state instead of reading the raw backing `MutableStateFlow` value directly.
-- Never read the state holder into a local, suspend on network, notice, or
-  route results, and then write the stale snapshot back. After any suspension,
-  re-check the latest state inside `update { }` or guard the write with a
-  request token, job cancellation/replacement, or a latest-only operator such
-  as `flatMapLatest`.
-- Do not add helpers that read the raw state holder and return scroll, route,
-  validation, or notice values so the view can continue the flow. The output
-  contract stays two lanes: `UiState` fields and typed effects.
-  Counter-increment-and-return helpers and getters the view polls are the same
-  third-channel violation.
+Moved to [state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md).
 
 ## Error Handling
 
-Layering: the data or API boundary turns transport, HTTP and parsing failures
-into typed failures; the repository or use case adds domain meaning; the
-ViewModel alone decides what the user sees. Composables never inspect an
-exception or a raw server envelope.
-
-| Failure | Default UI | Retry |
-| --- | --- | --- |
-| Initial load failed, nothing to show | full-screen error state with retry | user-triggered |
-| Refresh or paging failed, content already shown | keep content, show a banner or snackbar with retry | user-triggered |
-| Submit or save failed | keep the draft, show an inline or snackbar error, re-enable submit | user-triggered |
-| Validation failed | inline field error from a typed validation value | none; fix input |
-| Offline | offline state or banner; queue only work that is safe to replay | on reconnect, when idempotent |
-| Session expired or unauthorized | the app's re-auth route, not a screen-local message | after re-auth |
-| Permission denied | permission-denied state with the settings path | on grant |
-
-Retry classes:
-
-- Transient (timeout, 5xx, connection lost): may retry automatically with a
-  bounded backoff only when the operation is idempotent (a read, or a write
-  with an idempotency key or server-side dedupe).
-- Permanent (4xx other than auth, validation, not found): never auto-retry;
-  show the state and let the user change something.
-- Unknown: treat as permanent for automatic retry; offer a manual retry.
-
-A silent fallback (empty list, cached value, default) is allowed only when the
-product explicitly treats the data as optional and the failure is logged with
-its cause; otherwise the failure must be visible.
-
-Do not:
-
-- Catch and drop an exception with an empty block, or log it and continue as
-  if it succeeded.
-- Turn a failure into a success value (an empty list, `false`, a default
-  object) that the UI cannot tell apart from real data.
-- Lose the cause: map to a typed failure but keep the original exception for
-  logging and diagnostics.
-- Convert `CancellationException` into a user-visible error.
-- Retry automatically a write that is not idempotent.
+Moved to [state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md)
+(layering, failure-to-UI table, retry classes, do-not list).
 
 ## Compose State Bridges And Recovery
 
-- Turn Compose state (scroll position, text field state, visible item) into a
-  ViewModel input with `snapshotFlow` collected in an effect keyed by its
-  owner, then send typed actions; do not read Compose `State` inside the
-  ViewModel.
-- Recovery actions (retry, refresh, re-auth return, reconnect) must be
-  idempotent: a second trigger while the first is in flight is ignored or
-  replaces it, and never duplicates a write or an effect.
+Moved to [state-transitions-errors](../../../../compose/nodes/state-transitions-errors.md)
+(`snapshotFlow` bridge, idempotent recovery).
 
 ## Flow And Coroutine Rules
 
-- Use `viewModelScope` for work owned by the ViewModel.
-- Use `viewModelScope.launch { ... }` for one-shot suspend work such as loading,
-  submit, retry, or save actions.
-- Treat the ViewModel or equivalent UI state holder as the normal boundary that
-  translates non-suspending UI events into suspending work. Repositories, use
-  cases, data sources, SDK adapters, and managers should usually expose
-  `suspend` APIs and let the caller own the coroutine scope.
-- Do not store a `CoroutineScope` in repository, use-case, data-source, manager,
-  or DI-singleton classes unless the class can prove cancellation, restart,
-  error reporting, and lifecycle ownership. Constructor or `init` launches in
-  those classes are review red flags because callers cannot await, cancel, or
-  observe failure.
-- Do not create ad-hoc scopes with `CoroutineScope(...)`, `MainScope()`, or
-  similar inside business/data/platform classes to fire-and-forget work. Invert
-  the API to `suspend`, a caller-owned Flow, WorkManager, or another explicit
-  lifecycle owner.
-- Use `onEach { ... }.launchIn(viewModelScope)` for long-lived Flow
-  subscriptions owned by the ViewModel, such as event buses, repositories, or
-  platform callbacks that should keep collecting while the ViewModel is active.
-- Use `stateIn(viewModelScope, started, initial)` when a Flow is transformed
-  into UI-observed `StateFlow`; do not use `launchIn` only to copy Flow values
-  into mutable UI state when `stateIn` can express the state owner directly.
-- Inject dispatchers, clocks, and schedulers when tests need control.
-- Cancel or replace in-flight work when query, account, permission, or route
-  arguments change.
-- Suppress stale results from older requests.
-- Use `stateIn` or `shareIn` intentionally; define initial value, sharing
-  policy, and stop timeout.
-- Keep `stateIn`/`shareIn` as a stable owner property when the resulting
-  `StateFlow` or `SharedFlow` is the observable contract. Avoid recreating it
-  inside a function that callers invoke repeatedly unless the function is
-  intentionally a cold flow factory.
-- Choose `StateFlow`, `SharedFlow`, or `Channel` by replay and delivery
-  semantics. `StateFlow` is for latest observable state with a synchronous
-  value; `SharedFlow` is for broadcast events with explicit replay/buffer
-  choices; `Channel.receiveAsFlow()` can fit single-consumer one-off UI effects
-  when exact broadcast replay is not desired.
-- Avoid collecting infinite flows inside use cases without a clear owner.
-- Map errors into user-visible state or typed domain errors before UI.
-- Preserve structured cancellation. Do not catch `Exception`, `Throwable`, or
-  use `runCatching` around suspend calls without rethrowing
-  `CancellationException`.
+The neutral rules live in
+[coroutine-flow-ownership](../../../../compose/nodes/coroutine-flow-ownership.md). Android delta:
+
+- `viewModelScope` is the holder's scope: `viewModelScope.launch { }` for
+  one-shot work, `launchIn(viewModelScope)` for owned subscriptions,
+  `stateIn(viewModelScope, started, initial)` for derived state.
+- Work that must outlive the ViewModel goes to WorkManager or another explicit
+  lifecycle owner (see android-background-work), never an ad-hoc scope.
 
 ## Persistence And Cache
 
@@ -771,25 +443,18 @@ Do not:
   `LaunchedEffect(args)` that re-sends an `Initialize(args)` action or a
   `bind(args)` call for values the ViewModel already restores. Launch arguments
   must not reach the state owner through two paths.
-- Do not hide route decisions in random booleans inside `UiState`.
 - Navigation, snackbar, permission prompt, file picker, and external app launch
   should be explicit outputs from the state owner.
 - Events must not replay after rotation unless replay is the intended behavior.
-- Server-driven notice hints should become local effects only after the state
-  owner validates the current screen context. A `none` hint means no user-visible
-  effect; it should not suppress required state updates or diagnostics.
 
 ## Tests
 
-Choose the closest checks configured in the repo:
+Choose the closest checks configured in the repo, together with the
+Verification sections of the four Compose nodes:
 
 - ViewModel tests for state transitions, retry, submit, permission denied,
   stale result suppression, and one-off effects.
 - Reducer or action tests when the feature uses MVI-style state transitions.
-- Use case tests for product rules, auth/tenant/billing policy, and side-effect
-  orchestration.
-- Repository tests for cache, mapper, error, migration, and source selection.
-- Coroutine tests with injected dispatchers and deterministic clocks.
 - Compose UI tests for lifecycle collection, rendering state, and emitted
   actions.
 - Mapper tests for request/response DTOs to entity/domain models and entity to
