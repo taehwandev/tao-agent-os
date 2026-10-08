@@ -103,8 +103,25 @@ class LocalContextCommandTests(unittest.TestCase):
         self.assertEqual("read_only", local_context_kind(
             "project-memory", ["--project", "/repo", "history", "0123456789abcdef"]))
 
+    def test_memory_options_added_since_keep_their_admission(self):
+        repo = ["--project", "/repo"]
+        for arguments, kind in (
+            (["capture", "--source", "note", "--review-on", "2030-01-01",
+              "--source-path", "src/a.py", "--source-path=src/b.py"], "runtime_control"),
+            (["recall", "--scope", "task", "--request", "fix crash", "--target-summary=x",
+              "--target-path", "src/a.py", "--target-path", "src/b.py"], "read_only"),
+            (["consolidate"], "read_only"),
+            (["consolidate", "--within-days", "7"], "read_only"),
+        ):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(kind, local_context_kind("project-memory", [*repo, *arguments]))
+
     def test_bad_grammar_does_not_gain_admission(self):
         for alias, arguments in (
+            ("project-memory", ["consolidate", "extra"]),
+            ("project-memory", ["consolidate", "--within-days"]),
+            ("project-memory", ["recall", "--request", "--target-path"]),
+            ("project-memory", ["recall", "--within-days", "7"]),
             ("project-memory", ["history"]),
             ("project-memory", ["history", "id", "extra"]),
             ("project-memory", ["--project"]),

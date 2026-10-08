@@ -136,11 +136,12 @@ def local_context_kind(alias: str, arguments: list[str]) -> str | None:
     """
     if alias == "project-memory":
         operations = {
-            "capture": ({"--source", "--review-on", "--scope", "--replaces"}, set(), 0),
+            "capture": ({"--source", "--review-on", "--scope", "--replaces", "--source-path"}, set(), 0),
             "retire": (set(), set(), 1),
             "approve": ({"--digest"}, set(), 1),
-            "recall": ({"--scope"}, set(), 0),
+            "recall": ({"--scope", "--request", "--target-summary", "--target-path"}, set(), 0),
             "history": (set(), set(), 1),
+            "consolidate": ({"--within-days"}, set(), 0),
         }
     elif alias == "agent-mailbox":
         operations = {
@@ -180,4 +181,5 @@ def local_context_kind(alias: str, arguments: list[str]) -> str | None:
         index += 1
     if not operation or operands != operations[operation][2]:
         return None
-    return "read_only" if operation in {"recall", "history", "status"} else "runtime_control"
+    return ("read_only" if operation in {"recall", "history", "consolidate", "status"}
+            else "runtime_control")
