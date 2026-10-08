@@ -69,6 +69,52 @@ class ProjectMemoryTests(unittest.TestCase):
         stored = json.loads(self._path(old).read_text(encoding="utf-8"))
         self.assertEqual(("retired", new["id"]), (stored["status"], stored["replaced_by"]))
 
+    def test_recall_shows_what_a_replacement_superseded(self) -> None:
+        old = self.candidate("Use React for the settings page" + " x" * 100)
+        new = self.candidate("Use Vue for the settings page", replaces=old["id"])
+        plain = self.candidate("Unrelated advice")
+        shown = {item["id"]: item for item in
+                 (json.loads(line[2:]) for line in recall_lines(self.project, "task")[1:])}
+        self.assertTrue(shown[new["id"]]["previously"].startswith("Use React"))
+        self.assertLessEqual(len(shown[new["id"]]["previously"]), 160)
+        self.assertNotIn("previously", shown[plain["id"]])
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            main(["--project", str(self.project), "recall", "--scope", "task"])
+        cli = {item["id"]: item for item in json.loads(buffer.getvalue())}
+        self.assertTrue(cli[new["id"]]["previously"].startswith("Use React"))
+
+    def test_history_lists_the_whole_chain_from_any_member_without_writing(self) -> None:
+        first = self.candidate("First advice")
+        second = self.candidate("Second advice", replaces=first["id"])
+        third = self.candidate("Third advice", replaces=second["id"])
+        store = self._path(first).parent
+        before = {path.name: path.read_bytes() for path in store.iterdir()}
+        for member in (first, second, third):
+            with self.subTest(member=member["body"]):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    self.assertEqual(0, main(["--project", str(self.project), "history", member["id"]]))
+                chain = json.loads(buffer.getvalue())
+                self.assertEqual([third["id"], second["id"], first["id"]], [r["id"] for r in chain])
+                self.assertEqual(["active", "retired", "retired"], [r["status"] for r in chain])
+        self.assertEqual(before, {path.name: path.read_bytes() for path in store.iterdir()})
+        with self.assertRaisesRegex(ValueError, "missing or invalid"):
+            agent_project_memory._history(self.project, "0123456789abcdef")
+
+    def test_history_survives_a_broken_or_cyclic_chain(self) -> None:
+        first = self.candidate("First advice")
+        second = self.candidate("Second advice", replaces=first["id"])
+        self._path(first).unlink()
+        self.assertEqual([second["id"]],
+                         [r["id"] for r in agent_project_memory._history(self.project, second["id"])])
+        loop = {"id": "a" * 16, "status": "retired", "body": "a", "source": "s",
+                "created_at": "t", "replaces": "b" * 16, "replaced_by": "b" * 16}
+        other = {**loop, "id": "b" * 16, "replaces": "a" * 16, "replaced_by": "a" * 16}
+        with mock.patch("agent_project_memory._existing"), \
+                mock.patch("agent_project_memory.scan_records", return_value=([loop, other], 0)):
+            self.assertEqual(2, len(agent_project_memory._history(self.project, "a" * 16)))
+
     def test_replacement_hides_the_old_record_even_before_its_retire_lands(self) -> None:
         old = self.candidate("Old advice")
         with mock.patch("agent_project_memory._retire"):

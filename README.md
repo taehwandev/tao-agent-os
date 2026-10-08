@@ -173,6 +173,13 @@ retires the record nor treats an unchanged file as proof that the guidance is
 correct. Existing records without file evidence remain readable and date-based.
 Paths outside the repository, untracked files and symlinks are rejected.
 
+A record captured with `--replaces` is recalled with a `previously` field
+holding the superseded body, cut to 160 characters, so the change is visible
+next to the current guidance; the old body is history, not advice. The
+read-only `project-memory history <id>` prints the replacement chain through
+any of its records, newest first, up to 20 entries; a missing link or a cycle
+ends the chain.
+
 The command and start behavior travel with every Tao Agent OS installation.
 The records remain in that PC's user-local `~/.tao/project-memory/` store;
 linked worktrees of the same repository share them, while another PC starts

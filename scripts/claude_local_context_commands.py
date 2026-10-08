@@ -140,6 +140,7 @@ def local_context_kind(alias: str, arguments: list[str]) -> str | None:
             "retire": (set(), set(), 1),
             "approve": ({"--digest"}, set(), 1),
             "recall": ({"--scope"}, set(), 0),
+            "history": (set(), set(), 1),
         }
     elif alias == "agent-mailbox":
         operations = {
@@ -179,4 +180,4 @@ def local_context_kind(alias: str, arguments: list[str]) -> str | None:
         index += 1
     if not operation or operands != operations[operation][2]:
         return None
-    return "read_only" if operation in {"recall", "status"} else "runtime_control"
+    return "read_only" if operation in {"recall", "history", "status"} else "runtime_control"

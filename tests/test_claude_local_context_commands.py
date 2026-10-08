@@ -99,8 +99,14 @@ class LocalContextCommandTests(unittest.TestCase):
             self.assertEqual("runtime_control", local_context_kind(
                 "agent-mailbox", ["send", "--to=claude", "--json", *tail]))
 
+    def test_memory_history_is_a_read_only_lookup(self):
+        self.assertEqual("read_only", local_context_kind(
+            "project-memory", ["--project", "/repo", "history", "0123456789abcdef"]))
+
     def test_bad_grammar_does_not_gain_admission(self):
         for alias, arguments in (
+            ("project-memory", ["history"]),
+            ("project-memory", ["history", "id", "extra"]),
             ("project-memory", ["--project"]),
             ("project-memory", ["capture", "--source"]),
             ("project-memory", ["capture", "--source="]),

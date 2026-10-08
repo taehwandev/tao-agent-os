@@ -32,6 +32,8 @@ STORE_NAME = "project-memory"
 MAX_RECALL_ITEMS = 3
 MAX_RECALL_CHARS = 1200
 MAX_SOURCE_FILES = 4
+MAX_PREVIOUS_CHARS = 160
+MAX_HISTORY_ITEMS = 20
 BLOB_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 PATH_RE = re.compile(r"[\w.-]+(?:/[\w.-]+)+|[\w-]+\.[a-zA-Z0-9]+")
@@ -340,6 +342,41 @@ def _recall(project: Path, scope: str, *, today: date | None = None,
     return eligible
 
 
+def _previously(record: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """The body this record replaced, cut to one bounded line, or nothing."""
+    previous = by_id.get(record.get("replaces") or "")
+    if previous is None:
+        return {}
+    body = previous["body"]
+    if len(body) > MAX_PREVIOUS_CHARS:
+        body = body[: MAX_PREVIOUS_CHARS - 1] + "…"
+    return {"previously": body}
+
+
+def _history(project: Path, record_id: str) -> list[dict[str, Any]]:
+    """The replacement chain through `record_id`, newest first; read-only.
+
+    Any id in the chain names the whole chain. A missing or unreadable link,
+    or a cycle, ends the walk instead of failing it.
+    """
+
+    _existing(project, record_id)
+    by_id = {record["id"]: record for record in scan_records(project)[0]}
+    newest, seen = record_id, {record_id}
+    while (later := by_id[newest].get("replaced_by")) in by_id and later not in seen:
+        newest = later
+        seen.add(later)
+    chain, current, seen = [], newest, set()
+    while current in by_id and current not in seen and len(chain) < MAX_HISTORY_ITEMS:
+        seen.add(current)
+        record = by_id[current]
+        chain.append({key: record[key] for key in
+                      ("id", "status", "body", "source", "created_at", "retired_at", "replaces")
+                      if key in record})
+        current = record.get("replaces") or ""
+    return chain
+
+
 def recall_lines(project: Path, scope: str, *,
                  records: list[dict[str, Any]] | None = None, request: str = "",
                  target_summary: str = "", target_paths: tuple[str, ...] = ()) -> list[str]:
@@ -350,11 +387,15 @@ def recall_lines(project: Path, scope: str, *,
     lines = []
     size = 0
     blobs: dict[str, str] = {}
+    if records is None:
+        records = scan_records(project)[0]
+    by_id = {record["id"]: record for record in records}
     for record in _recall(project, scope, records=records, request=request,
                           target_summary=target_summary, target_paths=target_paths):
         if len(lines) >= MAX_RECALL_ITEMS:
             break
-        fields = {key: record[key] for key in ("id", "body", "source", "review_on")}
+        fields = {**{key: record[key] for key in ("id", "body", "source", "review_on")},
+                  **_previously(record, by_id)}
         # Evidence status only lengthens the payload, so a record that is
         # already too long is skipped before any of its files are hashed.
         if size + len(json.dumps(fields, ensure_ascii=False)) > MAX_RECALL_CHARS:
@@ -394,6 +435,9 @@ def _main(argv: list[str] | None = None) -> int:
     recall_parser.add_argument("--request", default="")
     recall_parser.add_argument("--target-summary", default="")
     recall_parser.add_argument("--target-path", action="append", default=[])
+    # Read-only replacement chain through one record, newest first.
+    history_parser = commands.add_parser("history")
+    history_parser.add_argument("id")
     # Read-only review of the whole store; decisions go through capture and retire.
     consolidate_parser = commands.add_parser("consolidate")
     consolidate_parser.add_argument("--within-days", type=int, default=14)
@@ -408,6 +452,8 @@ def _main(argv: list[str] | None = None) -> int:
             result = _existing(project, args.id)[1]
         elif args.command == "retire":
             result = _retire(project, args.id)
+        elif args.command == "history":
+            result = _history(project, args.id)
         elif args.command == "consolidate":
             # Imported here: the rules module imports this one.
             from agent_project_memory_consolidate import consolidate
@@ -415,9 +461,12 @@ def _main(argv: list[str] | None = None) -> int:
             result = consolidate(project, within_days=args.within_days)
         else:
             blobs: dict[str, str] = {}
-            result = [{**record, **_source_status(project, record, blobs)} for record in _recall(
-                project, args.scope, request=args.request, target_summary=args.target_summary,
-                target_paths=tuple(args.target_path))]
+            records = scan_records(project)[0]
+            by_id = {record["id"]: record for record in records}
+            result = [{**record, **_previously(record, by_id), **_source_status(project, record, blobs)}
+                      for record in _recall(project, args.scope, records=records, request=args.request,
+                                            target_summary=args.target_summary,
+                                            target_paths=tuple(args.target_path))]
     except (OSError, ValueError) as error:
         parser.exit(2, f"project memory: {error}\n")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
