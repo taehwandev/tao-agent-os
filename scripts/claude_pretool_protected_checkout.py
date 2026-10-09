@@ -4,7 +4,7 @@ Owner: the protected-checkout verdict -- refuse authoring there, ask about
 committing or discarding, approve routine reference maintenance, defer what
 belongs to the runtime's own permission flow -- and the deletion forms that
 flow keeps.
-Allowed imports: the standard library, claude_bash_git and
+Allowed imports: the standard library, claude_bash_git, claude_git_artifact and
 claude_pretool_git_hazards.
 Forbidden imports: claude_pretool_gate and any run-evidence or policy reader;
 the caller supplies the protected branch names.
@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from claude_bash_git import git_command_kind, git_subcommand, names_unsafe_git_option
+from claude_git_artifact import git_index_patch
 from claude_pretool_git_hazards import shared_repository_hazard
 
 
@@ -206,6 +207,11 @@ def protected_checkout_verdict(
         # the dangerous case, and a question is the safe answer to it -- the
         # same fail-closed reading the hazard check uses.
         return "ask"
+    if git_index_patch(tokens):
+        # This exact form changes the index, never tracked source or HEAD.
+        # Defer to existing workflow authority and native permissions; it is
+        # not an approval and unrestricted apply stays an authoring operation.
+        return "defer"
     if not subcommand or subcommand in AUTHORING_GIT_SUBCOMMANDS:
         return ""
     if any(names_unsafe_git_option(argument) for argument in arguments):

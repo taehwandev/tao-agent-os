@@ -19,6 +19,7 @@ from claude_bash_compile_check import (
 from claude_bash_adb import adb_command_kind
 from claude_bash_figma import figma_command_effect
 from claude_bash_git import git_command_kind, git_subcommand
+from claude_git_artifact import git_diff_artifact_output, git_index_patch
 from claude_bash_http import curl_read_only
 from claude_bash_inspection import inspection_command_kind
 from claude_bash_local_tools import lookup_command_kind, node_test_kind
@@ -1101,6 +1102,15 @@ def _declared_read_indices(tokens: list[str], offset: int, cwd: Path | None = No
 
     if not tokens:
         return []
+    command = strip_env_assignments(tokens)
+    if command:
+        command = strip_env_wrapper(command)
+    if not command:
+        return []
+    # Keep indices in the original shell command while interpreting the same
+    # safe environment prefix as simple_command_kind. Never unwrap executor vars.
+    offset += len(tokens) - len(command)
+    tokens = command
     figma_effect = figma_command_effect(tokens, cwd)
     if figma_effect is not None:
         return [offset + index for index in figma_effect[1]]
@@ -1127,6 +1137,11 @@ def _declared_read_indices(tokens: list[str], offset: int, cwd: Path | None = No
             | {token.partition("=")[0] for token in tokens
                if PROSE_EVIDENCE_OPTION_RE.fullmatch(token.partition("=")[0])},
         )
+    outputs = git_diff_artifact_output(tokens)
+    if outputs is not None:
+        return [offset + index for index in range(len(tokens)) if index not in outputs]
+    if git_index_patch(tokens):
+        return [offset + len(tokens) - 1]
     if Path(tokens[0]).name == "git" and git_subcommand(tokens)[0] in MESSAGE_SUBCOMMANDS:
         return _message_value_indices(tokens, offset)
     return []

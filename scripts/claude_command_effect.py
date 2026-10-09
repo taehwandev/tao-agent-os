@@ -12,6 +12,7 @@ import re
 
 from claude_bash_http import curl_effect
 from claude_bash_git import git_subcommand
+from claude_git_artifact import git_diff_artifact_output, git_index_patch
 from claude_bash_syntax import command_segments, shell_keyword_command
 
 INTERPRETER_REASON = "interpreter or script effects are not declared by a supported command contract"
@@ -166,6 +167,14 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
                         return effect
     if not simple or not tokens:
         return "unknown", "shell composition or executable substitution could not be verified"
+    from claude_bash_readonly import strip_env_assignments, strip_env_wrapper
+
+    command = strip_env_assignments(tokens)
+    if command:
+        command = strip_env_wrapper(command)
+    if not command:
+        return "unknown", "environment wrapper could not be verified"
+    tokens = command
     executable = Path(tokens[0]).name
     if github_publication(tokens):
         return "mutating", "GitHub publication command"
@@ -181,9 +190,13 @@ def command_effect(tokens: list[str], simple: bool, legacy_kind: str) -> tuple[s
     if executable == "curl":
         return curl_effect(tokens[1:])
     if executable == "git":
+        if git_diff_artifact_output(tokens) is not None:
+            return "mutating", "Git diff artifact write"
         subcommand, _ = git_subcommand(tokens)
         # Listing forms already returned above. Recognizing a mutation only
         # selects the existing authority checks; it does not approve execution.
+        if git_index_patch(tokens):
+            return "mutating", "Git index patch application"
         if subcommand in {"add", "commit", "push", "merge", "rebase", "reset", "restore", "cherry-pick", "revert", "rm", "mv", "clean", "switch", "checkout", "branch", "stash", "reflog"}:
             return "mutating", "Git state-changing command"
     if (executable in INTERPRETERS or re.fullmatch(r"python\d+(?:\.\d+)*", executable)
