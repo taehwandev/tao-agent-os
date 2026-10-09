@@ -246,6 +246,25 @@ def required_doc_failures(
     return failures
 
 
+def required_doc_baseline_sha256(
+    evidence_path: Path,
+    preflight: dict[str, Any],
+    target: str,
+) -> str | None:
+    """Return the snapshot hash a required-doc drift failure compared against.
+
+    It reads the same preflight snapshot or execution capsule record that the
+    receipt validator binds `baseline_sha256` to, never Git, and returns None
+    when that record is unavailable.
+    """
+
+    try:
+        baseline = _required_doc_baseline(evidence_path, preflight, target)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+    return str(baseline["sha256"]) if baseline is not None else None
+
+
 def _required_doc_baseline(
     evidence_path: Path,
     preflight: dict[str, Any],

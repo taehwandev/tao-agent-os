@@ -218,3 +218,47 @@ class RequiredDocDriftRecoveryTests(unittest.TestCase):
 
         self.assertIn("ONLY_THIS.md", text)
         self.assertNotIn("AGENTS.md", text)
+
+    def test_it_hands_over_the_snapshot_baseline_the_failure_compared_against(self) -> None:
+        """An agent had to dig the baseline out of the preflight to record a receipt."""
+
+        from agent_execution_capsule_state import doc_hash_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory).resolve()
+            document = rules / "GUIDANCE.md"
+            document.write_text("# guidance\n", encoding="utf-8")
+            route = {"command": "docs", "gates": ["documentation"],
+                     "required_docs": ["GUIDANCE.md"]}
+            preflight = {"route": route, "rules": str(rules),
+                         "execution_snapshot": create_preflight_snapshot(
+                             rules, route, {"request": "update the guidance"})}
+            baseline = doc_hash_record("GUIDANCE.md", document)["sha256"]
+            document.write_text("# guidance\ndrifted\n", encoding="utf-8")
+            final = doc_hash_record("GUIDANCE.md", document)
+
+            text = self.finish_check._required_doc_drift_recovery(
+                rules,
+                ["execution capsule required doc hash changed: GUIDANCE.md"],
+                evidence_path=rules / "preflight.json",
+                preflight=preflight,
+            )
+
+        self.assertIn(
+            f"required-doc drift recovery for GUIDANCE.md: baseline_sha256={baseline} "
+            f"final_sha256={final['sha256']} final_size_bytes={final['size_bytes']}",
+            text,
+        )
+        self.assertIn("all three values are reported below", text)
+
+    def test_it_says_so_when_the_baseline_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory)
+            (rules / "GUIDANCE.md").write_text("# guidance\n", encoding="utf-8")
+
+            text = self._recovery(rules)
+
+        self.assertIn(
+            "required-doc drift recovery for GUIDANCE.md: baseline_sha256 unavailable", text
+        )
+        self.assertIn("final_sha256=", text)

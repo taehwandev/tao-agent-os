@@ -131,7 +131,7 @@
     ],
     "simple": true,
     "kind": "mutating",
-    "effect": "unknown",
+    "effect": "mutating",
     "syntax_segments": [
      [
       "env",
@@ -434,7 +434,7 @@
     ],
     "simple": true,
     "kind": "mutating",
-    "effect": "unknown",
+    "effect": "mutating",
     "syntax_segments": [
      [
       "env",

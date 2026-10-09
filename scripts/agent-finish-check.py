@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_delegation_plan import read_delegation_plan
+from agent_execution_capsule_docs import required_doc_baseline_sha256
 from agent_execution_capsule_state import contained_doc_path, doc_hash_record
 from agent_block_lessons import resolve_fixed_lesson
 from agent_global_lessons import state_home, write_retrospective_candidate
@@ -166,6 +167,7 @@ def process_failure_learning(
     gate_signals: list[dict[str, str]],
     failures: list[str],
     rules: Path | None = None,
+    evidence_path: Path | None = None,
 ) -> tuple[bool, dict[str, Any]]:
     repair_required_failures = [
         failure
@@ -188,7 +190,12 @@ def process_failure_learning(
             for failure in failures
         ):
             failures.append(
-                _required_doc_drift_recovery(rules or Path('.'), failures)
+                _required_doc_drift_recovery(
+                    rules or Path('.'),
+                    failures,
+                    evidence_path=evidence_path,
+                    preflight=preflight,
+                )
             )
         failures.append(
             "retrospective repair is required before final report, commit, release, or handoff; "
@@ -307,6 +314,7 @@ def process_closeout_learning(
     failures: list[str],
     rules: Path | None = None,
     gate_evidence_ledger: dict[str, Any] | None = None,
+    evidence_path: Path | None = None,
 ) -> tuple[bool, dict[str, Any], list[str]]:
     """Keep failure learning and successful closeout follow-up in one boundary."""
 
@@ -317,6 +325,7 @@ def process_closeout_learning(
         gate_signals=gate_signals,
         failures=failures,
         rules=rules,
+        evidence_path=evidence_path,
     )
     skill_followup = process_skill_followup(
         preflight=preflight,
@@ -355,14 +364,22 @@ _DRIFT_PREFIXES = (
 )
 
 
-def _required_doc_drift_recovery(rules: Path, failures: list[str]) -> str:
+def _required_doc_drift_recovery(
+    rules: Path,
+    failures: list[str],
+    *,
+    evidence_path: Path | None = None,
+    preflight: dict[str, Any] | None = None,
+) -> str:
     """Name the receipt fields the validator actually requires, with their values.
 
     The previous text asked for `repair_evidence` and `resume_checkpoint`, which
     the receipt validator never reads, so an agent that followed it exactly could
     never clear the drift and reasonably concluded the check was unsatisfiable.
-    The four fields below are the ones that are read, and the final bytes are
-    computed here so recovery does not depend on reading the validator source.
+    The four fields below are the ones that are read. The final bytes are
+    computed here, and the baseline comes from the same snapshot record the
+    failure compared against, so recovery depends on neither the validator
+    source nor a manual dig through the preflight or capsule.
     """
 
     drifted = sorted(
@@ -381,16 +398,27 @@ def _required_doc_drift_recovery(rules: Path, failures: list[str]) -> str:
         "a change this run did not make. A document this route already lists as required "
         "needs the receipt fields artifact_receipt_version=1, baseline_sha256 (the snapshot "
         "hash this failure compared against), final_sha256 and final_size_bytes (the current "
-        "bytes reported below). A document outside this route's required_docs instead needs "
+        "bytes); all three values are reported below. A document outside this route's required_docs instead needs "
         "repair_evidence and resume_checkpoint: run repair-verify for the actual failed "
         "checkpoint first. Either way this binds the verified final document without "
         "bypassing the snapshot check"
     ]
     for relative in drifted:
+        baseline = (
+            required_doc_baseline_sha256(evidence_path, preflight, relative)
+            if evidence_path is not None and preflight is not None
+            else None
+        )
+        baseline_text = (
+            f"baseline_sha256={baseline}"
+            if baseline
+            else "baseline_sha256 unavailable (no trusted snapshot record for this "
+            "document; a receipt cannot bind without one)"
+        )
         current = _current_doc_record(rules, relative)
         if current:
             lines.append(
-                f"required-doc drift recovery for {relative}: "
+                f"required-doc drift recovery for {relative}: {baseline_text} "
                 f"final_sha256={current['sha256']} "
                 f"final_size_bytes={current['size_bytes']}"
             )
@@ -399,8 +427,8 @@ def _required_doc_drift_recovery(rules: Path, failures: list[str]) -> str:
             # the agent needs to know which receipt to record even if it has to
             # compute the values itself.
             lines.append(
-                f"required-doc drift recovery for {relative}: current bytes are "
-                "unreadable from the rules root, so compute final_sha256 and "
+                f"required-doc drift recovery for {relative}: {baseline_text}; current "
+                "bytes are unreadable from the rules root, so compute final_sha256 and "
                 "final_size_bytes from the document itself"
             )
     return "; ".join(lines)
@@ -549,6 +577,7 @@ def main() -> int:
         failures=failures,
         rules=rules,
         gate_evidence_ledger=gate_evidence_ledger,
+        evidence_path=evidence_path,
     )
 
     result = build_result(
