@@ -187,6 +187,26 @@ class NodeValidationTest(unittest.TestCase):
 
         self.assertEqual(["kmp/nodes/a.md: node references a missing document: kmp/nodes/gone.md"], failures)
 
+    def test_git_ignored_copy_of_a_node_is_not_an_orphan(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / ".gitignore").write_text("**/.claude/worktrees/\n", encoding="utf-8")
+            files = {
+                "kmp/nodes/a.md": _node(),
+                ".claude/worktrees/copy/kmp/nodes/a.md": _node(),
+            }
+            for relative, text in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+
+            failures = node_graph_failures(root, files, ("kmp/nodes/a.md",))
+
+        self.assertEqual([], failures)
+
     def test_requires_and_refines_cycle_is_reported_once(self) -> None:
         failures = self._failures(
             {

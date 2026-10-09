@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+from support.project_tree import git_ignored
 from workflow_doc_graph_refs import (
     INLINE_DOC_RE,
     PROMOTING_RELATIONS,
@@ -41,7 +42,11 @@ def node_graph_failures(root: Path, docs: Iterable[str], entry_docs: Iterable[st
     reached by none of them and by no other document is an orphan.
     """
 
-    doc_set = set(docs)
+    listed = set(docs)
+    # Git-ignored copies (nested worktrees under .claude/worktrees, generated
+    # output) are not guidance: their relative links resolve to the real
+    # documents, so every node in a copy would read as an orphan.
+    doc_set = listed - git_ignored(root, listed)
     texts = {doc: _read(root / doc) for doc in sorted(doc_set)}
     failures: list[str] = []
     promoting: dict[str, list[str]] = {}
