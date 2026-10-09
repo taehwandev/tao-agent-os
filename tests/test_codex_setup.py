@@ -21,6 +21,129 @@ from support.codex_setup import (
 )
 
 
+class CodexApprovalIntegrationTests(unittest.TestCase):
+    def test_setup_opt_in_changes_reviewer_and_preserves_other_policies(self):
+        from support.setup_agent_hooks_impl import configure_codex
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            target = home / ".codex" / "config.toml"
+            target.parent.mkdir()
+            policy = 'approval_policy = "on-request"\nsandbox_mode = "workspace-write"\n'
+            target.write_text('approvals_reviewer = "user"\n' + policy)
+            with patch("support.setup_agent_hooks_impl.Path.home", return_value=home):
+                first = configure_codex(False, root=ROOT, enable_auto_review=True)
+                after = target.read_bytes()
+                second = configure_codex(False, root=ROOT, enable_auto_review=True)
+            self.assertIn('approvals_reviewer = "auto_review"\n' + policy, after.decode())
+            self.assertEqual(after, target.read_bytes())
+            self.assertEqual("installed", next(row["status"] for row in first if row["hook"] == "approvalsReviewer"))
+            self.assertTrue(next(row["status"] for row in second if row["hook"] == "approvalsReviewer").startswith("ok"))
+
+    def test_ordinary_setup_preserves_existing_reviewer(self):
+        from support.setup_agent_hooks_impl import configure_codex
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            target = home / ".codex" / "config.toml"
+            target.parent.mkdir()
+            target.write_text('approvals_reviewer = "user"\n')
+            with patch("support.setup_agent_hooks_impl.Path.home", return_value=home):
+                configure_codex(False, root=ROOT)
+            self.assertTrue(target.read_text().startswith('approvals_reviewer = "user"\n'))
+
+    def test_check_opt_in_reports_pending_change_without_writing(self):
+        from support.setup_agent_hooks_impl import configure_codex, fail_if_setup_incomplete
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            target = home / ".codex" / "config.toml"
+            target.parent.mkdir()
+            target.write_text('approvals_reviewer = "user"\n')
+            with patch("support.setup_agent_hooks_impl.Path.home", return_value=home):
+                configure_codex(False, root=ROOT)
+                before = target.read_bytes()
+                results = configure_codex(True, root=ROOT, enable_auto_review=True)
+            self.assertEqual(before, target.read_bytes())
+            self.assertEqual("would_update", next(row["status"] for row in results if row["hook"] == "approvalsReviewer"))
+            with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as result:
+                fail_if_setup_incomplete(SimpleNamespace(check=True), results)
+            self.assertEqual(1, result.exception.code)
+
+    def test_unsafe_opt_in_stops_before_installers_write(self):
+        from support.setup_agent_hooks_impl import configure_codex
+        from support.setup_config_files import SetupConfigError
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            target = home / ".codex" / "config.toml"
+            target.parent.mkdir()
+            before = 'approvals_reviewer = "user"\napprovals_reviewer = "auto_review"\n'
+            target.write_text(before)
+            with patch("support.setup_agent_hooks_impl.Path.home", return_value=home):
+                with self.assertRaises(SetupConfigError):
+                    configure_codex(False, root=ROOT, enable_auto_review=True)
+            self.assertEqual(before, target.read_text())
+            self.assertEqual(["config.toml"], [p.name for p in target.parent.iterdir()])
+
+    def test_cli_forwards_explicit_opt_in_to_codex_only(self):
+        from support import setup_agent_hooks_impl as setup
+
+        with (
+            patch.object(sys, "argv", ["setup-agent-hooks.py", "--runtime", "codex", "--codex-auto-review"]),
+            patch.object(setup, "_has_codex", return_value=True),
+            patch.object(setup, "_has_claude", return_value=False),
+            patch.object(setup, "_has_agy", return_value=False),
+            patch.object(setup, "_check_codex_approval_setup") as preflight,
+            patch.object(setup, "ensure_stable_launcher", return_value=[]),
+            patch.object(setup, "configure_codex", return_value=[]) as configure,
+            patch.object(setup, "configure_target_projects", return_value=[]),
+            patch.object(setup, "print_results"),
+        ):
+            setup._main()
+        configure.assert_called_once_with(False, root=ROOT, enable_auto_review=True)
+        preflight.assert_called_once()
+
+    def test_cli_conflict_stops_guidance_launcher_and_other_runtime_writes(self):
+        from support import setup_agent_hooks_impl as setup
+        from support.setup_config_files import SetupConfigError
+
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            target = home / ".codex" / "config.toml"
+            target.parent.mkdir()
+            before = 'approvals_reviewer = "user"\napprovals_reviewer = "auto_review"\n'
+            target.write_text(before)
+            with (
+                patch.object(sys, "argv", ["setup-agent-hooks.py", "--codex-auto-review", "--refresh-project-guidance", directory]),
+                patch.object(setup.Path, "home", return_value=home),
+                patch.object(setup, "_has_codex", return_value=True),
+                patch.object(setup, "_has_claude", return_value=True),
+                patch.object(setup, "_has_agy", return_value=False),
+                patch.object(setup, "ensure_stable_launcher") as launcher,
+                patch.object(setup, "configure_claude") as claude,
+                patch("support.project_guidance.refresh_project_guidance") as refresh,
+            ):
+                with self.assertRaises(SetupConfigError):
+                    setup._main()
+            launcher.assert_not_called()
+            claude.assert_not_called()
+            refresh.assert_not_called()
+            self.assertEqual(before, target.read_text())
+
+    def test_cli_rejects_wrong_runtime_or_reset_before_writes(self):
+        from support import setup_agent_hooks_impl as setup
+
+        for options in (
+            ["--runtime", "claude", "--codex-auto-review"],
+            ["--reset-codex-permission-default", "--codex-auto-review"],
+        ):
+            with self.subTest(options=options), patch.object(sys, "argv", ["setup-agent-hooks.py", *options]):
+                with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as result:
+                    setup._main()
+                self.assertEqual(2, result.exception.code)
+
+
 class MailboxDeliverySetupTests(unittest.TestCase):
     CODEX = "/stable/tao-hook mailbox-hook deliver --runtime codex"
     CLAUDE = "/stable/tao-hook mailbox-hook deliver --runtime claude"

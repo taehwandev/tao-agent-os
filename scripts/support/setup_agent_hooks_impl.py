@@ -12,6 +12,7 @@ from pathlib import Path
 from support.agy_setup import configure_agy
 from support.claude_setup import configure_claude
 from support.codex_agent_setup import install_codex_agents
+from support.codex_approval_setup import merge_codex_approvals_reviewer
 from support.codex_permissions import merge_codex_worktree_roots, reset_tao_permission_default
 from support.codex_setup import (
     merge_codex_mailbox_delivery,
@@ -117,6 +118,10 @@ def _argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reset Tao or missing profile selection to :workspace; preserve other settings.",
     )
+    parser.add_argument(
+        "--codex-auto-review", action="store_true",
+        help="Opt in to Codex automatic approval review; preserve sandbox and approval policy.",
+    )
     return parser
 
 
@@ -124,6 +129,11 @@ def _main() -> None:
     parser = _argument_parser()
     args = parser.parse_args()
 
+    if args.codex_auto_review and (
+        args.reset_codex_permission_default
+        or (args.runtime and "codex" not in args.runtime)
+    ):
+        parser.error("--codex-auto-review requires Codex setup and cannot be combined with permission-default reset")
     if args.reset_codex_permission_default:
         _reset_codex_default(args, parser)
         return
@@ -137,11 +147,15 @@ def _main() -> None:
     results: list[dict] = []
     from support.project_guidance import refresh_project_guidance
 
-    for project in args.refresh_project_guidance:
-        results.append(refresh_project_guidance(project, ROOT, dry_run=dry_run))
     configure_claude_runtime = _runtime_selected("claude", selected_runtimes) and _has_claude()
     configure_codex_runtime = _runtime_selected("codex", selected_runtimes) and _has_codex()
     configure_agy_runtime = _runtime_selected("agy", selected_runtimes) and _has_agy()
+    if args.codex_auto_review and not configure_codex_runtime:
+        parser.error("--codex-auto-review requires an installed Codex runtime")
+    if args.codex_auto_review:
+        _check_codex_approval_setup(Path.home() / ".codex" / "config.toml")
+    for project in args.refresh_project_guidance:
+        results.append(refresh_project_guidance(project, ROOT, dry_run=dry_run))
     launcher_configured = any(
         (configure_claude_runtime, configure_codex_runtime, configure_agy_runtime)
     )
@@ -160,7 +174,7 @@ def _main() -> None:
         )
 
     if configure_codex_runtime:
-        results += configure_codex(dry_run, root=ROOT)
+        results += configure_codex(dry_run, root=ROOT, enable_auto_review=args.codex_auto_review)
 
     if configure_agy_runtime:
         results += configure_agy(
@@ -303,7 +317,7 @@ def fail_if_setup_incomplete(args: argparse.Namespace, results: list[dict]) -> N
         raise SystemExit(1)
     missing = [result for result in results if result["status"] == "missing" or (
         result["status"] == "would_update" and result["tool"] in {"codex", "claude"}
-        and result.get("hook", "").startswith("agents.")
+        and (result.get("hook", "").startswith("agents.") or result.get("hook") == "approvalsReviewer")
     )]
     if any(result["tool"] == "graphify" for result in missing):
         print(
@@ -314,11 +328,14 @@ def fail_if_setup_incomplete(args: argparse.Namespace, results: list[dict]) -> N
         )
         raise SystemExit(1)
     if args.check and missing:
-        print(
-            "\nRun `python3 scripts/setup-agent-hooks.py` to install or refresh "
-            "missing or stale bridges, hooks, permissions, or agent roles.",
-            file=sys.stderr,
-        )
+        if any(result.get("hook") == "approvalsReviewer" for result in missing):
+            print("\nRun `python3 scripts/setup-agent-hooks.py --runtime codex --codex-auto-review` to apply the requested reviewer setting.", file=sys.stderr)
+        else:
+            print(
+                "\nRun `python3 scripts/setup-agent-hooks.py` to install or refresh "
+                "missing or stale bridges, hooks, permissions, or agent roles.",
+                file=sys.stderr,
+            )
         raise SystemExit(1)
 
 
@@ -358,7 +375,16 @@ def _has_spill_setup_helper() -> bool:
     return _spill_setup_helper_path().is_file()
 
 
-def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
+def _check_codex_approval_setup(target: Path) -> None:
+    readiness = merge_codex_approvals_reviewer(target, True, enable_auto_review=True)
+    if not readiness.startswith("ok") and readiness != "would_update":
+        raise SetupConfigError("Codex approval reviewer cannot be safely merged; config left unchanged")
+
+
+def configure_codex(dry_run: bool, *, root: Path, enable_auto_review: bool = False) -> list[dict]:
+    config_target = Path.home() / ".codex" / "config.toml"
+    if enable_auto_review:
+        _check_codex_approval_setup(config_target)
     agent_results = install_codex_agents(root, Path.home() / ".codex" / "agents", dry_run)
     bridge_target = Path.home() / ".codex" / "AGENTS.md"
     bridge_status = merge_runtime_bridge(
@@ -393,7 +419,9 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
         "mailbox-hook deliver --runtime codex"
     )
     mailbox_status = merge_codex_mailbox_delivery(hooks_target, mailbox_command, dry_run)
-    config_target = Path.home() / ".codex" / "config.toml"
+    reviewer_status = merge_codex_approvals_reviewer(
+        config_target, dry_run, enable_auto_review=enable_auto_review,
+    )
     status_line_status = merge_codex_status_line(config_target, dry_run)
     permissions_status = merge_codex_worktree_roots(
         config_target,
@@ -442,6 +470,12 @@ def configure_codex(dry_run: bool, *, root: Path) -> list[dict]:
             "tool": "codex",
             "hook": "statusLine",
             "status": status_line_status,
+            "path": str(config_target),
+        },
+        {
+            "tool": "codex",
+            "hook": "approvalsReviewer",
+            "status": reviewer_status,
             "path": str(config_target),
         },
     ]

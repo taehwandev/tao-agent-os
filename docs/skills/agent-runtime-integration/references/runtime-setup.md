@@ -110,6 +110,21 @@ runtime selector. For example, Codex-only setup uses:
 <TAO_LAUNCHER> setup-agent-hooks --runtime codex
 ```
 
+To apply automatic approval review on another computer, explicitly opt in:
+
+```text
+<TAO_LAUNCHER> setup-agent-hooks --runtime codex --codex-auto-review
+```
+
+This selects `approvals_reviewer = "auto_review"` in the local Codex config.
+Ordinary setup preserves the existing reviewer, including an unset selection.
+The option leaves `approval_policy`, sandbox settings and permission profiles
+unchanged. `--dry-run` previews the change; `--check` reports a pending change
+without writing. Pulling Tao alone does not apply the local setting. Use a
+Codex version supporting automatic review; the supported values are documented
+in the [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+(verified 2026-10-09 with Codex 0.161.0).
+
 A runtime-scoped check or repair validates and changes that runtime's managed
 bridge and permission rules only. In particular, `--runtime codex` must not
 run, require, or alter global Graphify setup; use the unscoped setup or the

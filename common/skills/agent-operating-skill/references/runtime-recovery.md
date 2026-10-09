@@ -71,6 +71,15 @@ or redirections merely to set the runner's environment. Verify matching with
 `codex execpolicy check --rules <rules-file> -- <argv>` when it is uncertain;
 this inspects policy without executing the requested command.
 
+Capture build/test logs from the execution tool's output. A shell output
+redirection such as `> <task-log> 2>&1` makes Codex evaluate the whole shell
+invocation instead of its runner prefixes; a new worktree or task-log path can
+therefore ask again despite an existing runner approval. If a retained log is
+required, save the captured output in a separate authorized local file write.
+Keep the runner, arguments, target, exit status and conditional ordering intact.
+Choose this form before submission; it does not settle a pending request or
+override a denial.
+
 If no existing rule covers required escalation, request it through the tool
 with a stable, scoped runner prefix rather than the full task list, shell
 script or worktree command. An environment wrapper prefix includes its exact

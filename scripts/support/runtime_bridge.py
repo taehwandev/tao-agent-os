@@ -32,7 +32,7 @@ CODEX_PERMISSION_EVIDENCE_BRIDGE_PHRASE = (
 CODEX_NATIVE_APPROVAL_REUSE_BRIDGE_PHRASE = (
     'Use auto_review for escalation; do not repeat settled chat approval. '
     'For authorized tests/builds, reuse native prefix approvals with literal argv '
-    '(env KEY=value <runner>).'
+    '(env KEY=value <runner>). Capture logs from tool output, without shell redirections.'
 )
 CODEX_WORKTREE_COMMAND_BRIDGE_PHRASE = (
     'Target worktrees with git -C "<worktree>" or cd "<worktree>" && '
