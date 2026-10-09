@@ -227,11 +227,21 @@ def _branch_arguments_are_read_only(arguments: list[str]) -> bool:
             and bool(set(word[1:]) & set("ar")))
         for word in arguments
     )
+    # How a listing is printed, never what it does. A name beside one still
+    # creates a branch, so these alone do not make a positional a listing.
+    display_options = {"--sort", "--format", "--color", "--no-color", "--no-column"}
     listing_mode = False
+    displayed = False
     index = 0
     while index < len(arguments):
         argument = arguments[index]
         name = argument.split("=", 1)[0]
+        if name in display_options:
+            displayed = True
+            index += 1
+            if name in {"--sort", "--format"} and "=" not in argument:
+                index += 1
+            continue
         if name == "--list":
             listing_mode = True
             index += 1
@@ -254,7 +264,8 @@ def _branch_arguments_are_read_only(arguments: list[str]) -> bool:
             index += 1
             continue
         return False
-    return listing_mode
+    # Reaching here means no positional named a new branch.
+    return listing_mode or displayed
 
 
 def _self_protecting_ref_cleanup(command: str, args: list[str]) -> bool:

@@ -39,6 +39,7 @@ from claude_bash_syntax import (
     shell_keyword_command,
     substitution_bodies,
     unmodelled_operator,
+    without_fd_duplications,
 )
 from claude_bash_paths import (  # noqa: F401
     COPY_SEGMENT_SEPARATORS,
@@ -140,6 +141,8 @@ READ_ONLY_COMMANDS = frozenset(
         "pwd",
         "realpath",
         "rg",
+        # Waits and exits; it was the write that denied `kill N; sleep 2; pgrep`.
+        "sleep",
         "stat",
         "tail",
         "test",
@@ -1312,6 +1315,10 @@ def simple_command_kind(tokens: list[str], cwd: Path | None = None) -> str:
     command = strip_env_assignments(tokens)
     if command:
         command = strip_env_wrapper(command)
+    # `2>&1` opens nothing; left in, `2` read as an operand and turned exact
+    # argument contracts such as the Spill label helper's into a write.
+    if command:
+        command = without_fd_duplications(command)
     if not command:
         return "mutating"
     figma_effect = figma_command_effect(command, cwd)

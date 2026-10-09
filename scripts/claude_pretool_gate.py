@@ -1052,6 +1052,12 @@ def publication_hold(
     return _publication.publication_hold(command, depth, root, cwd)
 
 
+def open_run_publication_hold(command: str, root: Path | None = None, cwd: Path | None = None) -> str:
+    if _publication is None:
+        return ""
+    return _publication.open_run_publication_hold(command, root, cwd)
+
+
 def integrates_finished_worktree(
     root: Path, session_id: str, tokens: list[str], cwd: Path | None = None
 ) -> bool:
@@ -1448,7 +1454,7 @@ def _isolated_checkout_verdict(
             # publication most often takes, and requiring a lone command let
             # `git push && echo done` through.
             held = (
-                publication_hold(
+                open_run_publication_hold(
                     bash_command(payload), root=governed, cwd=effective_cwd or cwd
                 )
                 if tool in BASH_TOOLS
@@ -1698,7 +1704,7 @@ def _worktree_policy_verdict(
     # isolated-checkout branch, which never saw this command because this
     # function returns first.
     held = (
-        publication_hold(bash_command(payload), root=root, cwd=command_cwd)
+        open_run_publication_hold(bash_command(payload), root=root, cwd=command_cwd)
         if landing in {"allow", "defer", "ask"} and tool in BASH_TOOLS
         else ""
     )

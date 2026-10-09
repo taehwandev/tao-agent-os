@@ -16,6 +16,7 @@ Verification: those modules.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from claude_bash_git import git_subcommand
@@ -35,6 +36,37 @@ from claude_command_effect import github_pr_merge, github_publication
 from claude_worktree_gate import project_publication_kind
 
 PUBLICATION_LEAVES_THIS_MACHINE = frozenset({"push", "tag"})
+
+# What an unreadable line must carry before an open run holds it: a word a
+# publication is spelled with, or a construct that names its program only at
+# run time (`eval`, `bash -c "$x"`, `$cmd ...`, `git $action`).
+_PUBLICATION_SIGNAL = re.compile(
+    r"\b(?:push|publish|release|deploy|upload|tag|eval)\b|\bmerge\b(?!-)"
+    r"|\bgh\b"
+    r"|(?:^|[;&|({]|\b(?:do|then|else|xargs|exec|command|env|nohup|sudo|time|nice|timeout)\b|\s-c)"
+    r"\s*[\"']?\$"
+    r"|\bgit\b[^\n;&|]*\s[\"']?\$"
+    r"|\bxargs\b[^\n;&|]*\bgit\b"
+)
+
+
+def open_run_publication_hold(
+    command: str, root: Path | None = None, cwd: Path | None = None
+) -> str:
+    """`publication_hold` as an open run applies it.
+
+    An unreadable line used to be held whatever it was. A heredoc, a subshell
+    or a loop is unreadable to the segment reader, so `cd x && (npm run dev &)`
+    or `python3 - <<EOF` was refused as a possible publication: in one week of
+    transcripts 121 of 136 holds were that, against 15 real pushes, tags and
+    releases. A hidden publication still has to name a publishing word or hide
+    its program; a line that does neither runs only what it says.
+    """
+
+    held = publication_hold(command, root=root, cwd=cwd)
+    if held == "unreadable" and not _PUBLICATION_SIGNAL.search(command):
+        return ""
+    return held
 
 
 def publication_before_finish_reason(root: Path, *, unreadable: bool = False) -> str:
