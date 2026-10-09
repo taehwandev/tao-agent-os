@@ -229,8 +229,11 @@ def empty_review_scope_invocation_failure_details(
         "the changed paths; for an existing commit, complete the commit-review workflow and "
         "invoke this hook with --review-scope commit-range, --review-base, and --review-head",
         "no-diff cleanup: a branch, worktree, stash or other project-state cleanup that "
-        "leaves nothing to review needs a run started with --approved-effect destructive "
-        "and this hook rerun with --review-scope repo-hygiene",
+        "leaves nothing to review belongs to `start --command cleanup`, which records "
+        "cleanup gates and needs no review; a route that still requires review accepts it "
+        "only from a run started with --approved-effect destructive and --concern "
+        f"{' or '.join(sorted(REPO_HYGIENE_CONCERNS))}, with this hook rerun with "
+        "--review-scope repo-hygiene",
     ]
     if suggested_range:
         details.append(f"committed branch, rerun the same review with {suggested_range}")

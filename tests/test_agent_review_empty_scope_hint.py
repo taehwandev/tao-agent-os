@@ -29,6 +29,21 @@ class EmptyReviewScopeHintTests(unittest.TestCase):
         self.assertIn("--review-scope repo-hygiene", hint)
         self.assertTrue(details[-1].startswith("review did not start"))
 
+    def test_the_refusal_names_the_cleanup_route_and_the_hygiene_concerns(self) -> None:
+        """A destructive commit run without a hygiene concern was refused twice.
+
+        The hint named the effect and the scope, so the session restarted with
+        `--approved-effect destructive` and got the same refusal: the review also
+        needs a branch, state or worktree concern, and the `cleanup` route, which
+        needs no review, was the route for that removal all along.
+        """
+        details = empty_review_scope_invocation_failure_details(
+            "review scope has no changed paths", "repo-hygiene"
+        )
+        hint = next(line for line in details if line.startswith("no-diff cleanup:"))
+        self.assertIn("--command cleanup", hint)
+        self.assertIn("--concern branch or state or worktree", hint)
+
 
 if __name__ == "__main__":
     unittest.main()
