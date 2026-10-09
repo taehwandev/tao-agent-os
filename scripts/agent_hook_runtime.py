@@ -65,6 +65,7 @@ def finish_with_result(
     pending_closeout: bool = False,
     refreshable_failure: bool = False,
     fresh_start_required: bool = False,
+    drift_receipt: str = "",
 ) -> int:
     policy, policy_details = hook_failure_policy(
         success,
@@ -73,6 +74,7 @@ def finish_with_result(
         pending_closeout=pending_closeout,
         refreshable_failure=refreshable_failure,
         fresh_start_required=fresh_start_required,
+        drift_receipt=drift_receipt,
     )
     details = [*details, *policy_details]
     evidence = {
@@ -125,6 +127,7 @@ def hook_failure_policy(
     pending_closeout: bool = False,
     refreshable_failure: bool = False,
     fresh_start_required: bool = False,
+    drift_receipt: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     if success:
         next_action = "resume_failed_checkpoint" if repair_cycle else "continue"
@@ -173,6 +176,10 @@ def hook_failure_policy(
             "steps, then retry finish. This is expected closeout work, not a Tao Agent OS repair cycle; "
             "do not run repair-verify",
         ]
+    if drift_receipt:
+        return _drift_receipt_policy(
+            repair_cycle, rerun_review=drift_receipt == "doc_receipt_then_review"
+        )
     if refreshable_failure:
         return {
             "repair_cycle": repair_cycle,
@@ -211,6 +218,44 @@ def hook_failure_policy(
         "stop request: the same checkpoint failed after one repair cycle; promote the lesson "
         "or hand off the blocker and do not resume the original task",
     ]
+
+
+def _drift_receipt_policy(
+    repair_cycle: int, *, rerun_review: bool
+) -> tuple[dict[str, Any], list[str]]:
+    """Bind required-doc drift to its receipt in the same run.
+
+    The failed checkpoint stays in the ledger; the documentation receipts the
+    finish names bind the verified final bytes to the snapshot baseline. A fresh
+    lifecycle would erase that checkpoint instead, which the lifecycle contract
+    forbids once a hook has failed on drift.
+    """
+
+    detail = (
+        "drift receipt request: required documents changed after the snapshot this run "
+        "bound. Follow the finish's own `required-doc drift recovery` lines: record those "
+        "documentation receipts in this same run, bound to the snapshot baseline. For a "
+        "document outside this route's required_docs, run repair-verify for the actual "
+        "failed checkpoint and pass repair_evidence and resume_checkpoint. Do not start a "
+        "fresh lifecycle or erase the failed checkpoint"
+    )
+    if rerun_review:
+        detail += (
+            ". The review attestation is also stale: after the receipts, wait for "
+            "concurrent writers to settle and rerun the review hook in this same run, "
+            "which a failed finish leaves unsettled"
+        )
+    return {
+        "repair_cycle": repair_cycle,
+        "repair_cycle_limit": REPAIR_CYCLE_LIMIT,
+        "next_action": (
+            "record_drift_receipts_rerun_review_and_retry_finish"
+            if rerun_review
+            else "record_drift_receipts_and_retry_finish"
+        ),
+        "recovery_required": "bound_drift_receipt",
+        "resume_scope": "finish",
+    }, [detail + "; then retry finish"]
 
 
 def existing_path(value: str) -> Path:

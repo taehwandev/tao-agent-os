@@ -331,25 +331,28 @@ class RepairLedgerCycleTests(unittest.TestCase):
             )
         )
 
-    def test_finish_wrapper_recognizes_required_doc_drift_as_refreshable(self) -> None:
-        self.assertTrue(
-            agent_hook._is_refreshable_finish_drift(
-                {
-                    "returncode": 1,
-                    "stdout": (
-                        "Retrospective repair required: true\n"
-                        "FAIL: execution capsule required doc size changed: guide.md\n"
-                        "FAIL: execution capsule required doc hash changed: guide.md\n"
-                        "FAIL: required-doc drift recovery: reread and refresh the route\n"
-                        "FAIL: retrospective repair is required before final report, commit, "
-                        "release, or handoff; refresh the route\n"
-                    ),
-                    "stderr": "",
-                }
-            )
-        )
-        self.assertFalse(
-            agent_hook._is_refreshable_finish_drift(
+    def test_finish_wrapper_binds_required_doc_drift_to_its_receipt(self) -> None:
+        # The exact shape a finish printed when this run edited its own
+        # required docs: the recovery is the receipt the finish names, not a
+        # fresh lifecycle that would erase the failed checkpoint.
+        result = {
+            "returncode": 1,
+            "stdout": (
+                "Retrospective repair required: true\n"
+                "FAIL: execution capsule required doc size changed: guide.md\n"
+                "FAIL: execution capsule required doc hash changed: guide.md\n"
+                "FAIL: required-doc drift recovery: record one documentation SUCCESS "
+                "entry per required doc\n"
+                "FAIL: retrospective repair is required before final report, commit, "
+                "release, or handoff; refresh the route\n"
+            ),
+            "stderr": "",
+        }
+        self.assertEqual("doc_receipt", agent_hook._finish_drift_kind(result))
+        self.assertFalse(agent_hook._is_refreshable_finish_drift(result))
+        self.assertEqual(
+            "",
+            agent_hook._finish_drift_kind(
                 {
                     "returncode": 1,
                     "stdout": (
@@ -358,31 +361,79 @@ class RepairLedgerCycleTests(unittest.TestCase):
                     ),
                     "stderr": "",
                 }
-            )
+            ),
         )
 
-    def test_finish_wrapper_recognizes_combined_review_and_required_doc_drift(self) -> None:
-        self.assertTrue(
-            agent_hook._is_refreshable_finish_drift(
-                {
-                    "returncode": 1,
-                    "stdout": (
-                        "Retrospective repair required: true\n"
-                        "FAIL: review hook attestation project worktree binding is stale\n"
-                        "FAIL: review hook attestation rules worktree binding is stale\n"
-                        "FAIL: missing required gate evidence: review hook\n"
-                        "FAIL: execution capsule required doc size changed: review-guide.md\n"
-                        "FAIL: execution capsule required doc hash changed: review-guide.md\n"
-                        "FAIL: execution capsule required doc changed after documentation "
-                        "evidence: android-review.md\n"
-                        "FAIL: required-doc drift recovery: reread and refresh the route\n"
-                        "FAIL: retrospective repair is required before final report, commit, "
-                        "release, or handoff; refresh the route\n"
-                    ),
-                    "stderr": "",
-                }
+    def test_required_doc_drift_policy_binds_receipt_without_fresh_lifecycle(self) -> None:
+        for cycle in (0, 1):
+            policy, details = hook_failure_policy(
+                success=False,
+                repair_cycle=cycle,
+                drift_receipt="doc_receipt",
             )
+
+            self.assertEqual("record_drift_receipts_and_retry_finish", policy["next_action"])
+            self.assertEqual("bound_drift_receipt", policy["recovery_required"])
+            joined_details = " ".join(details)
+            self.assertIn("required-doc drift recovery", joined_details)
+            self.assertIn("in this same run, bound to the snapshot baseline", joined_details)
+            self.assertIn("run repair-verify for the actual failed checkpoint", joined_details)
+            self.assertIn("repair_evidence and resume_checkpoint", joined_details)
+            self.assertIn("Do not start a fresh lifecycle", joined_details)
+            self.assertIn("retry finish", joined_details)
+            self.assertNotIn("do not run repair-verify", joined_details)
+            self.assertNotIn("rerun the review hook", joined_details)
+
+    def test_finish_wrapper_recognizes_combined_review_and_required_doc_drift(self) -> None:
+        result = {
+            "returncode": 1,
+            "stdout": (
+                "Retrospective repair required: true\n"
+                "FAIL: review hook attestation project worktree binding is stale\n"
+                "FAIL: review hook attestation rules worktree binding is stale\n"
+                "FAIL: missing required gate evidence: review hook\n"
+                "FAIL: execution capsule required doc size changed: review-guide.md\n"
+                "FAIL: execution capsule required doc hash changed: review-guide.md\n"
+                "FAIL: execution capsule required doc changed after documentation "
+                "evidence: android-review.md\n"
+                "FAIL: required-doc drift recovery: reread and refresh the route\n"
+                "FAIL: retrospective repair is required before final report, commit, "
+                "release, or handoff; refresh the route\n"
+            ),
+            "stderr": "",
+        }
+        self.assertEqual("doc_receipt_then_review", agent_hook._finish_drift_kind(result))
+        self.assertFalse(agent_hook._is_refreshable_finish_drift(result))
+
+        policy, details = hook_failure_policy(
+            success=False,
+            repair_cycle=0,
+            drift_receipt="doc_receipt_then_review",
         )
+        self.assertEqual(
+            "record_drift_receipts_rerun_review_and_retry_finish", policy["next_action"]
+        )
+        self.assertEqual("bound_drift_receipt", policy["recovery_required"])
+        joined_details = " ".join(details)
+        self.assertIn("required-doc drift recovery", joined_details)
+        self.assertIn("rerun the review hook in this same run", joined_details)
+        self.assertNotIn("do not run repair-verify", joined_details)
+
+    def test_analysis_drift_beside_doc_drift_keeps_fresh_lifecycle(self) -> None:
+        result = {
+            "returncode": 1,
+            "stdout": (
+                "FAIL: read-only execution was declared but the project root changed "
+                "after start; a clean worktree cannot attribute the revision change "
+                "to an external actor, so the analysis route is intrinsically read-only; "
+                "wait for concurrent writers to settle, then rerun start and finish "
+                "with refreshed workspace fingerprints\n"
+                "FAIL: execution capsule required doc hash changed: guide.md\n"
+            ),
+            "stderr": "",
+        }
+        self.assertEqual("refresh", agent_hook._finish_drift_kind(result))
+        self.assertTrue(agent_hook._is_refreshable_finish_drift(result))
 
     def test_hook_success_after_repair_resumes_failed_checkpoint(self) -> None:
         policy, details = hook_failure_policy(success=True, repair_cycle=1)

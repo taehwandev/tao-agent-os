@@ -165,6 +165,14 @@ ledger entries. For listed gates:
     with the same `start` request and evidence path before the hook when drift
     is found; after a hook has already failed on drift, bind that refresh to
     the verified repair receipt instead of erasing the failed checkpoint.
+    For a finish failed only on required-doc drift, record the documentation
+    receipts its `required-doc drift recovery` lines name in the same run;
+    a document outside the route's `required_docs` instead needs repair-verify
+    for the failed checkpoint with `repair_evidence` and `resume_checkpoint`.
+    When the review attestation is also stale, rerun review in the same run
+    after the receipts, then retry finish. A fresh lifecycle remains the
+    recovery only for stale review attestation alone or intrinsic analysis
+    drift.
 21. Retrospective check: when the active route requires it, inspect the skills
     actually used and record the structured result. Ordinary code and bounded
     local changes retain this short check. Stateless lookup and unchanged commit

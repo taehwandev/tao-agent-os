@@ -931,6 +931,7 @@ def finish_hook(args: argparse.Namespace) -> int:
         # the run is still active and only then move the registry to failed.
         details.append(record_lifecycle_checkpoint(args, "lifecycle"))
         _transition_finished_run(args, False)
+    drift_kind = _finish_drift_kind(result)
     return finish_with_result(
         "finish",
         success,
@@ -939,7 +940,8 @@ def finish_hook(args: argparse.Namespace) -> int:
         {"finish_check": result},
         args.repair_cycle,
         pending_closeout=result["returncode"] == 3,
-        refreshable_failure=_is_refreshable_finish_drift(result),
+        refreshable_failure=drift_kind == "refresh",
+        drift_receipt=drift_kind if drift_kind.startswith("doc_receipt") else "",
     )
 
 
@@ -1009,56 +1011,70 @@ def _transferred_cancellation(
     return cancellation, None
 
 
-def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
-    """Recognize finish failures that only require a fresh start/review."""
+_REVIEW_DRIFT_FAILURES = frozenset(
+    {
+        "FAIL: review hook attestation project worktree binding is stale",
+        "FAIL: review hook attestation rules worktree binding is stale",
+        "FAIL: missing required gate evidence: review hook",
+    }
+)
+_REQUIRED_DOC_DRIFT_LINES = (
+    "FAIL: execution capsule required doc size changed: ",
+    "FAIL: execution capsule required doc hash changed: ",
+    "FAIL: execution capsule required doc changed after documentation evidence: ",
+)
+_REQUIRED_DOC_DRIFT_COMPANIONS = (
+    "FAIL: required-doc drift recovery: ",
+    "FAIL: retrospective repair is required before final report, commit, release, or handoff; ",
+)
 
+
+def _finish_drift_kind(result: dict[str, Any]) -> str:
+    """Classify a finish failure made only of drift, or return "" for any other.
+
+    `refresh` is stale review attestation or intrinsic analysis drift: a fresh
+    start/review is the recovery. Required-doc drift is not: finish already
+    names the documentation receipts that bind the verified final bytes to the
+    snapshot baseline in this same run, so a fresh lifecycle would erase the
+    failed checkpoint instead of binding to it. `doc_receipt_then_review` adds
+    a same-run review rerun when the review attestation is also stale; a failed
+    finish leaves the run `failed`, not settled, so the review hook still binds.
+    Analysis drift keeps `refresh` even beside doc drift, because a read-only
+    route cannot record an updated-document receipt and a fresh start rebinds.
+    """
+
+    if result.get("returncode") != 1:
+        return ""
     output = f"{result.get('stdout', '')}\n{result.get('stderr', '')}"
     failure_lines = [
         line.strip()
         for line in output.splitlines()
         if line.strip().startswith("FAIL:")
     ]
-    refreshable_failures = {
-        "FAIL: review hook attestation project worktree binding is stale",
-        "FAIL: review hook attestation rules worktree binding is stale",
-        "FAIL: missing required gate evidence: review hook",
-    }
-    stale_review = any(
-        line in refreshable_failures and "binding is stale" in line
-        for line in failure_lines
-    )
-    stale_required_docs = any(
-        line.startswith(
-            (
-                "FAIL: execution capsule required doc size changed: ",
-                "FAIL: execution capsule required doc hash changed: ",
-                "FAIL: execution capsule required doc changed after documentation evidence: ",
-            )
-        )
-        for line in failure_lines
-    )
-    intrinsic_analysis_drift = any(
-        _is_intrinsic_analysis_drift(line) for line in failure_lines
-    )
-    required_doc_refresh_lines = (
-        "FAIL: execution capsule required doc size changed: ",
-        "FAIL: execution capsule required doc hash changed: ",
-        "FAIL: execution capsule required doc changed after documentation evidence: ",
-        "FAIL: required-doc drift recovery: ",
-        "FAIL: retrospective repair is required before final report, commit, release, or handoff; ",
-    )
-    only_refreshable_drift = all(
-        line in refreshable_failures
-        or line.startswith(required_doc_refresh_lines)
+    if not failure_lines or not all(
+        line in _REVIEW_DRIFT_FAILURES
+        or line.startswith(_REQUIRED_DOC_DRIFT_LINES + _REQUIRED_DOC_DRIFT_COMPANIONS)
         or _is_intrinsic_analysis_drift(line)
         for line in failure_lines
+    ):
+        return ""
+    stale_review = any(
+        line in _REVIEW_DRIFT_FAILURES and "binding is stale" in line
+        for line in failure_lines
     )
-    return (
-        result.get("returncode") == 1
-        and bool(failure_lines)
-        and (stale_review or stale_required_docs or intrinsic_analysis_drift)
-        and only_refreshable_drift
-    )
+    doc_drift = any(line.startswith(_REQUIRED_DOC_DRIFT_LINES) for line in failure_lines)
+    if any(_is_intrinsic_analysis_drift(line) for line in failure_lines):
+        return "refresh"
+    if doc_drift:
+        review_owed = any(line in _REVIEW_DRIFT_FAILURES for line in failure_lines)
+        return "doc_receipt_then_review" if review_owed else "doc_receipt"
+    return "refresh" if stale_review else ""
+
+
+def _is_refreshable_finish_drift(result: dict[str, Any]) -> bool:
+    """Recognize finish failures that only require a fresh start/review."""
+
+    return _finish_drift_kind(result) == "refresh"
 
 
 def _is_intrinsic_analysis_drift(line: str) -> bool:
