@@ -52,9 +52,11 @@ inside that work run rather than requiring a second `commit` lifecycle:
    and include that evidence in the existing review. Do not invent a readiness
    gate when the route does not list one.
 3. Complete all gates of the work route and finish successfully. Immediately
-   before committing, confirm the same session, repository, branch, HEAD,
-   staged set and bytes still match that review, with fresh evidence and no
-   unresolved findings. Then execute the authorized local commit directly.
+   before committing, confirm the same session, repository, branch, staged set
+   and reviewed inputs still match, with fresh evidence and no unresolved
+   findings. An explicit pathspec receipt uses the shared scoped input binding;
+   unrelated HEAD advancement alone does not reopen verification. Whole-tree
+   and legacy receipts retain their exact-HEAD check. Then commit directly.
 
 This continuation leaves the finished run closed. It adds no start, review,
 finish, permission exemption or automatic commit. Runtime admission is not
@@ -62,7 +64,7 @@ proof of user authority or of an unchanged reviewed diff.
 
 Use the lightweight commit route if authority is newly granted after finish,
 the run cannot bind the required effect, review/readiness is incomplete, or
-the session, target, HEAD, staged set, bytes or freshness differs. Reuse valid
+the session, target, staged set, reviewed inputs or freshness differs. Reuse valid
 evidence there, including `--commit-ready` when eligible. A follow-up repeating
 the same already authorized action does not by itself require new approval.
 After one of several split commits, HEAD and the remaining staged scope have
@@ -91,6 +93,19 @@ a bounded review-and-record operation, not a second implementation lifecycle:
   unavailable context or an unresolved in-scope question. For uncertain paths use
   `rg --files` or quoted `rg -g` filters instead of speculative shell globs;
   after a no-match, correct the path/anchor rather than repeating that expansion;
+- for a completed explicit pathspec review, reuse its machine checks and review
+  narratives when the branch, selected file bytes and exact diff against the
+  current base still match, together with rules, checker and review limits.
+  An unrelated commit or edit outside that scope alone does not require another
+  code review or full test run. The staged set must exactly cover that reviewed
+  unit; the current review hook refreshes audit, index and attestation checks.
+  Changed base blobs, selected edits, branch changes or verification dependencies
+  still require the affected checks. Whole-tree and legacy receipts remain
+  conservative. Do not repeat a rebase merely to restore an earlier HEAD;
+- the same scoped identity applies to final review attestation and local commit
+  admission. An unrelated change after review or finish preserves the reviewed
+  unit; an unreviewed staged file still blocks commit. External publication
+  retains its whole-source freshness check;
 - run one start, inspect the unstaged scope for obvious blockers, stage the
   exact commit unit, run one lightweight review against that final staged
   state, complete the staged-diff/readiness checks, and run one read-only

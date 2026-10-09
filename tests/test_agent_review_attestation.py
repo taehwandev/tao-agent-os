@@ -71,17 +71,17 @@ class ReviewAttestationTests(unittest.TestCase):
         reset_gate_evidence_ledger(evidence_path, preflight)
         return evidence_path
 
-    def _record_real_review(self, evidence_path: Path | None = None) -> dict[str, object]:
+    def _record_real_review(self, evidence_path: Path | None = None, *, changed_path_count: int = 0) -> dict[str, object]:
         selected = evidence_path or self.evidence_path
         preflight = json.loads(selected.read_text(encoding="utf-8"))
         attestation = ReviewAttestation.record(
             project=self.project,
-            rules=self.project,
+            rules=getattr(self, "rules", self.project),
             evidence_path=selected,
             preflight=preflight,
             review_scope="pathspec: tracked.txt",
             review_paths=["tracked.txt"],
-            changed_path_count=0,
+            changed_path_count=changed_path_count,
             checks={
                 "review_outcome": "pass",
                 "workflow_validate": {"returncode": 0},
@@ -110,7 +110,7 @@ class ReviewAttestationTests(unittest.TestCase):
         enforce_review_hook_attestation(
             route=self.route,
             project=self.project,
-            rules=self.project,
+            rules=getattr(self, "rules", self.project),
             evidence_path=selected,
             gate_evidence=gate_evidence,
             gate_evidence_ledger=diagnostics,
@@ -126,6 +126,40 @@ class ReviewAttestationTests(unittest.TestCase):
         self.assertIn("review hook", gate_evidence)
         self.assertEqual([], failures)
         self.assertTrue(diagnostics["review_attestation"]["valid"])
+
+    def _record_scoped_review(self, *, staged: bool = False):
+        self.rules = self.project / ".tao" / "review-rules"
+        self.rules.mkdir()
+        initialize_repository(self.rules)
+        preflight = json.loads(self.evidence_path.read_text())
+        preflight.update(rules=str(self.rules), route=self.route)
+        self.evidence_path.write_text(json.dumps(preflight))
+        reset_gate_evidence_ledger(self.evidence_path, preflight)
+        (self.project / "tracked.txt").write_text("reviewed change\n")
+        if staged:
+            self._git("add", "tracked.txt")
+        return self._record_real_review(changed_path_count=1)
+
+    def test_scoped_finish_survives_unrelated_commit_and_edits(self):
+        self._record_scoped_review()
+        (self.project / "other.txt").write_text("other task\n")
+        self._git("add", "other.txt")
+        self._git("commit", "--only", "-qm", "other task", "--", "other.txt")
+        self.assertEqual([], self._finish_merge()[2])
+        (self.project / "other.txt").write_text("other task still editing\n")
+        self.assertEqual([], self._finish_merge()[2])
+
+    def test_scoped_finish_rejects_changed_base_with_identical_working_bytes(self):
+        self._record_scoped_review()
+        (self.project / "tracked.txt").write_text("changed base\n")
+        self._git("commit", "--only", "-qm", "changed base", "--", "tracked.txt")
+        (self.project / "tracked.txt").write_text("reviewed change\n")
+        self.assertTrue(self._finish_merge()[2])
+
+    def test_scoped_finish_rejects_staging_after_review(self):
+        self._record_scoped_review()
+        self._git("add", "tracked.txt")
+        self.assertTrue(self._finish_merge()[2])
 
     def _git(self, *args: str) -> str:
         return subprocess.run(

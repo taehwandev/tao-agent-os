@@ -132,6 +132,62 @@ class CommitReadyTests(unittest.TestCase):
         outside.write_text("outside bytes changed after review\n")
         self.assert_ordinary_entry()
 
+    def _separate_review_rules(self):
+        rules = self.fixture.project / ".tao" / "separate-rules"
+        rules.mkdir()
+        self.fixture.git("init", "-q", str(rules))
+        self.fixture.git("-C", str(rules), "-c", "user.name=Review Test", "-c",
+                         "user.email=review@example.invalid", "commit", "--allow-empty", "-qm", "rules")
+        self.fixture.rules = self.fixture.source.rules = self.args.rules = rules
+        preflight = json.loads(self.fixture.source.evidence.read_text())
+        preflight["rules"] = str(rules)
+        self.fixture.source.evidence.write_text(json.dumps(preflight))
+        reset_gate_evidence_ledger(self.fixture.source.evidence, preflight)
+        self.publish_pathspec(["source.py", "extra.py"])
+
+    def test_pathspec_review_reuses_after_unrelated_commit(self):
+        self._separate_review_rules()
+        staged = self.fixture.git("diff", "--cached", "--", "source.py", "extra.py")
+        (self.fixture.project / "rule.md").write_text("another task's committed change\n")
+        self.fixture.git("commit", "--only", "-qm", "other task", "--", "rule.md")
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.assertEqual(2, self.dispatch.call_count)
+        self.assertEqual(staged, self.fixture.git("diff", "--cached", "--", "source.py", "extra.py"))
+        current = self.start.call_args.args[0]
+        self.assertIsNotNone(review_fixture.ReviewReuse(
+            current, current.review_path, {"kind": "working-tree"}).load())
+
+    def test_pathspec_review_reuses_after_empty_commit(self):
+        self._separate_review_rules()
+        self.fixture.git("commit", "--only", "--allow-empty", "-qm", "metadata only")
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.assertEqual(2, self.dispatch.call_count)
+
+    def test_pathspec_review_reuses_with_unrelated_worktree_edits(self):
+        self._separate_review_rules()
+        outside = self.fixture.project / "rule.md"
+        outside.write_text("another task is still editing\n")
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.assertEqual(2, self.dispatch.call_count)
+        self.assertEqual("another task is still editing\n", outside.read_text())
+        current = self.start.call_args.args[0]
+        self.assertIsNotNone(review_fixture.ReviewReuse(
+            current, current.review_path, {"kind": "working-tree"}).load())
+
+    def test_pathspec_review_rejects_changed_base_with_identical_working_bytes(self):
+        self._separate_review_rules()
+        source = self.fixture.project / "source.py"
+        source.write_text("value = 3\n")
+        self.fixture.git("commit", "--only", "-qm", "changed base", "--", "source.py")
+        source.write_text("value = 2\n")
+        self.fixture.git("add", "source.py")
+        self.assert_ordinary_entry()
+
+    def test_pathspec_review_rejects_changed_branch_with_identical_bytes(self):
+        self._separate_review_rules()
+        self.fixture.git("checkout", "-qb", "other-target")
+        self.assert_ordinary_entry()
+
     def test_index_coverage_drift_stops_before_each_dependent_hook(self):
         self.publish_pathspec(["source.py", "extra.py"])
         for phase in ("start", "review"):

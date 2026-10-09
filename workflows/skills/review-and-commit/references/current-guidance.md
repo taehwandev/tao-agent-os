@@ -36,10 +36,16 @@ unit to be staged. For a scoped review, also pass `--review-scope pathspec`
 and repeat each original `--review-path` in the same order. The literal scope
 and path list must match the completed review. The index must contain exactly
 all changed files selected by that scope, with staged blobs matching working
-bytes. Unrelated unstaged files may
-remain only when the complete repository snapshot is unchanged since review.
+bytes. Unrelated unstaged files may remain outside an explicit pathspec review.
+That review binds the selected bytes, exact diff against the current base and
+target branch, plus rules, checker and limits. Unrelated commits alone do not
+invalidate it. Whole-tree and legacy receipts retain their exact-state checks.
+Final attestation and local commit admission use this same shared binding, so
+an unrelated commit after review or finish does not start verification again.
+Local commit still requires the exact reviewed staged unit; external publication
+retains whole-source freshness.
 
-Changed staged or unstaged bytes, mismatched scopes, incomplete prior work,
+Changed selected bytes, base blobs or target branch, mismatched scopes, incomplete prior work,
 another session, or old attestations without reusable narratives prevent
 compact reuse. Ordinary entry retains its current missing gates without
 staging or committing. If entry finds unread required docs or additional gates,

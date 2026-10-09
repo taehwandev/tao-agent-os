@@ -20,6 +20,7 @@ from agent_route_state import route_fingerprint
 from support.bounded_git import run_git
 from support.stage_timing import stage
 from agent_review_integration_reuse import reuse_committed_review
+from agent_review_scope_inputs import scoped_review_binding, scoped_review_digest
 
 
 # A file whose last change is this close to the moment it was hashed is "racy"
@@ -102,6 +103,13 @@ class ReviewReuse:
             return
         if failures:
             return
+        if self.before.get('scope') == 'pathspec' and self.paths:
+            closing = scoped_review_binding(self.project, self.paths, include_index=True)
+            source = {key: value for key, value in closing.items() if key != 'index_sha256'}
+            if self.digest(source) != self.before.get('scope_inputs'):
+                failures.append('reviewed scoped inputs changed before attestation')
+                return
+            checks['scoped_review_inputs'] = self.digest(closing)
         results = _reusable_checks(checks)
         checks['review_checks'] = {
             'snapshot_sha256': self.digest(self.before), 'results_sha256': self.digest(results),
@@ -271,6 +279,9 @@ def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
     if kind not in {'working-tree', 'commit-range'}:
         return None
     try:
+        scope = getattr(reuse.args, 'review_scope', 'working-tree')
+        scoped = kind == 'working-tree' and scope == 'pathspec' and bool(reuse.paths)
+        selected = reuse.paths if scoped else []
         head = reuse.git(reuse.project, 'rev-parse', '--verify', 'HEAD').decode().strip()
         if kind == 'commit-range':
             base = reuse.subject['base_sha']
@@ -280,11 +291,11 @@ def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
                 return None
             names = reuse.git(reuse.project, 'diff', '--name-only', '-z', '--no-renames', base, head, '--')
         else:
-            names = reuse.git(reuse.project, 'diff', '--name-only', '-z', '--no-renames', 'HEAD', '--')
-        names += reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z')
+            names = reuse.git(reuse.project, 'diff', '--name-only', '-z', '--no-renames', 'HEAD', '--', *selected)
+        names += reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z', '--', *selected)
         changed = sorted(set(os.fsdecode(p) for p in names.split(b'\0') if p))
         files = _file_records(reuse.project, changed)
-        staged = set(reuse.git(reuse.project, 'diff', '--cached', '--name-only', '-z', '--no-renames', 'HEAD', '--').split(b'\0'))
+        staged = set(reuse.git(reuse.project, 'diff', '--cached', '--name-only', '-z', '--no-renames', 'HEAD', '--', *selected).split(b'\0'))
         index = reuse.git(reuse.project, 'ls-files', '--stage', '-z')
         indexed = set()
         for entry in index.split(b'\0'):
@@ -309,11 +320,14 @@ def _capture(reuse: ReviewReuse) -> dict[str, Any] | None:
         checker = Path(__file__).resolve().parent
         checker_files = _file_records(checker, [p.relative_to(checker).as_posix() for p in checker.rglob('*.py')],
                                       memo=memo)
+        binding = {'head': head, 'rules_head': reuse.git(reuse.rules, 'rev-parse', '--verify', 'HEAD').decode().strip()}
+        if scoped:
+            binding = {'scope_inputs': scoped_review_digest(reuse.project, selected)}
         return {
             **({'base': base} if kind == 'commit-range' else {}),
-            'project': str(reuse.project), 'head': head, 'files': files,
-            'scope': getattr(reuse.args, 'review_scope', 'working-tree'), 'paths': reuse.paths,
-            'rules': str(reuse.rules), 'rules_head': reuse.git(reuse.rules, 'rev-parse', '--verify', 'HEAD').decode().strip(),
+            'project': str(reuse.project), **binding, 'files': files,
+            'scope': scope, 'paths': reuse.paths,
+            'rules': str(reuse.rules),
             'rules_sha256': reuse.digest(rules_files), 'checker_sha256': reuse.digest(checker_files),
             'python': sys.version,
             'limits': {name: getattr(reuse.args, name, default) for name, default in (
@@ -344,9 +358,10 @@ def _load(
         needs_staging = require_fully_staged and not (
             linked and require_commit_route and command not in {'commit', 'git_commit'}
         )
+        selected = reuse.paths if reuse.before.get('scope') == 'pathspec' else []
         if needs_staging and (
-            reuse.git(reuse.project, 'diff', '--name-only', '-z')
-            or reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z')
+            reuse.git(reuse.project, 'diff', '--name-only', '-z', '--', *selected)
+            or reuse.git(reuse.project, 'ls-files', '--others', '--exclude-standard', '-z', '--', *selected)
         ):
             return None
         cached = reuse.read(reuse.path)

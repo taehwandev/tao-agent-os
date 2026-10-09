@@ -19,6 +19,8 @@ from agent_worktree_fingerprint import git_output
 from agent_review_commit_range import split_integrated_paths
 from agent_route_state import route_fingerprint
 from agent_review_rules_inputs import review_rules_inputs
+from agent_evidence_inputs import EvidenceInputs
+from agent_review_scope_inputs import scoped_review_digest
 
 
 SCHEMA_VERSION = 3
@@ -112,11 +114,7 @@ class ReviewAttestation:
                 "worktree_unchanged": True,
             },
         }
-        if checks.get("review_checks") is not None:
-            payload["review_checks"] = dict(checks["review_checks"])
-        payload["attestation_id"] = _attestation_id(payload)
-        if "review_checks" in payload and _record_shape_failures(payload):
-            raise ValueError("review hook check provenance is invalid")
+        _complete_review_record(payload, checks, project, rules)
         atomic_write_json(ReviewAttestation.path(evidence_path), payload)
         return payload
 
@@ -155,6 +153,23 @@ class ReviewAttestation:
             ledger_fields=ledger_fields,
             ledger_source=ledger_source,
         )
+
+
+def _complete_review_record(payload: dict, checks: dict, project: Path, rules: Path) -> None:
+    """Finish the scoped identity and integrity fields before atomic storage."""
+    if checks.get("review_checks") is not None:
+        payload["review_checks"] = dict(checks["review_checks"])
+    if (payload["review_subject"]["kind"] == "working-tree"
+            and payload["review_scope"].startswith("pathspec:")
+            and payload["review_paths"] and payload["changed_path_count"]):
+        inputs = scoped_review_digest(project, payload["review_paths"], include_index=True)
+        if checks.get("scoped_review_inputs", inputs) != inputs:
+            raise ValueError("reviewed scoped inputs changed before attestation")
+        payload["project_inputs"] = inputs
+        payload["rules_inputs"] = payload.get("rules_inputs") or EvidenceInputs.capture(rules, [])
+    payload["attestation_id"] = _attestation_id(payload)
+    if "review_checks" in payload and _record_shape_failures(payload):
+        raise ValueError("review hook check provenance is invalid")
 
 
 def _validate_record_inputs(
@@ -268,11 +283,19 @@ def _attestation_failures(
     if record["agent_run_id"] != str(preflight.get("agent_run_id") or ""):
         failures.append("review hook attestation run binding is stale or foreign")
     failures.extend(_current_subject_failures(project, record))
-    if project_git != record["project_git"]:
+    try:
+        same_project_inputs = bool(record.get("project_inputs")) and scoped_review_digest(
+            project, record["review_paths"], include_index=True) == record["project_inputs"]
+        current_rules_inputs = None
+        if rules_git != record["rules_git"] and record.get("rules_inputs"):
+            current_rules_inputs = review_rules_inputs(project, rules) or EvidenceInputs.capture(rules, [])
+    except (OSError, RuntimeError, TypeError, ValueError):
+        same_project_inputs, current_rules_inputs = False, None
+    if (project_git != record["project_git"] or record.get("project_inputs")) and not same_project_inputs:
         failures.append("review hook attestation project worktree binding is stale")
     same_rules_inputs = (
         rules_git != record["rules_git"] and bool(record.get("rules_inputs"))
-        and review_rules_inputs(project, rules) == record["rules_inputs"]
+        and current_rules_inputs == record["rules_inputs"]
     )
     if rules_git != record["rules_git"] and not same_rules_inputs:
         failures.append("review hook attestation rules worktree binding is stale")
@@ -490,6 +513,12 @@ def _record_shape_failures(record: dict[str, Any]) -> list[str]:
         "review_subject_fingerprint",
     }
     schema_version = record.get("schema_version")
+    if "project_inputs" in record and schema_version == SCHEMA_VERSION:
+        if (not is_sha256(record["project_inputs"]) or not record.get("review_paths")
+                or not str(record.get("review_scope", "")).startswith("pathspec:")
+                or record.get("review_subject") != {"kind": "working-tree"}):
+            return ["review hook scoped inputs are invalid"]
+        expected_keys.add("project_inputs")
     if "rules_inputs" in record and schema_version == SCHEMA_VERSION:
         if not is_sha256(record["rules_inputs"]):
             return ["review hook rules inputs are invalid"]

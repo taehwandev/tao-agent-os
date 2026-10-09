@@ -55,19 +55,22 @@ because a temporary instruction edit was reverted, keep the canonical restored
 document and regenerate the start/preflight capsule before resuming. Never
 reintroduce stale temporary guidance merely to match an earlier capsule hash.
 
-If an authorized concurrent writer advances `HEAD` or changes a required
-guidance document after startup, treat the capsule mismatch as real stale-input
-evidence rather than reverting the concurrent change. Re-read the current
+If an authorized concurrent writer advances `HEAD`, first check the declared
+review boundary. A current explicit pathspec receipt retains its verification
+when the shared scoped inputs still match; unrelated revision metadata alone
+does not start repair or require a rebase. A changed required guidance document
+or changed reviewed inputs is real stale-input evidence; preserve the concurrent
+change and re-read the current
 required guidance, revalidate the original task against the current worktree,
 regenerate the start/preflight capsule, and resume at the failed checkpoint.
 Record the observed old and current revisions in local evidence; do not weaken
 the capsule hash check or reuse evidence bound to the earlier revision.
 
-The same rule applies when the concurrent change lands after a successful
-Review Hook but before finish: the review attestation is correctly stale. Do
-not weaken or rewrite the attestation. Wait for the writer to settle when
-necessary, re-read the current guidance, refresh start/preflight, rerun the
-affected review, and only then rerun finish.
+The same boundary applies after a successful Review Hook and before finish.
+Preserve a matching scoped attestation; do not replace its shared input check
+with a whole-repository HEAD comparison. If reviewed inputs or required guidance
+changed, refresh their binding and rerun only the affected review before finish.
+Whole-tree and legacy receipts retain their existing exact-state checks.
 
 When the task itself creates the new commit after a successful working-tree
 Review Hook, treat the commit as the changed revision even when no concurrent
