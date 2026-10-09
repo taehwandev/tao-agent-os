@@ -160,6 +160,11 @@ ledger entries. For listed gates:
     scope. The restarted attempt must cite or apply the plan.
 20. Review: after meaningful edits, run the route's review hook and inspect the
     final diff, output, or artifact against the request and risks.
+    Immediately before `review` and `finish`, compare the active preflight's
+    required-document hashes with the current Tao Agent OS files. Refresh
+    with the same `start` request and evidence path before the hook when drift
+    is found; after a hook has already failed on drift, bind that refresh to
+    the verified repair receipt instead of erasing the failed checkpoint.
 21. Retrospective check: when the active route requires it, inspect the skills
     actually used and record the structured result. Ordinary code and bounded
     local changes retain this short check. Stateless lookup and unchanged commit

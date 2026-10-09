@@ -225,6 +225,13 @@ Preserve these conditional dependencies when the task actually changes them:
   `platforms/android/skills/android-external-skill-source-coverage/SKILL.md`
   before edits.
 
+## Latency Claims
+
+Separate tool time and gaps; gaps do not prove causes. Remove proven redundancy.
+Label estimates/partial timings. Compare the same inputs, model, environment
+and checks; dry-run external writes. Claim speedup only from comparable runs.
+Explaining latency needs no new optimization workflow.
+
 ## Output Contract
 
 Report what changed, what was actually verified and remaining risk. A short

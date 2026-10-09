@@ -58,10 +58,8 @@ slow, broad smoke check.
 9. Report reproduction, root cause, changed behavior, observability impact,
    verification, and remaining risk.
 
-After the fix, remove tagged temporary instrumentation and throwaway harnesses,
-rerun the original loop and regression check, and record the architectural gap
-when no correct test seam existed. The final explanation should name the
-confirmed hypothesis so the next diagnosis can start from evidence.
+After the fix, apply the cleanup and rerun above; the final explanation names
+the confirmed hypothesis.
 
 ## Verification
 
