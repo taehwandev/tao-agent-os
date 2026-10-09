@@ -1,5 +1,9 @@
 """Exact Git artifact and index-patch shapes; no execution or admission."""
 
+from __future__ import annotations
+
+from __future__ import annotations
+
 from pathlib import Path
 
 from claude_bash_git import git_command_kind, git_subcommand
