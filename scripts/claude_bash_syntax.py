@@ -392,7 +392,35 @@ def bash_command(payload: dict) -> str:
     if not isinstance(tool_input, dict):
         return ""
     command = tool_input.get("command")
-    return command if isinstance(command, str) else ""
+    return without_commit_message_heredoc(command) if isinstance(command, str) else ""
+
+
+_COMMIT_MESSAGE_HEREDOC = re.compile(
+    r"\A(?P<head>[^\n<>|;&`$()]*\bgit\b[^\n<>|;&`$()]*\bcommit\b[^\n<>|;&`$()]*?)"
+    r"\s*<<-?\s*(?P<quote>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)[ \t]*\n"
+    r"(?P<body>.*?)\n[ \t]*(?P=tag)[ \t]*\n?\Z",
+    re.S,
+)
+_MESSAGE_FROM_STDIN = re.compile(r"(?:^|\s)(?:-F\s*-|--file(?:=|\s+)-)(?=\s|$)")
+
+
+def without_commit_message_heredoc(command: str) -> str:
+    """`git commit -F - <<'EOF' ... EOF` read as the `git commit -F -` it runs.
+
+    The heredoc only feeds git the message on stdin, but it is a redirection,
+    so every reader refused the whole line: a finished run's own commit was
+    "not a lone publication" and an open run's was "effect unknown". The body
+    is data only when the shell cannot expand it -- a quoted delimiter, or an
+    unquoted one over a body with no `$` or backquote -- and only when git is
+    told to read the message from stdin. Anything else is returned unchanged.
+    """
+
+    match = _COMMIT_MESSAGE_HEREDOC.match(command)
+    if not match or not _MESSAGE_FROM_STDIN.search(match.group("head")):
+        return command
+    if not match.group("quote") and re.search(r"[$`]", match.group("body")):
+        return command
+    return match.group("head").strip()
 
 
 def _shell_lines(command: str) -> str | None:

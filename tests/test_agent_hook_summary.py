@@ -610,7 +610,9 @@ class AgentHookSummaryTests(unittest.TestCase):
             self.assertIn("not the start hook result", result.stderr)
 
     def test_invalid_command_surfaces_the_real_argparse_error(self) -> None:
-        for invalid_command in ("code-review", "implement"):
+        # `implement` is now an alias of `build`, so it no longer stands for a
+        # route that does not exist.
+        for invalid_command in ("code-review", "drive"):
             with self.subTest(invalid_command=invalid_command):
                 with tempfile.TemporaryDirectory() as directory:
                     result = subprocess.run(
@@ -653,7 +655,7 @@ class AgentHookSummaryTests(unittest.TestCase):
                     "--rules",
                     str(ROOT),
                     "--command",
-                    "implement",
+                    "drive",
                     "--request",
                     "anything",
                 ],

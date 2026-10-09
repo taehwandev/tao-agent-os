@@ -2190,6 +2190,18 @@ def _fingerprint_hook(parser: argparse.ArgumentParser, args: argparse.Namespace)
     )
 
 
+# Route names agents reach for that are not routes. Each was refused as
+# "unknown route" in a week of transcripts and retried with the name below;
+# only these exact words are mapped, so a typo is still named and refused.
+START_ROUTE_NAME_ALIASES = {
+    "implement": "build",
+    "implementation": "build",
+    "debug": "bugfix",
+    "fix": "bugfix",
+    "git commit": "commit",
+}
+
+
 def _materialize_compact_start_authority(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
@@ -2208,10 +2220,17 @@ def _materialize_compact_start_authority(
     slug, then the next thing.
     """
 
+    args.command = START_ROUTE_NAME_ALIASES.get(args.command, args.command)
     intent = normalize_intent_slug(getattr(args, "intent", ""))
     target = str(getattr(args, "target_summary", "") or "").strip()
     requested = str(getattr(args, "requested_effect", "") or "").strip()
     approved = str(getattr(args, "approved_effect", "") or "").strip()
+    if approved in EFFECT_RANK and EFFECT_RANK[approved] < EFFECT_RANK[APPROVAL_REQUIRED_FROM]:
+        # Nothing below `git_write` consults an approval record, so this one
+        # authorizes nothing and is simply not recorded. Refusing it ended
+        # eight starts in a week over a flag that could not change the result.
+        approved = ""
+        args.approved_effect = None
     prohibited = list(getattr(args, "prohibited_effect", []) or [])
     compact = bool(intent or target or requested or approved or prohibited)
     if not compact:

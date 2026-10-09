@@ -251,7 +251,11 @@ def _checkpoint(value: Any, failures: list) -> None:
     if not isinstance(pending, dict):
         failures.append(failure("invalid_type", "/checkpoint/mutation_pending"))
         return
-    closed_object(pending, PENDING_FIELDS, "/checkpoint/mutation_pending", failures)
+    # `outstanding` appears only while parallel tool calls share one pending.
+    fields = PENDING_FIELDS + (("outstanding",) if "outstanding" in pending else ())
+    closed_object(pending, fields, "/checkpoint/mutation_pending", failures)
+    if "outstanding" in pending:
+        count(pending.get("outstanding"), "/checkpoint/mutation_pending/outstanding", failures)
     enum_value(pending.get("kind"), MUTATION_KINDS, "/checkpoint/mutation_pending/kind", failures)
     items(pending.get("paths"), "/checkpoint/mutation_pending/paths", failures, 64,
           lambda item, pointer: relative_path(item, pointer, failures))

@@ -205,13 +205,26 @@ class ContinuationLockoutTests(unittest.TestCase):
 
     def test_an_open_pending_still_refuses_once_bytes_moved(self) -> None:
         # The negative control for the case above: same open pending, but the
-        # tool did write. That needs reconciliation, not a fresh pending on top.
+        # tool did write. That needs reconciliation, not a fresh pending on top
+        # -- once it is older than a parallel sibling could be.
+        import agent_continuation_checkpoint
+
+        allowed, reason = _decide(self._payload())
+        self.assertTrue(allowed, reason)
+        self.target.write_text("value = 2\n", encoding="utf-8")
+        with patch.object(agent_continuation_checkpoint, "PARALLEL_MUTATION_WINDOW_SECONDS", -1):
+            allowed, reason = _decide(self._payload())
+        self.assertFalse(allowed, "a written-but-unclosed mutation must refuse")
+        self.assertIn("mutation_already_pending", reason)
+
+    def test_a_parallel_sibling_shares_the_open_pending(self) -> None:
+        # Claude runs one response's tool calls together: the second Edit's
+        # pre-mutation lands after the first wrote and before it closed.
         allowed, reason = _decide(self._payload())
         self.assertTrue(allowed, reason)
         self.target.write_text("value = 2\n", encoding="utf-8")
         allowed, reason = _decide(self._payload())
-        self.assertFalse(allowed, "a written-but-unclosed mutation must refuse")
-        self.assertIn("mutation_already_pending", reason)
+        self.assertTrue(allowed, reason)
 
     def test_notebook_edits_declare_their_target(self) -> None:
         # NotebookEdit names its target `notebook_path`. Reading only

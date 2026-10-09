@@ -48,6 +48,9 @@ from agent_state_lock import project_state_lock, state_lock
 CHECKPOINT_KINDS = ("initial", "pre_mutation", "post_mutation", "decision", "lifecycle", "stop", "reconcile")
 PHASE_BY_KIND = {"initial": "scoped", "pre_mutation": "acting", "post_mutation": "acting"}
 ACTIVE_CHECKPOINT_STATES = {"running", "resuming"}
+# How recently a pending mutation must have started to be a parallel sibling
+# of this one rather than a mutation whose close never arrived.
+PARALLEL_MUTATION_WINDOW_SECONDS = 60
 EMPTY_WORK: dict[str, Any] = {
     "objective": "",
     "non_goals": [],
@@ -120,6 +123,7 @@ def write_continuation_checkpoint(
         str((base.get("drift") or {}).get("required_docs_sha256") or "")
         or required_docs_digest(binding_required_docs(binding_payload)),
     )
+    pending = _pending(kind, base, mutation, drift)
     packet = {
         "schema_version": CONTINUATION_SCHEMA_VERSION,
         "storage_class": STORAGE_CLASS,
@@ -136,7 +140,7 @@ def write_continuation_checkpoint(
             "first_unfinished": first_unfinished_checkpoint(
                 binding_path, run_state=str(record.get("state") or "")
             ),
-            "mutation_pending": _pending(kind, base, mutation, drift),
+            "mutation_pending": pending,
         },
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -147,13 +151,7 @@ def write_continuation_checkpoint(
     # inside a declared directory had no boundary to be attributed to and came
     # back as an undeclared changed path. Declaring a directory is exactly the
     # case the boundary map exists for, and it was never reached.
-    baseline = (
-        MutationCheckpointState.capture_baseline(
-            project, [str(path) for path in (mutation or {}).get("paths") or []]
-        )
-        if kind == "pre_mutation"
-        else None
-    )
+    baseline = _baseline_for(project, run_id, kind, base, pending, mutation)
     _write_owned_checkpoint(
         project,
         run_id,
@@ -167,6 +165,48 @@ def write_continuation_checkpoint(
         reconcile=kind == "reconcile",
     )
     return packet
+
+
+def _baseline_for(
+    project: Path,
+    run_id: str,
+    kind: str,
+    base: dict[str, Any],
+    pending: dict[str, Any] | None,
+    mutation: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """The baseline sidecar this checkpoint writes, or None to leave/remove it.
+
+    A fresh bracket captures the project now. A bracket still shared by a
+    running sibling keeps the state from before the first sibling wrote, so
+    every sibling's bytes are compared against the same "before"; it is only
+    re-stamped with the new packet generation, plus the new paths' boundaries.
+    """
+
+    previous = (base.get("checkpoint") or {}).get("mutation_pending")
+    shared = pending is not None and previous is not None and (
+        kind == "post_mutation"
+        or (kind == "pre_mutation" and int(pending.get("outstanding") or 1) > 1)
+    )
+    if not shared:
+        if kind != "pre_mutation":
+            return None
+        return MutationCheckpointState.capture_baseline(
+            project, [str(path) for path in (mutation or {}).get("paths") or []]
+        )
+    kept = MutationCheckpointState._read(project, run_id)
+    if not isinstance(kept.get("states"), dict):
+        raise ContinuationPacketError(
+            [failure("missing_mutation_baseline", "/checkpoint/mutation_pending")]
+        )
+    boundaries = dict(kept.get("path_boundaries") or {})
+    if kind == "pre_mutation":
+        added = MutationCheckpointState.capture_baseline(
+            project, [str(path) for path in (mutation or {}).get("paths") or []]
+        )
+        for key, owner in (added.get("path_boundaries") or {}).items():
+            boundaries.setdefault(key, owner)
+    return {"states": kept["states"], "path_boundaries": boundaries}
 
 
 def _validate_reconciliation(project, rules, record, binding, base, work, phase):
@@ -376,6 +416,40 @@ def _nothing_written_since(previous: dict[str, Any], drift: dict[str, Any]) -> b
     return previous.get("project") == drift["project"]
 
 
+def _in_flight(previous: dict[str, Any]) -> bool:
+    """Whether a pending mutation is a sibling still running, not an abandoned one.
+
+    Claude runs the tool calls of one response together: the second Edit's
+    pre-mutation arrives after the first wrote its bytes and before its
+    post-mutation closed the bracket. Refusing that as "already pending" denied
+    37 of 67 such edits in a week of transcripts. A pending this young is that
+    sibling; an older one is a mutation whose close never came, which still
+    needs reconciliation rather than a new bracket on top.
+    """
+
+    try:
+        started = datetime.fromisoformat(str(previous.get("started_at") or ""))
+    except ValueError:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - started).total_seconds()
+    return 0 <= age <= PARALLEL_MUTATION_WINDOW_SECONDS
+
+
+def _merged_pending(previous: dict[str, Any], mutation: dict[str, Any]) -> dict[str, Any]:
+    """One bracket for parallel siblings: every path, closed by the last post."""
+
+    paths = list(dict.fromkeys([*(previous.get("paths") or []), *(mutation.get("paths") or [])]))
+    kinds = {str(previous.get("kind") or ""), str(mutation.get("kind") or "")}
+    return {
+        **previous,
+        "kind": next(iter(kinds)) if len(kinds) == 1 else "update",
+        "paths": paths,
+        "outstanding": int(previous.get("outstanding") or 1) + 1,
+    }
+
+
 def _pending(
     kind: str,
     base: dict[str, Any],
@@ -388,10 +462,17 @@ def _pending(
     if kind == "post_mutation":
         if previous is None:
             raise ContinuationPacketError([failure("no_pending_mutation", "/checkpoint")])
-        return None
+        remaining = int(previous.get("outstanding") or 1) - 1
+        if remaining <= 0:
+            return None
+        if remaining == 1:
+            return {key: value for key, value in previous.items() if key != "outstanding"}
+        return {**previous, "outstanding": remaining}
     if kind != "pre_mutation":
         return previous
     if previous is not None and not _nothing_written_since(previous, drift):
+        if isinstance(mutation, dict) and _in_flight(previous):
+            return _merged_pending(previous, mutation)
         raise ContinuationPacketError(
             [failure("mutation_already_pending", "/checkpoint/mutation_pending")]
         )

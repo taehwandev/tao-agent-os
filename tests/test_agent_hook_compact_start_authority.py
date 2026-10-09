@@ -144,11 +144,26 @@ class CompactStartAuthorityTests(unittest.TestCase):
                     approval=json.loads(args.approval_record),
                 ))
 
-    def test_an_approval_below_the_threshold_says_what_needs_one(self) -> None:
-        message = self._refusal(command="refactor", approved_effect="local_write")
+    def test_an_approval_below_the_threshold_is_dropped_not_refused(self) -> None:
+        """Nothing below `git_write` reads an approval record, so it changes nothing.
 
-        self.assertIn("--approved-effect local_write is unnecessary", message)
-        self.assertIn("required only from `git_write` up", message)
+        Refusing it ended eight starts in a week over a flag that could not
+        affect the outcome; it is now left unrecorded instead.
+        """
+
+        args = self._materialize(command="refactor", approved_effect="local_write")
+
+        self.assertIsNone(args.approved_effect)
+        self.assertFalse(args.approval_record)
+        self.assertEqual(["local_write"], json.loads(args.intent_envelope)["requested_effects"])
+
+    def test_common_route_words_map_to_their_routes(self) -> None:
+        for word, route in (("implement", "build"), ("debug", "bugfix"), ("fix", "bugfix"),
+                            ("git commit", "commit")):
+            with self.subTest(word=word):
+                approved = "git_write" if route == "commit" else ""
+                args = self._materialize(command=word, approved_effect=approved)
+                self.assertEqual(route, args.command)
 
     def test_an_unknown_route_is_named_not_answered_with_an_approval_demand(self) -> None:
         """Observed: `start --command drive` was refused for `external_write`, so
@@ -262,11 +277,11 @@ class CompactStartAuthorityTests(unittest.TestCase):
         message = self._refusal(
             command="refactor",
             intent="Continue authorized module separation",
-            approved_effect="local_write",
+            runtime_session_id="another-runtime-session",
         )
 
         self.assertIn("^[a-z][a-z0-9_-]{1,40}$", message)
-        self.assertIn("--approved-effect local_write is unnecessary", message)
+        self.assertIn("does not match", message)
 
     def test_hand_built_envelope_keeps_canonical_contract_without_mutation(self) -> None:
         envelope, _ = self._envelope_and_approval()

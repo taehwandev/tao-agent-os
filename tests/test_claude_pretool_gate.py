@@ -4419,6 +4419,37 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
                     self.assertEqual(0, code)
                     self.assertIn("a successful finish", _reason(out))
 
+    def test_finish_lets_its_commit_take_the_message_from_a_quoted_heredoc(self) -> None:
+        """`git commit -F - <<'EOF'` was refused as "not a lone publication".
+
+        The heredoc is a redirection, so the whole line went unread; 30 of 38
+        post-finish publication refusals in a week were this spelling.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            for command in (
+                "git commit -q -F - <<'EOF'\nfix: subject\n\n- body line with $(not run)\nEOF",
+                'git commit -F - <<"MSG"\nsubject\nMSG\n',
+                "git commit -F - <<EOF\nplain subject\nEOF",
+            ):
+                with self.subTest(command=command):
+                    code, out = self._decide(project, command)
+                    self.assertEqual(0, code)
+                    self.assertIn("a successful finish", _reason(out))
+
+    def test_an_expanding_heredoc_is_not_read_as_a_commit_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._finished_project(Path(tmp))
+            for command in (
+                "git commit -F - <<EOF\nsubject $(touch x)\nEOF",
+                "git commit -m s <<'EOF'\nbody\nEOF",
+                "git push origin work <<'EOF'\nx\nEOF",
+            ):
+                with self.subTest(command=command):
+                    _code, out = self._decide(project, command)
+                    self.assertNotIn("a successful finish", _reason(out))
+
     def test_finish_allows_a_publication_chain_with_read_only_followup(self) -> None:
         """Finishing must release the common chained spelling of the same push."""
 

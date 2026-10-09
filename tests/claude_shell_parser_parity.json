@@ -5868,11 +5868,23 @@
      "message",
      "EOF"
     ],
-    "tokens": [],
-    "simple": false,
+    "tokens": [
+     "git",
+     "commit",
+     "-F",
+     "-"
+    ],
+    "simple": true,
     "kind": "mutating",
-    "effect": "unknown",
-    "syntax_segments": null
+    "effect": "mutating",
+    "syntax_segments": [
+     [
+      "git",
+      "commit",
+      "-F",
+      "-"
+     ]
+    ]
    }
   },
   {

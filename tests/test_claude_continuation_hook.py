@@ -214,7 +214,12 @@ class ClaudeMutationAdapterTests(unittest.TestCase):
             (fixture.project / "src" / "module.py").write_text(
                 "value = 2\n", encoding="utf-8"
             )
-            self.assertIn("mutation_already_pending", announce() or "")
+            # Within the parallel window a written pending is a sibling tool
+            # call still running; past it, it is the interrupted write.
+            import agent_continuation_checkpoint
+
+            with patch.object(agent_continuation_checkpoint, "PARALLEL_MUTATION_WINDOW_SECONDS", -1):
+                self.assertIn("mutation_already_pending", announce() or "")
 
 
 class ClaudeSessionResumeTests(unittest.TestCase):
