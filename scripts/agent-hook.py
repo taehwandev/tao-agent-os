@@ -124,6 +124,7 @@ from workflow_effect_policy import (
 from workflow_intent_envelope import (
     EFFECT_RANK,
     EFFECTS,
+    MAX_TARGET_SUMMARY_CHARS,
     SAFE_SLUG_EXAMPLE,
     SAFE_SLUG_PATTERN,
     SCHEMA_VERSION as ENVELOPE_SCHEMA_VERSION,
@@ -269,7 +270,7 @@ def _start_admitted_action(args: argparse.Namespace, continuity: Any, request_in
             args.repair_cycle,
             invocation_error=True,
         )
-    details: list[str] = []
+    details: list[str] = list(getattr(args, "start_notes", []))
     success = False
     committed = False
     refresh_snapshot: dict[Path, bytes | None] = {}
@@ -1245,8 +1246,9 @@ def _register_started_run(
             "earlier runs in this session may still deny edits"
         )
         return True
+    # Settling is not a refusal: this start succeeded. Counting it as a block
+    # put 55 successful starts a week into the recurring-block report.
     if superseded:
-        _learn_start_block("leaked_session_runs")
         details.append(
             f"agent run registry: settled {len(superseded)} superseded run(s) "
             "from this runtime session"
@@ -2222,7 +2224,7 @@ def _materialize_compact_start_authority(
 
     args.command = START_ROUTE_NAME_ALIASES.get(args.command, args.command)
     intent = normalize_intent_slug(getattr(args, "intent", ""))
-    target = str(getattr(args, "target_summary", "") or "").strip()
+    target = _bounded_target_summary(args)
     requested = str(getattr(args, "requested_effect", "") or "").strip()
     approved = str(getattr(args, "approved_effect", "") or "").strip()
     if approved in EFFECT_RANK and EFFECT_RANK[approved] < EFFECT_RANK[APPROVAL_REQUIRED_FROM]:
@@ -2337,6 +2339,31 @@ def _materialize_compact_start_authority(
             separators=(",", ":"),
         )
     _canonicalize_publication_start(parser, args)
+
+
+def _bounded_target_summary(args: argparse.Namespace) -> str:
+    """The target line folded to one line and cut to the envelope's limit.
+
+    The summary is a label for the work card and envelope, not a contract the
+    caller's exact wording has to survive. Refusing an over-long one ended 45
+    starts in a week, each retried with a shorter line saying the same thing.
+    The cut is reported in the start output so the caller sees what was kept.
+    """
+
+    raw = str(getattr(args, "target_summary", "") or "")
+    target = " ".join(raw.split())
+    if len(target) > MAX_TARGET_SUMMARY_CHARS:
+        cut = target[: MAX_TARGET_SUMMARY_CHARS - 1]
+        if " " in cut[MAX_TARGET_SUMMARY_CHARS // 2:]:
+            cut = cut.rsplit(" ", 1)[0]
+        target = cut.rstrip(" ,;:-") + "…"
+    if target != raw.strip():
+        args.start_notes = [
+            *getattr(args, "start_notes", []),
+            f"target summary shortened to {len(target)} characters: {target}",
+        ]
+    args.target_summary = target
+    return target
 
 
 def _start_problem_code(problem: str) -> str:

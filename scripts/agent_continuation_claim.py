@@ -33,10 +33,14 @@ UNMEASURED = "unmeasured"
 # conversation that explains it, so refusing them made the ordinary turn
 # boundary -- the moment Tao itself marks the run `interrupted` -- the end of
 # the run: its own edits are `project_worktree`, its own commit is `head`, and
-# a rules checkout advancing under it is `rules_worktree`. Moved guidance, a
-# half-written mutation, and drift nothing could measure are none of those, and
-# still require explicit reconciliation before the packet is handed back.
-RECONCILABLE_SIGNALS = frozenset({"head", "project_worktree", "rules_worktree"})
+# a rules checkout advancing under it is `rules_worktree`. Moved guidance,
+# `required_docs`, is a rules commit landing between turns: refusing it made
+# every Tao guidance commit end every paused run in every project. It resumes,
+# and the run's required-doc delivery marker is dropped so the gate hands the
+# changed text to the next edit (see `_redeliver_moved_docs`). A half-written
+# mutation and drift nothing could measure still require explicit
+# reconciliation before the packet is handed back.
+RECONCILABLE_SIGNALS = frozenset({"head", "project_worktree", "rules_worktree", "required_docs"})
 
 
 def claim_resume(
@@ -200,6 +204,8 @@ def _commit_claim(
         if resumable and not clean:
             # Returning the objective does not make pre-drift checks reusable.
             packet = {**packet, "work": {**packet["work"], "verification": []}}
+            if "required_docs" in (drift.get("changed_signals") or []):
+                _redeliver_moved_docs(reservation["binding_path"])
         generation = reservation["resume_generation"]
         if not resumable:
             # A refused claim is not a taken claim. The reservation advanced the
@@ -231,6 +237,20 @@ def _commit_claim(
         "phase": packet.get("phase") if resumable else "reconcile_required",
         "packet": packet if resumable else None,
     }
+
+
+def _redeliver_moved_docs(binding_path: Path) -> None:
+    """Let the gate deliver required docs again after their text moved.
+
+    Delivery skips docs whose current text is already in context, so only the
+    moved ones come back. Losing the marker can only repeat a delivery.
+    """
+    from agent_required_doc_delivery import MARKER
+
+    try:
+        (Path(binding_path).parent / MARKER).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _stopped_session_reconciles(

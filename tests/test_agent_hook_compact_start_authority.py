@@ -157,6 +157,27 @@ class CompactStartAuthorityTests(unittest.TestCase):
         self.assertFalse(args.approval_record)
         self.assertEqual(["local_write"], json.loads(args.intent_envelope)["requested_effects"])
 
+    def test_an_over_long_target_summary_is_shortened_not_refused(self) -> None:
+        """Refusing a summary over the envelope limit ended 45 starts in a week."""
+
+        long_target = "bounded work target " + " ".join(f"part{index}" for index in range(80))
+        args = self._materialize(target_summary=long_target + "\nsecond line")
+        envelope = json.loads(args.intent_envelope)
+
+        self.assertEqual([], validate_envelope(envelope))
+        self.assertLessEqual(len(envelope["target_summary"]), 200)
+        self.assertTrue(envelope["target_summary"].startswith("bounded work target part0"))
+        self.assertTrue(envelope["target_summary"].endswith("…"))
+        self.assertEqual(envelope["target_summary"], args.target_summary)
+        self.assertIn(envelope["target_summary"], args.start_notes[0])
+
+    def test_a_target_summary_within_the_limit_is_kept_without_a_note(self) -> None:
+        args = self._materialize()
+
+        self.assertEqual("scripts/agent-hook.py compact start authority",
+                         json.loads(args.intent_envelope)["target_summary"])
+        self.assertFalse(getattr(args, "start_notes", []))
+
     def test_common_route_words_map_to_their_routes(self) -> None:
         for word, route in (("implement", "build"), ("debug", "bugfix"), ("fix", "bugfix"),
                             ("git commit", "commit")):

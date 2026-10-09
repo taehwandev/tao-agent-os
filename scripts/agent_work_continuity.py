@@ -27,6 +27,7 @@ class WorkContinuity:
         self.reason = getattr(args, "reuse_inputs", "")
         self.prior: dict[str, Any] = {}
         self.source: Path | None = None
+        self.dropped = ""
         if not self.source_id:
             if self.reason:
                 raise ValueError("--reuse-inputs requires --continue-from")
@@ -36,11 +37,35 @@ class WorkContinuity:
         self.source = args.project.resolve() / ".tao" / "runs" / self.source_id / "preflight.json"
         if self.source.resolve() != self.source:
             raise ValueError("continuation source escapes its run directory")
-        self.prior = self._read(self.source)
-        registry = self._read(args.project / ".tao" / "run-registry.json")
+        unusable = self._unusable_source(args)
+        if unusable:
+            # Continuation only links this action to earlier work; it grants
+            # nothing. A source that cannot be inherited (cancelled, another
+            # checkout's or session's, never registered here) leaves the new
+            # action exactly where a start without the option would. Refusing
+            # instead ended 35 starts in a week, each retried without it.
+            self.dropped = f"--continue-from {self.source_id} not used: {unusable}"
+            self.source_id, self.reason, self.prior, self.source = "", "", {}, None
+            return
+        if self.prior.get("rules") != str(args.rules.resolve()):
+            raise ValueError(
+                "continuation rules root differs; retry with "
+                f"--rules {self.prior.get('rules')}. Project instructions are not the runtime rules root."
+            )
+        if getattr(args, "evidence", None) and args.evidence.resolve() == self.source:
+            raise ValueError("continuation keeps source evidence immutable; omit --evidence")
+
+    def _unusable_source(self, args: Any) -> str:
+        """Why the named run cannot be inherited by this action, or ''."""
+        try:
+            self.prior = self._read(self.source)
+        except FileNotFoundError:
+            return "no such run in this checkout; started as new work"
+        registry_path = args.project / ".tao" / "run-registry.json"
+        registry = self._read(registry_path) if registry_path.exists() else {}
         records = [run for run in registry.get("runs", []) if run.get("run_id") == self.source_id]
         if len(records) != 1 or records[0].get("state") not in {"completed", "running", "blocked", "interrupted"}:
-            raise ValueError("continuation requires one retained, non-cancelled work record")
+            return "it is cancelled or not retained; started as new work with no carried evidence"
         # A resumed source records its resume generation beside the session;
         # it is still this session's work, so compare the session, not the dict.
         session = runtime_session()
@@ -50,17 +75,16 @@ class WorkContinuity:
                 or self.prior.get("project") != str(args.project.resolve())
                 or self.prior.get("agent_run_id") != self.source_id
                 or records[0].get("evidence_name", "preflight.json") != "preflight.json"):
-            raise ValueError("continuation project, rules, session or registered source differs")
-        if self.prior.get("rules") != str(args.rules.resolve()):
-            raise ValueError(
-                "continuation rules root differs; retry with "
-                f"--rules {self.prior.get('rules')}. Project instructions are not the runtime rules root."
-            )
-        if getattr(args, "evidence", None) and args.evidence.resolve() == self.source:
-            raise ValueError("continuation keeps source evidence immutable; omit --evidence")
+            return ("it belongs to another session, checkout or evidence path; "
+                    "started as new work with no carried evidence")
+        return ""
 
     def apply(self, evidence: Path, *, retained_work: dict[str, Any] | None = None) -> list[str]:
         """Run after current action admission; old permissions are never imported."""
+        details = [self.dropped] if self.dropped else []
+        return details + self._apply(evidence, retained_work=retained_work)
+
+    def _apply(self, evidence: Path, *, retained_work: dict[str, Any] | None = None) -> list[str]:
         from agent_hook_gate_records import _gate_progress, record_hook_gate_batch
 
         if not self.source_id and not re.fullmatch(r"[0-9a-f]{32}", evidence.parent.name):

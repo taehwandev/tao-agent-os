@@ -257,8 +257,14 @@ class WorkContinuityTests(unittest.TestCase):
                 session="a-different-session",
             )
 
-            self.assertEqual(1, follow.returncode)
-            self.assertIn("session or registered source differs", follow.stdout)
+            # Continuation grants nothing, so the start is not refused: the
+            # other session's run is simply not inherited, and its gate stays
+            # with it.
+            self.assertEqual(0, follow.returncode, follow.stdout)
+            self.assertIn(f"--continue-from {run_id(first)} not used: it belongs to another session",
+                          follow.stdout)
+            self.assertNotIn("Carried local gates", follow.stdout)
+            self.assertNotIn(f"work id: {run_id(first)}", follow.stdout)
 
 
 class NestedWorktreeContinuityTests(unittest.TestCase):

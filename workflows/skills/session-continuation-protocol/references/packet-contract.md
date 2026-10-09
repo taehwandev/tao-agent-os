@@ -381,7 +381,7 @@ Stable result codes:
 | `not_found` | no unfinished packet in this checkout, or the named run is not one | none |
 | `live_owner_refused` | existing owner still holds the run | none |
 | `owner_unproven_wait` | timestamp fallback has not expired | none |
-| `drift_refused` | HEAD, worktree, rules, required docs, or pending-mutation state mismatch | `reconcile_required` |
+| `drift_refused` | HEAD, worktree, rules, required docs, or pending-mutation state mismatch; for the session resuming its own stopped run, only a pending mutation or unmeasurable drift | `reconcile_required` |
 | `invalid_packet` | containment, schema, binding, or integrity failure | none |
 | `local_boundary_failed` | ignored/local-only or filesystem boundary is not proven | none |
 | `claim_lost` | owner or generation changed during validation | none |

@@ -140,17 +140,40 @@ class WorkContinuityTests(unittest.TestCase):
         WorkContinuity(self.target).apply(self.target.evidence, retained_work=identity)
         self.assertEqual(identity, json.loads(self.target.evidence.read_text())["work"])
 
-    def test_cancelled_foreign_or_mutating_source_refused(self):
+    def assert_started_as_new_work(self, continuation, reason):
+        self.assertIn(reason, continuation.dropped)
+        details = continuation.apply(self.target.evidence)
+        self.assertTrue(details[0].startswith(f"--continue-from {self.source_id} not used: "))
+        self.assertEqual(self.target_id, json.loads(self.target.evidence.read_text())["work"]["id"])
+        self.assertNotIn("tests", self.passed())
+
+    def test_cancelled_or_foreign_source_starts_new_work_without_inheriting(self):
+        # Continuation grants nothing, so a source that cannot be inherited is
+        # dropped with a note instead of ending the start: the action is then
+        # exactly a start without the option, carrying no gate or identity.
+        self.record_source()
         with patch("agent_work_continuity.runtime_session", return_value={"runtime": "codex", "session_id": "other"}):
             self.target.continue_from = self.source_id
-            with self.assertRaisesRegex(ValueError, "differs"):
-                WorkContinuity(self.target)
+            self.target.reuse_inputs = "Same inputs"
+            self.assert_started_as_new_work(WorkContinuity(self.target), "another session")
+        gate_evidence_path_for_preflight(self.target.evidence).unlink(missing_ok=True)
         path = self.project / ".tao" / "run-registry.json"
         registry = json.loads(path.read_text())
         registry["runs"][0]["state"] = "cancelled"
         path.write_text(json.dumps(registry))
-        with self.assertRaisesRegex(ValueError, "non-cancelled"):
-            self.continuation()
+        self.assert_started_as_new_work(self.continuation(), "cancelled")
+
+    def test_run_missing_from_this_checkout_starts_new_work(self):
+        self.target.continue_from = "f" * 32
+        self.target.reuse_inputs = ""
+        continuation = WorkContinuity(self.target)
+        self.assertIn("no such run in this checkout", continuation.dropped)
+        self.assertEqual("", continuation.source_id)
+
+    def test_malformed_run_id_is_still_refused(self):
+        self.target.continue_from = "not-a-run"
+        with self.assertRaisesRegex(ValueError, "registered run id"):
+            WorkContinuity(self.target)
 
     def test_wrong_rules_root_names_exact_recovery_without_admitting_the_action(self):
         self.target.rules = self.project
@@ -165,9 +188,9 @@ class WorkContinuityTests(unittest.TestCase):
         self.target.rules = self.project
         self.target.continue_from = self.source_id
         with patch("agent_work_continuity.runtime_session", return_value={"runtime": "codex", "session_id": "other"}):
-            with self.assertRaises(ValueError) as caught:
-                WorkContinuity(self.target)
-        self.assertNotIn("--rules", str(caught.exception))
+            continuation = WorkContinuity(self.target)
+        self.assertIn("another session", continuation.dropped)
+        self.assertNotIn("--rules", continuation.dropped)
 
     def test_resumed_source_is_still_this_sessions_work(self):
         # A resume re-stamps the source binding with its generation. The same
@@ -191,8 +214,7 @@ class WorkContinuityTests(unittest.TestCase):
                 run["resume_generation"] = 2
         path.write_text(json.dumps(registry))
         with patch("agent_work_continuity.runtime_session", return_value=session):
-            with self.assertRaisesRegex(ValueError, "differs"):
-                WorkContinuity(self.target)
+            self.assertIn("another session", WorkContinuity(self.target).dropped)
 
     def test_admission_race_does_not_copy_or_overwrite_source(self):
         self.record_source()

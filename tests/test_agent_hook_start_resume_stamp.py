@@ -45,6 +45,28 @@ class StartResumeStampTests(unittest.TestCase):
             recorded = json.loads(evidence.read_text(encoding="utf-8"))
             self.assertEqual(1, recorded["runtime_session"]["resume_generation"])
 
+    def test_settling_superseded_runs_is_reported_but_not_counted_as_a_block(self) -> None:
+        # The start succeeded; recording it as a block put 55 successful
+        # starts a week into the recurring-block report.
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            evidence = project / ".tao" / "runs" / ("a" * 32) / "preflight.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text(json.dumps({"route": {"command": "bugfix"}}), encoding="utf-8")
+            args = Namespace(project=project, rules=ROOT, evidence=evidence)
+            details: list[str] = []
+
+            with (
+                patch.object(agent_hook, "resync_gate_evidence_ledger"),
+                patch.object(agent_hook, "register_run", return_value={"run_id": "a" * 32, "state": "running"}),
+                patch.object(agent_hook, "settle_superseded_session_runs", return_value=["b" * 32]),
+                patch.object(agent_hook, "_learn_start_block") as learned,
+            ):
+                self.assertTrue(agent_hook._register_started_run(args, details, {"run_id": "a" * 32}))
+
+            learned.assert_not_called()
+            self.assertIn("agent run registry: settled 1 superseded run(s) from this runtime session", details)
+
 
 if __name__ == "__main__":
     unittest.main()

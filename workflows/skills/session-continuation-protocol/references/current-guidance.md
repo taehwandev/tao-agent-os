@@ -58,7 +58,11 @@ For implemented lifecycle-v2 runs, Stop refreshes a valid packet's measured
 HEAD/worktree baseline when no mutation is pending and required guidance is
 unchanged. It clears saved verification when bytes moved, without completing
 gates or granting publication. Same-session resume that accepts later byte
-movement also returns no pre-drift verification successes.
+movement also returns no pre-drift verification successes. It also accepts
+required guidance a rules commit moved between turns: the run's required-doc
+delivery is reset so the moved text reaches the next edit, and finish still
+demands the documentation receipt for each moved doc. A pending mutation or
+unmeasurable drift still refuses.
 
 An owned `reconcile_required` run has an explicit recovery command:
 `checkpoint --checkpoint-kind reconcile --phase acting --work-file <path>`, with the

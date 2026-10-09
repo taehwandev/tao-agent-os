@@ -286,6 +286,53 @@ class RunInterruptionTests(unittest.TestCase):
             self.assertEqual([], result['packet']['work']['verification'])
             self.assertEqual('running', run.state())
 
+    def test_stopped_session_resumes_over_moved_guidance_and_gets_it_again(self):
+        """A rules commit between turns moved a required doc's text.
+
+        That used to refuse every paused run in every project bound to those
+        rules. The session resumes, and its delivery marker is dropped so the
+        gate hands the moved text to the next edit.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint('acting', verification=self.prior_verification)
+            run.stop()
+            marker = run.evidence.parent / 'required-docs-delivered.json'
+            marker.write_text('{"delivered": []}')
+            moved = {'status': 'drift_refused', 'changed_signals': ['required_docs'],
+                     'affected_paths': ['guidance.md'], 'pending_state': None, 'phase': 'reconcile_required'}
+
+            with (patch('agent_continuation_claim.runtime_session', return_value=run.session),
+                  patch('agent_continuation_claim.verify_drift', return_value=moved)):
+                result = claim_resume(run.project, run.run['run_id'], expected_generation=0)
+
+            self.assertEqual('ready', result['result'])
+            self.assertEqual(['required_docs'], result['changed_signals'])
+            self.assertEqual(['guidance.md'], result['affected_paths'])
+            self.assertEqual([], result['packet']['work']['verification'])
+            self.assertFalse(marker.exists())
+            self.assertEqual('running', run.state())
+
+    def test_moved_guidance_with_a_half_written_mutation_still_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Run(directory, packet=True)
+            run.checkpoint('acting')
+            run.stop()
+            marker = run.evidence.parent / 'required-docs-delivered.json'
+            marker.write_text('{"delivered": []}')
+            moved = {'status': 'drift_refused', 'changed_signals': ['required_docs', 'pending_mutation'],
+                     'affected_paths': ['guidance.md'], 'pending_state': 'pending_changed',
+                     'phase': 'reconcile_required'}
+
+            with (patch('agent_continuation_claim.runtime_session', return_value=run.session),
+                  patch('agent_continuation_claim.verify_drift', return_value=moved)):
+                result = claim_resume(run.project, run.run['run_id'], expected_generation=0)
+
+            self.assertEqual('drift_refused', result['result'])
+            self.assertTrue(marker.exists())
+            self.assertEqual('reconcile_required', run.state())
+
     def test_unmeasurable_drift_still_refuses_and_returns_the_claim(self):
         with tempfile.TemporaryDirectory() as directory:
             run = Run(directory, packet=True)
