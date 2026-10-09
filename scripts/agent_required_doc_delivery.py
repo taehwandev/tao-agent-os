@@ -240,15 +240,41 @@ def _tool_events(row: dict, texts: dict[str, list[str]]):
 
 def _result_text(content) -> str:
     if isinstance(content, str):
+        if content.startswith("Script running"):
+            return ""
+        if content.startswith("Script completed\n"):
+            header = re.match(r"Script completed\nWall time [\d.]+ seconds\nOutput:\n", content)
+            if header is None:
+                return ""
+            content = content[header.end():]
         try:
             decoded = json.loads(content)
         except ValueError:
-            return content
+            # functions.exec's text() items can be adjacent JSON values rather
+            # than one array. Require the entire stream; never credit a valid
+            # prefix of a truncated or otherwise malformed result.
+            remaining, items = content.lstrip(), []
+            if not remaining.startswith(("{", "[")):
+                return content
+            decoder = json.JSONDecoder()
+            try:
+                while remaining:
+                    item, end = decoder.raw_decode(remaining)
+                    if not isinstance(item, (dict, list)):
+                        return ""
+                    items.append(item)
+                    remaining = remaining[end:].lstrip()
+            except ValueError:
+                return ""
+            decoded = items
         if not isinstance(decoded, (dict, list)):
             return content
         content = decoded
     if isinstance(content, dict):
-        if content.get("exit_code") not in (None, 0) or content.get("is_error") or content.get("isError"):
+        if (content.get("exit_code") not in (None, 0) or content.get("is_error")
+                or content.get("isError")
+                or content.get("status") in ("rejected", "failed", "cancelled", "pending", "running", "in_progress")
+                or ("session_id" in content and content.get("exit_code") is None)):
             return ""
         for key in ("stdout", "output", "text", "content", "result", "value"):
             if key in content:

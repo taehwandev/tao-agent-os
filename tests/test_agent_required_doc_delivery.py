@@ -260,6 +260,61 @@ class DeliveryTests(unittest.TestCase):
         ])
         self.assertIn(f"=== {CORE} ===", self._deliver())
 
+    def _orchestrated_read(self, output: str) -> str:
+        (self.evidence.parent / MARKER).unlink(missing_ok=True)
+        self._transcript(rows=[
+            {"type": "response_item", "payload": {
+                "type": "custom_tool_call", "call_id": "r1", "name": "functions.exec",
+                "input": f'const r = await tools.exec_command({{cmd:"cat {self.rules}/{CORE} {self.rules}/{OTHER}"}}); text(r);'}},
+            {"type": "response_item", "payload": {
+                "type": "custom_tool_call_output", "call_id": "r1", "output": output},
+             "timestamp": "2099-01-01T00:00:00Z"},
+        ])
+        return self._deliver()
+
+    def test_orchestration_json_items_preserve_complete_reads(self) -> None:
+        items = [json.dumps({"i": i, "result": {"status": "fulfilled", "value": {
+            "output": (self.rules / doc).read_text(), "exit_code": 0}}})
+                 for i, doc in enumerate((CORE, OTHER))]
+        for output in ("".join(items), "\n".join(items),
+                       "Script completed\nWall time 0.3 seconds\nOutput:\n" + "".join(items)):
+            with self.subTest(output=output):
+                self.assertEqual("", self._orchestrated_read(output))
+
+    def test_orchestration_failed_and_incomplete_results_stay_unread(self) -> None:
+        first = json.dumps({"output": (self.rules / CORE).read_text(), "exit_code": 0})
+        second = {"output": (self.rules / OTHER).read_text(), "exit_code": 0}
+        for output in (first + json.dumps(second)[:-1], first + " trailing noise",
+                       "Script running with cell ID 1\nOutput:\n" + first + json.dumps(second),
+                       "Script completed\nOutput:\n" + first + json.dumps(second),
+                       first + json.dumps({**second, "exit_code": 1})):
+            with self.subTest(output=output):
+                self.assertIn(f"=== {OTHER} ===", self._orchestrated_read(output))
+
+        raw_pending = "Script running with cell ID 1\nOutput:\n" + (self.rules / OTHER).read_text()
+        self.assertIn(f"=== {OTHER} ===", self._orchestrated_read(raw_pending))
+
+    def test_orchestration_does_not_credit_a_rejected_nested_result(self) -> None:
+        output = json.dumps({"result": {"status": "rejected", "value": {
+            "output": (self.rules / CORE).read_text(), "exit_code": 0}}})
+        self.assertIn(f"=== {CORE} ===", self._orchestrated_read(output))
+
+    def test_orchestration_completed_sibling_does_not_credit_pending_command(self) -> None:
+        first = json.dumps({"output": (self.rules / CORE).read_text(), "exit_code": 0})
+        body = (self.rules / OTHER).read_text()
+        for pending in ({"output": body, "session_id": 42},
+                        {"output": body, "session_id": 42, "exit_code": None},
+                        *({"output": body, "status": status}
+                          for status in ("pending", "running", "in_progress"))):
+            with self.subTest(pending=pending):
+                output = first + json.dumps({"result": {"status": "fulfilled", "value": pending}})
+                delivered = self._orchestrated_read(output)
+                self.assertNotIn(f"=== {CORE} ===", delivered)
+                self.assertIn(f"=== {OTHER} ===", delivered)
+
+        completed = first + json.dumps({"output": body, "session_id": 42, "exit_code": 0})
+        self.assertEqual("", self._orchestrated_read(completed))
+
     def test_codex_wrappers_preserve_text_and_failed_commands_stay_unread(self) -> None:
         body = (self.rules / CORE).read_text()
         for output, read in (

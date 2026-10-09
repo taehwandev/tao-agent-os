@@ -1066,3 +1066,67 @@ scope/staging/byte/rules/authority controls and a public gate negative control
 using the former classifier. Workflow validation passed **196 references,
 413 Markdown frontmatter/link checks and 28 route contracts**. This is focused
 verification, not the full Tao suite or a replayed end-to-end desktop task.
+
+### Audit: 2026-10-09, Worktree And Codex Latency
+
+Source baseline: `a6f124bed7421e4489eedf4304f385dcc3500155`. Environment:
+Python 3.9.6, Git 2.54.0, macOS 27.0.1 arm64. The offline comparison replays
+the exact approval-setup patch from `22c1ea9fdae901bb23540193c84a8c2579db6e7f`
+to `63f6c1d05f3a76e984f3d95961a51066b6564db1`, using a branch in one checkout
+or a linked worktree. Each of five alternating pairs starts from independent
+fixtures containing all 1,036 baseline tracked members, including five safe
+relative symlinks. Both variants apply the same patch, run the same 35 tests,
+commit, and integrate fixture main; their final tracked contents must match.
+
+| Phase | One checkout, median | Linked worktree, median |
+| --- | ---: | ---: |
+| Branch or worktree preparation | 13.87 ms | 199.71 ms |
+| Apply frozen patch | 10.98 ms | 11.66 ms |
+| Focused tests | 727.95 ms | 698.51 ms |
+| Commit | 54.20 ms | 101.58 ms |
+| Integrate fixture main | 44.50 ms | 22.78 ms |
+| Complete local task | 846.30 ms | 1,076.18 ms |
+
+The median **paired** total difference is +199.26 ms for worktrees; the largest
+of five paired differences is +367.61 ms. Subtracting the two total medians
+gives a different statistic, and phase medians do not sum to a total median.
+The tests' apparent advantage in worktrees is timing variation, not a claimed
+speedup. Archive/patch preparation (179.32 ms once) and common fixture setup
+(about 2.02 seconds per variant) are recorded separately and excluded from
+task totals. Fixtures isolate HOME/XDG/TMP/Git settings and use their own empty
+hooks directory; live hooks and policies remain unchanged.
+
+Reproduce with `python3 -B tests/benchmarks/worktree_latency.py --pairs 5`.
+Raw samples, metadata, patch/content digests and parity checks are written to
+ignored `.tao/performance/worktree-latency.json`. This measures local commands
+with warm OS caches. Applying a frozen patch replaces model implementation;
+model inference, tool transport, approvals, dependency installation, build
+cache recreation, live hooks, concurrent main changes and fixture cleanup
+are outside the comparison. There is no end-to-end Codex speedup estimate.
+
+| ID | Priority / check | Evidence and expected behavior | Owner / proving check / disposition |
+| --- | --- | --- | --- |
+| F22 | Medium / H07, H10 | Identical local work adds roughly 0.20 seconds through linked worktrees in this corpus. This does not explain minute-scale latency or price the cost of rebuilding dependencies. | [Offline benchmark](tests/benchmarks/worktree_latency.py). All ten fixtures matched exact patch, test counts, tracked content and main integration; 350 test cases passed. Keep required isolation; measure environment setup separately before changing it. |
+| F23 | High / H02, H09 | `functions.exec` can print adjacent serialized JSON results. The delivery reader treated the whole stream as plain escaped text, missing complete reads and requesting them again. A synthetic replay of this run's 19 current required docs marked all 162,772 bytes unread and rendered a 25,879-byte notice. | [Delivery reader](scripts/agent_required_doc_delivery.py), [regressions](tests/test_agent_required_doc_delivery.py). Decode complete structured result streams and the completed orchestration envelope. The same replay now recognizes all 19 docs and renders no notice. Failed, rejected, pending, malformed and truncated results remain unconfirmed; compaction and current-content checks remain. |
+| F24 | Medium / H06, H10 | A separate TaoIDE trace lasted 3,268.17 seconds. Its 24 recorded lifecycle hooks total 26.26 seconds; non-overlapping wall categories contain 263.83 seconds of escalation observation, 759.84 seconds of Gradle observation, 52.30 seconds of other foreground tools and 2,192.20 seconds uncovered. | Existing [stage timing](scripts/support/stage_timing.py) and that run's ignored latency timeline. Hook totals overlap tool windows and must not be added to them. Escalation windows do not prove a visible dialog or human waiting. Uncovered time is unclassified, not proven model inference. This is another workload, not the approval patch or a controlled worktree comparison. |
+
+The document replay uses synthetic read evidence, not a real transcript.
+Its local scan median increases from 1.38 to 3.20 ms across 100 warm scans:
+the repair saves redundant delivery and potential rereading, not scanner CPU
+time. A worker also received a duplicate document notice after a ready handoff;
+the canonical reuse contract permitted continuing without another reading.
+That observation alone does not prove the worker's notice has the same parser
+cause. Do not turn these byte savings into an elapsed-time or token estimate.
+
+Prioritize proven duplicate reading, avoidable approval/recovery round trips,
+and repeated environment preparation before weakening worktree isolation.
+Retain one task checkout across a continuation and reuse valid evidence under
+the existing contracts. Publication/lifecycle corrections owned by the
+concurrent latency audit are outside this change.
+
+Verification: **73 tests passed**, exit `0`, with `python3 -B -m unittest`
+over `tests.test_agent_required_doc_delivery`, `tests.test_agent_required_doc_reuse`
+and `tests.test_support_stage_timing`. The orchestration regressions failed
+before repair; the final suite also confirms a successful sibling counts while
+a nested pending command remains unread. These are focused checks, not the
+full Tao suite or a controlled pair of model sessions.
