@@ -11,6 +11,7 @@ from support.permission_entries import (
     claude_permission_entries,
 )
 from support.claude_agent_setup import install_claude_agents
+from support.claude_ask_override_notice import notice_claude_ask_overrides
 from support.claude_continuation_setup import configure_claude_continuation
 from support.runtime_bridge import (
     merge_runtime_bridge,
@@ -137,6 +138,7 @@ def configure_claude(
 
     status = _set_claude_env(target, dry_run) if spill_available else _remove_claude_env(target, dry_run)
     results.append({"tool": "claude", "hook": "env.SPILL_AI_TOOL", "status": status, "path": str(target)})
+    notice_claude_ask_overrides(target)
     return results
 
 

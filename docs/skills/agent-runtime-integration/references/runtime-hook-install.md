@@ -118,6 +118,12 @@ Codex ownership rules; frontmatter must open the file, so the marker is a YAML
 comment on line two. Roles use `model: inherit`; explorer and reviewer set
 `disallowedTools: Edit, Write, NotebookEdit` and keep Bash read-only by
 instruction. Load them in a new session; pick one by `subagent_type`.
+Claude still applies settings `ask` rules after a PreToolUse hook allows a
+call, so a user `ask` rule naming a Git subcommand the gate approves as
+ordinary (for example `Bash(git -C * rebase *)`) re-prompts it inside a task
+worktree, and no allow rule cancels it. Claude setup, including `--check`,
+prints a stderr notice listing such rules in `~/.claude/settings.json`; it never
+edits them or fails because of them (`scripts/support/claude_ask_override_notice.py`).
 
 The same stable launcher exposes `agent-mailbox` for all configured runtimes.
 Setup adds that entrypoint to the managed narrow permission surface and
