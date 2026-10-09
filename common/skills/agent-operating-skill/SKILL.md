@@ -13,8 +13,9 @@ Use when routed here or when Tao operating guidance applies.
 All Tao runtimes; catalogs do not expand scope.
 
 1. Keep outcome, target and authority; no repeated approval or redesign. Read
-   instructions, required_docs and safety/check dependencies. Resolve isolation
-   and branch before setup/edit; reuse the worktree. Read-only needs no setup.
+   instructions, required_docs and safety/check dependencies. Resolve
+   isolation/branch before the first edit, not at commit/PR; reuse a bound
+   worktree. Read-only needs no setup.
 2. Start unresolved in-scope decisions at the owner/nearest test. Expand for
    missing/conflicting evidence, applicable rules or failures. Empty searches
    need a new lead.
@@ -65,8 +66,7 @@ stay inline.
 
 Use manifest fields and hook results. Hooks own mechanical admission/checks;
 agents own scope, truthful evidence and next action. Do not duplicate checks or
-read validators preemptively. Read required instructions before acting; open
-references only for unresolved decisions.
+read validators preemptively; reading follows the contract above.
 
 ## Read
 
