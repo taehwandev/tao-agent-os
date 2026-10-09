@@ -327,6 +327,9 @@ DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60
 # files count, so doc/content work (e.g. a writing workspace full of .md drafts)
 # is never blocked.
 DEFAULT_NEW_FILE_BUDGET = 20
+# A session's own runs that are unfinished but not active: paused by a turn
+# boundary, or left by a failed finish. Each is resumed, not restarted.
+RESUMABLE_SESSION_RUN_STATES = frozenset({"interrupted", "blocked", "failed"})
 ORDINARY_GIT_SUBCOMMANDS = frozenset(
     {
         "add",
@@ -764,8 +767,8 @@ def paused_run_reason(
     refusal = _RESUME_REFUSALS.get(run_id)
     if refusal:
         return (
-            f"Tao Agent OS: this session's run {run_id} was paused when the last "
-            f"turn ended, and resuming it automatically was refused: {refusal}. "
+            f"Tao Agent OS: this session's run {run_id} was paused when its turn "
+            f"ended or its finish failed, and resuming it automatically was refused: {refusal}. "
             f"Approve to continue {action} without that run, or reconcile it with "
             f"`{launcher} checkpoint --checkpoint-kind reconcile --phase acting "
             f"--work-stdin` and `{launcher} resume --last --run-id {run_id} "
@@ -776,8 +779,8 @@ def paused_run_reason(
             f"{governed_because(root, cwd_roots)}"
         )
     return (
-        f"Tao Agent OS: this session's run {run_id} was paused when the last turn "
-        f"ended, so it no longer covers {action}. To continue that task run "
+        f"Tao Agent OS: this session's run {run_id} was paused when its turn ended "
+        f"or its finish failed, so it no longer covers {action}. To continue that task run "
         f"`{launcher} resume --last --run-id {run_id} --project {root} --rules "
         f"<TAO_ROOT>`, then {retry}; a new start would supersede the paused run "
         f"and drop its gates. For unrelated new work, run `{launcher} start "
@@ -965,11 +968,56 @@ def entry_denial(
             finished_publication_denial(root, session_id, command, command_cwd),
             "publication_after_finish_mismatch",
         )
-    paused = paused_session_evidence(root, session_id) is not None
+    paused_evidence = paused_session_evidence(root, session_id)
+    # A turn-paused run whose resume was refused is the operator's call. A
+    # failed finish's run is not: it never passed, so when it cannot be
+    # resumed the call stays refused rather than falling to allow rules.
+    paused = paused_evidence is not None and paused_evidence != _failed_session_evidence(
+        root, session_id
+    )
     return deny_or_ask(
-        deny_reason(root, session_id, tool, cwd_roots) + suffix,
+        deny_reason(root, session_id, tool, cwd_roots) + suffix + _start_after_write_note(command),
         "paused_run_refused" if paused else "workflow_entry_missing",
         payload,
+    )
+
+
+def _failed_session_evidence(root: Path, session_id: str) -> Path | None:
+    reader = _run_evidence_reader() if session_id else None
+    if reader is None:
+        return None
+    return reader.resolve_runtime_evidence(
+        root,
+        {"runtime": runtime_name(), "session_id": session_id},
+        frozenset({"failed"}),
+        latest_of_several=True,
+    )
+
+
+_WORKFLOW_START_WORD = re.compile(r"(?:tao-hook|agent-hook\.py[\"']?)\s+start\b")
+
+
+def _start_after_write_note(command: str) -> str:
+    """Say why `git add ...; tao-hook start ...` is refused although it starts.
+
+    The gate judges the whole line before any of it runs, so the write in front
+    is checked while no run exists yet. Every such line in a week of
+    transcripts was a commit step chained ahead of its own start.
+    """
+
+    match = _WORKFLOW_START_WORD.search(command)
+    if not match:
+        return ""
+    # Everything before the word that holds the launcher path, minus leading
+    # `NAME=value` assignments, which run nothing.
+    before = re.sub(r"\S*$", "", command[: match.start()])
+    before = re.sub(r"^(?:\s*[A-Za-z_][A-Za-z0-9_]*=\S*)*", "", before)
+    if not before.strip(" \t\n;&|"):
+        return ""
+    return (
+        " This line runs the workflow start after other commands, and the whole "
+        "line is judged before any of it runs, so those commands are checked with "
+        "no run yet. Run the start on its own first, then the rest."
     )
 
 
@@ -1011,6 +1059,11 @@ def paused_session_evidence(root: Path, session_id: str) -> Path | None:
     The Stop hook moves an open run to `interrupted` when a turn ends, so the
     next turn's first edit finds no active binding although the run is intact.
     Only the session's own paused runs count, and the newest wins.
+
+    A failed finish leaves `failed` the same way: finish records a resumable
+    checkpoint first, and the fix it asks for is an edit to this run. Leaving
+    `failed` out denied that repair as "no workflow entry", and the agent
+    started a second run for its own unfinished work.
     """
 
     if not session_id:
@@ -1021,7 +1074,7 @@ def paused_session_evidence(root: Path, session_id: str) -> Path | None:
     return reader.resolve_runtime_evidence(
         root,
         {"runtime": runtime_name(), "session_id": session_id},
-        frozenset({"interrupted", "blocked"}),
+        RESUMABLE_SESSION_RUN_STATES,
         latest_of_several=True,
     )
 

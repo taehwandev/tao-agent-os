@@ -19,6 +19,10 @@ from agent_run_registry import read_registry_state, registry_path, resume_holder
 from agent_state_lock import project_state_lock, state_lock
 FREE_HOLDER_STATES = ("dead_proven", "unproven_expired", "same_session_stopped")
 TERMINAL_RUN_STATES = ("completed", "cancelled")
+# Unfinished runs whose own session may reclaim them while its process lives:
+# paused by a turn boundary, or left by a failed finish, which records its
+# resumable checkpoint before it marks the run failed.
+STOPPED_RUN_STATES = frozenset({"blocked", "interrupted", "failed"})
 HOLDER_REFUSALS = {"live": "live_owner_refused", "unproven_wait": "owner_unproven_wait"}
 # Drift that could not be measured at all. It is a signal rather than a bare
 # `project_worktree` so that the reconciliation below can never mistake "the
@@ -95,7 +99,7 @@ def _reserve(
         version = (binding.get("route") or {}).get("lifecycle_version", 1)
         if type(version) is not int or version not in (1, 2):
             return _refusal("unsupported_lifecycle", run_id)
-        stopped = run.get("state") in {"blocked", "interrupted"}
+        stopped = run.get("state") in STOPPED_RUN_STATES
         if stopped and (
             version != 2
             or run.get("route_fingerprint") != route_fingerprint(binding.get("route") or {})
@@ -405,7 +409,7 @@ def stopped_session_matches(run: dict[str, Any], binding: dict[str, Any]) -> boo
     """A stopped live process may reclaim only its own exact runtime session."""
     session = runtime_session()
     return (
-        run.get("state") in {"blocked", "interrupted"}
+        run.get("state") in STOPPED_RUN_STATES
         and same_runtime_session(
             binding.get("runtime_session"),
             session,

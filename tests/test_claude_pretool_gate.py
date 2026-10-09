@@ -4541,14 +4541,20 @@ class FinishAuthorizesItsOwnPublicationTests(unittest.TestCase):
                     self.assertNotIn("a successful finish", _reason(out))
 
     def test_a_run_that_did_not_finish_still_refuses_the_commit(self) -> None:
-        """Only `completed` proves a finish passed; `failed` is the same hook losing."""
+        """Only `completed` proves a finish passed; `failed` is the same hook losing.
+
+        A failed finish's run is now offered back for repair, but when that
+        resume is refused the commit stays a hard refusal -- never an operator
+        note that allow rules would let through.
+        """
 
         with tempfile.TemporaryDirectory() as tmp:
             project = self._finished_project(Path(tmp), state="failed")
             code, out = self._decide(project, "git commit -m subject")
 
         self.assertEqual(0, code)
-        self.assertIn("preflight", _reason(out).lower())
+        self.assertEqual("deny", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+        self.assertNotIn("a successful finish", _reason(out))
 
     def test_a_session_that_finished_twice_can_still_publish(self) -> None:
         """One session finishes several runs in a repository over a day's work.

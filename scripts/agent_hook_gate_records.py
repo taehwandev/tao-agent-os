@@ -62,6 +62,21 @@ def preflight_evidence_path(args: argparse.Namespace) -> Path:
         if active is not None:
             args.evidence = active
             return active
+        # After a failed finish the run is `failed`, outside the active set,
+        # and the fallback below is a legacy preflight from some other task:
+        # recording the missing gate there and retrying finish failed again
+        # on a route the agent never ran. The failed run is the one to repair.
+        failed = resolve_runtime_evidence(
+            args.project, session, frozenset({"failed"}), latest_of_several=True
+        )
+        completed = resolve_runtime_evidence(
+            args.project, session, frozenset({"completed"}), latest_of_several=True
+        )
+        if failed is not None and (
+            completed is None or _last_moved(failed) > _last_moved(completed)
+        ):
+            args.evidence = failed
+            return failed
     if getattr(args, "hook", "") == "start":
         generated = (
             args.project / ".tao" / "runs" / uuid.uuid4().hex / "preflight.json"
@@ -69,6 +84,15 @@ def preflight_evidence_path(args: argparse.Namespace) -> Path:
         args.evidence = generated
         return generated
     return args.project / ".tao" / "preflight.json"
+
+
+def _last_moved(evidence: Path) -> float:
+    """When anything in this run's directory last changed (0 if unreadable)."""
+
+    try:
+        return max(path.stat().st_mtime for path in evidence.parent.iterdir())
+    except (OSError, ValueError):
+        return 0.0
 
 
 def gate_hook(args: argparse.Namespace) -> int:
