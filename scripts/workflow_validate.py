@@ -59,6 +59,8 @@ MARKDOWN_VALIDATE_IGNORED_DIRS = {
     # forcing runtime metadata on them would make this validator the owner of
     # files RUNTIME-OWNERSHIP.md explicitly excludes from reference import.
     "local",
+    # Agent task checkouts are separate repositories, not canonical guidance.
+    ".claude/worktrees",
     ".tao",
     ".git",
     ".mypy_cache",

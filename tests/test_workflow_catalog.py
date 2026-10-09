@@ -271,6 +271,17 @@ class WorkflowCatalogTests(unittest.TestCase):
 
             self.assertEqual([valid_doc], markdown_files_to_validate(root))
 
+    def test_workflow_validate_excludes_agent_worktrees_but_keeps_live_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            live_rules = root / ".claude" / "rules" / "runtime.md"
+            copied_doc = root / ".claude" / "worktrees" / "other-task" / "common" / "nodes" / "copied.md"
+            for path in (live_rules, copied_doc):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# Rule\n", encoding="utf-8")
+
+            self.assertEqual([live_rules], markdown_files_to_validate(root))
+
     def test_workflow_validate_accepts_skill_draft_route_hook(self) -> None:
         self.assertEqual([], validate_route_contracts())
 
