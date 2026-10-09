@@ -6,66 +6,73 @@ type: ai-generated
 
 # Agent Operating Skill
 
-Use when routed to `common/skills/agent-operating-skill/SKILL.md` or when work needs this Tao Agent OS guidance area.
+Use when routed here or when Tao operating guidance applies.
 
 ## Need-Driven Reading Contract
 
-Apply to every Tao runtime. The catalog never expands the request.
+All Tao runtimes; catalogs do not expand scope.
 
-1. Preserve confirmed outcome, target and authority; do not request repetition
-   or turn a settled correction into redesign.
-2. Read applicable instructions, required_docs and explicit safety/verification
-   dependencies. Resolve repo isolation location and branch naming before any
-   setup/edit; reuse a correctly bound worktree. Read-only work needs no setup.
-3. Investigate only an unresolved in-scope decision. Start at its owner and
-   nearest test; expand for missing/contradictory evidence, applicable rules or
-   failed checks. An empty search needs a new lead before further searching.
-4. Read optional procedures only for the action: PR metadata needs no module
-   design cards; module creation needs platform module rules. Reuse unchanged
-   readings across iterations/runs. Read only new, changed or lost guidance;
-   after compaction use takeaways. Deduplicate paths; links and spare selection
-   budget do not require reads. An entrypoint that answers the decision needs
-   no additional reference. Platform names and graph neighbors alone select none.
-5. Change only what the authorized outcome needs. Incidental findings grant no
-   cleanup, redesign or environment authority. Excess required selection is a
-   conflict to report; repair its owner only with authority, never waive it.
-6. Stop when outcome and required verification are complete. Extra checks need
-   evidence; keep expansion rationale in existing context, with no new plan,
-   read receipt, gate, hook or approval round for this contract.
+1. Keep outcome, target and authority; no repeated approval or redesign. Read
+   instructions, required_docs and safety/check dependencies. Resolve isolation
+   and branch before setup/edit; reuse the worktree. Read-only needs no setup.
+2. Start unresolved in-scope decisions at the owner/nearest test. Expand for
+   missing/conflicting evidence, applicable rules or failures. Empty searches
+   need a new lead.
+3. Optional reads/tools must answer a decision. Reuse unchanged reads and
+   compaction takeaways; read only new, changed or lost guidance. Deduplicate
+   paths. Links, spare budget, catalogs, available tools, platform names and
+   graph neighbors select nothing alone. Stop at the answering entrypoint.
+   PR metadata needs no module-design cards.
+4. Change only the authorized outcome. Incidental findings grant no cleanup or
+   environment authority. Report excess selection; repair its owner only with
+   authority, never waive it. Existing pointers need no edit when they already
+   load the changed source.
+5. Stop after outcome/checks; extra checks need evidence. Keep rationale in
+   context, without new plans, receipts, gates or approvals for this rule.
+
+## Proportionate Execution
+
+Choose the smallest existing route covering effect, owner and risk. Content
+publication needs external-write authority, safety checks and readback, not
+unrelated code tests/builds. Reuse existing execution tools/contracts.
+
+Keep the active action for the same outcome. Prepare required repo records
+before review/finish; later ids, URLs and times belong in operational evidence
+unless user/repo requires a tracked record. A receipt alone does not justify
+another start/review/finish. Changed inputs still invalidate checks; finished
+runs are not writable. Never create a journal, dummy diff, test, worktree move
+or second task just to feed a gate. Report a manifest conflict; do not fake a
+pass. Preserve authority, isolation, freshness and safety.
 
 ## Execution Round Trips
 
-Batch bounded reads/ready gate evidence; inspect each result. Ready steps may
-share a call: await/check success before dependencies. Keep mutations/approvals
-sequential and gates intact. Return on decisions, surprises, failures or pending
-handles; never hide failed prerequisites.
+Batch bounded reads/ready gates; inspect each result and require success before
+dependencies. Keep mutations/approvals sequential. Return on decisions,
+surprises, failures or pending handles; never hide failed prerequisites.
 
-Wait on handles; no relaunch, short-polling hooks/network Git/builds or idle
-sleeps. Silence never answers a decision.
+Wait on handles; no relaunch, short-polling or idle sleeps. Silence is no answer.
 
-Measure tool time and gaps separately; gaps don't explain causes. Remove proven
-redundant rounds; claim speedup only from comparable measurements.
+Separate tool time and gaps; gaps do not prove causes. Remove proven redundancy.
+Label estimates/partial timings. Compare the same inputs, model, environment
+and checks; dry-run external writes. Claim speedup only from comparable runs.
+Explaining latency needs no new optimization workflow.
 
-Keep the selected parent profile. Resolved multi-step installation/procedural
-work uses a same-model `low` native worker per
-`references/runtime-collaboration.md`; short commands stay inline.
+Keep the parent profile. Resolved installation/procedural work uses a same-model
+`low` native worker per `references/runtime-collaboration.md`; short commands
+stay inline.
 
-## Applying Hook Guidance At The Decision Point
+## Hook Guidance
 
-Use the active manifest, advertised evidence fields and hook results. Hooks own
-mechanical admission/validation; the agent owns scope, truthful evidence and the
-next authorized action. Do not duplicate hook checks as manual checklists or
-read validators preemptively. Read required instructions before the action;
-open references only for a concrete decision the supplied guidance leaves open.
+Use manifest fields and hook results. Hooks own mechanical admission/checks;
+agents own scope, truthful evidence and next action. Do not duplicate checks or
+read validators preemptively. Read required instructions before acting; open
+references only for unresolved decisions.
 
 ## Read
 
-- `references/current-guidance.md` when the active lifecycle has an unresolved
-  procedure or evidence requirement not answered by this entrypoint or route.
-  It owns how to read a hook rejection, what reuse covers across a sustained
-  goal, the isolated-task worktree setup order, adapter contract
-  characterization, and read sizing under tool output limits.
+- `references/current-guidance.md` only for unresolved lifecycle/evidence rules:
+  hook rejection, goal reuse, isolation setup, adapter contracts or read sizing.
 
 ## Verification
 
-- If a route requires the `handoff` gate, verify the worker handoff hook states that the route gate must be recorded separately.
+- For a `handoff` gate, verify the worker hook says to record that gate separately.
