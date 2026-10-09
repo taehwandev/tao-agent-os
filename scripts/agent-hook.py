@@ -2578,6 +2578,8 @@ def _dispatch_hook(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
 
 
 def _dispatch_lifecycle_hook(args: argparse.Namespace) -> int:
+    if args.hook in _PAUSED_RUN_RESUMING_HOOKS and not getattr(args, "gate_template", False):
+        _resume_paused_session_run(args)
     checkpointed = _checkpointed_hook(args)
     if checkpointed is not None:
         return checkpointed
@@ -2594,6 +2596,23 @@ def _dispatch_lifecycle_hook(args: argparse.Namespace) -> int:
     if args.hook == "skill-maintenance":
         return skill_maintenance_hook(args)
     return finish_hook(args)
+
+
+# Hooks that write the run's ledger. The pretool gate already reclaims a paused
+# run before an edit; these reach the ledger through the launcher instead.
+_PAUSED_RUN_RESUMING_HOOKS = frozenset({"gate", "gate-batch", "review", "verify", "finish"})
+
+
+def _resume_paused_session_run(args: argparse.Namespace) -> None:
+    """Reclaim this session's run a turn boundary paused, and say so."""
+
+    from agent_paused_run_resume import resume_session_paused_run
+
+    resumed, note = resume_session_paused_run(args.project, args.evidence)
+    if resumed is not None:
+        args.evidence = resumed
+    if note:
+        print(f"- {note}", file=sys.stderr)
 
 
 def _checkpointed_hook(

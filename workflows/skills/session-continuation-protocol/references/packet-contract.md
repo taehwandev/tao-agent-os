@@ -366,6 +366,13 @@ the call to its own permission flow with the refusal named
 (`paused_run_refused`), and Codex keeps the deny because it turns `ask` into a
 silent allow.
 
+The ledger-writing lifecycle hooks (`gate`, `gate-batch`, `review`, `verify`,
+`finish`) reach the run through the launcher, not an edit tool, so they reclaim
+it the same way (`agent_paused_run_resume.resume_session_paused_run`) before
+writing. They skip it for a worker, while the session already holds an active
+run, or when `--evidence` names a different run. A refusal is reported, and the
+hook then fails as before.
+
 Concurrent sessions sharing one checkout still share one worktree. Another
 session's uncommitted bytes drift every packet in it, and resume answers that
 with `drift_refused` and reconciliation rather than resuming across a state the
