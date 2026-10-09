@@ -806,7 +806,7 @@ def deny_reason(
         cause = (
             "No exact registered preflight evidence is bound to this runtime session. "
             "Fresh or default-path evidence from another session is not reusable."
-        )
+        ) + _sibling_run_sentence(root, session_id)
     elif not evidence_is_fresh(evidence):
         cause = f"Preflight evidence at {evidence} is older than the freshness window."
     else:
@@ -826,6 +826,26 @@ def deny_reason(
         f"request>\"`, read the route required_docs, then {retry}. Set "
         f"{runtime_setting('_MAX_AGE_SECONDS')} to tune the freshness window."
     )
+
+
+def _sibling_run_sentence(root: Path, session_id: str) -> str:
+    """Name this session's open run in another checkout of `root`'s repository."""
+
+    try:
+        from claude_pretool_sibling_run import sibling_open_run, sibling_run_sentence
+
+        index = session_projects_index(session_id) if session_id else None
+        recorded = (
+            [Path(line) for line in index.read_text(encoding="utf-8").splitlines() if line.strip()]
+            if index is not None and index.is_file() else []
+        )
+        sibling = sibling_open_run(
+            root, session_id, recorded,
+            main_checkout_for=_main_checkout_for, session_evidence=session_evidence,
+        )
+    except Exception:  # noqa: BLE001 - a better reason must never break the denial
+        return ""
+    return sibling_run_sentence(root, sibling) if sibling is not None else ""
 
 
 def workflow_entry_allows(root: Path, session_id: str) -> bool:
@@ -1755,6 +1775,7 @@ def _worktree_policy_verdict(
         tokens=tokens,
         command_cwd=command_cwd,
     )
+    reason += _sibling_run_sentence(root, str(payload.get("session_id") or ""))
     if runtime_name() == "codex":
         return deny(reason, "worktree_isolation")
     unreadable = tool in BASH_TOOLS and not (syntax_is_simple and readable)
