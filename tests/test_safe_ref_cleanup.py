@@ -280,6 +280,22 @@ class RemotePruneConfigurationTests(unittest.TestCase):
         self.assertEqual("mutating", git_command_kind(command, self.project))
         self.assertEqual("bootstrap", git_command_kind(command + ["--no-recurse-submodules"], self.project))
 
+    def test_declared_protected_checkout_does_not_approve_ref_mutations(self) -> None:
+        # The protected-checkout landing approved `fetch` and `remote prune` by
+        # verb, so a declared main forced tags and deleted local ones outright.
+        policy = self.project / gate.WORKTREE_POLICY_PATH
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({"schema_version": 1, "require_linked_worktree": True,
+                                      "protected_branches": ["develop", "main"]}))
+        self.assertNotIn(_decision(self.project, "git remote prune origin"), {"deny", "ask", "defer"})
+        for command in ("git fetch --force --tags origin",
+                        "git fetch --prune --prune-tags origin",
+                        "git fetch origin +refs/tags/*:refs/tags/*"):
+            with self.subTest(command=command):
+                self.assertIn(_decision(self.project, command), {"deny", "ask", "defer"})
+        self.config("--add", "remote.origin.fetch", "+refs/tags/*:refs/tags/*")
+        self.assertIn(_decision(self.project, "git remote prune origin"), {"deny", "ask", "defer"})
+
     def test_selected_repository_config_and_includes_are_used(self) -> None:
         included = self.base / "prune.config"
         included.write_text('[remote "origin"]\nfetch = +refs/tags/*:refs/tags/*\n')

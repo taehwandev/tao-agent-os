@@ -242,9 +242,19 @@ ceiling cannot admit push or PR creation. An unchanged-content commit preserves
 the receipt; edits invalidate it. Rewriting or discarding commands retain their
 separate checks.
 
+A Tao-governed project without `worktree-policy.json` (one that opts in through
+its project `.tao` state or the Tao marker in `AGENTS.md`, `CLAUDE.md`, or
+`CODEX.md`) receives the default boundary: linked worktrees required, `main`
+and `develop` protected. The default declares no optional key, so it neither
+requires workflow entry, imposes ticket rules, nor earns the compliant-worktree
+preflight waiver. The default only adds refusals: a command its protected
+checkout would let through or put to the operator still meets the run-entry
+checks it met before. An ungoverned repository is never enforced. In any
+protected checkout, a fetch or remote prune that flags or configuration turn
+into a local ref mutation is asked about, not approved as routine.
+
 Two environment variables bridge and override this declaration, and both must
-stay rare and explicit. During a transition window where the tracked
-`worktree-policy.json` has not yet reached the current checkout,
+stay rare and explicit. For a repository without the opt-in signal,
 `TAO_REQUIRE_LINKED_WORKTREE=1` in project-local runtime configuration applies
 the same boundary to that one Git repository, identified by `CLAUDE_PROJECT_DIR`.
 An inherited flag without that origin does not impose isolation on an unrelated

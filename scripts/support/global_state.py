@@ -163,6 +163,33 @@ def is_host_config_dir(path: Path) -> bool:
 
 
 
+# Root files whose prose marks a project that uses Tao Agent OS.
+OPT_IN_FILES = ("AGENTS.md", "CLAUDE.md", "CODEX.md")
+OPT_IN_TOKEN = "tao"
+
+
+def marks_tao_project(path: Path) -> bool:
+    """True when ``path`` opts in by its own state directory or marker prose.
+
+    The pretool gate and the worktree policy both ask this, and the policy
+    module cannot import the gate that imports it; owning the answer here keeps
+    the two from disagreeing about which repositories are governed. Host
+    configuration and the global install never count, so ``$HOME`` stays out.
+    """
+    if is_host_config_dir(path):
+        return False
+    if is_project_state_dir(path / STATE_DIR_NAME):
+        return True
+    for name in OPT_IN_FILES:
+        try:
+            head = (path / name).read_text(encoding="utf-8", errors="ignore")[:8192]
+        except OSError:
+            continue
+        if OPT_IN_TOKEN in head.lower():
+            return True
+    return False
+
+
 def prefer_git_root(candidates: list[Path]) -> Path | None:
     """Choose the project root from opt-in candidates ordered nearest-first.
 

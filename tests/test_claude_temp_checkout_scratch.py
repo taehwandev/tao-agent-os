@@ -387,13 +387,17 @@ class CommandsNamingARealProjectKeepTheirVerdictTests(_Fixture):
 
         from test_claude_pretool_gate import _write_preflight
 
+        origin = self.base / "home" / "other-origin"
+        origin.mkdir(parents=True)
+        (origin / "AGENTS.md").write_text("Uses tao-hook.\n")
+        (origin / ".gitignore").write_text(".tao/\n")
+        _git("init", "-q", "-b", "main", cwd=origin)
+        _git("add", ".", cwd=origin)
+        _git("commit", "-q", "-m", "init", cwd=origin)
+        # Its linked worktree: a governed main checkout now meets the default
+        # isolation, and only a workflow start should stand in the way here.
         other = self.base / "home" / "other"
-        other.mkdir(parents=True)
-        (other / "AGENTS.md").write_text("Uses tao-hook.\n")
-        (other / ".gitignore").write_text(".tao/\n")
-        _git("init", "-q", "-b", "work", cwd=other)
-        _git("add", ".", cwd=other)
-        _git("commit", "-q", "-m", "init", cwd=other)
+        _git("worktree", "add", "-q", "-b", "work", str(other), cwd=origin)
         commands = [
             f"TAO_HOME={other} python3 x.py",
             f"python3 tool.py --project {other}",

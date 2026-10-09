@@ -22,6 +22,7 @@ from claude_bash_readonly import (  # noqa: F401
     raw_path_arguments,
     read_only_path_token_indices,
 )
+from support.global_state import marks_tao_project
 from support.stable_launcher import stable_launcher_path  # noqa: F401
 
 
@@ -103,6 +104,24 @@ def local_worktree_policy_applies(root: Path) -> bool:
 
 
 def worktree_policy(root: Path) -> dict | None:
+    """The policy this root enforces, defaulting isolation on for governed repos.
+
+    Waiting for a tracked policy file let a repository that already opted into
+    Tao edit its main checkout freely; the worktree appeared only once commit or
+    workflow steps refused, leaving main dirty. The default carries no optional
+    key, so workflow entry, ticket rules and publication classifiers still need
+    a declaration, and an ungoverned repository is never enforced.
+    """
+
+    policy = declared_worktree_policy(root)
+    if policy is None and marks_tao_project(root):
+        return default_worktree_policy()
+    return policy
+
+
+def declared_worktree_policy(root: Path) -> dict | None:
+    """The tracked (or operator-requested) policy, without the governed default."""
+
     policy_path = root / WORKTREE_POLICY_PATH
     try:
         parsed = json.loads(policy_path.read_text(encoding="utf-8"))

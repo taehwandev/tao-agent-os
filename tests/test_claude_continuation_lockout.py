@@ -102,6 +102,11 @@ class ContinuationLockoutTests(unittest.TestCase):
         self.project = Path(self._temp.name).resolve()
         self.target = self.project / "module.py"
         _FRESH_REPOSITORY.copy_to(self.project)
+        # The fixture is a governed main checkout; the lockout is the subject
+        # here, not the default isolation boundary it would otherwise meet.
+        override = patch.dict(os.environ, {"TAO_ALLOW_MAIN_CHECKOUT_EDIT": "1"})
+        override.start()
+        self.addCleanup(override.stop)
 
         environment = dict(os.environ)
         for _, variable in SESSION_ENV_VARS:

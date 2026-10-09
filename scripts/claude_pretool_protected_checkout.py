@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from claude_bash_git import git_subcommand, names_unsafe_git_option
+from claude_bash_git import git_command_kind, git_subcommand, names_unsafe_git_option
 from claude_pretool_git_hazards import shared_repository_hazard
 
 
@@ -122,8 +122,15 @@ def deletes_protected_remote_branch(tokens: list[str], protected: frozenset[str]
     return any(ref.removeprefix("refs/heads/") in protected for ref in refs)
 
 
+def _updates_refs_from_a_remote(subcommand: str, arguments: list[str]) -> bool:
+    words = [argument for argument in arguments if not argument.startswith("-")]
+    if subcommand == "remote":
+        return bool(words) and words[0] in {"prune", "update"}
+    return subcommand == "fetch"
+
+
 def protected_checkout_verdict(
-    tokens: list[str], protected: frozenset[str] | None = None
+    tokens: list[str], protected: frozenset[str] | None = None, cwd: Path | None = None
 ) -> str:
     """`allow`, `ask`, or `""` for a Git command aimed at the protected checkout.
 
@@ -219,6 +226,15 @@ def protected_checkout_verdict(
     if subcommand in COMMITTING_OR_DISCARDING_SUBCOMMANDS:
         return "allow" if unstages_only(subcommand, arguments) else "ask"
     if shared_repository_hazard(tokens, protected):
+        return "ask"
+    if _updates_refs_from_a_remote(subcommand, arguments) and (
+        git_command_kind(tokens, cwd) == "mutating"
+    ):
+        # A fetch or prune is routine only while it touches remote-tracking
+        # refs. Flags or the repository's configuration can make it force a
+        # tag over a local one, delete local tags or recurse into submodules,
+        # and only the configuration-aware classifier sees that; the verb
+        # alone approved them outright.
         return "ask"
     # Approve only what has been read and found routine. Defaulting the other
     # way was the mistake: it handed an outright approval -- which bypasses

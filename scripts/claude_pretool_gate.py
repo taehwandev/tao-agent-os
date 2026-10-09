@@ -54,6 +54,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         global_state_dir,
         is_host_config_dir,
         is_project_state_dir,
+        marks_tao_project,
         prefer_git_root,
     )
     from claude_bash_git import git_subcommand
@@ -83,6 +84,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
         RUNTIME_CONTROL_KIND,
         bash_invocation,
         contains_workflow_start,
+        declared_worktree_policy,
         git_common_dir,
         has_unresolvable_expansion,
         path_arguments,
@@ -133,6 +135,20 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
                 return candidate
         return candidates[0] if candidates else None
 
+    def marks_tao_project(path: Path) -> bool:
+        if is_host_config_dir(path):
+            return False
+        if is_project_state_dir(path / ".tao"):
+            return True
+        for name in ("AGENTS.md", "CLAUDE.md", "CODEX.md"):
+            try:
+                head = (path / name).read_text(encoding="utf-8", errors="ignore")[:8192]
+            except OSError:
+                continue
+            if "tao" in head.lower():
+                return True
+        return False
+
     BASH_TOOLS = {"Bash"}
     MAIN_CHECKOUT_OVERRIDE_ENV = "TAO_ALLOW_MAIN_CHECKOUT_EDIT"
     REQUIRE_LINKED_WORKTREE_ENV = "TAO_REQUIRE_LINKED_WORKTREE"
@@ -178,6 +194,8 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
 
     def worktree_policy(root: Path) -> dict | None:
         return None
+
+    declared_worktree_policy = worktree_policy
 
     def policy_requires_workflow_entry(root: Path) -> bool:
         # A broken install has read no declaration, so it cannot claim the
@@ -227,7 +245,8 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
     def deletes_protected_remote_branch(tokens: list[str], protected: "frozenset[str] | None") -> bool:
         return False
 
-    def protected_checkout_verdict(tokens: list[str], protected: "frozenset[str] | None" = None) -> str:
+    def protected_checkout_verdict(tokens: list[str], protected: "frozenset[str] | None" = None,
+                                   cwd: "Path | None" = None) -> str:
         return "defer" if tokens and Path(tokens[0]).name != "git" else ""
 
     def shared_repository_hazard(tokens: list[str], protected: "frozenset[str] | None" = None) -> str:
@@ -312,8 +331,6 @@ SPRAWL_ACK_SUFFIX = ".sprawl-ack"
 EDIT_ACTIVITY_SUFFIX = ".edited"
 # User-global, because the Stop gate must find projects outside its own cwd.
 SESSION_PROJECT_DIR = "claude-session-projects"
-OPT_IN_FILES = ("AGENTS.md", "CLAUDE.md", "CODEX.md")
-OPT_IN_TOKEN = "tao"
 # A day, because the window says how long workflow entry and a finished run
 # stay good, which does not depend on which runtime is typing. Eight hours left
 # Codex stale while Claude ran on the day-long value its own settings file set,
@@ -630,19 +647,9 @@ def opts_in(path: Path) -> bool:
     """
     if is_host_config_dir(path):
         return False
-    if is_project_state_dir(path / STATE_DIR):
-        return True
     if (path / WORKTREE_POLICY_PATH).is_file():
         return True
-    for name in OPT_IN_FILES:
-        candidate = path / name
-        try:
-            head = candidate.read_text(encoding="utf-8", errors="ignore")[:8192]
-        except OSError:
-            continue
-        if OPT_IN_TOKEN in head.lower():
-            return True
-    return False
+    return marks_tao_project(path)
 
 
 def find_project_root(cwd: Path) -> Path | None:
@@ -1720,7 +1727,7 @@ def _worktree_policy_verdict(
     *,
     syntax_is_simple: bool,
     cwd_roots: "list[Path] | None" = None,
-) -> int:
+) -> int | None:
     """Answer a call that a governed root refuses, once one of them does.
 
     Lifted out of `decide`, which had grown to 199 lines against a 120-line
@@ -1738,6 +1745,7 @@ def _worktree_policy_verdict(
     # leaves no route and the operator is asked instead.
     cwd_root = find_project_root(command_cwd) if tool in BASH_TOOLS else None
     denying = [candidate for candidate in roots if worktree_denial(candidate)]
+    defaulted = all(declared_worktree_policy(found) is None for found in denying)
     # Standing in the protected checkout, and only there. Two other shapes
     # keep their refusal because each has a deterministic remedy, which is
     # what `deny` is for:
@@ -1753,6 +1761,8 @@ def _worktree_policy_verdict(
         and (cwd_root / ".git").is_dir()
     )
     if standing_in_the_protected_checkout and _requests_main_checkout_override(tokens):
+        if defaulted:
+            return None  # See the landing below: the run-entry checks decide.
         return ask(
             "The command explicitly requests the documented main-checkout exception. "
             "Defer that exceptional write to the runtime's native permission review.",
@@ -1767,7 +1777,7 @@ def _worktree_policy_verdict(
         bash_command(payload)
     )
     landing = (
-        protected_checkout_verdict(tokens, protected_branch_names(root))
+        protected_checkout_verdict(tokens, protected_branch_names(root), command_cwd)
         if readable
         and syntax_is_simple
         and standing_in_the_protected_checkout
@@ -1778,6 +1788,12 @@ def _worktree_policy_verdict(
     # not author a file in the protected checkout merely because it is not Git.
     if landing == "defer" and len(tokens) == 2 and tokens[0] == "touch":
         landing = ""
+    # A checkout isolated only by the governed default declared nothing, and
+    # before that default existed this call met the run-entry checks. The
+    # default adds refusals; whatever it would let through or put to the
+    # operator must not replace those checks, so `None` hands the call back.
+    if landing and defaulted:
+        return None
     # A landing that lets the command through speaks for the protected
     # checkout, and only for it. The same command can write into a second
     # governed project, and that project's workflow entry is a separate
@@ -1854,6 +1870,8 @@ def _worktree_policy_verdict(
     if runtime_name() == "codex":
         return deny(reason, "worktree_isolation")
     unreadable = tool in BASH_TOOLS and not (syntax_is_simple and readable)
+    if unreadable and defaulted:
+        return None
     return deny_or_ask(
         reason, "unreadable_command_effect" if unreadable else "worktree_isolation", payload
     )
@@ -2298,10 +2316,11 @@ def worktree_policy_satisfied(root: Path) -> bool:
     get work done was to turn the whole gate off -- taking the protection with
     it. The waiver is earned by the declared policy, never by its absence: a
     repository that declares nothing has proved nothing, and still needs the
-    run.
+    run. The isolation default a governed repository receives without a
+    policy file is therefore not a declaration and earns no waiver.
     """
 
-    return worktree_policy(root) is not None and worktree_denial(root) is None
+    return declared_worktree_policy(root) is not None and worktree_denial(root) is None
 
 
 def protected_branch_names(root: Path) -> frozenset[str] | None:
@@ -2653,7 +2672,9 @@ def _decide(payload: dict) -> int:
             and tokens
             and git_subcommand(tokens)[0] in {"branch", "remote"}
             and any(worktree_denial(found) for found in roots)
-            and protected_checkout_verdict(tokens, protected_branch_names(root)) == "allow"
+            and protected_checkout_verdict(
+                tokens, protected_branch_names(root), command_cwd
+            ) == "allow"
         ):
             # Self-protecting ref cleanup: keep the protected checkout's
             # existing outright approval rather than demoting it to a prompt.
@@ -2670,17 +2691,13 @@ def _decide(payload: dict) -> int:
     if worktree_reason:
         if scope.unknown_reason:
             worktree_reason = f"{unknown_recovery(scope.unknown_reason)} {worktree_reason}"
-        return _worktree_policy_verdict(
-            payload,
-            tool,
-            root,
-            roots,
-            tokens,
-            command_cwd,
-            worktree_reason,
-            syntax_is_simple=syntax_is_simple,
-            cwd_roots=cwd_roots,
+        # `None` hands a governed-default checkout back to the run-entry checks.
+        verdict = _worktree_policy_verdict(
+            payload, tool, root, roots, tokens, command_cwd, worktree_reason,
+            syntax_is_simple=syntax_is_simple, cwd_roots=cwd_roots,
         )
+        if verdict is not None:
+            return verdict
     if worktree_policy_satisfied(root) and not policy_requires_workflow_entry(root):
         protected = protected_branch_names(root)
         hazard = shared_repository_hazard(tokens, protected)

@@ -140,14 +140,65 @@ class ProjectWorktreePolicyTests(unittest.TestCase):
             })
         return output.getvalue()
 
+    def plain(self, name: str) -> Path:
+        # A Git repository with no Tao opt-in signal: only the environment
+        # fallback could ever impose isolation on it.
+        root = self.base / name
+        (root / ".git").mkdir(parents=True)
+        return root
+
+    def test_governed_main_checkout_without_policy_file_is_isolated_by_default(self):
+        root = self.project("governed")
+        self.assertEqual(gate.default_worktree_policy(), gate.worktree_policy(root))
+        self.assertIsNone(gate.declared_worktree_policy(root))
+        self.assertIn("worktree gate", self.edit(root, root))
+
+    def test_default_isolation_keeps_the_run_requirement_for_bash_writes(self):
+        # Before the default, these met "run the workflow start hook". The
+        # protected-checkout landing would defer them to native permission.
+        root = self.project("governed")
+        for command in ("grep -n x AGENTS.md > out.txt", "cp AGENTS.md copy.md"):
+            with self.subTest(command=command):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    pretool.decide({
+                        "tool_name": "Bash", "cwd": str(root), "session_id": "policy-test",
+                        "tool_input": {"command": command},
+                    })
+                decision = json.loads(output.getvalue())["hookSpecificOutput"]
+                self.assertEqual("deny", decision.get("permissionDecision"))
+
+    def test_ungoverned_repository_without_policy_file_stays_unenforced(self):
+        root = self.plain("ungoverned")
+        self.assertIsNone(gate.worktree_policy(root))
+        self.assertIsNone(gate.worktree_denial(root))
+        self.assertEqual("", self.edit(root, root))
+
+    def test_governed_tracked_false_policy_is_not_replaced_by_the_default(self):
+        root = self.project("governed")
+        declared = self.policy(root, linked=False)
+        with patch.object(gate, "current_branch", return_value="feature/change"):
+            self.assertEqual(declared, gate.worktree_policy(root))
+            self.assertEqual("", self.edit(root, root))
+
+    def test_governed_linked_worktree_without_policy_file_is_not_refused(self):
+        root = self.project("governed")
+        (root / ".git").rmdir()
+        (root / ".git").write_text("gitdir: ../common/worktrees/task\n")
+        with patch.object(gate, "current_branch", return_value="feature/change"):
+            self.assertIsNone(gate.worktree_denial(root))
+            self.assertNotIn("worktree gate", self.edit(root, root))
+            # The default is not a declaration, so it earns no preflight waiver.
+            self.assertFalse(pretool.worktree_policy_satisfied(root))
+
     def test_unbound_environment_does_not_impose_source_policy_on_external_project(self):
-        target = self.project("external")
+        target = self.plain("external")
         os.environ[gate.REQUIRE_LINKED_WORKTREE_ENV] = "1"
         self.assertIsNone(gate.worktree_policy(target))
         self.assertIsNone(gate.worktree_denial(target))
 
     def test_bound_environment_still_protects_origin_but_not_another_project(self):
-        source, target = self.project("source"), self.project("external")
+        source, target = self.plain("source"), self.plain("external")
         os.environ.update({gate.REQUIRE_LINKED_WORKTREE_ENV: "1", "CLAUDE_PROJECT_DIR": str(source)})
         self.assertIsNotNone(gate.worktree_denial(source))
         self.assertIsNone(gate.worktree_denial(target))
