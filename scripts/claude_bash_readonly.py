@@ -1067,7 +1067,51 @@ PROSE_EVIDENCE_OPTION_RE = re.compile(r"--[a-z][a-z-]*-evidence")
 # A commit or tag message is text Git stores; it names no file. Reading
 # `\$TAO_HOME` in a keyflow-cli commit message as a path put the Tao checkout
 # in the refusal of a commit into keyflow-cli.
-MESSAGE_SUBCOMMANDS = frozenset({"commit", "tag"})
+#
+# A message long enough and free of `/` read as one over-long file name, which
+# the filesystem refuses to describe, so `git -C <worktree> commit -qam "..."`
+# was judged against the declared main checkout instead of its worktree. The
+# other subcommands below take `-m` with the same meaning and stand to fail
+# the same way. Each maps to the short flags Git lets precede `m` in one
+# bundle (`-qam`, `tag -am`): exactly the letters that take no value, since a
+# value-taking letter such as `-F` would swallow the `m` as its own operand.
+# A subcommand mapped to no letters is claimed only in its unbundled spellings.
+MESSAGE_SUBCOMMANDS: dict[str, frozenset[str]] = {
+    "commit": frozenset("aqvsnepioz"),
+    "commit-tree": frozenset(),
+    "tag": frozenset("asfdvlei"),
+    "merge": frozenset(),
+    "stash": frozenset(),
+    "notes": frozenset(),
+}
+# The options of each subcommand that take their value as the next word, per
+# Git's documentation. A `-m` in that position is the option's value, not a
+# message, so `commit-tree <tree> -p -m <path>` writes no message and `<path>`
+# is judged. Options whose value is optional (`-S[<keyid>]`, `--gpg-sign`,
+# `-u[<mode>]`, `tag -n[<num>]`) take it only attached and consume nothing.
+# Erring towards an entry is the safe direction: a word wrongly consumed is
+# judged as a place, never exempted as a message.
+MESSAGE_VALUE_OPTIONS: dict[str, frozenset[str]] = {
+    "commit": frozenset({
+        "-F", "-C", "-c", "-t", "--file", "--reuse-message", "--reedit-message",
+        "--fixup", "--squash", "--author", "--date", "--template", "--cleanup",
+        "--trailer", "--pathspec-from-file",
+    }),
+    "commit-tree": frozenset({"-p", "-F"}),
+    "tag": frozenset({
+        "-u", "-F", "--local-user", "--file", "--cleanup", "--format", "--sort",
+        "--contains", "--no-contains", "--merged", "--no-merged", "--points-at",
+        "--trailer",
+    }),
+    "merge": frozenset({
+        "-s", "-X", "-F", "--strategy", "--strategy-option", "--file",
+        "--into-name", "--cleanup",
+    }),
+    "stash": frozenset({"--pathspec-from-file"}),
+    "notes": frozenset({
+        "-F", "-C", "-c", "--ref", "--file", "--reuse-message", "--reedit-message",
+    }),
+}
 MESSAGE_OPTIONS = frozenset({"-m", "--message"})
 
 
@@ -1142,27 +1186,104 @@ def _declared_read_indices(tokens: list[str], offset: int, cwd: Path | None = No
         return [offset + index for index in range(len(tokens)) if index not in outputs]
     if git_index_patch(tokens):
         return [offset + len(tokens) - 1]
-    if Path(tokens[0]).name == "git" and git_subcommand(tokens)[0] in MESSAGE_SUBCOMMANDS:
-        return _message_value_indices(tokens, offset)
+    if Path(tokens[0]).name == "git":
+        subcommand, arguments = git_subcommand(tokens)
+        if subcommand in MESSAGE_SUBCOMMANDS:
+            return _message_value_indices(
+                tokens,
+                offset,
+                len(tokens) - len(arguments),
+                MESSAGE_SUBCOMMANDS[subcommand],
+                MESSAGE_VALUE_OPTIONS[subcommand],
+            )
     return []
 
 
-def _message_value_indices(tokens: list[str], offset: int) -> list[int]:
+def _message_value_indices(
+    tokens: list[str],
+    offset: int,
+    start: int,
+    bundle_flags: frozenset[str],
+    value_options: frozenset[str],
+) -> list[int]:
     """Where a commit or tag message is written, in any of its spellings.
 
     Unlike `_option_value_indices`, a message may begin with `-`, so the word
     after `-m` is claimed whatever it looks like: Git takes it as the message.
+    That word is then consumed, never read again as an option, and the scan
+    stops at `--`: past it `-m` is a pathspec, so `commit -m -m <path>` and
+    `commit -- -m <path>` leave `<path>` judged as the place it is.
+
+    Only the subcommand's own arguments are scanned, from `start`, so a global
+    `-c` or `-C` value is never mistaken for a bundle. A bundle such as `-qam`
+    is a message option only when every letter before its `m` is one of
+    `bundle_flags`; its message is the rest of the bundle, or the next word
+    when `m` ends it.
+
+    An option in `value_options` takes the next word as its value, so that
+    word is skipped whatever it looks like: `-p -m <path>` names a parent
+    `-m`, and `<path>` stays an operand to judge. A long option is matched by
+    any prefix Git would accept as its abbreviation, and a bundle ending in a
+    value letter (`-qF`) consumes the next word too. A value written in the
+    same word (`--file=x`, `-Fx`) consumes nothing.
     """
 
+    long_values = [option for option in value_options if option.startswith("--")]
+    short_values = {option[1] for option in value_options if not option.startswith("--")}
     found: list[int] = []
-    for index, token in enumerate(tokens):
-        if token in MESSAGE_OPTIONS and index + 1 < len(tokens):
-            found.append(offset + index + 1)
-        elif token.startswith("--message=") or (
-            token.startswith("-m") and len(token) > 2 and not token.startswith("--")
-        ):
+    index = start
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            break
+        if token in MESSAGE_OPTIONS:
+            if index + 1 < len(tokens):
+                found.append(offset + index + 1)
+            index += 2
+            continue
+        if token.startswith("--message="):
             found.append(offset + index)
+        elif token.startswith("--"):
+            if "=" not in token and any(option.startswith(token) for option in long_values):
+                index += 2
+                continue
+        elif token.startswith("-"):
+            step = _short_bundle_step(token[1:], bundle_flags, short_values)
+            if step == "message_here":
+                found.append(offset + index)
+            elif step == "message_next":
+                if index + 1 < len(tokens):
+                    found.append(offset + index + 1)
+                index += 2
+                continue
+            elif step == "value_next":
+                index += 2
+                continue
+        index += 1
     return found
+
+
+def _short_bundle_step(
+    letters: str, bundle_flags: frozenset[str], short_values: set[str]
+) -> str:
+    """How one short-option bundle uses the words after it, as Git parses it.
+
+    Letters are read left to right as Git does: a flag lets the next letter
+    through, `m` or a value letter ends the bundle and takes the rest of the
+    word, or the next word when it is the last letter. Any other letter stops
+    the reading with no claim, so an unknown or optional-value letter such as
+    `-u` or `-S` never turns its own attached text into a message.
+    """
+
+    for position, letter in enumerate(letters):
+        last = position + 1 == len(letters)
+        if letter == "m":
+            return "message_next" if last else "message_here"
+        if letter in short_values:
+            return "value_next" if last else "value_here"
+        if letter not in bundle_flags:
+            return "unknown"
+    return "flags"
 
 
 def _option_value_indices(

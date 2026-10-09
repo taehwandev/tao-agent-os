@@ -280,5 +280,90 @@ class QuotedTextTests(_Fixture):
         self.assertNotIn(tokens.index(f"{self.cli}/f"), indices)
 
 
+class LongCommitMessageTests(_Fixture):
+    """Observed: a linked-worktree commit refused as a write into the main
+    checkout the session was declared in, because its 451-byte message held
+    no `/`, so `lstat` called the whole message one over-long file name."""
+
+    MESSAGE = "fix(gate): keep messages out of paths\n\n" + "body words " * 40
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.worktree = self._project("wt", policy=False)
+        self.assertNotIn("/", self.MESSAGE)
+        self.assertGreater(len(self.MESSAGE.encode()), 300)
+
+    def _roots(self, command: str) -> list[Path]:
+        _, tokens, _ = bash_invocation({"tool_input": {"command": command}}, self.worktree)
+        self.assertTrue(tokens)
+        return pretool.bash_target_project_roots(tokens, self.worktree)
+
+    def test_a_long_message_does_not_pull_in_the_declared_project(self) -> None:
+        sha = "a" * 40
+        for command in (
+            f'git -C {self.worktree} commit -qam "{self.MESSAGE}"',
+            f'git -C {self.worktree} commit -am "{self.MESSAGE}"',
+            f'git -C {self.worktree} commit -q -m "{self.MESSAGE}"',
+            f'git -C {self.worktree} commit --message "{self.MESSAGE}"',
+            f'git -C {self.worktree} commit-tree {sha} -p {sha} -m "{self.MESSAGE}"',
+            f'git -C {self.worktree} tag -am "{self.MESSAGE}" v1',
+            f'git -C {self.worktree} merge --no-ff -m "{self.MESSAGE}" topic',
+            f'git -C {self.worktree} stash push -m "{self.MESSAGE}"',
+            f'git -C {self.worktree} notes add -m "{self.MESSAGE}" HEAD',
+        ):
+            with self.subTest(command=command[:60]):
+                self.assertEqual([self.worktree], self._roots(command))
+
+    def test_an_overlong_path_outside_the_message_stays_unclaimable(self) -> None:
+        overlong = "x" * 300
+        for command in (
+            f'git -C {self.worktree} commit -qam "short" {overlong}',
+            f'git -C {self.worktree} commit -m "short" -- -m {overlong}',
+            f'git -C {self.worktree} commit -m -m {overlong}',
+            f'git -C {self.worktree} commit -Fm {overlong}',
+        ):
+            with self.subTest(command=command[:60]):
+                self.assertIn(self.app, self._roots(command))
+
+    def test_a_dash_m_taken_as_an_option_value_is_no_message(self) -> None:
+        """`-p -m <path>` hands `-m` to `-p` as its parent, so Git reads no
+        message there and `<path>` is an operand to judge."""
+
+        overlong = "x" * 300
+        sha = "a" * 40
+        for command in (
+            f"git -C {self.worktree} commit-tree {sha} -p -m {overlong}",
+            f"git -C {self.worktree} commit -F -m {overlong}",
+            f"git -C {self.worktree} commit -C -m {overlong}",
+            f"git -C {self.worktree} commit -qF -m {overlong}",
+            f"git -C {self.worktree} commit --author -m {overlong}",
+            f"git -C {self.worktree} commit --auth -m {overlong}",
+            f"git -C {self.worktree} tag -u -m {overlong}",
+            f"git -C {self.worktree} merge -s -m {overlong}",
+            f"git -C {self.worktree} notes --ref -m add {overlong}",
+            f"git -C {self.worktree} notes add -C -m {overlong}",
+            f"git -C {self.worktree} stash push --pathspec-from-file -m {overlong}",
+        ):
+            with self.subTest(command=command[:70]):
+                self.assertIn(self.app, self._roots(command))
+
+    def test_a_message_after_a_consumed_value_is_still_a_message(self) -> None:
+        sha = "a" * 40
+        for command in (
+            f'git -C {self.worktree} commit -F msg.txt -m "{self.MESSAGE}"',
+            f'git -C {self.worktree} commit-tree {sha} -p {sha} -m "{self.MESSAGE}"',
+            f'git -C {self.worktree} commit --author=a -S -m "{self.MESSAGE}"',
+            f'git -C {self.worktree} tag -u key -am "{self.MESSAGE}" v1',
+            f'git -C {self.worktree} merge -s ort -X ours -m "{self.MESSAGE}" topic',
+        ):
+            with self.subTest(command=command[:70]):
+                self.assertEqual([self.worktree], self._roots(command))
+
+    def test_the_main_checkout_named_by_C_is_still_the_target(self) -> None:
+        self.assertIn(
+            self.cli, self._roots(f'git -C {self.cli} commit -qam "{self.MESSAGE}"')
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
