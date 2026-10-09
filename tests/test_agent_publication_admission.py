@@ -191,6 +191,38 @@ class PublicationAdmissionTests(unittest.TestCase):
         self.assertTrue(self.allowed('git_write'))
         self.assertFalse(self.allowed())
 
+    def _finished_scoped_review(self):
+        from test_agent_review_attestation import ReviewAttestationTests
+        fixture = ReviewAttestationTests("runTest")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.route["request_classification"] = {"intent_envelope": {
+            "authority": "envelope", "schema_valid": True, "failures": [],
+            "effective_effect": "git_write",
+        }}
+        fixture._record_scoped_review(staged=True)
+        self.root, self.evidence = fixture.project, fixture.evidence_path
+        self.assertTrue(PublicationAdmission.record_finish(self.root, self.evidence))
+        return fixture
+
+    def test_scoped_local_commit_survives_an_unrelated_commit_after_finish(self):
+        fixture = self._finished_scoped_review()
+        (self.root / "other.txt").write_text("other task\n")
+        fixture._git("add", "other.txt")
+        fixture._git("commit", "--only", "-qm", "other task", "--", "other.txt")
+        self.assertTrue(self.allowed("git_write"))
+        self.assertFalse(self.allowed("external_write"))
+        fixture._git("commit", "-qm", "reviewed unit")
+        self.assertTrue(self.allowed("git_write"))
+        (self.root / "tracked.txt").write_text("unreviewed change\n")
+        self.assertFalse(self.allowed("git_write"))
+
+    def test_scoped_local_commit_rejects_unreviewed_staged_files(self):
+        fixture = self._finished_scoped_review()
+        (self.root / "other.txt").write_text("unreviewed staged unit\n")
+        fixture._git("add", "other.txt")
+        self.assertFalse(self.allowed("git_write"))
+
     def test_edit_after_finish_refuses_publication(self):
         self.assertTrue(self.finish())
         (self.root / 'source').write_text('new bytes')

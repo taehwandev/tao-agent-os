@@ -16,6 +16,8 @@ from agent_execution_capsule_state import atomic_write_json
 from agent_route_state import request_fingerprint
 from agent_runtime_session import resolve_runtime_evidence
 from workflow_intent_envelope import EFFECT_RANK
+from agent_review_attestation import ReviewAttestation, _attestation_id, _record_shape_failures
+from agent_review_scope_inputs import reviewed_local_unit_matches, scoped_review_binding, scoped_review_digest
 
 
 class PublicationAdmission:
@@ -80,6 +82,9 @@ class PublicationAdmission:
                 'project_content': PublicationAdmission._capture(project.resolve()),
                 'rules_content': PublicationAdmission._capture(rules),
             }
+            scope = _review_scope_for_receipt(project.resolve(), evidence, receipt['evidence_sha256'])
+            if scope:
+                receipt['project_scope'] = scope
             atomic_write_json(evidence.with_name('publication.json'), receipt)
             return True
         except ValueError as error:
@@ -117,10 +122,29 @@ class PublicationAdmission:
                 return 'foreign_receipt'
             if EFFECT_RANK[receipt['effect']] < EFFECT_RANK[required_effect]:
                 return f"effect:{receipt['effect']}<{required_effect}"
-            if receipt['project_content'] != PublicationAdmission._capture(project.resolve()):
+            scope = receipt.get('project_scope') if required_effect == 'git_write' else None
+            if scope:
+                if not reviewed_local_unit_matches(project.resolve(), scope['paths'], scope['inputs']):
+                    return 'project_changed'
+            elif receipt['project_content'] != PublicationAdmission._capture(project.resolve()):
                 return 'project_changed'
             if receipt['rules_content'] != PublicationAdmission._capture(rules):
                 return 'rules_changed'
             return ''
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             return 'unverifiable_receipt'
+
+
+def _review_scope_for_receipt(project: Path, evidence: Path, evidence_hash: str) -> dict | None:
+    """Reuse only a current hook-owned scoped attestation for this evidence."""
+    path = ReviewAttestation.path(evidence)
+    if not path.exists():
+        return None
+    attestation = json.loads(path.read_text())
+    paths = attestation.get('review_paths') or []
+    if (attestation.get('project_inputs') and not _record_shape_failures(attestation)
+            and attestation['attestation_id'] == _attestation_id(attestation)
+            and attestation['preflight_evidence']['sha256'] == evidence_hash
+            and scoped_review_digest(project, paths, include_index=True) == attestation['project_inputs']):
+        return {'paths': paths, 'inputs': scoped_review_binding(project, paths, include_index=True)}
+    return None

@@ -152,8 +152,8 @@ def _completed_review(args: Any) -> tuple[ReviewReuse, dict[str, str]]:
     prior = copy.copy(args)
     prior.evidence = source
     reuse = ReviewReuse(prior, review_paths, {"kind": "working-tree"})
-    # The full snapshot still binds unrelated dirty bytes. Only a scoped review
-    # may leave them unstaged; its selected changes must exactly cover the index.
+    # A scoped snapshot binds the exact diff/base and branch, independently of
+    # unrelated commits. Its selected changes must still exactly cover the index.
     checks = reuse.load(require_commit_route=False, require_fully_staged=not bool(review_paths))
     if checks is None or not reuse.before or not reuse.before["files"]:
         raise ValueError("staged bytes, scope, rules or attestation differ from prior review")
