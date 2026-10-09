@@ -55,13 +55,35 @@ def global_state_dir() -> Path:
 UNDER_TEST_ENV = "TAO_UNDER_UNITTEST"
 
 
+_UNITTEST_CASE_FILE = os.path.join("unittest", "case.py")
+
+
+def _inside_unittest_case() -> bool:
+    """Whether a unittest TestCase is running somewhere up this call stack.
+
+    `python -m unittest` is only one way in. A test file run as a script,
+    `python -c` driving the loader, and `agent_unittest_result.py` all leave a
+    plain `__main__`, and under them the guard below stayed off: a test that
+    cleared TAO_STATE_HOME wrote the developer's real lesson inbox. Whatever
+    the entry point, a test body runs beneath `unittest/case.py`.
+    """
+    if "unittest" not in sys.modules:
+        return False
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code.co_filename.endswith(_UNITTEST_CASE_FILE):
+            return True
+        frame = frame.f_back
+    return False
+
+
 def _running_unittest() -> bool:
     # pytest collects the same suite; under it `__main__` is pytest's entry
     # (or has no spec at all), so its own loaded package is the signal.
     spec = getattr(sys.modules.get("__main__"), "__spec__", None)
     if spec and str(getattr(spec, "name", "")).startswith(("unittest", "pytest")):
         return True
-    return "_pytest" in sys.modules
+    return "_pytest" in sys.modules or _inside_unittest_case()
 
 
 if _running_unittest():
