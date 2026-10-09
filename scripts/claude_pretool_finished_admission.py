@@ -120,6 +120,20 @@ _REFUSAL_CAUSES = {
 }
 
 
+def has_finished_publication(root: Path, command: str, cwd: Path) -> bool:
+    """Whether a readable segment needs post-finish proof, including local Git.
+
+    The open-run hold intentionally excludes local add/commit. Reusing that
+    classifier here hid receipt failures behind an unrelated old paused run.
+    This detects an effect only; it never grants authority or admission.
+    """
+    for segment in raw_command_segments(command, reject_redirections=True) or []:
+        tokens = command_behind_wrappers(segment)
+        if tokens and _publication_effect(root, tokens, cwd):
+            return True
+    return False
+
+
 def finished_publication_denial(
     root: Path, session_id: str, command: str, cwd: Path, runs: FinishedRuns
 ) -> str:

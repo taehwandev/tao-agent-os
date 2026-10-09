@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -47,8 +48,8 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
         current = copy.copy(args)
         current.commit_ready = False
         print(f"Commit review reuse unavailable: {error}. Entering ordinary commit workflow; no evidence was reused. "
-              "Continue this run and stage only the intended files before review; do not start again. "
-              "For future compact entry, stage the reviewed unit before --commit-ready.")
+              "Continue this run and stage only the intended files before review if needed; do not start again. "
+              "For future compact entry, match the completed review scope and stage the reviewed unit before --commit-ready.")
         return start(current)
 
     # No staging or committing: the caller already staged the exact reviewed unit.
@@ -68,7 +69,7 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
         preflight = ReviewReuse.read(current.evidence)
         if set(preflight["route"]["gates"]) != {"request intake", "review hook", "commit readiness"}:
             raise ValueError("commit route has additional gates; continue this run normally")
-        if reuse.capture() != reuse.before:
+        if reuse.capture() != reuse.before or not _staged_scope_matches(reuse):
             raise ValueError("staged scope or rules changed during commit entry")
         for name, value in review_input.items():
             setattr(current, name, value)
@@ -77,7 +78,7 @@ def prepare_commit(args: Any, start: Callable, dispatch: Callable) -> int:
         code = dispatch(current)
         if code:
             return code
-        if reuse.capture() != reuse.before:
+        if reuse.capture() != reuse.before or not _staged_scope_matches(reuse):
             raise ValueError("staged scope or rules changed during review")
         # Finish derives readiness from the current review; all other gates
         # must already be satisfied before invoking it.
@@ -141,16 +142,23 @@ def _completed_review(args: Any) -> tuple[ReviewReuse, dict[str, str]]:
         raise ValueError("prior review run has not completed")
     if source != project / ".tao" / "runs" / preflight["agent_run_id"] / "preflight.json":
         raise ValueError("prior review is not canonical run evidence")
-    if cached["snapshot"].get("scope") != "working-tree" or cached["snapshot"].get("paths"):
-        raise ValueError("compact preparation requires a whole working-tree review")
-    if args.review_scope != "working-tree" or args.review_path:
-        raise ValueError("compact preparation cannot replace the reviewed scope")
+    if args.review_scope not in {"working-tree", "pathspec"} or cached["snapshot"].get("scope") != args.review_scope:
+        raise ValueError("compact preparation requires the exact completed review scope")
+    review_paths = list(args.review_path)
+    if args.review_scope == "pathspec" and not review_paths:
+        raise ValueError("compact preparation requires a nonempty reviewed pathspec")
+    if cached["snapshot"].get("paths") != review_paths:
+        raise ValueError("compact preparation requires the exact reviewed pathspec")
     prior = copy.copy(args)
     prior.evidence = source
-    reuse = ReviewReuse(prior, [], {"kind": "working-tree"})
-    checks = reuse.load(require_commit_route=False)
+    reuse = ReviewReuse(prior, review_paths, {"kind": "working-tree"})
+    # The full snapshot still binds unrelated dirty bytes. Only a scoped review
+    # may leave them unstaged; its selected changes must exactly cover the index.
+    checks = reuse.load(require_commit_route=False, require_fully_staged=not bool(review_paths))
     if checks is None or not reuse.before or not reuse.before["files"]:
         raise ValueError("staged bytes, scope, rules or attestation differ from prior review")
+    if not _staged_scope_matches(reuse):
+        raise ValueError("staged files must exactly match the reviewed changed paths")
     inputs = checks.get("review_input")
     expected = {"code_review_evidence", "docs_freshness_evidence", "structure_review_evidence",
                 "boundary_plan_evidence", "side_effect_audit_evidence"}
@@ -159,3 +167,12 @@ def _completed_review(args: Any) -> tuple[ReviewReuse, dict[str, str]]:
     if not inputs.get("code_review_evidence") or not inputs.get("docs_freshness_evidence"):
         raise ValueError("prior review narratives are incomplete")
     return reuse, inputs
+
+
+def _staged_scope_matches(reuse: ReviewReuse) -> bool:
+    staged = reuse.git(reuse.project, "diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--")
+    reviewed = reuse.git(reuse.project, "diff", "--name-only", "-z", "--no-renames", "HEAD", "--", *reuse.paths)
+    reviewed += reuse.git(reuse.project, "ls-files", "--others", "--exclude-standard", "-z", "--", *reuse.paths)
+    staged_paths = {os.fsdecode(name) for name in staged.split(b"\0") if name}
+    reviewed_paths = {os.fsdecode(name) for name in reviewed.split(b"\0") if name}
+    return bool(staged_paths) and staged_paths == reviewed_paths

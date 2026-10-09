@@ -1004,3 +1004,65 @@ exemption, canonical maintenance identity, and negative protection cases.
 Canonical Figma guidance was staged and its maintenance verifier passed the
 focused unittest selector before marking the change applied. These are not the full Tao suite or
 a new live Figma API/network test.
+
+### Audit: 2026-10-09, Native Integration Latency
+
+Source baseline: `52c5d70`; integrated base: `a6f124b`. Environment: Codex on macOS, isolated Tao task
+checkout. Scope: one native desktop material change's recorded elapsed time,
+scoped commit preparation, and finished-run denial diagnostics. The live Tao
+checkout also had unrelated edits in `scripts/workflow_validate.py` and
+`tests/test_workflow_catalog.py`; this audit neither includes nor changes them.
+Raw session records and the derived timeline remain local, untracked evidence.
+
+The selected request-to-commit interval was **53m 58.535s**; the final response
+arrived after **54m 28.169s**. Contiguous milestone intervals were:
+
+| Phase | Elapsed |
+| --- | ---: |
+| Intake and preparation | 1m 43.612s |
+| Native rendering and input diagnosis, fixes | 30m 06.528s |
+| Broader regression checks | 8m 34.821s |
+| Golden approval, update and verification | 2m 53.714s |
+| Final build, documentation and lifecycle checks | 6m 50.523s |
+| Commit-boundary recovery and commit | 3m 49.337s |
+| Post-commit verification and response | 29.634s |
+
+These intervals describe milestones, not exclusive causes. The **24 recorded
+Tao hook invocations consumed 26.262s** of checker time. **21 Gradle outcomes**
+included **14 failures and 7 successes**; 20 reported build durations totaled
+**204s**, with one compile failure missing a duration. Two escalation-request
+to prefix-record windows totaled **4m 23.830s**, overlapping other work; they
+do not establish that a human approval dialog was visible or waiting.
+
+**36m 32.202s** falls outside the recorded foreground tool, asynchronous Gradle
+and escalation-observation windows. That time is unclassified: the records do
+not separate model inference, transport, other activity, or polling delays.
+It must not be attributed to Codex service latency or Tao computation. No token
+usage or end-to-end before/after speedup was measured.
+
+| ID | Priority / check | Reproduction and expected behavior | Owner / proving check / disposition |
+| --- | --- | --- | --- |
+| F19 | Medium / H06, H07 | A completed review of an explicit pathspec, including the original 141-path unit, could not reuse commit-ready evidence. The helper accepted only whole-tree reviews even though the snapshot already bound the scope and path list. Eligible scoped evidence should be reusable with the same literal scope, ordered paths, complete index coverage, session, authority, rules and unchanged full snapshot. | [Commit preparation](scripts/agent_commit_ready.py), [normalized-scope regressions and negative controls](tests/test_agent_commit_ready.py), [canonical contract](workflows/skills/review-and-commit/references/current-guidance.md). Repaired in this change. The public CLI normalizes working-tree plus explicit paths to pathspec; regression fixtures use that literal scope and exercise its preparation owner, rather than launching a new CLI process. Unrelated unstaged content may remain unchanged; selected unstaged content, foreign staging, or any snapshot drift must prevent reuse. |
+| F20 | Medium / H06, H07, H09 | A local commit with failed current finish proof was reported as an older paused-run problem. The open-run publication classifier intentionally excludes local add/commit; reusing it for finished-run mismatch detection hid the actual changed inputs or insufficient effect. The refusal should identify the current proof failure without asking to resume the superseded pause. | [Entry gate](scripts/claude_pretool_gate.py), [finished effect detection](scripts/claude_pretool_finished_admission.py), [public gate and negative controls](tests/test_pretool_finished_entry.py). Repaired without relaxing receipt freshness, rule revisions, shell parsing or effect authority. Newer pauses, expired proof, local non-publication commands and unreadable publication forms retain their existing boundaries. |
+| F21 | Medium / H08, H10 | The agent discovered synthetic input permission late, used a popup fixture with a covering always-on-top parent and a hover-contaminated pixel marker, and retried invalid lifecycle arguments. Three rejected start forms and checkpoint/documentation argument retries were execution mistakes. Detect environment prerequisites and use the documented manifest/schema before repeated native test loops. | Existing [verification policy](common/skills/verification-policy/references/current-guidance.md), [tool recovery](common/skills/tool-failure-recovery/references/current-guidance.md) and [operating contract](common/skills/agent-operating-skill/SKILL.md) already cover these decisions. No new approval or startup gate is added. Genuine native peer/layer hosting defects still required implementation and regression verification. |
+
+The elapsed time does not show that 54 minutes was necessary. Most observed
+delay occurred during agent diagnosis, implementation and retries, with two
+Tao recovery/reuse defects contributing avoidable work. Checker execution
+alone does not explain the wall time, and the unclassified gaps do not prove a
+Codex platform fault. These repairs address reproduced behavior rather than
+claiming a quantified overall performance improvement.
+
+Verification: **332 focused tests passed**, exit `0`, across `test_agent_commit_ready`,
+`test_agent_review_reuse`, `test_pretool_finished_entry`,
+`test_claude_pretool_gate`, `test_agent_publication_admission`, and
+`test_finished_worktree_integration`, plus `test_claude_pretool_sibling_run`, using the unittest runner with
+`PYTHONPATH=tests:scripts`. The scoped preparation subset passed **64 tests**
+in **36.076s**. After integrating the updated base, finished-entry/publication
+and sibling-run checks passed **268 tests** in **27.656s**; unchanged preparation
+owner/reuse results were retained. The preceding 262-check run passed in
+**29.851s**. Regression assertions failed before the fixes. These checks retain
+scope/staging/byte/rules/authority controls and a public gate negative control
+using the former classifier. Workflow validation passed **196 references,
+413 Markdown frontmatter/link checks and 28 route contracts**. This is focused
+verification, not the full Tao suite or a replayed end-to-end desktop task.

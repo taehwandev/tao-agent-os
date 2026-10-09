@@ -948,6 +948,23 @@ def entry_denial(
 ) -> int:
     """Refuse a call that has no workflow entry, or ask about a paused run."""
 
+    command = bash_command(payload) if tool in BASH_TOOLS else ""
+    command_cwd = Path(str(payload.get("cwd") or root))
+    if (
+        command
+        and finished_run_supersedes_paused(root, session_id)
+        and finished_evidence_is_fresh(finished_session_evidence(root, session_id))
+        and (
+            _admission.has_finished_publication(root, command, command_cwd)
+            or publication_hold(command, root=root, cwd=command_cwd) == "publishes"
+        )
+    ):
+        # A newer finish supersedes the old pause. Keep the refusal, but name
+        # the current receipt/effect/input failure instead of reopening old work.
+        return deny(
+            finished_publication_denial(root, session_id, command, command_cwd),
+            "publication_after_finish_mismatch",
+        )
     paused = paused_session_evidence(root, session_id) is not None
     return deny_or_ask(
         deny_reason(root, session_id, tool, cwd_roots) + suffix,
@@ -1501,8 +1518,13 @@ def _isolated_checkout_verdict(
             continue
         if (
             tool in BASH_TOOLS
-            and publication_hold(
-                bash_command(payload), root=governed, cwd=effective_cwd or cwd
+            and (
+                _admission.has_finished_publication(
+                    governed, bash_command(payload), effective_cwd or cwd
+                )
+                or publication_hold(
+                    bash_command(payload), root=governed, cwd=effective_cwd or cwd
+                )
             )
             and finished_evidence_is_fresh(finished_session_evidence(governed, session_id))
         ):

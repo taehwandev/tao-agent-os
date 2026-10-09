@@ -22,8 +22,7 @@ When a separate commit entry is needed (for example, the user first authorizes
 the commit after implementation has finished), the compact helper below can
 reuse eligible evidence without replacing the new authority check.
 
-For an exact fully staged unit whose whole working tree was reviewed and
-finished in this runtime session, use:
+For an exact staged unit reviewed and finished in this runtime session, use:
 
 ```text
 <TAO_LAUNCHER> start --project <TARGET_REPO> --rules <TAO_ROOT> --command commit --request "<CURRENT_REQUEST>" --intent prepare_commit --target-summary "<AUTHORIZED_UNIT>" --approved-effect git_write --commit-ready
@@ -32,11 +31,19 @@ finished in this runtime session, use:
 This reuses attested review narratives and machine checks, then executes
 ordinary start, fresh review checks, commit-readiness recording and finish.
 It never stages, commits, pushes, or grants filesystem permission. Current
-commit authority is required. Changed staged bytes, unrelated changes,
-incomplete prior work or another session refuse before starting. Old
-attestations without reusable narratives and scoped reviews use ordinary
-preparation. If entry finds unread required docs or additional gates, satisfy
-them in that run instead of starting another. A failed step stops the sequence.
+commit authority is required. Whole-tree reviews require the entire changed
+unit to be staged. For a scoped review, also pass `--review-scope pathspec`
+and repeat each original `--review-path` in the same order. The literal scope
+and path list must match the completed review. The index must contain exactly
+all changed files selected by that scope, with staged blobs matching working
+bytes. Unrelated unstaged files may
+remain only when the complete repository snapshot is unchanged since review.
+
+Changed staged or unstaged bytes, mismatched scopes, incomplete prior work,
+another session, or old attestations without reusable narratives prevent
+compact reuse. Ordinary entry retains its current missing gates without
+staging or committing. If entry finds unread required docs or additional gates,
+satisfy them in that run instead of starting another. A failed step stops the sequence.
 After success, perform the authorized commit without repeating unchanged checks.
 
 A rejected command is not proof that unrelated staging must be changed. Check

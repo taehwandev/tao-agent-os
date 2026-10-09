@@ -57,6 +57,225 @@ class CommitReadyTests(unittest.TestCase):
         args.evidence = commit.evidence
         return 0
 
+    def publish_pathspec(self, paths, scope="pathspec"):
+        self.fixture.source.review_scope = self.args.review_scope = scope
+        self.args.review_path = list(paths)
+        checks = copy.deepcopy(self.fixture.checks)
+        checks["review_scope"] = "pathspec: " + ", ".join(paths)
+        checks["review_paths"] = list(paths)
+        names = self.fixture.git("diff", "--name-only", "-z", "--no-renames", "HEAD", "--", *paths)
+        names += self.fixture.git("ls-files", "--others", "--exclude-standard", "-z", "--", *paths)
+        reviewed = sorted({name.decode() for name in names.split(b"\0") if name})
+        checks["changed_path_count"] = len(reviewed)
+        checks["structure_review"].update(checked_paths=reviewed, checked_path_count=len(reviewed))
+        source = review_fixture.ReviewReuse(self.fixture.source, list(paths), {"kind": "working-tree"})
+        failures = []
+        source.complete(checks, failures)
+        self.assertEqual([], failures)
+        review_fixture.record_review_gate(self.fixture.source, checks)
+        source.publish(checks)
+
+    def test_public_literal_pathspec_scope_reuses_the_exact_completed_review(self):
+        self.publish_pathspec(["source.py", "extra.py"], scope="pathspec")
+        path = self.fixture.project / ".tao" / "review-checks-latest.json"
+        self.assertEqual("pathspec", json.loads(path.read_text())["snapshot"]["scope"])
+        calls = []
+
+        def dispatch(args):
+            self.assertEqual("pathspec", args.review_scope)
+            calls.append(args.hook)
+            return 0
+
+        self.assertEqual(0, prepare_commit(self.args, self.start, dispatch))
+        self.assertEqual(["review", "finish"], calls)
+
+    def test_same_paths_cannot_replace_the_completed_review_scope(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        for scope in ("working-tree", "commit-range", "local-config", "repo-hygiene"):
+            with self.subTest(scope=scope):
+                self.start.reset_mock()
+                self.dispatch.reset_mock()
+                self.args.review_scope = scope
+                self.assert_ordinary_entry()
+
+    def test_exact_pathspec_reuses_with_unchanged_unrelated_unstaged_files(self):
+        (self.fixture.project / "rule.md").write_text("unrelated unstaged change\n")
+        self.publish_pathspec(["source.py", "extra.py"])
+        before = self.fixture.git("diff")
+        calls = []
+        self.assertEqual(0, prepare_commit(self.args, self.start, lambda args: calls.append(args.hook) or 0))
+        self.assertEqual(["review", "finish"], calls)
+        self.assertEqual(before, self.fixture.git("diff"))
+
+    def test_exact_pathspec_reuses_with_unchanged_unrelated_untracked_files(self):
+        outside = self.fixture.project / "unrelated.txt"
+        outside.write_text("outside the reviewed staged unit\n")
+        self.publish_pathspec(["source.py", "extra.py"])
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.assertEqual(2, self.dispatch.call_count)
+        self.assertEqual("outside the reviewed staged unit\n", outside.read_text())
+
+    def test_pathspec_review_requires_selected_changed_files_to_be_staged(self):
+        self.fixture.git("reset", "--quiet", "--", "source.py")
+        self.publish_pathspec(["source.py", "extra.py"])
+        self.assert_ordinary_entry()
+
+    def test_pathspec_review_requires_selected_untracked_files_to_be_staged(self):
+        (self.fixture.project / "untracked.py").write_text("selected = True\n")
+        self.publish_pathspec(["*.py"])
+        self.assert_ordinary_entry()
+
+    def test_pathspec_reuse_still_rejects_unrelated_unstaged_byte_drift(self):
+        outside = self.fixture.project / "rule.md"
+        outside.write_text("outside bytes before review\n")
+        self.publish_pathspec(["source.py", "extra.py"])
+        outside.write_text("outside bytes changed after review\n")
+        self.assert_ordinary_entry()
+
+    def test_index_coverage_drift_stops_before_each_dependent_hook(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        for phase in ("start", "review"):
+            with self.subTest(phase=phase):
+                self.fixture.git("add", "source.py")
+                calls = []
+
+                def start(args):
+                    self._start(args)
+                    if phase == "start":
+                        self.fixture.git("reset", "--quiet", "--", "source.py")
+                    return 0
+
+                def dispatch(args):
+                    calls.append(args.hook)
+                    self.fixture.git("reset", "--quiet", "--", "source.py")
+                    return 0
+
+                self.assertEqual(2, prepare_commit(self.args, start, dispatch))
+                self.assertEqual([] if phase == "start" else ["review"], calls)
+
+    def test_exact_pathspec_covering_all_staged_files_reuses_completed_review(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        before = self.fixture.git("rev-parse", "HEAD")
+        index = self.fixture.git("diff", "--cached")
+        calls = []
+
+        def dispatch(args):
+            calls.append(args.hook)
+            self.assertEqual(["source.py", "extra.py"], args.review_path)
+            self.assertEqual("Exact diff reviewed", args.code_review_evidence)
+            return 0
+
+        self.assertEqual(0, prepare_commit(self.args, self.start, dispatch))
+        self.start.assert_called_once()
+        self.assertEqual(["review", "finish"], calls)
+        self.assertEqual(before, self.fixture.git("rev-parse", "HEAD"))
+        self.assertEqual(index, self.fixture.git("diff", "--cached"))
+
+    def test_exact_141_path_review_reuses_without_repeating_entry(self):
+        directory = self.fixture.project / "reviewed"
+        directory.mkdir()
+        paths = ["source.py", "extra.py"]
+        for index in range(139):
+            path = f"reviewed/unit_{index}.py"
+            (self.fixture.project / path).write_text(f"value = {index}\n")
+            paths.append(path)
+        self.fixture.git("add", "reviewed")
+        self.fixture.source.max_changed_paths = self.args.max_changed_paths = 141
+        self.publish_pathspec(paths)
+        calls = []
+        self.assertEqual(0, prepare_commit(self.args, self.start, lambda args: calls.append(args.hook) or 0))
+        self.start.assert_called_once()
+        self.assertEqual(["review", "finish"], calls)
+
+    def test_matching_git_pathspec_can_cover_the_complete_staged_unit(self):
+        self.publish_pathspec(["*.py"])
+        self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.assertEqual(2, self.dispatch.call_count)
+
+    def test_matching_pathspec_cannot_reuse_with_existing_unreviewed_staged_file(self):
+        self.publish_pathspec(["source.py"])
+        self.assert_ordinary_entry()
+
+    def test_matching_pathspec_cannot_reuse_with_new_unreviewed_staged_file(self):
+        self.publish_pathspec(["*.py"])
+        (self.fixture.project / "unreviewed.txt").write_text("outside reviewed scope\n")
+        self.fixture.git("add", "unreviewed.txt")
+        self.assert_ordinary_entry()
+
+    def test_changed_expanded_or_removed_pathspecs_are_not_equivalent_reviews(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        for paths in ([], ["*.py"], ["extra.py", "source.py"], ["source.py", "extra.py", "rule.md"]):
+            with self.subTest(paths=paths):
+                self.start.reset_mock()
+                self.dispatch.reset_mock()
+                self.args.review_path = paths
+                self.assert_ordinary_entry()
+
+    def test_whole_tree_proof_cannot_be_reinterpreted_as_a_pathspec_review(self):
+        self.args.review_path = ["source.py", "extra.py"]
+        self.assert_ordinary_entry()
+
+    def test_pathspec_review_does_not_cover_changed_staged_bytes(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        (self.fixture.project / "source.py").write_text("value = 3\n")
+        self.fixture.git("add", "source.py")
+        self.assert_ordinary_entry()
+
+    def test_pathspec_review_requires_identical_checker_limits(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        self.args.max_changed_paths += 1
+        self.assert_ordinary_entry()
+
+    def test_pathspec_review_rejects_changed_rule_or_checker_proof(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        path = self.fixture.project / ".tao" / "review-checks-latest.json"
+        original = json.loads(path.read_text())
+        for field in ("rules_sha256", "checker_sha256"):
+            with self.subTest(field=field):
+                self.start.reset_mock()
+                self.dispatch.reset_mock()
+                cache = copy.deepcopy(original)
+                cache["snapshot"][field] = "0" * 64
+                path.write_text(json.dumps(cache))
+                self.assert_ordinary_entry()
+
+    def test_pathspec_review_requires_the_same_session_and_completed_run(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        with patch("agent_commit_ready.runtime_session", return_value={"runtime": "codex", "session_id": "other"}):
+            self.assert_ordinary_entry()
+        for state in ("running", "cancelled"):
+            with self.subTest(state=state):
+                self.start.reset_mock()
+                self.dispatch.reset_mock()
+                self.registry.write_text(json.dumps({"runs": [{"run_id": "a" * 32, "state": state}]}))
+                self.assert_ordinary_entry()
+
+    def test_pathspec_review_cannot_override_current_findings_or_missing_approval(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        for field, value in (("review_outcome", "findings"), ("approved_effect", "")):
+            with self.subTest(field=field):
+                previous = getattr(self.args, field, "")
+                setattr(self.args, field, value)
+                self.assertEqual(2, prepare_commit(self.args, self.start, self.dispatch))
+                self.start.assert_not_called()
+                self.dispatch.assert_not_called()
+                setattr(self.args, field, previous)
+
+    def test_pathspec_review_still_defers_completion_for_unread_required_docs(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        with patch("agent_commit_ready.required_doc_reuse", return_value={"unread": ["new.md"]}):
+            self.assertEqual(0, prepare_commit(self.args, self.start, self.dispatch))
+        self.start.assert_called_once()
+        self.dispatch.assert_not_called()
+
+    def test_pathspec_review_narrative_tampering_prevents_reuse(self):
+        self.publish_pathspec(["source.py", "extra.py"])
+        path = self.fixture.project / ".tao" / "review-checks-latest.json"
+        cache = json.loads(path.read_text())
+        cache["checks"]["review_input"]["code_review_evidence"] = "Changed review statement"
+        path.write_text(json.dumps(cache))
+        self.assert_ordinary_entry()
+
     def test_single_invocation_runs_existing_checks_in_order_without_git_write(self):
         calls = []
         def dispatch(args):
