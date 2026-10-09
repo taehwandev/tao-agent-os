@@ -417,6 +417,14 @@ ownership is uncertain, or verification fails.
 
 ## Release And Source Control
 
+All new Tao work branches, including this repository's, follow
+`common/skills/branch-strategy/SKILL.md` for the hosting account ID and shared
+three-segment naming format. Apply it in personal, shared, and company repos,
+with or without tickets. Resolve conflicting repo-local naming rules before
+branch creation. `common/skills/branch-cleanup/SKILL.md` uses the same account
+identity for cleanup ownership; adopting the rule does not migrate existing
+branches.
+
 This repository uses monthly CalVer `vYY.MM.N`. `N` counts tags in the month
 and resets to 1 in a new month. A tag is a deployment even without GitHub
 release notes; release ranges start at the previous tag.

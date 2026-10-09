@@ -7,7 +7,7 @@ type: human-reviewed-needed
 # Branch Strategy
 
 Use when creating, naming, checking, reviewing, or documenting git work
-branches, especially when no Jira, GitHub, Linear, or other ticket id exists.
+branches in any repository, with or without a tracking ticket.
 
 ## Read
 
@@ -21,9 +21,10 @@ branches, especially when no Jira, GitHub, Linear, or other ticket id exists.
 ## Process
 
 1. Check repo-local branch policy and protected-branch rules first.
-2. When no repo-local naming rule and no ticket id exists, apply the shared default:
+2. Resolve the owner's source-control hosting account ID using the reference;
+   apply the shared format to every new work branch:
    ```text
-   <git-username>/<work-unit>/<description>
+   <account-id>/<work-unit>/<description>
    ```
 3. Verify worktree context before any branch creation, push, PR, or tag action.
 4. Report the selected branch name with evidence (see Report section).
@@ -31,10 +32,13 @@ branches, especially when no Jira, GitHub, Linear, or other ticket id exists.
 ## Do Not
 
 - Do not invent a Jira, issue, ticket, or tracking id only to fill a branch name.
+- Do not substitute a display name, Git author name, email, or repository owner
+  for the work owner's hosting account ID.
 - Do not choose a base branch, protected branch, release branch, PR target, or
   push target without repo-local evidence.
-- Do not put secrets, customer names, account names, local paths, incident
-  details, or private prompt text in a branch name.
+- Do not put secrets, customer names, unrelated account names, local paths,
+  incident details, or private prompt text in a branch name. The required owner
+  account ID belongs only in the first segment.
 
 ## Stop If
 
@@ -43,15 +47,17 @@ branches, especially when no Jira, GitHub, Linear, or other ticket id exists.
 - The worktree contains unrelated or user-owned changes that would be carried
   into the branch unintentionally.
 - Repo-local branch policy conflicts with the shared default.
+- The owner's hosting account ID is unknown or ambiguous.
 
 ## Verification
 
-- Confirm the branch name follows repo-local policy or the shared default.
+- Confirm the branch name follows the shared format and compatible repo-local
+  policy, with a verified owner account ID.
 - Confirm worktree context before branch creation, push, PR, or tag work.
 - Run workflow validation when this card is added to routing, search, or tests.
 
 ## Report
 
-Report the selected branch name, username source, work unit, description slug,
-base/target evidence when relevant, and any repo-local rule that overrode the
-shared default.
+Report the selected branch name, account ID and its source, work unit,
+description slug, base/target evidence when relevant, and any resolved
+repo-local policy conflict.

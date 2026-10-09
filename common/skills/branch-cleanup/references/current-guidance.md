@@ -12,11 +12,11 @@ and report it. Remote deletion requires an explicit request.
 
 ## Inspect First
 
-1. Repo-local policy for the integration branch, protected branches, and the
-   branch owner-prefix convention. When no repo-local rule exists, use the
-   `common/skills/branch-strategy/SKILL.md` default
-   `<git-username>/<work-unit>/<description>`, where the first segment is the
-   owner.
+1. Repo-local policy for the integration branch and protected branches. Resolve
+   the work owner's hosting account ID using
+   `common/skills/branch-strategy/SKILL.md`; its shared format is
+   `<account-id>/<work-unit>/<description>`, where the first segment is the
+   owner. Apply the same identity rule in personal, shared, and company repos.
 2. `git fetch --prune`, then `git worktree list` and `git branch -vv` for the
    current state.
 
@@ -24,10 +24,16 @@ and report it. Remote deletion requires an explicit request.
 
 ### Ownership
 
-Delete only branches whose owner segment matches the current git identity.
+Delete only branches whose owner segment matches the verified hosting account
+ID for the target host, using Branch Strategy's identity sources.
 Branches owned by someone else are never deleted, regardless of merge state or
 how abandoned they look. Branches with no owner prefix have an unknown owner
 and are never deleted. Report both kinds when noticed.
+
+Commit author names/emails, a shared tip, local-only status, and the absence of
+an upstream do not establish branch ownership or override this gate. A generic
+cleanup request does not waive it. Preserve legacy branches with an unknown
+owner and report them for a separately scoped ownership/migration decision.
 
 ### Protected Branches
 
@@ -117,7 +123,8 @@ Log the tip SHA of every branch before deleting it.
 
 ## Stop If
 
-- The integration branch or the owner-prefix convention cannot be determined.
+- The integration branch, owner segment, or hosting account ID cannot be
+  determined, or repo-local naming policy conflicts with the shared format.
 - The authoritative PR result or ancestry fallback says the branch is not
   merged, or the leased deletion reports that its tip moved.
 - A deletion target is checked out, dirty, protected, or not owned.
