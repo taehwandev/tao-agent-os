@@ -496,9 +496,19 @@ def _print_advisory_once(route: dict[str, object], root: Path, payload_text: str
             f"session already received it (digest {digest[:12]}). Rerun "
             "`tao-hook workflow route <command>` to see it again."
         )
-        return
-    sys.stdout.write(text)
-    record_delivery(root, session_id, digest)
+    else:
+        sys.stdout.write(text)
+        record_delivery(root, session_id, digest)
+    # Per turn, unlike the route: whether the last run is finished changes
+    # between turns, and the turn after a finish is when it matters.
+    try:
+        from workflow_followup_hint import followup_hint
+
+        hint = followup_hint(session_id, root)
+    except Exception:  # noqa: BLE001 - an advisory line must never fail the prompt hook
+        hint = ""
+    if hint:
+        print(hint)
 
 
 def _dispatch_request_classification(

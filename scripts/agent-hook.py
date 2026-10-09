@@ -887,7 +887,12 @@ def finish_hook(args: argparse.Namespace) -> int:
         details.append("publication inputs: captured" if captured else
                        "publication inputs: unavailable"
                        + (f" ({publication_failure[0]})" if publication_failure else "")
-                       + "; this finish does not admit post-finish publication")
+                       + "; this finish does not admit post-finish publication"
+                       # Named here because the next step is usually a commit
+                       # or merge, and without it that step was simply denied.
+                       + ". When the user authorizes commit, merge or push of this work, "
+                       f"first run start --continue-from {preflight_evidence_path(args).parent.name} "
+                       "--command commit --approved-effect git_write (external_write to push)")
         # Complete the registry first. If the process dies between these two
         # writes, the run is already terminal and cannot be resumed from a
         # packet that still displays the pre-finish checkpoint.
