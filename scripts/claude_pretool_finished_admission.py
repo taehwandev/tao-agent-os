@@ -27,7 +27,11 @@ from claude_command_effect import (
     github_pr_merge,
     github_publication,
 )
-from claude_pretool_worktree_integration import FinishedRuns, integrates_finished_worktree
+from claude_pretool_worktree_integration import (
+    FinishedRuns,
+    integrates_finished_worktree,
+    pushes_finished_checkout_commit,
+)
 from claude_worktree_gate import bash_command_kind, project_publication_kind
 
 # The steps the lifecycle names after finish: "before final report, commit,
@@ -36,6 +40,15 @@ from claude_worktree_gate import bash_command_kind, project_publication_kind
 # path admits local Git work, then checks resulting inputs before publication.
 PUBLICATION_GIT_SUBCOMMANDS = frozenset({"add", "commit", "push", "tag"})
 DEFAULT_PROTECTED_BRANCHES = frozenset({"main", "master", "develop"})
+# Which other checkout's finish admitted the last publication, for the allow
+# reason; "" when the pushing checkout's own finish did, or nothing did.
+_CROSS_CHECKOUT_NOTE = {"note": ""}
+
+
+def cross_checkout_note() -> str:
+    """One clause naming the run and checkout that admitted a cross-checkout push."""
+
+    return _CROSS_CHECKOUT_NOTE["note"]
 
 
 def publishes_finished_work(
@@ -81,9 +94,15 @@ def publishes_finished_work(
     if not effect:
         return False
     evidence = runs.evidence(root, session_id)
-    if not runs.is_fresh(evidence):
+    if runs.is_fresh(evidence) and PublicationAdmission.allows(root, evidence, effect):
+        return True
+    # Only the ordinary invocation: no -C, alternate worktree or git-dir.
+    admitted = command == tokens and pushes_finished_checkout_commit(root, session_id, command, runs, cwd)
+    if not admitted:
         return False
-    return PublicationAdmission.allows(root, evidence, effect)
+    checkout, run_id = admitted
+    _CROSS_CHECKOUT_NOTE["note"] = f" (admitted by run {run_id} finished in {checkout})"
+    return True
 
 
 def _publication_effect(root: Path, command: list[str], cwd: Path) -> str:
@@ -188,6 +207,7 @@ def publishes_finished_command(
 
     # Redirection operands are file targets, not executable read-only segments.
     # A completed run does not grant new filesystem writes via shell redirects.
+    _CROSS_CHECKOUT_NOTE["note"] = ""
     segments = raw_command_segments(command, reject_redirections=True)
     if not segments:
         return False

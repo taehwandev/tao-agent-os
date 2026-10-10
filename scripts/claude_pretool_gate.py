@@ -1662,7 +1662,7 @@ def _isolated_checkout_verdict(
     if finish_authorized:
         return _approve(
             "This is a publication command that a successful finish "
-            "authorized for this session."
+            f"authorized for this session{_admission.cross_checkout_note()}."
         )
     sprawl_reason = sprawl_deny(tool, payload, root, cwd, session_id)
     if sprawl_reason:

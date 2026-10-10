@@ -2,10 +2,11 @@
 
 Owner: the one integration a finished run admits without a new lifecycle --
 `git [-C <repo>] merge --ff-only <ref>` of exactly a registered worktree's
-clean, attested HEAD -- and the run-evidence lookups every finished admission
-receives from the gate.
+clean, attested HEAD -- the plain `git push` of that same commit from another
+checkout of the repository, and the run-evidence lookups every finished
+admission receives from the gate.
 Allowed imports: the standard library, claude_bash_git, and
-agent_publication_admission (lazily).
+agent_publication_admission and agent_repository_checkouts (lazily).
 Forbidden imports: claude_pretool_gate; run evidence arrives through
 ``FinishedRuns`` so that the gate's own lookups, and patches of them, decide.
 Callers/tests: claude_pretool_finished_admission, claude_pretool_gate;
@@ -196,7 +197,7 @@ def _registered_worktrees(target: Path) -> list[Path]:
 
 
 def _holds_exactly_the_finished_commit(
-    worktree: Path, session_id: str, sha: str, runs: FinishedRuns
+    worktree: Path, session_id: str, sha: str, runs: FinishedRuns, effect: str = "git_write"
 ) -> bool:
     """Whether this worktree's finish attested exactly the commit being merged.
 
@@ -210,7 +211,7 @@ def _holds_exactly_the_finished_commit(
         return False
     from agent_publication_admission import PublicationAdmission
 
-    if not PublicationAdmission.allows(worktree, evidence, "git_write"):
+    if not PublicationAdmission.allows(worktree, evidence, effect):
         return False
     head = _git_read(worktree, ["rev-parse", "HEAD"])
     if head is None or head[0] != 0 or head[1].strip() != sha:
@@ -282,3 +283,71 @@ def integrates_finished_worktree(
         _holds_exactly_the_finished_commit(worktree, session_id, sha, runs)
         for worktree in _registered_worktrees(target)
     )
+
+
+# The only options a cross-checkout push of an attested commit may carry. Each
+# leaves the push one branch update of one named commit; `--force`, `--tags`,
+# `--all`, `--mirror`, `--delete` and anything else is not this shape.
+CROSS_CHECKOUT_PUSH_FLAGS = frozenset(
+    {"-q", "--quiet", "-v", "--verbose", "-u", "--set-upstream", "--porcelain", "--no-progress"}
+)
+
+
+def _pushed_source(arguments: list[str]) -> str:
+    """The one local revision a plain `git push` publishes, or "" when unsure.
+
+    No positional, or only a remote, pushes the current branch, read as HEAD.
+    A remote and one refspec push its source side. A forced (`+`), pattern,
+    deleting or multi-ref refspec, and any option outside the set above, can
+    publish something other than one commit, so it is not this shape.
+    """
+
+    flags = [argument for argument in arguments if argument.startswith("-")]
+    words = [argument for argument in arguments if not argument.startswith("-")]
+    if set(flags) - CROSS_CHECKOUT_PUSH_FLAGS or len(words) > 2:
+        return ""
+    if len(words) < 2:
+        return "HEAD"
+    source = words[1].split(":", 1)[0]
+    if not source or source.startswith("+") or any(mark in source for mark in "*^~@: "):
+        return ""
+    return source
+
+
+def pushes_finished_checkout_commit(
+    root: Path,
+    session_id: str,
+    tokens: list[str],
+    runs: FinishedRuns,
+    cwd: Path | None = None,
+) -> "tuple[Path, str] | None":
+    """The other checkout and run whose finish attested exactly the pushed commit.
+
+    A session finishes a run in a linked worktree with publication authority,
+    fast-forwards main to that commit, and pushes from the main checkout. The
+    pushing checkout holds no finished run, so the push needed a second
+    lifecycle there for a commit already reviewed and attested. This admits
+    it only when the commit being pushed is exactly a clean other checkout's
+    HEAD, and that checkout's latest finished run of this session admits
+    `external_write` on unchanged bytes -- the same receipt check the
+    same-checkout path uses. Any other push shape returns None.
+    """
+
+    if not session_id or tokens[:2] != ["git", "push"]:
+        return None
+    source = _pushed_source(tokens[2:])
+    if not source:
+        return None
+    pushing = Path(cwd or root)
+    top = _git_read(pushing, ["rev-parse", "--show-toplevel"])
+    resolved = _git_read(pushing, ["rev-parse", "--verify", "--end-of-options", f"{source}^{{commit}}"])
+    if top is None or top[0] != 0 or resolved is None or resolved[0] != 0:
+        return None
+    sha = resolved[1].strip()
+    from agent_repository_checkouts import checkouts_with_run_state
+
+    for checkout in checkouts_with_run_state(Path(top[1].strip())):
+        if _holds_exactly_the_finished_commit(checkout, session_id, sha, runs, "external_write"):
+            evidence = runs.evidence(checkout, session_id)
+            return checkout, evidence.parent.name if evidence is not None else ""
+    return None
