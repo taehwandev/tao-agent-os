@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -352,30 +353,14 @@ def _settle_session_runs_in(
     Returns ``(run_id, state settled from)`` for each run cancelled here.
     """
 
-    bindings = active_run_bindings(project, states)
-    evidence_names = {
-        str(run.get("evidence_name") or "")
-        for run in bindings.values()
-        if _safe_evidence_name(run)
-    }
-    if not evidence_names:
-        return []
-    candidates, _out_of_scope, _complete = _runtime_evidence_candidates(
-        project, evidence_names
-    )
     settled: list[tuple[str, str]] = []
-    for candidate in candidates:
-        run = bindings.get(evidence_binding_key(project, candidate))
-        if run is None:
-            continue
+    for candidate, run in _session_runs_in(
+        project, states, runtime=runtime, session_id=session_id
+    ):
         run_id = str(run.get("run_id") or "")
         if not run_id or run_id in keep:
             continue
         if transfer_fingerprint and run.get("request_fingerprint") == transfer_fingerprint:
-            continue
-        if not _session_binding_matches(
-            candidate, run, runtime=runtime, session_id=session_id
-        ):
             continue
         try:
             cancelled = cancel_active_run_if_current(
@@ -395,6 +380,111 @@ def _settle_session_runs_in(
             continue
         settled.append((run_id, str(cancelled.get("superseded_from_state") or "")))
     return settled
+
+
+def _session_runs_in(
+    project: Path,
+    states: "frozenset[str]",
+    *,
+    runtime: str,
+    session_id: str,
+) -> list[tuple[Path, dict[str, Any]]]:
+    """This session's runs in ``states`` recorded in one checkout, with their evidence."""
+
+    bindings = active_run_bindings(project, states)
+    evidence_names = {
+        str(run.get("evidence_name") or "")
+        for run in bindings.values()
+        if _safe_evidence_name(run)
+    }
+    if not evidence_names:
+        return []
+    candidates, _out_of_scope, _complete = _runtime_evidence_candidates(
+        project, evidence_names
+    )
+    found: list[tuple[Path, dict[str, Any]]] = []
+    for candidate in candidates:
+        run = bindings.get(evidence_binding_key(project, candidate))
+        if run is not None and _session_binding_matches(
+            candidate, run, runtime=runtime, session_id=session_id
+        ):
+            found.append((candidate, run))
+    return found
+
+
+# A session's own runs the pre-tool gate would resume: paused by a turn
+# boundary, or left by a failed finish. `reconcile_required` is never settled.
+PAUSED_SESSION_RUN_STATES = frozenset({"interrupted", "blocked", "failed"})
+
+
+def settle_paused_runs_finished_later(
+    project: Path, *, runtime: str, session_id: str
+) -> list[tuple[str, str]]:
+    """Settle this session's paused runs in ``project`` that a later finish superseded.
+
+    Start settles a session's paused and failed runs only when it admits a new
+    request. A run left paused in the main checkout survives a continuation
+    started in a linked worktree, and once that later run finished and merged,
+    the session's next publication from the main checkout had the pre-tool gate
+    resume the old run and refuse as "still open", with no close path short of
+    editing the registry. A completed run of the same session that *started*
+    after the paused run last changed shows the session moved on and finished
+    later work, so the paused run is cancelled as superseded by it, through the
+    same conditional registry transaction start uses (``superseded_from_state``
+    is kept, ownership rules unchanged). A run updated after that finish began
+    is later work in its own right and stays resumable; other sessions',
+    workers' and active runs are never touched.
+
+    Returns ``(settled run id, superseding run id)`` pairs.
+    """
+
+    if not runtime or not session_id or os.environ.get(WORKER_EVIDENCE_ENV, "").strip():
+        return []
+    own = project.resolve()
+    paused = _session_runs_in(own, PAUSED_SESSION_RUN_STATES, runtime=runtime, session_id=session_id)
+    if not paused:
+        return []
+    finished = [
+        run
+        for checkout in (own, *checkouts_with_run_state(own))
+        for _candidate, run in _session_runs_in(
+            checkout, frozenset({"completed"}), runtime=runtime, session_id=session_id
+        )
+        if _utc_time(run.get("started_at")) is not None and run.get("run_id")
+    ]
+    if not finished:
+        return []
+    latest = max(finished, key=lambda run: _utc_time(run.get("started_at")))
+    latest_start = _utc_time(latest.get("started_at"))
+    settled: list[tuple[str, str]] = []
+    for candidate, run in paused:
+        moved = _utc_time(run.get("updated_at"))
+        run_id = str(run.get("run_id") or "")
+        if moved is None or not run_id or not latest_start > moved:
+            continue
+        try:
+            cancelled = cancel_active_run_if_current(
+                own,
+                candidate,
+                run_id=run_id,
+                expected_resume_generation=int(run.get("resume_generation") or 0),
+                expected_started_at=str(run.get("started_at") or ""),
+                states=PAUSED_SESSION_RUN_STATES,
+                superseded_by=str(latest["run_id"]),
+            )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            continue
+        if cancelled is not None:
+            settled.append((run_id, str(latest["run_id"])))
+    return settled
+
+
+def _utc_time(value: object) -> "datetime | None":
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
 def _request_fingerprint(project: Path, run_id: str) -> str:

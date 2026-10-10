@@ -413,6 +413,9 @@ _PENDING_WARNINGS: list[str] = []
 # Model-only context (unread required docs). Unlike a warning it is not shown
 # to the user, and Codex accepts it too (verified with codex-cli 0.160).
 _PENDING_CONTEXT: list[str] = []
+# What this call changed on the way to its verdict, appended to the verdict's
+# reason (or sent as context when there is none) so the change is not silent.
+_PENDING_NOTES: list[str] = []
 _EXCEPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 
 
@@ -431,9 +434,17 @@ def _emit(decision: "dict | None") -> int:
     if warning and codex:
         print(warning, file=sys.stderr, flush=True)
     output: dict = {}
+    notes = " ".join(_PENDING_NOTES)
+    _PENDING_NOTES.clear()
     if decision is not None:
+        if notes and decision.get("permissionDecisionReason"):
+            decision = {**decision, "permissionDecisionReason":
+                        f"{decision['permissionDecisionReason']} {notes}"}
+            notes = ""
         output["hookSpecificOutput"] = {"hookEventName": "PreToolUse", **decision}
     context = [warning] if warning and not codex else []
+    if notes:
+        context.append(notes)
     context.extend(_PENDING_CONTEXT)
     _PENDING_CONTEXT.clear()
     if context:
@@ -886,6 +897,37 @@ def workflow_entry_allows(root: Path, session_id: str) -> bool:
     ):
         evidence = session_evidence(root, session_id)
     return evidence is not None and evidence_is_fresh(evidence)
+
+
+def _settle_paused_runs_before_publication(
+    payload: dict, roots: "list[Path]", cwd: Path
+) -> None:
+    """Settle this session's paused runs a later finish superseded, before publishing.
+
+    Only a publication: there the resumed run is refused as "still open" with
+    no close path, while an ordinary call that resumes it can still finish or
+    cancel it. A settle that fails leaves the verdict exactly as it was.
+    """
+
+    command = bash_command(payload)
+    session_id = str(payload.get("session_id") or "")
+    if not command or not session_id:
+        return
+    for root in roots:
+        try:
+            if publication_hold(command, root=root, cwd=cwd) != "publishes":
+                continue
+            reader = _run_evidence_reader()
+            settled = reader.settle_paused_runs_finished_later(
+                root, runtime=runtime_name(), session_id=session_id
+            ) if reader is not None else []
+        except Exception:  # noqa: BLE001 - settling never changes the verdict path
+            continue
+        _PENDING_NOTES.extend(
+            f"Tao lifecycle: settled this session's paused run {old} in {root} as "
+            f"superseded by its later finished run {new}."
+            for old, new in settled
+        )
 
 
 def finished_run_supersedes_paused(root: Path, session_id: str) -> bool:
@@ -2575,6 +2617,7 @@ def decide(payload: dict) -> int:
 
     _PENDING_WARNINGS.clear()
     _PENDING_CONTEXT.clear()
+    _PENDING_NOTES.clear()
     try:
         payload = _with_codex_exec_workdir(payload)
         _queue_unread_required_docs(payload)
@@ -2650,6 +2693,8 @@ def _decide(payload: dict) -> int:
         return _read_only_verdict(read_denial, scope.unknown_reason)
     if tool in BASH_TOOLS and bash_kind == SCRATCH_SCRIPT_KIND:
         return allow()
+    if tool in BASH_TOOLS:
+        _settle_paused_runs_before_publication(payload, roots, command_cwd)
     if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:
         # The hazard list is consulted here too. Nothing Git classifies as
         # bootstrap is destructive today -- `fetch` and `worktree add` are the
