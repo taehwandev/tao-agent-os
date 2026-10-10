@@ -72,6 +72,7 @@ try:  # The gate must never fail to load; the import is only used for a message.
     )
     from claude_command_effect import command_effect, unknown_recovery
     from claude_scratch_checkout import scratch_command, scratch_script_command, throwaway_checkout
+    from claude_pretool_checkout_removal import checkout_removal_denial
     from claude_bash_syntax import command_segments, resolve_target, scratch_write_target, shell_keyword_command
     from claude_bash_readonly import simple_command_kind
     from claude_worktree_gate import (
@@ -270,6 +271,9 @@ except ImportError as _import_failure:  # pragma: no cover - exercised only on a
 
     def scratch_script_command(command: str, root: Path, cwd: Path, project_of=None) -> bool:
         return False
+
+    def checkout_removal_denial(tokens: list[str], cwd: Path) -> str:
+        return ""
 
 
 def __getattr__(name: str):
@@ -2660,6 +2664,44 @@ def _with_codex_exec_workdir(payload: dict) -> dict:
     return {**payload, "cwd": workdir} if workdir else payload
 
 
+def _bootstrap_verdict(
+    root: Path, roots: list[Path], tokens: list[str], syntax_is_simple: bool, command_cwd: Path
+) -> int:
+    """Answer a bootstrap or runtime-control Bash command in a governed project.
+
+    The hazard list is consulted here too. Nothing Git classifies as
+    bootstrap is destructive today -- `fetch` and `worktree add` are the
+    whole set -- so this changes no verdict now. It is the ordering that
+    matters: approving first and checking second means the day one more
+    subcommand becomes bootstrap, it is approved without ever being read.
+    """
+
+    if (
+        syntax_is_simple
+        and tokens
+        and Path(tokens[0]).name == "git"
+        and worktree_policy_satisfied(root)
+        and _ordinary_git_invocation(tokens)
+        and not shared_repository_hazard(tokens, protected_branch_names(root))
+    ):
+        return _approve(
+            "This is an ordinary Git command inside the isolated linked worktree."
+        )
+    if (
+        syntax_is_simple
+        and tokens
+        and git_subcommand(tokens)[0] in {"branch", "remote"}
+        and any(worktree_denial(found) for found in roots)
+        and protected_checkout_verdict(
+            tokens, protected_branch_names(root), command_cwd
+        ) == "allow"
+    ):
+        # Self-protecting ref cleanup: keep the protected checkout's
+        # existing outright approval rather than demoting it to a prompt.
+        return _approve("This is routine reference maintenance in the protected checkout.")
+    return allow()
+
+
 def _decide(payload: dict) -> int:
     if not gate_enabled():
         return allow()
@@ -2682,6 +2724,13 @@ def _decide(payload: dict) -> int:
     roots = scope.roots
     cwd_roots = scope.cwd_roots
     root = scope.root
+    if tool in BASH_TOOLS and tokens:
+        # Before every approval below, governed project or not: a forced
+        # removal is otherwise deferred to a permission flow that cannot see
+        # uncommitted work or an open Tao run in the checkout it deletes.
+        removal = checkout_removal_denial(tokens, effective_cwd)
+        if removal:
+            return deny(removal, code="checkout_removal_loses_work")
     if root is None:
         return _ungoverned_project_verdict(cwd, tokens)
     if tool in BASH_TOOLS and bash_kind == "read_only":
@@ -2696,35 +2745,7 @@ def _decide(payload: dict) -> int:
     if tool in BASH_TOOLS:
         _settle_paused_runs_before_publication(payload, roots, command_cwd)
     if tool in BASH_TOOLS and bash_kind in {"bootstrap", RUNTIME_CONTROL_KIND}:
-        # The hazard list is consulted here too. Nothing Git classifies as
-        # bootstrap is destructive today -- `fetch` and `worktree add` are the
-        # whole set -- so this changes no verdict now. It is the ordering that
-        # matters: approving first and checking second means the day one more
-        # subcommand becomes bootstrap, it is approved without ever being read.
-        if (
-            syntax_is_simple
-            and tokens
-            and Path(tokens[0]).name == "git"
-            and worktree_policy_satisfied(root)
-            and _ordinary_git_invocation(tokens)
-            and not shared_repository_hazard(tokens, protected_branch_names(root))
-        ):
-            return _approve(
-                "This is an ordinary Git command inside the isolated linked worktree."
-            )
-        if (
-            syntax_is_simple
-            and tokens
-            and git_subcommand(tokens)[0] in {"branch", "remote"}
-            and any(worktree_denial(found) for found in roots)
-            and protected_checkout_verdict(
-                tokens, protected_branch_names(root), command_cwd
-            ) == "allow"
-        ):
-            # Self-protecting ref cleanup: keep the protected checkout's
-            # existing outright approval rather than demoting it to a prompt.
-            return _approve("This is routine reference maintenance in the protected checkout.")
-        return allow()
+        return _bootstrap_verdict(root, roots, tokens, syntax_is_simple, command_cwd)
     # Every governed project, not just the first: a session inside a linked
     # worktree satisfies its own policy while naming the protected checkout it
     # was branched from, and taking the first answer let that through.

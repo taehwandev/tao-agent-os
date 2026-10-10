@@ -20,6 +20,7 @@ from agent_worktree_identity import (
     generated_worker_path,
     validate_worker_worktree_identity,
 )
+from agent_repository_checkouts import unsettled_run_states
 from agent_worktree_fingerprint import WorktreeSnapshot, capture_worktree_state
 from support.bounded_git import run_git
 
@@ -169,6 +170,14 @@ def remove_worker_worktree(
                 stderr=subprocess.PIPE,
             )
             return False
+        # `force` drops uncommitted files the caller has accounted for; it
+        # never drops a Tao run, which git cannot see because `.tao/` is ignored.
+        open_runs = unsettled_run_states(worktree_path)
+        if open_runs:
+            raise WorktreeSessionError(
+                f"cannot remove isolated worker worktree at {worktree_path}: "
+                f"it holds an unsettled Tao run ({', '.join(open_runs)})"
+            )
         if _run_worktree_remove(project, worktree_path, force=force):
             return True
     raise WorktreeSessionError(

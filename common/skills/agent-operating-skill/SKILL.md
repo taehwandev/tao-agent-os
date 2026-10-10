@@ -28,16 +28,15 @@ type: ai-generated
 
 Status questions, impatience and complaints about repeated procedure retain the
 active outcome and passed evidence. Answer briefly and continue the next missing
-authorized action; do not reopen intake, launch a new audit/retrospective or
-repair the workflow unless the user requests that repair or a concrete failure
-requires it. A remaining-gates list is work to close, not a reason to repeat
-passed tests or review. Automatic hook checkpoints need no manual checkpoint;
-write semantic resume state only for interruption, changed scope or handoff.
+authorized action; do not reopen intake, start an audit/retrospective or repair
+the workflow unless requested or a concrete failure requires it. Remaining gates
+are work to close, not a reason to repeat passed tests or review.
+Automatic hook checkpoints need no manual checkpoint; write semantic resume
+state only for interruption, changed scope or handoff.
 
-The shared prompt hook delivers this section once per session and again only
-when its content changes. Receiving it does not start a task, invalidate passed
-checks or expand authority. Continue the active outcome under current project
-instructions; a completed task stays completed.
+The prompt hook delivers this section once per session and again only when it
+changes. It starts no task, invalidates no passed check and grants no authority;
+a completed task stays completed.
 
 ## Proportionate Execution
 

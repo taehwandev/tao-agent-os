@@ -294,7 +294,8 @@ class GateBatchPerformanceAdvertisement(unittest.TestCase):
 
         self.assertEqual(len(rendered), 1)
         self.assertIn("simultaneously-ready", rendered[0])
-        self.assertIn("one strong continuation checkpoint", rendered[0])
+        self.assertIn("the hook writes its checkpoint automatically", rendered[0])
+        self.assertIn("do not add a manual checkpoint", rendered[0])
         self.assertIn("different phases", rendered[0])
 
     def test_one_agent_owned_gate_does_not_advertise_batching(self):

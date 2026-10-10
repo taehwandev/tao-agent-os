@@ -1,14 +1,18 @@
 """Find a repository's other checkouts that hold Tao run state.
 
-Owner: the bounded list of checkouts a session-wide settle may look at, and
-the content-free question of whether a settled run's checkout still holds
-unfinished work.
+Owner: the bounded list of checkouts a session-wide settle may look at, the
+content-free question of whether a settled run's checkout still holds
+unfinished work, and whether removing a checkout would lose work or a run.
 Allowed imports: the standard library.
 Forbidden imports: the run registry and runtime-session modules; the caller
-hands in each checkout and run id and does the settling itself.
-Callers/tests: agent_runtime_session.settle_superseded_session_runs;
-tests/test_settle_superseded_session_runs.py.
-Verification: that test module and the runtime-session suite.
+hands in each checkout and run id and does the settling itself. The registry
+file is read here directly, without its locks, because a removal check only
+reads and must fail towards keeping the checkout.
+Callers/tests: agent_runtime_session.settle_superseded_session_runs,
+claude_pretool_checkout_removal, agent_worktree_session.remove_worker_worktree;
+tests/test_settle_superseded_session_runs.py,
+tests/test_claude_pretool_checkout_removal.py.
+Verification: those test modules and the runtime-session suite.
 
 A session that leaves a run paused in the main checkout and moves on to a
 linked worktree never settled the paused run: supersession only scanned the
@@ -28,6 +32,9 @@ from pathlib import Path
 # should walk on every call; the excess is left to its own sessions.
 MAX_CHECKOUTS = 64
 REGISTRY_RELATIVE_PATH = Path(".tao") / "run-registry.json"
+# agent_run_registry.SETTLED_RUN_STATES, repeated because that module may not
+# be imported here; a test holds the two equal.
+SETTLED_RUN_STATES = frozenset({"completed", "cancelled"})
 
 
 def checkouts_with_run_state(project: Path) -> list[Path]:
@@ -99,6 +106,66 @@ def _packet_records_unfinished_work(checkout: Path, run_id: str) -> bool:
         or work.get("remaining_work")
         or checkpoint.get("mutation_pending") is not None
     )
+
+
+def unsettled_run_states(checkout: Path) -> list[str]:
+    """The states of runs in ``checkout``'s registry that still owe something.
+
+    Anything but ``completed`` or ``cancelled`` -- running, paused, claiming,
+    failed, blocked, interrupted, reconcile_required -- is somebody's open
+    work. A registry that exists but cannot be read answers ``["unreadable"]``
+    so a removal check keeps the checkout rather than guessing it is empty.
+    """
+
+    path = checkout / REGISTRY_RELATIVE_PATH
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        runs = payload.get("runs")
+        if not isinstance(runs, list):
+            raise ValueError("runs")
+    except (OSError, ValueError, AttributeError):
+        return ["unreadable"]
+    states = {
+        str(run.get("state"))
+        for run in runs
+        if isinstance(run, dict) and run.get("state") not in SETTLED_RUN_STATES
+    }
+    return sorted(states)
+
+
+def checkout_removal_hazard(checkout: Path, *, count_changes: bool = True) -> str:
+    """Why deleting ``checkout`` would lose something, or "" when it would not.
+
+    Two things are lost with a checkout and no branch keeps them: changes
+    git has not committed (modified or untracked, not ignored) and a Tao run
+    that is not yet settled. A branch that looks merged says nothing about
+    either -- a task branch with no commits of its own sits at an ancestor of
+    main from the moment it is created -- so neither is inferred from it.
+    A status git cannot produce is no evidence of work, and stays silent.
+    ``count_changes=False`` is for a checkout declared disposable, whose files
+    are scratch by definition; its open run still counts.
+    """
+
+    states = unsettled_run_states(checkout)
+    if states:
+        return f"it holds an unsettled Tao run ({', '.join(states)})"
+    if not count_changes:
+        return ""
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(checkout), "status", "--porcelain=v1", "--untracked-files=normal"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if status.returncode == 0 and status.stdout.strip():
+        return "it has uncommitted or untracked changes"
+    return ""
 
 
 def _resolved(path: Path) -> Path | None:
