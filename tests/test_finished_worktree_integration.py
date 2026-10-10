@@ -213,6 +213,43 @@ class FinishedWorktreeIntegrationTests(unittest.TestCase):
 
         self.assertFalse(self.admits(command))
 
+    def test_autostash_over_leftovers_the_commit_already_holds_is_admitted(self) -> None:
+        """A run that began in main leaves its own edits there; they are in the commit."""
+
+        (self.main / "source").write_text("original\nsecond\n")
+        self.git(self.main, "commit", "-qam", "two lines")
+        self.git(self.worktree, "merge", "-q", "--ff-only", "main")
+        (self.worktree / "source").write_text("changed\nsecond\nthird\n")
+        assert self.finish()
+        self.git(self.worktree, "commit", "-qam", "slice work")
+        sha = self.git(self.worktree, "rev-parse", "HEAD").strip()
+        # Part of the reviewed change, left behind before the move.
+        (self.main / "source").write_text("changed\nsecond\n")
+        command = f"git -C {shlex.quote(str(self.main))} merge --ff-only --autostash {sha}"
+
+        self.assertTrue(self.admits(command))
+        self.assertTrue(self.admits_command(command))
+        self.git(self.main, "merge", "-q", "--ff-only", "--autostash", sha)
+        self.assertEqual("", self.git(self.main, "status", "--porcelain", "--untracked-files=no"))
+
+    def test_autostash_over_a_change_the_commit_lacks_is_refused(self) -> None:
+        sha = self.slice_commit()
+        target = shlex.quote(str(self.main))
+
+        (self.main / "source").write_text("someone else's work")
+        self.assertFalse(self.admits(f"git -C {target} merge --ff-only --autostash {sha}"))
+        self.git(self.main, "checkout", "--", "source")
+        (self.main / "AGENTS.md").write_text("another session's edit\n")
+        self.assertFalse(self.admits(f"git -C {target} merge --ff-only --autostash {sha}"))
+        self.git(self.main, "checkout", "--", "AGENTS.md")
+        (self.main / "source").unlink()
+        self.assertFalse(self.admits(f"git -C {target} merge --ff-only --autostash {sha}"))
+
+    def test_autostash_needs_the_fast_forward_flag(self) -> None:
+        sha = self.slice_commit()
+
+        self.assertFalse(self.admits(f"git -C {shlex.quote(str(self.main))} merge --autostash {sha}"))
+
     def test_an_already_integrated_commit_is_still_admitted(self) -> None:
         """Target HEAD equal to the commit is a no-op, not a divergence."""
 

@@ -16,6 +16,7 @@ Verification: that module.
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Callable, NamedTuple
 
@@ -26,6 +27,11 @@ from claude_bash_git import git_subcommand, names_unsafe_git_option
 # the rest only quieten it. Anything else -- `--no-ff`, `-m`, `--squash`, a
 # strategy option -- builds a commit nobody reviewed, so it is not this shape.
 FAST_FORWARD_MERGE_FLAGS = frozenset({"--ff-only", "-q", "--quiet", "--no-edit"})
+# Stashes the target's uncommitted tracked changes around the move and puts
+# them back. Admitted only when every one of them is already in the commit
+# (see `_leftovers_already_in`), so the move still brings in nothing unattested
+# and the put-back leaves the target clean instead of touching other work.
+AUTOSTASH_FLAG = "--autostash"
 
 
 class FinishedRuns(NamedTuple):
@@ -99,11 +105,70 @@ def _names_exact_fast_forward(arguments: list[str]) -> str:
         return ""
     flags = [argument for argument in arguments if argument.startswith("-")]
     words = [argument for argument in arguments if not argument.startswith("-")]
-    if "--ff-only" not in flags or set(flags) - FAST_FORWARD_MERGE_FLAGS:
+    if "--ff-only" not in flags or set(flags) - FAST_FORWARD_MERGE_FLAGS - {AUTOSTASH_FLAG}:
         return ""
     if len(words) != 1 or not words[0] or words[0].split() != [words[0]]:
         return ""
     return words[0]
+
+
+def _git_bytes(root: Path, arguments: list[str]) -> "bytes | None":
+    """One short binary read of a repository, or None when it fails."""
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *arguments],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _contains_leftover(target: Path, base: bytes, commit: bytes, leftover: bytes) -> bool:
+    """Whether merging the leftover edit of `base` into `commit` changes nothing."""
+
+    if leftover == commit:
+        return True
+    with tempfile.TemporaryDirectory() as folder:
+        files = []
+        for name, content in (("commit", commit), ("base", base), ("leftover", leftover)):
+            path = Path(folder) / name
+            path.write_bytes(content)
+            files.append(str(path))
+        merged = _git_bytes(target, ["merge-file", "-p", *files])
+    return merged == commit
+
+
+def _leftovers_already_in(target: Path, sha: str) -> bool:
+    """Whether every uncommitted tracked change in the target is already in `sha`.
+
+    A run that began in the main checkout before moving to its worktree can
+    leave its own edits behind there; git then refuses the fast-forward, and
+    every way of clearing them is a write the main checkout's guard refuses.
+    `--autostash` clears them only for the move. When each leftover file merges
+    into the commit's version without changing it, the put-back is a no-op and
+    the target ends clean at the commit; anything else -- a deleted file, a
+    path the commit does not hold, an edit the commit lacks -- may be someone
+    else's work, so the ordinary refusal stays.
+    """
+
+    listed = _git_bytes(target, ["diff", "--name-only", "-z", "HEAD"])
+    if listed is None:
+        return False
+    for raw in filter(None, listed.split(b"\0")):
+        path = raw.decode("utf-8", "surrogateescape")
+        base = _git_bytes(target, ["show", f"HEAD:{path}"])
+        commit = _git_bytes(target, ["show", f"{sha}:{path}"])
+        try:
+            leftover = (target / path).read_bytes()
+        except OSError:
+            return False
+        if base is None or commit is None or not _contains_leftover(target, base, commit, leftover):
+            return False
+    return True
 
 
 def _registered_worktrees(target: Path) -> list[Path]:
@@ -180,7 +245,8 @@ def integrates_finished_worktree(
     registered worktree's HEAD, and that worktree must be clean and unchanged
     since its receipt. Anything else -- a plain `merge`, `--no-ff`, a rebase,
     a second ref, a dirty or advanced worktree, a diverged target, a
-    read-route finish -- fails closed and keeps the ordinary refusal.
+    read-route finish, `--autostash` over a change the commit lacks -- fails
+    closed and keeps the ordinary refusal.
     """
 
     if not session_id:
@@ -209,6 +275,8 @@ def integrates_finished_worktree(
     # integrate bytes no finish attested -- and which git refuses anyway.
     ancestry = _git_read(target, ["merge-base", "--is-ancestor", "HEAD", sha])
     if ancestry is None or ancestry[0] != 0:
+        return False
+    if AUTOSTASH_FLAG in arguments and not _leftovers_already_in(target, sha):
         return False
     return any(
         _holds_exactly_the_finished_commit(worktree, session_id, sha, runs)
