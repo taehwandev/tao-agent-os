@@ -706,6 +706,28 @@ def _closeout_reuse_lines() -> list[str]:
     ]
 
 
+# Gates that close a run out; on routes without a review hook these are the
+# only ones the closeout reminder names.
+_CLOSEOUT_GATES = ("retrospective check", "handoff", "cycle contract")
+# Recorded by a hook or derived by finish, never by gate-batch.
+_NON_RECORDED_CLOSEOUT_GATES = frozenset({"review hook", "commit readiness", "request intake"})
+
+
+def _closeout_record_gates(gates: list[str]) -> list[str]:
+    """Agent-recorded gates that the route lists after its review hook.
+
+    `Before review` names only the gates ahead of the review hook, so a
+    closeout gate such as `retrospective check` was otherwise visible only in
+    the field listing and agents reached finish without it.
+    """
+
+    if "review hook" in gates:
+        tail = gates[gates.index("review hook") + 1:]
+    else:
+        tail = [gate for gate in gates if gate in _CLOSEOUT_GATES]
+    return [gate for gate in tail if gate not in _NON_RECORDED_CLOSEOUT_GATES]
+
+
 def _closeout_gate_lines(gates: list[str]) -> list[str]:
     """Advertise closeout gates that otherwise look like post-finish work."""
 
@@ -713,10 +735,16 @@ def _closeout_gate_lines(gates: list[str]) -> list[str]:
     if "commit readiness" in gates and "review hook" in gates:
         lines.append("Commit readiness: finish derives commit readiness from the current "
                      "review when reviewed bytes are unchanged; record no separate gate.")
-    if "handoff" in gates:
+    closeout = _closeout_record_gates(gates)
+    if closeout:
+        when = "after the review hook passes" if "review hook" in gates else "before finish"
+        handoff = (
+            " The user-facing handoff gate is separate: the worker handoff hook does not "
+            "satisfy it." if "handoff" in closeout else ""
+        )
         lines.append(
-            "Closeout gate reminder: record the user-facing handoff gate with gate or "
-            "gate-batch before finish; the worker handoff hook does not satisfy it."
+            f"Closeout gate reminder: {when}, record {closeout} with gate-batch, then "
+            f"call finish once; finish is not for discovering them.{handoff}"
         )
     return lines
 

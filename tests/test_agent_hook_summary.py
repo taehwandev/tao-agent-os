@@ -85,6 +85,46 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertNotIn("Closeout reuse:", summary)
         self.assertIn("review only if a diff is created or a commit is requested", summary)
 
+    def test_closeout_reminder_names_post_review_gates_for_every_route_kind(self):
+        from workflow_route import route_gates
+
+        cases = {
+            "bugfix": (["retrospective check"], "after the review hook passes"),
+            "docs": (["retrospective check"], "after the review hook passes"),
+            "task": (["retrospective check"], "after the review hook passes"),
+            "triage": (["retrospective check"], "before finish"),
+            "multi-agent": (["retrospective check", "handoff"], "after the review hook passes"),
+            "spec": (["retrospective check", "handoff", "cycle contract"],
+                     "after the review hook passes"),
+            "review": (["retrospective check"], "after the review hook passes"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "preflight.json"
+            for command, (expected, when) in cases.items():
+                with self.subTest(command=command):
+                    evidence.write_text(json.dumps({"route": {
+                        "command": command, "gates": route_gates(command),
+                        "hooks": [{"hook": "review", "required": True}],
+                    }}))
+                    summary = agent_hook._hook_summary_from_preflight(evidence)
+                    reminders = [line for line in summary
+                                 if line.startswith("Closeout gate reminder:")]
+                    self.assertEqual(len(reminders), 1)
+                    self.assertIn(f"{when}, record {expected} with gate-batch", reminders[0])
+                    self.assertIn("call finish once", reminders[0])
+                    self.assertNotIn("commit readiness", reminders[0])
+                    self.assertEqual(
+                        "handoff" in expected,
+                        "worker handoff hook does not satisfy it" in reminders[0],
+                    )
+
+    def test_commit_route_has_no_closeout_record_reminder(self):
+        from workflow_route import route_gates
+
+        lines = agent_hook._closeout_gate_lines(route_gates("commit"))
+        self.assertFalse(any(line.startswith("Closeout gate reminder:") for line in lines))
+        self.assertTrue(any(line.startswith("Commit readiness:") for line in lines))
+
     def test_review_prerequisites_follow_manifest_order_not_a_generic_checklist(self):
         cases = [
             (["tests", "review hook", "retrospective check"], ["tests"]),
