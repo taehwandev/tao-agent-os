@@ -32,6 +32,11 @@ class SessionDeliveryTests(unittest.TestCase):
         self.addCleanup(environment.stop)
         self.now = datetime(2026, 10, 1, tzinfo=timezone.utc)
         self.store = ReferenceMailboxStore(self.project, clock=lambda: self.now)
+        self.guidance = self.root / "guidance.md"
+        self.guidance.write_text("## Live Session Continuity\n\nKeep passed checks.\n\n## Other\n")
+        source = patch.object(hook, "_CONTINUITY_SOURCE", self.guidance, create=True)
+        source.start()
+        self.addCleanup(source.stop)
 
     def send(self, body="Reference only."):
         return self.store.enqueue(sender="codex", recipient="claude", kind="task",
@@ -105,8 +110,63 @@ class SessionDeliveryTests(unittest.TestCase):
             hook.deliver(payload, "claude")
         return buffer.getvalue()
 
-    def test_the_prompt_hook_prints_nothing_when_nothing_is_pending(self):
+    def test_the_prompt_hook_refreshes_guidance_once_without_pending_messages(self):
+        output = json.loads(self._deliver("s1"))["hookSpecificOutput"]
+        self.assertEqual("UserPromptSubmit", output["hookEventName"])
+        self.assertIn("Keep passed checks.", output["additionalContext"])
         self.assertEqual("", self._deliver("s1"))
+
+    def test_an_existing_session_receives_changed_guidance_without_a_new_task(self):
+        self._deliver("s1")
+        self.guidance.write_text("## Live Session Continuity\n\nDo not restart checks.\n\n## Other\n")
+        output = json.loads(self._deliver("s1"))["hookSpecificOutput"]
+        self.assertIn("Do not restart checks.", output["additionalContext"])
+        self.assertEqual("", self._deliver("s1"))
+        self.assertFalse((self.project / ".tao" / "run-registry.json").exists())
+
+    def test_guidance_is_independent_for_each_runtime_and_session(self):
+        payload = {"session_id": "s1", "cwd": str(self.project)}
+        self._deliver("s1")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            hook.deliver(payload, "codex")
+        self.assertIn("Keep passed checks.", output.getvalue())
+        self.assertIn("Keep passed checks.", self._deliver("s2"))
+
+    def test_missing_guidance_does_not_suppress_mailbox_delivery(self):
+        self.guidance.unlink()
+        packet = self.send()
+        self.assertIn(packet["message_id"], self._deliver("s1"))
+
+    def test_other_skill_sections_do_not_trigger_repeated_guidance(self):
+        self._deliver("s1")
+        self.guidance.write_text(
+            "## Live Session Continuity\n\nKeep passed checks.\n\n## Other\nChanged.\n"
+        )
+        self.assertEqual("", self._deliver("s1"))
+
+    def test_guidance_only_delivery_retries_when_output_fails(self):
+        class Closed(io.StringIO):
+            def write(self, text):
+                raise OSError("closed")
+
+        with self.assertRaises(OSError):
+            self._deliver("s1", Closed())
+        self.assertIn("Keep passed checks.", self._deliver("s1"))
+        self.assertEqual("", self._deliver("s1"))
+
+    def test_mailbox_failure_does_not_suppress_changed_guidance(self):
+        with patch.object(SessionDelivery, "claim", side_effect=OSError("unavailable")):
+            self.assertIn("Keep passed checks.", self._deliver("s1"))
+
+    def test_real_canonical_section_contains_the_repetition_safeguard(self):
+        source = ROOT / "common/skills/agent-operating-skill/SKILL.md"
+        with patch.object(hook, "_CONTINUITY_SOURCE", source):
+            output = json.loads(self._deliver("s1"))["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Status questions, impatience", output)
+        self.assertIn("Automatic hook checkpoints need no manual checkpoint", output)
+        self.assertIn("a completed task stays completed", output)
+        self.assertNotIn("## Proportionate Execution", output)
 
     def test_the_prompt_hook_shows_each_message_with_its_id_once(self):
         packet = self.send(body="Please review the gate change.")

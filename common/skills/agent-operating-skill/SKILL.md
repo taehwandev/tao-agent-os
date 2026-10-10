@@ -24,6 +24,8 @@ type: ai-generated
    load the changed source.
 5. Stop after outcome/checks; extra checks need evidence.
 
+## Live Session Continuity
+
 Status questions, impatience and complaints about repeated procedure retain the
 active outcome and passed evidence. Answer briefly and continue the next missing
 authorized action; do not reopen intake, launch a new audit/retrospective or
@@ -31,6 +33,11 @@ repair the workflow unless the user requests that repair or a concrete failure
 requires it. A remaining-gates list is work to close, not a reason to repeat
 passed tests or review. Automatic hook checkpoints need no manual checkpoint;
 write semantic resume state only for interruption, changed scope or handoff.
+
+The shared prompt hook delivers this section once per session and again only
+when its content changes. Receiving it does not start a task, invalidate passed
+checks or expand authority. Continue the active outcome under current project
+instructions; a completed task stays completed.
 
 ## Proportionate Execution
 
