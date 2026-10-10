@@ -65,6 +65,43 @@ class StructurePreviewTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(any("public/exported" in failure for failure in report["failures"]))
 
+    def test_kotlin_metadata_overloads_and_compatibility_exports_need_separate_files(self):
+        catalog = self.project / "src" / "Catalog.kt"
+        metadata = self.project / "src" / "Metadata.kt"
+        catalog.write_text(
+            'fun catalog(): String = ""\n'
+            'fun choices(): List<String> = emptyList()\n')
+        metadata.write_text(
+            'internal fun version(): String = ""\n'
+            'internal fun initialize(): String = ""\n'
+            'internal fun initialize(timeout: Long): String = ""\n'
+            'internal fun settings(model: String): String = ""\n'
+            'internal fun settings(model: String, timeout: Long): String = ""\n'
+            'internal fun arguments(model: String): List<String> = emptyList()\n')
+        code, report = self.preview()
+        self.assertEqual(code, 1)
+        self.assertTrue(any("2 public/exported" in failure for failure in report["failures"]))
+        self.assertTrue(any("6 non-private top-level owners" in failure for failure in report["failures"]))
+
+        catalog.write_text('fun catalog(): String = ""\n')
+        metadata.unlink()
+        separated = {
+            "Choices.kt": 'fun choices(): List<String> = emptyList()\n',
+            "Version.kt": 'internal fun version(): String = ""\n',
+            "Initialize.kt": (
+                'internal fun initialize(): String = ""\n'
+                'internal fun initialize(timeout: Long): String = ""\n'),
+            "Settings.kt": (
+                'internal fun settings(model: String): String = ""\n'
+                'internal fun settings(model: String, timeout: Long): String = ""\n'),
+            "Arguments.kt": 'internal fun arguments(model: String): List<String> = emptyList()\n',
+        }
+        for name, source in separated.items():
+            (self.project / "src" / name).write_text(source)
+        code, report = self.preview()
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report["failures"], [])
+
     def test_scope_is_explicit_and_success_is_not_review_approval(self):
         (self.project / "src" / "save.ts").write_text("export function save() { return 1; }\n")
         (self.project / "src" / "unrelated.ts").write_text(
