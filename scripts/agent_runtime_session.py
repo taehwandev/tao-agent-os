@@ -263,6 +263,7 @@ def settle_superseded_session_runs(
     keep_run_id: str,
     new_request: bool = False,
     preserved: "list[str] | None" = None,
+    failed: "list[str] | None" = None,
 ) -> list[str]:
     """Cancel this session's earlier unfinished runs so one claim stays resolvable.
 
@@ -276,17 +277,21 @@ def settle_superseded_session_runs(
     the one place their intent is known well enough to settle them.
 
     ``new_request`` widens that moment to what a new, unrelated request
-    actually supersedes. A run the Stop hook paused is just as abandoned as an
-    active one, and the session's next work often lands in another checkout of
-    the same repository. Left alone, the paused run in the main checkout was
-    reclaimed by the pre-tool gate on the session's next publication there and
-    refused it as "still open", with no close path short of editing the
-    registry by hand. A continuation or resume is not a new request: it keeps
-    the narrower same-checkout active-claim settle, which still settles an
-    active predecessor action but never a paused run it continues.
+    actually supersedes. A run the Stop hook paused, or one whose finish
+    failed, is just as abandoned as an active one, and the session's next work
+    often lands in another checkout of the same repository. Left alone, such a
+    run in the main checkout was reclaimed by the pre-tool gate on the
+    session's next publication there and refused it as "still open", with no
+    close path short of editing the registry by hand. A continuation or resume
+    is not a new request: it keeps the narrower same-checkout active-claim
+    settle, which still settles an active predecessor action but never a paused
+    or failed run it continues. `reconcile_required` is never settled here.
 
     They are `cancelled` rather than `failed`: a superseded run owes no recovery
     work, and a settled state is what stops it from collecting further evidence.
+    A run settled from `failed` keeps that on its record
+    (``superseded_from_state``) and its id goes to ``failed`` for the caller to
+    report, so the new request does not hide the earlier failure.
     Cancelling touches no file, so uncommitted changes and the continuation
     packet stay where they are; ``preserved`` receives the id of each settled
     run whose checkout still holds such work, for the caller to report.
@@ -319,12 +324,14 @@ def settle_superseded_session_runs(
     transfer = _request_fingerprint(own, keep_run_id) if new_request else ""
     settled: list[str] = []
     for checkout in checkouts:
-        for run_id in _settle_session_runs_in(
+        for run_id, prior_state in _settle_session_runs_in(
             checkout, keep, states, runtime=runtime, session_id=session_id,
             superseded_by=keep_run_id,
             transfer_fingerprint=transfer if checkout != own else "",
         ):
             settled.append(run_id)
+            if failed is not None and prior_state == "failed":
+                failed.append(run_id)
             if preserved is not None and checkout_keeps_unfinished_work(checkout, run_id):
                 preserved.append(run_id)
     return settled
@@ -339,8 +346,11 @@ def _settle_session_runs_in(
     session_id: str,
     superseded_by: str,
     transfer_fingerprint: str = "",
-) -> list[str]:
-    """Settle this session's runs in ``states`` recorded in one checkout."""
+) -> list[tuple[str, str]]:
+    """Settle this session's runs in ``states`` recorded in one checkout.
+
+    Returns ``(run_id, state settled from)`` for each run cancelled here.
+    """
 
     bindings = active_run_bindings(project, states)
     evidence_names = {
@@ -353,7 +363,7 @@ def _settle_session_runs_in(
     candidates, _out_of_scope, _complete = _runtime_evidence_candidates(
         project, evidence_names
     )
-    settled: list[str] = []
+    settled: list[tuple[str, str]] = []
     for candidate in candidates:
         run = bindings.get(evidence_binding_key(project, candidate))
         if run is None:
@@ -383,7 +393,7 @@ def _settle_session_runs_in(
             continue
         if cancelled is None:
             continue
-        settled.append(run_id)
+        settled.append((run_id, str(cancelled.get("superseded_from_state") or "")))
     return settled
 
 

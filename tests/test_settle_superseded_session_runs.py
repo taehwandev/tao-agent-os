@@ -139,16 +139,50 @@ class SupersededSessionRunTests(unittest.TestCase):
         self.assertIn(f"work id: {first}", follow.stdout)
         self.assertEqual("interrupted", runs(self.main)[first]["state"])
 
-    def test_a_failed_run_keeps_its_repair_record(self) -> None:
-        git(self.main, "worktree", "add", "-q", str(self.linked), "-b", "fix/close")
-        failed = run_id(self.ok(start(self.linked, ROOT, "src/module.py 의 가드를 고쳐줘")))
-        self.assertEqual(1, hook(self.linked, ROOT, "finish").returncode)
-        self.assertEqual("failed", runs(self.linked)[failed]["state"])
+    def failed_run(self, project: Path, request: str, session: str = SESSION) -> str:
+        run = run_id(self.ok(start(project, ROOT, request, session=session)))
+        self.assertEqual(1, hook(project, ROOT, "finish", session=session).returncode)
+        self.assertEqual("failed", runs(project)[run]["state"])
+        return run
 
-        new = self.ok(start(self.main, ROOT, "README 를 정리해줘"))
+    def test_a_new_request_settles_a_failed_run_and_reports_it(self) -> None:
+        failed = self.failed_run(self.main, "src/module.py 의 가드를 고쳐줘")
+        peer = self.failed_run(self.main, "다른 세션 작업", session="other-session")
+        git(self.main, "worktree", "add", "-q", str(self.linked), "-b", "fix/close")
+
+        new = self.ok(start(self.linked, ROOT, "README 를 정리해줘"))
+
+        self.assertIn("settled 1 superseded run(s)", new.stdout)
+        self.assertIn(f"superseded run {failed} had failed", new.stdout)
+        main_runs = runs(self.main)
+        self.assertEqual("cancelled", main_runs[failed]["state"])
+        self.assertEqual("failed", main_runs[failed]["superseded_from_state"])
+        self.assertEqual(run_id(new), main_runs[failed]["superseded_by"])
+        # Another session's failure is not this request's to supersede.
+        self.assertEqual("failed", main_runs[peer]["state"])
+        # The main checkout no longer re-binds the failed run and refuses a
+        # publication there as "still open".
+        self.assertNotIn("is still open", pretool_reason(self.main, "git push origin main"))
+        self.assertEqual("cancelled", runs(self.main)[failed]["state"])
+
+    def test_a_continuation_keeps_the_failed_run_it_continues(self) -> None:
+        failed = self.failed_run(self.main, "src/module.py 의 가드를 고쳐줘")
+
+        follow = self.ok(start(self.main, ROOT, "이어서 해줘", "--continue-from", failed))
+
+        self.assertNotIn("had failed", follow.stdout)
+        self.assertEqual("failed", runs(self.main)[failed]["state"])
+
+    def test_a_run_owing_reconciliation_is_never_superseded(self) -> None:
+        first = self.ok(start(self.main, ROOT, "src/module.py 의 가드를 고쳐줘"))
+        evidence = Path(detail(first, "evidence: ").split(": ", 1)[1])
+        transition_run(self.main, evidence, "reconcile_required", run_id=run_id(first))
+        git(self.main, "worktree", "add", "-q", str(self.linked), "-b", "fix/close")
+
+        new = self.ok(start(self.linked, ROOT, "README 를 정리해줘"))
 
         self.assertNotIn("superseded run(s)", new.stdout)
-        self.assertEqual("failed", runs(self.linked)[failed]["state"])
+        self.assertEqual("reconcile_required", runs(self.main)[run_id(first)]["state"])
 
     def test_transfer_accepts_a_resumed_source_of_the_same_session(self) -> None:
         request = "같은 작업을 워크트리에서 끝냈어"

@@ -1259,12 +1259,14 @@ def _register_started_run(
     # disk), but never a paused one, whose state lies outside that set.
     continued = str(getattr(args, "continue_from", "") or "")
     preserved: list[str] = []
+    failed: list[str] = []
     try:
         superseded = settle_superseded_session_runs(
             args.project,
             keep_run_id=claimed_run_id,
             new_request=not continued and not resume_generation,
             preserved=preserved,
+            failed=failed,
         )
     except (OSError, RuntimeError, ValueError, TypeError):
         details.append(
@@ -1278,6 +1280,11 @@ def _register_started_run(
         details.append(
             f"agent run registry: settled {len(superseded)} superseded run(s) "
             "from this runtime session"
+        )
+    for run_id in failed:
+        details.append(
+            f"agent run registry: superseded run {run_id} had failed; "
+            "it was cancelled with its failure kept on its record"
         )
     for run_id in preserved:
         details.append(

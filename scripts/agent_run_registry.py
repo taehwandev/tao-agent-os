@@ -49,11 +49,14 @@ RUN_STATES = frozenset(
 TRANSFER_CANCELLABLE_RUN_STATES = frozenset(
     {*ACTIVE_RUN_STATES, "failed", "reconcile_required", "blocked", "interrupted"}
 )
-# What a new request from the same runtime session settles: the claims it holds
-# and the ones a turn boundary paused. `failed` and `reconcile_required` stay
-# out -- each records a verification failure or repair the owner still owes,
-# and cancelling would hide that behind an unrelated request.
-SUPERSEDABLE_RUN_STATES = frozenset({*ACTIVE_RUN_STATES, "blocked", "interrupted"})
+# What a new request from the same runtime session settles: the claims it holds,
+# the ones a turn boundary paused, and a run whose finish failed. A new request
+# abandons the old request's recovery as surely as its claim; left open, the
+# pre-tool gate re-binds the failed run in its checkout and refuses publication
+# there with no close path. The settle records `superseded_from_state` and start
+# names the failed run, so the failure is reported rather than hidden.
+# `reconcile_required` stays out: it owes reconciliation of effects already made.
+SUPERSEDABLE_RUN_STATES = frozenset({*ACTIVE_RUN_STATES, "blocked", "interrupted", "failed"})
 # States whose owner may still append gate evidence. Recovery happens after a
 # run stops being active: a failed finish must be answered by recording the
 # gates it named, and a repair cycle parks the run at reconcile_required for
@@ -363,11 +366,13 @@ def cancel_active_run_if_current(
     in the same registry transaction as the write.
 
     ``states`` widens the default active set only for a caller that settles
-    turn-paused runs. A paused run's recorded owner is the process that last
-    held it; when that process is proven dead nobody else can still be working
-    it, so its death counts as ownership there. An active run keeps the strict
-    owner match, which is what protects a live peer sharing the session id.
-    ``superseded_by`` names the run that replaced it, a content-free run id.
+    turn-paused or failed runs. Such a run's recorded owner is the process that
+    last held it (a failed finish does not change it); when that process is
+    proven dead nobody else can still be working it, so its death counts as
+    ownership there. An active run keeps the strict owner match, which is what
+    protects a live peer sharing the session id.
+    ``superseded_by`` names the run that replaced it, a content-free run id;
+    the state it was settled from is kept as ``superseded_from_state``.
     """
 
     if not run_id or not expected_started_at or not states <= SUPERSEDABLE_RUN_STATES:
@@ -397,10 +402,12 @@ def cancel_active_run_if_current(
             and owner_death_is_proven(target.get("owner"))
         ):
             return None
+        prior_state = str(target.get("state") or "")
         target["state"] = "cancelled"
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
         if superseded_by:
             target["superseded_by"] = superseded_by
+            target["superseded_from_state"] = prior_state
         _write_registry(path, payload)
     _safe_event(project, "run.transitioned", run_id=run_id, state="cancelled")
     return target
