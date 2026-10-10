@@ -49,6 +49,11 @@ RUN_STATES = frozenset(
 TRANSFER_CANCELLABLE_RUN_STATES = frozenset(
     {*ACTIVE_RUN_STATES, "failed", "reconcile_required", "blocked", "interrupted"}
 )
+# What a new request from the same runtime session settles: the claims it holds
+# and the ones a turn boundary paused. `failed` and `reconcile_required` stay
+# out -- each records a verification failure or repair the owner still owes,
+# and cancelling would hide that behind an unrelated request.
+SUPERSEDABLE_RUN_STATES = frozenset({*ACTIVE_RUN_STATES, "blocked", "interrupted"})
 # States whose owner may still append gate evidence. Recovery happens after a
 # run stops being active: a failed finish must be answered by recording the
 # gates it named, and a repair cycle parks the run at reconcile_required for
@@ -345,18 +350,27 @@ def cancel_active_run_if_current(
     run_id: str,
     expected_resume_generation: int,
     expected_started_at: str,
+    states: "frozenset[str]" = ACTIVE_RUN_STATES,
+    superseded_by: str = "",
 ) -> dict[str, Any] | None:
-    """Cancel one exact active generation without overwriting a newer result.
+    """Cancel one exact unfinished generation without overwriting a newer result.
 
     Session-level supersession first discovers candidates from a registry
     snapshot, then reads their evidence files. The run can finish or be rebound
     before that caller asks to cancel it, or a new run can adopt the terminal
     id. Another process can also share a runtime session id. Ownership,
-    run-instance, active-state, and generation checks therefore belong
+    run-instance, state, and generation checks therefore belong
     in the same registry transaction as the write.
+
+    ``states`` widens the default active set only for a caller that settles
+    turn-paused runs. A paused run's recorded owner is the process that last
+    held it; when that process is proven dead nobody else can still be working
+    it, so its death counts as ownership there. An active run keeps the strict
+    owner match, which is what protects a live peer sharing the session id.
+    ``superseded_by`` names the run that replaced it, a content-free run id.
     """
 
-    if not run_id or not expected_started_at:
+    if not run_id or not expected_started_at or not states <= SUPERSEDABLE_RUN_STATES:
         return None
     path = registry_path(project)
     with project_state_lock(project), state_lock(path):
@@ -372,16 +386,21 @@ def cancel_active_run_if_current(
         )
         if target is None:
             return None
-        if target.get("state") not in ACTIVE_RUN_STATES:
+        if target.get("state") not in states:
             return None
         if int(target.get("resume_generation") or 0) != expected_resume_generation:
             return None
         if target.get("started_at") != expected_started_at:
             return None
-        if not _closeout_owner_matches(target):
+        if not _closeout_owner_matches(target) and not (
+            target.get("state") not in ACTIVE_RUN_STATES
+            and owner_death_is_proven(target.get("owner"))
+        ):
             return None
         target["state"] = "cancelled"
         target["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if superseded_by:
+            target["superseded_by"] = superseded_by
         _write_registry(path, payload)
     _safe_event(project, "run.transitioned", run_id=run_id, state="cancelled")
     return target
@@ -443,6 +462,18 @@ def resume_run_for_closeout(
         _write_registry(path, payload)
     _safe_event(project, "run.transitioned", run_id=target["run_id"], state="resuming")
     return target
+
+
+def paused_run_is_owned(run: dict[str, Any]) -> bool:
+    """Whether the caller holds a run a turn boundary paused.
+
+    A paused run is outside the ledger-writable set, so the ledger ownership
+    check refuses it however its owner reads -- and `blocked`/`interrupted` are
+    exactly the states a stranded transfer source is found in. Owning one is
+    the same question `cancel_run` asks before it settles it.
+    """
+
+    return run.get("state") in {"blocked", "interrupted"} and _closeout_owner_matches(run)
 
 
 def _closeout_owner_matches(run: dict[str, Any]) -> bool:

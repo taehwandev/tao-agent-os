@@ -58,9 +58,11 @@ class WorkCardLifecycleTests(unittest.TestCase):
         return Path(detail(started, "evidence: ").split(": ", 1)[1])
 
     def test_start_opens_one_card_that_a_continued_run_keeps_and_finish_settles(self) -> None:
-        other = start(self.project, ROOT, "다른 작업부터 해줘")
+        # Another session's paused work: this session's own paused run would be
+        # settled as superseded by the new request below.
+        other = start(self.project, ROOT, "다른 작업부터 해줘", session="other-session")
         self.assertEqual(0, other.returncode, other.stdout)
-        self.assertEqual(0, turn_boundary(self.project).returncode)
+        self.assertEqual(0, turn_boundary(self.project, session="other-session").returncode)
         first = start(self.project, ROOT, "src/module.py 의 가드를 고쳐줘")
         self.assertEqual(0, first.returncode, first.stdout)
         self.assertIn("Open work cards in this repository", first.stdout)

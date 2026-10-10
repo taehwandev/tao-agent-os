@@ -19,8 +19,10 @@ from typing import Any
 from agent_run_registry import (
     TRANSFER_CANCELLABLE_RUN_STATES,
     ledger_writable_run_claim_is_owned,
+    paused_run_is_owned,
     registered_run,
 )
+from agent_runtime_session import same_runtime_session
 
 
 def validate_transfer(
@@ -95,7 +97,7 @@ def validate_transfer(
         failures.append("source run is not registered for its evidence")
     elif source_run.get("state") not in TRANSFER_CANCELLABLE_RUN_STATES:
         failures.append("source run is already terminal or not cancellable")
-    elif not ledger_writable_run_claim_is_owned(
+    elif not paused_run_is_owned(source_run) and not ledger_writable_run_claim_is_owned(
         source_project,
         source_evidence,
         str(source_run.get("run_id") or ""),
@@ -116,12 +118,42 @@ def validate_transfer(
     replacement_session = replacement_payload.get("runtime_session")
     if not isinstance(source_session, dict) or not source_session.get("session_id"):
         failures.append("source runtime session is missing")
-    elif source_session != replacement_session:
+    elif not _same_session(source_session, source_run, replacement_session, replacement_run):
         failures.append("source and replacement runtime sessions do not match")
     return failures, {
         "source_run": source_run,
         "replacement_run": replacement_run,
     }
+
+
+def _same_session(
+    source_session: dict[str, Any],
+    source_run: dict[str, Any] | None,
+    replacement_session: object,
+    replacement_run: dict[str, Any] | None,
+) -> bool:
+    """Whether both runs name one runtime session, each at its own generation.
+
+    A resume re-stamps the binding with its ``resume_generation``, so a source
+    the session paused and resumed no longer equals the replacement's bare
+    binding although both name the same session. Comparing whole dicts refused
+    exactly the transfer this exists for. Each stamp is still checked against
+    its own registry record, so a stale generation keeps failing.
+    """
+
+    identity = {
+        "runtime": source_session.get("runtime"),
+        "session_id": source_session.get("session_id"),
+    }
+    return same_runtime_session(
+        source_session, identity, resume_generation=_generation(source_run)
+    ) and same_runtime_session(
+        replacement_session, identity, resume_generation=_generation(replacement_run)
+    )
+
+
+def _generation(run: dict[str, Any] | None) -> int | None:
+    return None if run is None else int(run.get("resume_generation") or 0)
 
 
 def read_preflight(path: Path, label: str, failures: list[str]) -> dict[str, Any]:

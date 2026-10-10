@@ -20,7 +20,13 @@ from pathlib import Path
 from typing import Any
 
 from agent_run_owner import process_owner
+from agent_repository_checkouts import (
+    checkout_keeps_unfinished_work,
+    checkouts_with_run_state,
+)
 from agent_run_registry import (
+    ACTIVE_RUN_STATES,
+    SUPERSEDABLE_RUN_STATES,
     TRANSFER_CANCELLABLE_RUN_STATES,
     active_run_bindings,
     active_runs,
@@ -251,7 +257,13 @@ def _evidence_mtime(path: Path) -> float:
         return float("-inf")
 
 
-def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[str]:
+def settle_superseded_session_runs(
+    project: Path,
+    *,
+    keep_run_id: str,
+    new_request: bool = False,
+    preserved: "list[str] | None" = None,
+) -> list[str]:
     """Cancel this session's earlier unfinished runs so one claim stays resolvable.
 
     The single-match rule above returns a path only when exactly one active run
@@ -263,8 +275,21 @@ def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[s
     the same session is the moment that supersedes the earlier claims, so it is
     the one place their intent is known well enough to settle them.
 
+    ``new_request`` widens that moment to what a new, unrelated request
+    actually supersedes. A run the Stop hook paused is just as abandoned as an
+    active one, and the session's next work often lands in another checkout of
+    the same repository. Left alone, the paused run in the main checkout was
+    reclaimed by the pre-tool gate on the session's next publication there and
+    refused it as "still open", with no close path short of editing the
+    registry by hand. A continuation or resume is not a new request: it keeps
+    the narrower same-checkout active-claim settle, which still settles an
+    active predecessor action but never a paused run it continues.
+
     They are `cancelled` rather than `failed`: a superseded run owes no recovery
     work, and a settled state is what stops it from collecting further evidence.
+    Cancelling touches no file, so uncommitted changes and the continuation
+    packet stay where they are; ``preserved`` receives the id of each settled
+    run whose checkout still holds such work, for the caller to report.
     Cancellation is conditional under the registry lock: if the candidate has
     already finished, its resume generation changed, or a new run adopted its
     id since discovery, that newer state wins and the run is not reported as
@@ -284,7 +309,40 @@ def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[s
         return []
     if os.environ.get(WORKER_EVIDENCE_ENV, "").strip():
         return []
-    bindings = active_run_bindings(project)
+    states = SUPERSEDABLE_RUN_STATES if new_request else ACTIVE_RUN_STATES
+    own = project.resolve()
+    checkouts = [own, *(checkouts_with_run_state(project) if new_request else ())]
+    keep = frozenset({keep_run_id})
+    # The same request in another checkout is a transfer, not a supersession:
+    # `cancel --replacement-evidence` settles that run once this one completes,
+    # with the receipt a bare cancellation here would not leave.
+    transfer = _request_fingerprint(own, keep_run_id) if new_request else ""
+    settled: list[str] = []
+    for checkout in checkouts:
+        for run_id in _settle_session_runs_in(
+            checkout, keep, states, runtime=runtime, session_id=session_id,
+            superseded_by=keep_run_id,
+            transfer_fingerprint=transfer if checkout != own else "",
+        ):
+            settled.append(run_id)
+            if preserved is not None and checkout_keeps_unfinished_work(checkout, run_id):
+                preserved.append(run_id)
+    return settled
+
+
+def _settle_session_runs_in(
+    project: Path,
+    keep: "frozenset[str]",
+    states: "frozenset[str]",
+    *,
+    runtime: str,
+    session_id: str,
+    superseded_by: str,
+    transfer_fingerprint: str = "",
+) -> list[str]:
+    """Settle this session's runs in ``states`` recorded in one checkout."""
+
+    bindings = active_run_bindings(project, states)
     evidence_names = {
         str(run.get("evidence_name") or "")
         for run in bindings.values()
@@ -301,7 +359,9 @@ def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[s
         if run is None:
             continue
         run_id = str(run.get("run_id") or "")
-        if not run_id or run_id == keep_run_id:
+        if not run_id or run_id in keep:
+            continue
+        if transfer_fingerprint and run.get("request_fingerprint") == transfer_fingerprint:
             continue
         if not _session_binding_matches(
             candidate, run, runtime=runtime, session_id=session_id
@@ -314,6 +374,8 @@ def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[s
                 run_id=run_id,
                 expected_resume_generation=int(run.get("resume_generation") or 0),
                 expected_started_at=str(run.get("started_at") or ""),
+                states=states,
+                superseded_by=superseded_by,
             )
         except (OSError, RuntimeError, TypeError, ValueError):
             # One unsettleable claim must not stop the others: leaving the rest
@@ -323,6 +385,11 @@ def settle_superseded_session_runs(project: Path, *, keep_run_id: str) -> list[s
             continue
         settled.append(run_id)
     return settled
+
+
+def _request_fingerprint(project: Path, run_id: str) -> str:
+    run = next((item for item in active_runs(project) if item.get("run_id") == run_id), None)
+    return str((run or {}).get("request_fingerprint") or "")
 
 
 def bind_resumed_runtime_session(

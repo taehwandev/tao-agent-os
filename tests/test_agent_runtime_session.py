@@ -700,6 +700,7 @@ class SupersededSessionRunTests(unittest.TestCase):
                 run_id: str,
                 expected_resume_generation: int,
                 expected_started_at: str,
+                **options: object,
             ) -> dict | None:
                 agent_run_registry.transition_run(
                     project, evidence, "completed", run_id=run_id
@@ -710,6 +711,7 @@ class SupersededSessionRunTests(unittest.TestCase):
                     run_id=run_id,
                     expected_resume_generation=expected_resume_generation,
                     expected_started_at=expected_started_at,
+                    **options,
                 )
 
             with (

@@ -13,7 +13,7 @@ from agent_route_state import route_fingerprint
 from agent_run_registry import (
     ACTIVE_RUN_STATES, evidence_binding_key, read_registry_state, registry_path,
 )
-from agent_runtime_session import resolve_runtime_evidence
+from agent_runtime_session import resolve_runtime_evidence, same_runtime_session
 from agent_state_lock import project_state_lock, state_lock
 
 
@@ -38,7 +38,7 @@ def record_turn_boundary(
             provided = read_json_object(evidence)
             marker = (provided.get("route") or {}).get("lifecycle_version", 1)
             handled = (
-                provided.get("runtime_session") == identity
+                same_runtime_session(provided.get("runtime_session"), identity)
                 and Path(str(provided.get("project") or "")).resolve() == project
                 and not (type(marker) is int and marker == 1)
             )
@@ -89,7 +89,12 @@ def _matches(project: Path, registry: dict, identity: dict, evidence: Path | Non
             if candidate is None or evidence_binding_key(project, candidate) != run.get("evidence_key"):
                 continue
             binding = read_json_object(candidate)
-            if binding.get("runtime_session") != identity:
+            # A resume re-stamps the binding with its generation; it is still
+            # this session's run, so a turn boundary must pause it as well.
+            if not same_runtime_session(
+                binding.get("runtime_session"), identity,
+                resume_generation=int(run.get("resume_generation") or 0),
+            ):
                 continue
             if Path(str(binding.get("project") or "")).resolve() != project:
                 continue

@@ -354,7 +354,18 @@ writes a content-free cancellation receipt.
 The source run does not have to be active. A turn boundary leaves it
 `interrupted` and a refused resume leaves it `reconcile_required`, which are
 exactly the states a stranded run is found in; omitting `--evidence` resolves
-this session's single settleable run in the project.
+this session's single settleable run in the project. A source the session
+resumed still shares its runtime session: the resume generation stamped in its
+binding is checked against its own registry record, not against the
+replacement's. A run left behind by a different request needs no command: a
+start for a new request (no `--continue-from`, not a resumed claim) settles
+the session's active and turn-paused (`interrupted`, `blocked`) runs in this
+checkout and in every other checkout of the repository with run state, as
+`cancelled` with files untouched, and names each one whose checkout still
+holds uncommitted work. The same request in another checkout is left for the
+transfer above; `failed` and `reconcile_required` runs keep their owed repair,
+and `--continue-from` keeps settling only an active predecessor in its own
+checkout, never a paused run it continues.
 
 A run whose honest outcome is that nothing needed changing is settled the other
 way, with `tao-hook cancel --evidence <RUN> --no-change-evidence "<why>"`. The

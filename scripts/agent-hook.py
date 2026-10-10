@@ -1252,9 +1252,19 @@ def _register_started_run(
     # once this run is the one that supersedes them. A failure here leaves extra
     # active claims, which costs this session its edit gate but not the start
     # itself, so it reports rather than refuses.
+    # Only a new request supersedes paused runs and other checkouts' runs; a
+    # continuation or a resumed claim keeps the same-project active-claim
+    # settle. That settles an active predecessor action, which the new action
+    # supersedes (its evidence was already read at admission and stays on
+    # disk), but never a paused one, whose state lies outside that set.
+    continued = str(getattr(args, "continue_from", "") or "")
+    preserved: list[str] = []
     try:
         superseded = settle_superseded_session_runs(
-            args.project, keep_run_id=claimed_run_id
+            args.project,
+            keep_run_id=claimed_run_id,
+            new_request=not continued and not resume_generation,
+            preserved=preserved,
         )
     except (OSError, RuntimeError, ValueError, TypeError):
         details.append(
@@ -1268,6 +1278,11 @@ def _register_started_run(
         details.append(
             f"agent run registry: settled {len(superseded)} superseded run(s) "
             "from this runtime session"
+        )
+    for run_id in preserved:
+        details.append(
+            f"agent run registry: superseded run {run_id} left uncommitted work in its "
+            "checkout; it was cancelled with its files untouched"
         )
     return True
 
