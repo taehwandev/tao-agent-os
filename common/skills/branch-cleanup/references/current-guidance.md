@@ -89,7 +89,8 @@ review, commits or publication checks when no code or remote ref changed.
    gone-directory.
 2. `git worktree prune -v` to drop registrations whose directory is gone.
 3. Remove clean worktrees whose branch passed all gates with
-   `git worktree remove <path>`, before deleting the branch itself. Removal of
+   `git worktree remove <path>`, before deleting the branch itself. Keep a
+   task worktree whose finished commit is unpushed until the push. Removal of
    large build outputs can take minutes per worktree; use a generous command
    timeout. An interrupted removal leaves a half-deleted tree; if that
    happens, re-confirm the branch is merged, then finish with

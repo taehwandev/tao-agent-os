@@ -239,8 +239,12 @@ attested. A successful `finish` keeps authorized publication available while
 its receipt binds the admitted effect and unchanged project/rules content, and
 its evidence remains fresh. Completion alone grants no permission: a git-write
 ceiling cannot admit push or PR creation. An unchanged-content commit preserves
-the receipt; edits invalidate it. Rewriting or discarding commands retain their
-separate checks.
+the receipt; edits invalidate it. The receipt lives in the finishing checkout:
+a push of that finished commit from the protected checkout is admitted only
+while that worktree remains clean at the pushed commit, so remove the task
+worktree after the push, not before, and declare `--approved-effect
+external_write` at start when the request includes the push. Rewriting or
+discarding commands retain their separate checks.
 
 A Tao-governed project without `worktree-policy.json` (one that opts in through
 its project `.tao` state or the Tao marker in `AGENTS.md`, `CLAUDE.md`, or
