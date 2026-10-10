@@ -539,7 +539,18 @@ class AgentHookSummaryTests(unittest.TestCase):
         self.assertIn("rerun only the affected check and incremental review", summary)
         self.assertIn("its VibeGuard result", summary)
         self.assertIn("use --help, dump the ledger", summary)
+        self.assertIn("Status questions or complaints about repetition retain this action", summary)
+        self.assertIn("continue only missing authorized work", summary)
+        self.assertIn("unless requested or required by a concrete failure", summary)
         self.assertNotIn("not-needed.md", summary)
+
+    def test_gate_batch_guidance_keeps_automatic_checkpoints_out_of_agent_work(self) -> None:
+        summary = "\n".join(agent_hook._gate_batch_guidance_lines(
+            ["tests", "review hook", "retrospective check"]
+        ))
+        self.assertIn("the hook writes its checkpoint automatically", summary)
+        self.assertIn("do not add a manual checkpoint", summary)
+        self.assertIn("remaining-gates snapshot replaces a ledger query", summary)
 
     def test_review_rejects_an_unwritable_output_parent_before_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as project_directory:

@@ -702,7 +702,10 @@ def _closeout_reuse_lines() -> list[str]:
         "reproducer, impact, current-diff causality, owner and nearest falsifying check prove "
         "a blocking regression, else record a follow-up. Allow one repair, then rerun only the "
         "affected check and incremental review. Rely on review's shape, its VibeGuard result and "
-        "remaining gates; do not re-audit, use --help, dump the ledger, or retry another design."
+        "remaining gates; do not re-audit, use --help, dump the ledger, or retry another design. "
+        "Status questions or complaints about repetition retain this action and passed evidence; "
+        "answer briefly, then continue only missing authorized work. Do not open a new audit or "
+        "retrospective task unless requested or required by a concrete failure."
     ]
 
 
@@ -760,8 +763,9 @@ def _gate_batch_guidance_lines(gates: list[str]) -> list[str]:
         return []
     return [
         "Performance: record simultaneously-ready agent-owned gates in one gate-batch "
-        "(one strong continuation checkpoint; its remaining-gates snapshot replaces a ledger "
-        "query); keep them separate across different phases or after a repeated batch failure."
+        "(the hook writes its checkpoint automatically; do not add a manual checkpoint; its "
+        "remaining-gates snapshot replaces a ledger query); keep them separate across different "
+        "phases or after a repeated batch failure."
     ]
 
 
