@@ -64,8 +64,7 @@ manual recovery decision.
 ### Worktree State
 
 Uncommitted changes in a branch's worktree mean in-progress work. Preserve
-both the worktree and the branch even when the branch tip is merged. Show the
-user the dirty status output that justified preserving them.
+both the worktree and the branch even when the branch tip is merged.
 
 ## Process
 
@@ -74,16 +73,6 @@ worktree and status reads; keep removal and branch deletion sequential. Reuse
 fresh evidence from the preceding lookup when targets and state are unchanged;
 after an interruption, refresh deletion preconditions once, not the whole intake.
 Required deletion gates still apply to every target.
-
-Retain the exact run evidence path returned by start. If its output was lost,
-recover that path from the current session binding or retained context; do not
-dump all historical runs or the entire route. From the selected preflight read
-only `agent_run_id`, `route.command`, `route.required_docs`, `route.gates`, and
-`route.blocking`. Read individual additional fields only for an unresolved
-decision. A recovered path never proves session binding or gate success by itself.
-For no-diff cleanup, record the ready deletion gates together, then the cleanup
-report and retrospective together after verification. Do not add code tests,
-review, commits or publication checks when no code or remote ref changed.
 
 1. `git fetch --prune`; classify each worktree as clean, dirty, or
    gone-directory.
@@ -97,8 +86,6 @@ review, commits or publication checks when no code or remote ref changed.
    `git worktree remove --force <path>`.
 4. If slow worktree removal occurred after classification, fetch once more and
    reclassify affected tips. Otherwise do not repeat an unchanged check.
-   Checked-out branches cannot be deleted, so preserved worktrees keep their
-   branches automatically.
 5. Remote deletion, only on explicit request: show the classification table,
    then batch the approved deletes into one push. Bind every deletion to the
    fetched tip with `--force-with-lease=refs/heads/<branch>:<sha>` so a
