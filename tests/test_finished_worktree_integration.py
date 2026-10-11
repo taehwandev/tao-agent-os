@@ -28,6 +28,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 # hold a directory of this name.
 sys.path.insert(0, str(ROOT))
 
+import importlib.util
+
 import claude_pretool_gate as gate
 from agent_publication_admission import PublicationAdmission
 from agent_run_registry import transition_run
@@ -35,6 +37,12 @@ from agent_runtime_session import resolve_runtime_evidence
 from support.global_state import STATE_HOME_ENV
 
 from tests.test_claude_pretool_gate import _write_preflight
+
+_HOOK_SPEC = importlib.util.spec_from_file_location(
+    "agent_hook_fast_forward_line", ROOT / "scripts" / "agent-hook.py"
+)
+agent_hook = importlib.util.module_from_spec(_HOOK_SPEC)
+_HOOK_SPEC.loader.exec_module(agent_hook)
 
 
 _STATE_HOME: "tempfile.TemporaryDirectory | None" = None
@@ -408,6 +416,55 @@ class FinishedWorktreeIntegrationGateTests(unittest.TestCase):
                 decision = json.loads(out)["hookSpecificOutput"]["permissionDecision"]
                 self.assertEqual("allow", decision)
                 self.assertIn("a successful finish", self.reason(out))
+
+    def test_head_from_the_worktree_is_refused_with_the_exact_command(self) -> None:
+        """`HEAD` there names main's own HEAD; the refusal names the commit to use."""
+
+        sha = self.finish_the_slice()
+        command = f"git -C {shlex.quote(str(self.main))} merge --ff-only HEAD"
+
+        code, out = self.decide(self.worktree, command)
+
+        self.assertEqual(0, code)
+        reason = self.reason(out)
+        self.assertIn("HEAD is", reason)
+        self.assertIn(f"merge --ff-only {sha}", reason)
+        code, out = self.decide(self.worktree, f"git -C {shlex.quote(str(self.main))} merge --ff-only {sha}")
+        self.assertEqual("allow", json.loads(out)["hookSpecificOutput"]["permissionDecision"])
+
+    def test_copying_out_of_every_project_is_not_a_project_write(self) -> None:
+        """A user's recording copied to the session scratchpad touches no project."""
+
+        outside = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(outside)], check=False))
+        (outside / "recording.mov").write_bytes(b"movie")
+        scratch = outside / "scratchpad"
+        scratch.mkdir()
+        cases = {
+            f"cp {shlex.quote(str(outside / 'recording.mov'))} {shlex.quote(str(scratch / 'rec.mov'))}": True,
+            f"cp -p {shlex.quote(str(self.main / 'source'))} {shlex.quote(str(scratch))}": True,
+            f"cp {shlex.quote(str(outside / 'recording.mov'))} {shlex.quote(str(self.main / 'rec.mov'))}": False,
+            f"cp -l {shlex.quote(str(self.main / 'source'))} {shlex.quote(str(scratch / 'link'))}": False,
+            f"cp -t {shlex.quote(str(self.main))} {shlex.quote(str(outside / 'recording.mov'))}": False,
+            f"mkdir -p {shlex.quote(str(scratch / 'frames'))}": True,
+            f"mkdir {shlex.quote(str(self.main / 'frames'))}": False,
+            f'mdfind -name "Screen Recording"; defaults read com.apple.screencapture location': True,
+        }
+        for command, admitted in cases.items():
+            with self.subTest(command=command):
+                code, out = self.decide(self.main, command)
+                self.assertEqual(0, code)
+                refused = bool(out) and "run the workflow start hook" in self.reason(out)
+                self.assertEqual(not admitted, refused, out)
+
+    def test_finish_names_the_main_checkout_and_the_commit(self) -> None:
+        line = agent_hook._fast_forward_line(self.worktree)
+        self.assertIn(f"git -C {self.main} merge --ff-only <the commit sha>", line)
+        sha = self.finish_the_slice()
+        line = agent_hook._fast_forward_line(self.worktree)
+        self.assertIn(f"git -C {self.main} merge --ff-only {sha}", line)
+        self.assertIn("never `HEAD`", line)
+        self.assertEqual("", agent_hook._fast_forward_line(self.main))
 
     def test_the_finish_does_not_admit_a_plain_merge(self) -> None:
         sha = self.finish_the_slice()

@@ -977,6 +977,46 @@ def finish_hook(args: argparse.Namespace) -> int:
     )
 
 
+def _fast_forward_line(project: Path) -> str:
+    """The exact fast-forward this finish admits, with the real main path and commit.
+
+    The line used to read `git -C <main> merge --ff-only <HEAD>`; an agent typed
+    `HEAD` literally, which names main's own HEAD, was refused, and handed the
+    merge to the user. The commit is named once it exists (a clean worktree
+    whose HEAD is not main's); otherwise the agent fills in the sha it commits.
+    """
+
+    import subprocess
+
+    def git(*arguments: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project), *arguments],
+                check=False, capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    top = git("rev-parse", "--show-toplevel")
+    main = Path(common).parent if common and Path(common).name == ".git" else None
+    if main is None or not top or main.resolve() == Path(top).resolve():
+        return ""
+    head = git("rev-parse", "HEAD")
+    main_head = subprocess.run(
+        ["git", "-C", str(main), "rev-parse", "HEAD"], check=False, capture_output=True, text=True
+    ).stdout.strip()
+    committed = head and head != main_head and not git("status", "--porcelain")
+    commit = head if committed else "<the commit sha>"
+    return (
+        f"Bringing this worktree's commit into the main checkout is admitted by this "
+        f"finish while the worktree stays clean and unchanged: "
+        f"`git -C {main} merge --ff-only {commit}`. Name the commit, never `HEAD`: "
+        "in that command HEAD is main's own HEAD. Do not open a commit route for it."
+    )
+
+
 def _closed_run_lines(project: Path) -> list[str]:
     """What a successful finish leaves the agent to do, including the memory capture point.
 
@@ -991,10 +1031,7 @@ def _closed_run_lines(project: Path) -> list[str]:
         "without reopening this lifecycle. Once the requested outcome is confirmed, "
         "report it; do not repeat review or finish merely to close publication. "
         "New effects, targets or changed evidence still require matching admission. "
-        "A fast-forward of this worktree's HEAD into the same repository's main "
-        "checkout (git -C <main> merge --ff-only <HEAD>) is admitted by this finish "
-        "while the worktree stays clean and unchanged; do not open a commit route "
-        "for it.",
+        + _fast_forward_line(project),
         "Project memory: if this run verified a project fact worth reusing (a root "
         "cause, a pitfall, or a decision reason the code does not show), capture it "
         f"once with {stable_launcher_path()} project-memory --project {project} "

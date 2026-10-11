@@ -1028,6 +1028,10 @@ def entry_denial(
     paused = paused_evidence is not None and paused_evidence != _failed_session_evidence(
         root, session_id
     )
+    if command and _integration is not None:
+        suffix += _integration.fast_forward_head_hint(
+            bash_invocation(payload, command_cwd)[1], command_cwd
+        )
     return deny_or_ask(
         deny_reason(root, session_id, tool, cwd_roots) + suffix + _start_after_write_note(command),
         "paused_run_refused" if paused else "workflow_entry_missing",
@@ -2436,13 +2440,15 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
         command, find_project_root(cwd) or cwd, cwd, find_project_root
     ):
         kind, detail = SCRATCH_SCRIPT_KIND, ""
-    # A single absolute `touch` operand is the complete write target. The
-    # launcher checkout is only where the command was issued, not a target.
-    # Resolve both the parent and final path before dropping that checkout so
-    # a symlink into a protected project still keeps its owner governed.
-    if kind == "mutating" and syntax_is_simple and len(tokens) == 2 and tokens[0] == "touch":
-        target = Path(tokens[1])
-        if target.is_absolute():
+    # A single absolute `touch` operand, or a plain `cp`'s absolute last
+    # operand, is the complete write target; a copy's sources are only read.
+    # The launcher checkout is only where the command was issued, not a
+    # target. Resolve both the parent and final path before dropping that
+    # checkout so a symlink into a protected project still keeps its owner
+    # governed.
+    if kind == "mutating" and syntax_is_simple:
+        target = _single_write_target(tokens)
+        if target is not None:
             try:
                 target.parent.resolve(strict=True)
                 target.resolve(strict=False)
@@ -2473,6 +2479,46 @@ def _call_scope(payload: dict, tool: str, cwd: Path) -> _CallScope:
         ),
         detail if kind == "unknown" else "",
     )
+
+
+# `cp` options that keep the copy a plain write at its last operand. `-l` and
+# `-s` link instead of copying, so a later write through the copy would reach
+# a source inside a project; `-t` and long options can name the destination
+# elsewhere. Any of them leaves the command's ordinary verdict in place.
+COPY_FLAG_LETTERS = frozenset("acfHiLnpPrRvX")
+
+
+def _single_write_target(tokens: list[str]) -> "Path | None":
+    """The one absolute path `touch`, `mkdir [-p]` or `cp ... <dest>` writes, else None.
+
+    A user's screen recording copied into the session scratchpad was refused
+    as an unverified write to the project the command ran from, though no
+    project file was touched; this lets the destination decide instead.
+    """
+
+    if len(tokens) == 2 and tokens[0] == "touch":
+        operands = tokens[1:]
+    elif tokens[:1] == ["mkdir"] and len([t for t in tokens[1:] if t != "-p"]) == 1:
+        operands = [t for t in tokens[1:] if t != "-p"]
+        if operands[0].startswith("-"):
+            return None
+    elif tokens[:1] == ["cp"]:
+        operands = []
+        options_done = False
+        for token in tokens[1:]:
+            if not options_done and token == "--":
+                options_done = True
+            elif not options_done and token.startswith("-") and token != "-":
+                if token.startswith("--") or set(token[1:]) - COPY_FLAG_LETTERS:
+                    return None
+            else:
+                operands.append(token)
+        if len(operands) < 2:
+            return None
+    else:
+        return None
+    target = Path(operands[-1])
+    return target if target.is_absolute() else None
 
 
 def _edit_target_roots(targets: list[tuple[Path, bool]]) -> list[Path]:

@@ -135,6 +135,9 @@ READ_ONLY_COMMANDS = frozenset(
         "head",
         "jq",
         "ls",
+        # Spotlight queries; finding a file the user named, such as a screen
+        # recording, was refused as a write.
+        "mdfind",
         "mdls",
         "nl",
         "printf",

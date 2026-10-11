@@ -285,6 +285,36 @@ def integrates_finished_worktree(
     )
 
 
+def fast_forward_head_hint(tokens: list[str], cwd: Path) -> str:
+    """Name the fix when `git -C <repo> merge --ff-only HEAD` runs from another checkout.
+
+    Git resolves that `HEAD` in `<repo>`, so the command merges nothing from
+    the worktree it was typed in and no finish can admit it. An agent read
+    finish's old `<HEAD>` placeholder that way, got the generic refusal, and
+    handed the merge to the user. "" for any other command.
+    """
+
+    subcommand, arguments = git_subcommand(tokens)
+    if subcommand != "merge" or _names_exact_fast_forward(arguments) not in {"HEAD", "@"}:
+        return ""
+    target = _fast_forward_merge_target(tokens, cwd)
+    here = _git_read(cwd, ["rev-parse", "--show-toplevel"])
+    if target is None or here is None or here[0] != 0:
+        return ""
+    try:
+        if Path(here[1].strip()).resolve() == target.resolve():
+            return ""
+    except OSError:
+        return ""
+    head = _git_read(cwd, ["rev-parse", "HEAD"])
+    sha = head[1].strip() if head is not None and head[0] == 0 else "<this checkout's commit sha>"
+    return (
+        f" In `git -C {target} merge --ff-only HEAD`, HEAD is {target}'s own HEAD, so it "
+        f"would merge nothing from {here[1].strip()} and no finish admits it. Name the "
+        f"commit instead: `git -C {target} merge --ff-only {sha}`."
+    )
+
+
 # The only options a cross-checkout push of an attested commit may carry. Each
 # leaves the push one branch update of one named commit; `--force`, `--tags`,
 # `--all`, `--mirror`, `--delete` and anything else is not this shape.
